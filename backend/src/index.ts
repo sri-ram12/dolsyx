@@ -6,6 +6,8 @@ import dotenv from "dotenv";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
+import { spawn } from "child_process";
+import { createProxyMiddleware } from "http-proxy-middleware";
 import authRoutes from "./routes/auth.routes.js";
 import chatRoutes from "./routes/chat.routes.js";
 import groupRoutes from "./routes/group.routes.js";
@@ -73,16 +75,10 @@ initChatSocket(io);
 
 // ── Serve Next.js Frontend in Production ─────────────────────────────────────
 if (IS_PRODUCTION) {
-  // Path to the Next.js standalone server output
+  const NEXT_PORT = 3001;
   const nextStandalonePath = path.join(__dirname, "../../frontend/.next/standalone");
-  const nextStaticPath = path.join(__dirname, "../../frontend/.next/static");
-  const nextPublicPath = path.join(__dirname, "../../frontend/public");
 
-  // Serve Next.js static assets
-  app.use("/_next/static", express.static(nextStaticPath));
-  app.use("/public", express.static(nextPublicPath));
-
-  // Helper to recursively find server.js inside Next.js standalone output
+  // Helper to find server.js recursively (handles nested OneDrive paths)
   const findNextServerJs = (dir: string): string | null => {
     try {
       const files = fs.readdirSync(dir);
@@ -97,34 +93,52 @@ if (IS_PRODUCTION) {
           return fullPath;
         }
       }
-    } catch (e) {
-      console.error(`Error scanning directory ${dir}:`, e);
-    }
+    } catch (_e) { /* ignore */ }
     return null;
   };
 
-  // Serve all other routes via Next.js standalone server
-  app.all("*path", async (req, res) => {
-    try {
-      const serverJsPath = findNextServerJs(nextStandalonePath);
-      if (!serverJsPath) {
-        console.error(`[Monolith] Could not locate server.js under ${nextStandalonePath}`);
-        res.status(500).send("Frontend server.js not found");
-        return;
+  const serverJsPath = findNextServerJs(nextStandalonePath);
+  if (!serverJsPath) {
+    console.error(`[Monolith] Cannot find server.js under ${nextStandalonePath}`);
+  } else {
+    const serverDir = path.dirname(serverJsPath);
+    console.log(`[Monolith] Spawning Next.js standalone server from: ${serverDir}`);
+
+    // Spawn the Next.js standalone server on its own port
+    const nextProcess = spawn(process.execPath, [serverJsPath], {
+      cwd: serverDir,
+      env: { ...process.env, PORT: String(NEXT_PORT), NODE_ENV: "production" },
+      stdio: "inherit",
+    });
+    nextProcess.on("error", (err: Error) => console.error("[Monolith] Next.js process error:", err));
+    nextProcess.on("exit", (code: number) => console.warn(`[Monolith] Next.js process exited with code ${code}`));
+
+    // Serve Next.js public/static files directly
+    const nextStaticPath = path.join(__dirname, "../../frontend/.next/static");
+    const nextPublicPath = path.join(__dirname, "../../frontend/public");
+    app.use("/_next/static", express.static(nextStaticPath));
+    app.use("/public", express.static(nextPublicPath));
+
+    // Proxy all other requests to the Next.js child process
+    const nextProxy = createProxyMiddleware({
+      target: `http://localhost:${NEXT_PORT}`,
+      changeOrigin: true,
+    } as any);
+
+    // Only proxy non-API routes to Next.js
+    app.use((req, res, next) => {
+      const p = req.path;
+      if (
+        p.startsWith("/api") ||
+        p.startsWith("/socket.io") ||
+        p.startsWith("/health") ||
+        p.startsWith("/uploads")
+      ) {
+        return next();
       }
-      
-      // Convert Windows path to file URL to make it compatible with ESM import
-      const fileUrl = new URL(`file://${serverJsPath.replace(/\\/g, "/")}`).href;
-      
-      const { default: nextServer } = await import(fileUrl) as {
-        default: (req: express.Request, res: express.Response) => void;
-      };
-      nextServer(req, res);
-    } catch (err) {
-      console.error("[Monolith] Next.js frontend route handler error:", err);
-      res.status(500).send("Frontend server error");
-    }
-  });
+      return (nextProxy as any)(req, res, next);
+    });
+  }
 }
 
 // ── Start ─────────────────────────────────────────────────────────────────────

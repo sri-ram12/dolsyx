@@ -107,7 +107,7 @@ export default function CallModal({
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 font-sans select-none">
-      <div className="relative w-full max-w-sm bg-gradient-to-b from-slate-900 to-slate-950 rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-slate-700/30" style={{ minHeight: "580px" }}>
+      <div className="relative w-full max-w-sm bg-gradient-to-b from-slate-900 to-slate-950 rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-slate-700/30" style={{ minHeight: "480px", maxHeight: "90vh" }}>
 
         {/* Header Info */}
         <div className="flex flex-col items-center pt-12 pb-6 px-6 text-white z-10">
@@ -136,9 +136,9 @@ export default function CallModal({
         </div>
 
         {/* Main Content Area */}
-        <div className="flex-1 relative overflow-hidden">
+        <div className="flex-1 min-h-0 relative overflow-hidden">
           {callType === "video" && status === "connected" ? (
-            <div className="relative w-full h-full min-h-[280px]">
+            <div className="relative w-full h-full">
               {/* Remote Video */}
               {remoteStream && !isSpeakerOff ? (
                 <VideoPlayer

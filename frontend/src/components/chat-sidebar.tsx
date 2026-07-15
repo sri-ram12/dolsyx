@@ -286,16 +286,16 @@ export default function ChatSidebar({
                   <button
                     key={userResult.id}
                     onClick={() => handleStartChat(userResult)}
-                    className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-colors cursor-pointer"
+                    className="flex w-full items-center gap-4 rounded-xl px-3 py-3 text-left hover:bg-[var(--theme-bg-sidebar-item-hover)] hover:shadow-sm transition-all cursor-pointer border border-transparent hover:border-[var(--theme-border-color)]/30"
                   >
                     <img
                       src={getAvatarUrl(userResult.avatarUrl, userResult.username)}
                       alt={userResult.username}
-                      className="h-8 w-8 rounded-full border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)]"
+                      className="h-10 w-10 shrink-0 rounded-full border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] object-cover shadow-sm"
                     />
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold truncate text-[var(--theme-text-primary)]">{userResult.username}</p>
-                      <p className="text-xs text-[var(--theme-text-secondary)] truncate">{userResult.email || "Phone user"}</p>
+                    <div className="flex-1 min-w-0 flex flex-col justify-center">
+                      <p className="text-sm font-bold truncate text-[var(--theme-text-primary)] leading-tight mb-0.5">{userResult.username}</p>
+                      <p className="text-xs text-[var(--theme-text-secondary)] truncate font-medium">{userResult.email || "Phone user"}</p>
                     </div>
                   </button>
                 ))}

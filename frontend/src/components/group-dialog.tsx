@@ -189,19 +189,22 @@ export default function GroupDialog({ onClose, onGroupCreated }: GroupDialogProp
                         type="button"
                         key={su.id}
                         onClick={() => handleSelectUser(su)}
-                        className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-xs transition-colors cursor-pointer ${
-                          isChecked ? "bg-[var(--theme-accent)]/10 text-[var(--theme-text-primary)]" : "text-[var(--theme-text-secondary)] hover:bg-[var(--theme-bg-sidebar-item-hover)]"
+                        className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-xs transition-colors cursor-pointer border border-transparent ${
+                          isChecked ? "bg-[var(--theme-accent)]/15 border-[var(--theme-accent)]/30 text-[var(--theme-text-primary)]" : "text-[var(--theme-text-secondary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] hover:border-[var(--theme-border-color)]/30"
                         }`}
                       >
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
                           <img
                             src={getAvatarUrl(su.avatarUrl, su.username)}
                             alt={su.username}
-                            className="h-6 w-6 rounded-md border border-[var(--theme-border-color)]"
+                            className="h-8 w-8 shrink-0 rounded-full border border-[var(--theme-border-color)] object-cover shadow-sm"
                           />
-                          <span>{su.username}</span>
+                          <div className="flex flex-col justify-center min-w-0">
+                            <span className="font-bold text-[var(--theme-text-primary)] truncate text-sm leading-tight mb-0.5">{su.username}</span>
+                            <span className="truncate text-[10px] font-medium">{su.email || "Phone user"}</span>
+                          </div>
                         </div>
-                        {isChecked && <Check className="h-3.5 w-3.5 text-[var(--theme-accent)]" />}
+                        {isChecked && <Check className="h-4 w-4 shrink-0 text-[var(--theme-accent)] ml-2" />}
                       </button>
                     );
                   })

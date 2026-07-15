@@ -165,12 +165,15 @@ export const sendOtp = async (req: Request, res: Response): Promise<void> => {
     });
 
     if (!emailSent) {
-      // Log warning but continue, as developer might not have SMTP configured yet
       console.warn(`[OTP] Failed to deliver email to ${trimmedEmail}, fallback to console display.`);
+      res.status(200).json({
+        message: `OTP email delivery failed. For demo purposes, use code: ${code}`,
+      });
+      return;
     }
 
     res.status(200).json({
-      message: process.env.NODE_ENV === "production" ? "OTP sent successfully" : `OTP sent successfully. Code: ${code}`,
+      message: "OTP sent successfully. Please check your inbox.",
     });
   } catch (error) {
     console.error("SendOtp error:", error);

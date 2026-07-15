@@ -82,7 +82,7 @@ if (IS_PRODUCTION) {
   app.use("/public", express.static(nextPublicPath));
 
   // Serve all other routes via Next.js standalone server
-  app.all("*", async (req, res) => {
+  app.all("*path", async (req, res) => {
     try {
       const { default: nextServer } = await import(
         path.join(nextStandalonePath, "server.js")

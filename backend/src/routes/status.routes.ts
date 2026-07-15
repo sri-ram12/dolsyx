@@ -14,7 +14,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => { cb(null, path.join(__dirname, "../../backend/uploads")); },
+  destination: (req, file, cb) => { cb(null, path.join(__dirname, "../../uploads")); },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
     cb(null, uniqueSuffix + path.extname(file.originalname));
@@ -45,9 +45,7 @@ router.delete("/:statusId", deleteStatus as any);
 router.post("/upload", upload.single("file"), (req: any, res: any) => {
   try {
     if (!req.file) { res.status(400).json({ message: "No file uploaded" }); return; }
-    const host = req.get("host");
-    const protocol = req.protocol;
-    const fileUrl = `${protocol}://${host}/uploads/${req.file.filename}`;
+    const fileUrl = `/uploads/${req.file.filename}`;
     res.json({ fileUrl, fileType: req.file.mimetype, fileName: req.file.originalname });
   } catch (error) {
     console.error("Status upload error:", error);

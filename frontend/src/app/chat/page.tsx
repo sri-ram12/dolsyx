@@ -11,6 +11,7 @@ import StatusPanel from "@/components/status-panel";
 import CallModal from "@/components/call-modal";
 import AppLock from "@/components/app-lock";
 import { useWebRTC } from "@/hooks/use-webrtc";
+import { SoundEngine } from "@/utils/sound";
 
 export default function ChatPage() {
   const { user, token, isAuthenticated, isLoading: authLoading } = useAuth();
@@ -31,6 +32,32 @@ export default function ChatPage() {
       const unlocked = sessionStorage.getItem("dolsyx_unlocked") === "true";
       setIsLocked(hasPin && !unlocked);
     }
+  }, []);
+
+  // ── Audio unlock on first user interaction ────────────────────────────────
+  useEffect(() => {
+    const unlock = () => { SoundEngine.unlock(); };
+    document.addEventListener("click", unlock, { once: true });
+    document.addEventListener("touchstart", unlock, { once: true });
+    return () => {
+      document.removeEventListener("click", unlock);
+      document.removeEventListener("touchstart", unlock);
+    };
+  }, []);
+
+  // ── Mobile browser back button → go to chat list, not login page ─────────
+  useEffect(() => {
+    const onPopState = () => {
+      if (selectedChatRef.current) {
+        // Push a new state to preserve history stack
+        window.history.pushState(null, "", window.location.href);
+        setSelectedChat(null);
+      }
+    };
+    // Push an initial state so we can intercept the first back press
+    window.history.pushState(null, "", window.location.href);
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
   // Unread message counts

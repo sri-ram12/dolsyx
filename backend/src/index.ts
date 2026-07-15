@@ -48,7 +48,7 @@ const corsOriginFn = (
 // ── Middleware ───────────────────────────────────────────────────────────────
 app.use(cors({ origin: corsOriginFn, credentials: true }));
 app.use(express.json({ limit: "10mb" }));
-app.use("/uploads", express.static(path.join(__dirname, "../../backend/uploads")));
+app.use("/uploads", express.static(path.join(__dirname, "../../uploads")));
 
 // ── API Routes ───────────────────────────────────────────────────────────────
 app.use("/api/auth", authRoutes);
@@ -117,7 +117,8 @@ if (IS_PRODUCTION) {
     const nextStaticPath = path.join(__dirname, "../../frontend/.next/static");
     const nextPublicPath = path.join(__dirname, "../../frontend/public");
     app.use("/_next/static", express.static(nextStaticPath));
-    app.use("/public", express.static(nextPublicPath));
+    // Serve Next.js public files at root level (so /default-male.svg etc. work)
+    app.use("/", express.static(nextPublicPath));
 
     // Proxy all other requests to the Next.js child process
     const nextProxy = createProxyMiddleware({

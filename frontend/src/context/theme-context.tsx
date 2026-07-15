@@ -11,38 +11,36 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
+// Maps theme ID → CSS class on <html> (must match globals.css selectors)
+const THEME_CLASS_MAP: Record<ThemeType, string> = {
+  "dolsy-dark": "",                   // :root (default) — no extra class needed
+  "aqua-light": "theme-whatsapp-light",
+  "aqua-dark": "theme-whatsapp-dark",
+};
+
+const ALL_THEME_CLASSES = Object.values(THEME_CLASS_MAP).filter(Boolean);
+
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [theme, setThemeState] = useState<ThemeType>("dolsy-dark");
 
   useEffect(() => {
-    // Read theme from localStorage on load
     const storedTheme = localStorage.getItem("dolsyx_theme") as ThemeType;
-    if (storedTheme && ["dolsy-dark", "aqua-light", "aqua-dark"].includes(storedTheme)) {
-      setThemeState(storedTheme);
-      applyTheme(storedTheme);
-    } else {
-      applyTheme("dolsy-dark");
-    }
+    const valid: ThemeType[] = ["dolsy-dark", "aqua-light", "aqua-dark"];
+    const initial = valid.includes(storedTheme) ? storedTheme : "dolsy-dark";
+    setThemeState(initial);
+    applyTheme(initial);
   }, []);
 
   const applyTheme = (newTheme: ThemeType) => {
     if (typeof window === "undefined") return;
     const root = window.document.documentElement;
-    
-    // Remove existing themes
-    root.classList.remove("theme-dolsy", "theme-aqua-light", "theme-aqua-dark");
-    
-    // Add new theme class
-    if (newTheme === "aqua-light") {
-      root.classList.add("theme-aqua-light");
-      root.style.colorScheme = "light";
-    } else if (newTheme === "aqua-dark") {
-      root.classList.add("theme-aqua-dark");
-      root.style.colorScheme = "dark";
-    } else {
-      root.classList.add("theme-dolsy");
-      root.style.colorScheme = "dark";
-    }
+    // Remove all theme classes first
+    root.classList.remove(...ALL_THEME_CLASSES);
+    // Apply the correct class (empty string = default dark, no class added)
+    const cls = THEME_CLASS_MAP[newTheme];
+    if (cls) root.classList.add(cls);
+    // Set color-scheme for browser chrome
+    root.style.colorScheme = newTheme === "aqua-light" ? "light" : "dark";
   };
 
   const setTheme = (newTheme: ThemeType) => {

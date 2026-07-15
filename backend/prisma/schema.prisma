@@ -25,6 +25,7 @@ model User {
   lastLogin        DateTime?         @default(now())
   emailVerified    Boolean           @default(false)
   isOnline         Boolean           @default(false)
+  avatarPrivacy    String            @default("PUBLIC") // PUBLIC, NOBODY
   
   // Relations
   messages         Message[]

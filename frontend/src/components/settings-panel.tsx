@@ -21,9 +21,11 @@ export default function SettingsPanel({ onClose, onSelectChat }: SettingsPanelPr
   const [editUsername, setEditUsername] = useState(user?.username || "");
   const [editBio, setEditBio] = useState(user?.bio || "");
   const [editAvatar, setEditAvatar] = useState(user?.avatarUrl || "");
+  const [editAvatarPrivacy, setEditAvatarPrivacy] = useState<"PUBLIC" | "NOBODY">((user as any)?.avatarPrivacy || "PUBLIC");
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [profileError, setProfileError] = useState("");
+  const [profileSuccess, setProfileSuccess] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Sound settings
@@ -51,6 +53,7 @@ export default function SettingsPanel({ onClose, onSelectChat }: SettingsPanelPr
       setEditUsername(user.username);
       setEditBio(user.bio || "");
       setEditAvatar(user.avatarUrl || "");
+      setEditAvatarPrivacy((user as any)?.avatarPrivacy || "PUBLIC");
     }
   }, [user]);
 
@@ -126,6 +129,7 @@ export default function SettingsPanel({ onClose, onSelectChat }: SettingsPanelPr
 
     setIsSavingProfile(true);
     setProfileError("");
+    setProfileSuccess("");
 
     try {
       const res = await fetch(`${API_URL}/api/auth/profile`, {
@@ -138,20 +142,21 @@ export default function SettingsPanel({ onClose, onSelectChat }: SettingsPanelPr
           username: editUsername.trim(),
           bio: editBio.trim(),
           avatarUrl: editAvatar,
+          avatarPrivacy: editAvatarPrivacy,
         }),
       });
 
       if (res.ok) {
         const data = await res.json();
         updateUser(data.user);
-        setProfileError("Profile updated successfully!");
+        setProfileSuccess("Profile updated successfully!");
       } else {
         const data = await res.json();
         setProfileError(data.message || "Failed to update profile");
       }
     } catch (err) {
       console.error(err);
-      setProfileError("Error saving profile");
+      setProfileError("Error saving profile. Check your connection.");
     } finally {
       setIsSavingProfile(false);
     }
@@ -327,8 +332,13 @@ export default function SettingsPanel({ onClose, onSelectChat }: SettingsPanelPr
 
             {/* Form */}
             <form onSubmit={handleSaveProfile} className="px-6 space-y-6">
+              {profileSuccess && (
+                <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/30 p-3 text-xs text-center text-emerald-400 font-semibold">
+                  ✓ {profileSuccess}
+                </div>
+              )}
               {profileError && (
-                <div className="rounded-xl bg-[var(--theme-accent)]/10 border border-[var(--theme-accent)]/20 p-3 text-xs text-center text-[var(--theme-text-primary)]">
+                <div className="rounded-xl bg-red-500/10 border border-red-500/30 p-3 text-xs text-center text-red-400">
                   {profileError}
                 </div>
               )}
@@ -387,6 +397,30 @@ export default function SettingsPanel({ onClose, onSelectChat }: SettingsPanelPr
                       className="w-full border-b border-[var(--theme-border-color)] bg-transparent py-1.5 text-sm text-[var(--theme-text-primary)] focus:outline-none focus:border-[var(--theme-accent)] transition-colors"
                     />
                   </div>
+                </div>
+
+                {/* Avatar Privacy Toggle */}
+                <div className="flex items-center justify-between gap-4 py-2 border-t border-[var(--theme-border-color)]">
+                  <div className="flex items-center gap-3">
+                    <Eye className="h-5 w-5 text-slate-400 shrink-0" />
+                    <div>
+                      <p className="text-xs font-bold text-[var(--theme-text-primary)]">Profile Photo Visibility</p>
+                      <p className="text-[10px] text-[var(--theme-text-secondary)]">
+                        {editAvatarPrivacy === "PUBLIC" ? "Everyone can see your photo" : "Photo hidden from others"}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setEditAvatarPrivacy(editAvatarPrivacy === "PUBLIC" ? "NOBODY" : "PUBLIC")}
+                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                      editAvatarPrivacy === "PUBLIC" ? "bg-[var(--theme-accent)]" : "bg-slate-700"
+                    }`}
+                  >
+                    <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-lg transition-transform duration-200 ease-in-out ${
+                      editAvatarPrivacy === "PUBLIC" ? "translate-x-5" : "translate-x-0"
+                    }`} />
+                  </button>
                 </div>
 
                 {/* Theme Selector Widget */}

@@ -19,7 +19,7 @@ const __dirname = path.dirname(__filename);
 // Configure multer storage
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, path.join(__dirname, "../../backend/uploads"));
+    cb(null, path.join(__dirname, "../../uploads"));
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
@@ -65,10 +65,8 @@ router.post("/upload", upload.single("file"), (req: any, res: any) => {
       return;
     }
 
-    const host = req.get("host");
-    const protocol = req.protocol;
-    // Build file URL
-    const fileUrl = `${protocol}://${host}/uploads/${req.file.filename}`;
+    // Build relative file URL
+    const fileUrl = `/uploads/${req.file.filename}`;
 
     res.json({
       fileUrl,

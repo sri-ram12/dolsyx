@@ -16,12 +16,26 @@ const app = express();
 const server = http.createServer(app);
 
 const PORT = process.env.PORT || 4000;
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
+
+// Support multiple comma-separated frontend origins (e.g., for tunnels + localhost)
+const FRONTEND_URLS = (process.env.FRONTEND_URL || "http://localhost:3000")
+  .split(",")
+  .map((u) => u.trim())
+  .filter(Boolean);
+
+const corsOriginFn = (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+  // Allow requests with no origin (e.g., mobile apps, curl)
+  if (!origin) return callback(null, true);
+  if (FRONTEND_URLS.includes(origin) || FRONTEND_URLS.includes("*")) {
+    return callback(null, true);
+  }
+  callback(new Error(`CORS: origin ${origin} not allowed`));
+};
 
 // Middleware
 app.use(
   cors({
-    origin: FRONTEND_URL,
+    origin: corsOriginFn,
     credentials: true,
   })
 );
@@ -43,7 +57,7 @@ app.get("/health", (req, res) => {
 // Socket.io initialization
 const io = new Server(server, {
   cors: {
-    origin: FRONTEND_URL,
+    origin: corsOriginFn,
     methods: ["GET", "POST"],
     credentials: true,
   },

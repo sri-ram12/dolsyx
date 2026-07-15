@@ -1,23 +1,21 @@
 services:
-  # Backend - Node.js/Express + Socket.io
+  # Monolith Web Service (Hosts backend and proxies Next.js standalone frontend)
   - type: web
-    name: dolsyx-backend
+    name: dolsyx-monolith
     runtime: node
-    rootDir: backend
-    buildCommand: npm install && npx prisma generate && npx prisma migrate deploy
-    startCommand: npm start
+    # Build command builds both backend and frontend, then builds backend output
+    buildCommand: npm install && cd frontend && npm install && npm run build && cd ../backend && npm install && npm run build && npx prisma generate && npx prisma db push
+    startCommand: cd backend && NODE_ENV=production node dist/index.js
     healthCheckPath: /health
     envVars:
       - key: PORT
-        value: 4000
+        value: 10000
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
-        value: file:/opt/dolsyx-db/dev.db
+        value: file:./dev.db
       - key: JWT_SECRET
         generateValue: true
-      - key: FRONTEND_URL
-        value: https://dolsyx-frontend.onrender.com
       - key: SMTP_HOST
         sync: false
       - key: SMTP_PORT
@@ -28,20 +26,3 @@ services:
         sync: false
       - key: SMTP_FROM
         sync: false
-    disk:
-      name: db-volume
-      mountPath: /opt/dolsyx-db
-      sizeGB: 1
-
-  # Frontend - Next.js
-  - type: web
-    name: dolsyx-frontend
-    runtime: node
-    rootDir: frontend
-    buildCommand: npm install && npm run build
-    startCommand: npm run start
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: NEXT_PUBLIC_API_URL
-        value: https://dolsyx-backend.onrender.com

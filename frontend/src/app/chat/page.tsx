@@ -251,8 +251,9 @@ export default function ChatPage() {
   }, [token, fetchChats]);
 
   // Clear unread when selecting a chat
-  const handleSelectChat = useCallback((chat: Chat) => {
+  const handleSelectChat = useCallback((chat: Chat | null) => {
     setSelectedChat(chat);
+    if (!chat) return;
     setUnreadCounts((prev) => {
       const next = { ...prev };
       delete next[chat.id];

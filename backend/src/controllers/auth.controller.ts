@@ -417,7 +417,7 @@ export const blockUser = async (req: AuthRequest, res: Response): Promise<void> 
     }
 
     // Check if target user exists
-    const target = await prisma.user.findUnique({ where: { id: targetUserId } });
+    const target = await prisma.user.findUnique({ where: { id: String(targetUserId) } });
     if (!target) {
       res.status(404).json({ message: "User not found" });
       return;

@@ -1,0 +1,493 @@
+import { Server } from "socket.io";
+import jwt from "jsonwebtoken";
+import { prisma } from "../config/db.js";
+import { encryptionService } from "../services/encryption.service.js";
+const JWT_SECRET = process.env.JWT_SECRET || "dolsyx_super_secret_key_123456";
+// Map to track online users: userId -> Set of socket.id (supports multiple client connections)
+const onlineUsers = new Map();
+export const initChatSocket = (io) => {
+    // Authentication middleware for Socket.io
+    io.use((socket, next) => {
+        const token = socket.handshake.auth?.token ||
+            socket.handshake.headers?.authorization?.split(" ")[1];
+        if (!token) {
+            return next(new Error("Authentication error: Token missing"));
+        }
+        try {
+            const decoded = jwt.verify(token, JWT_SECRET);
+            socket.userId = decoded.id;
+            socket.username = decoded.username;
+            next();
+        }
+        catch (err) {
+            next(new Error("Authentication error: Invalid token"));
+        }
+    });
+    io.on("connection", (socket) => {
+        const userId = socket.userId;
+        const username = socket.username;
+        console.log(`User connected to socket: ${username} (${userId})`);
+        // Add to online users tracking
+        if (!onlineUsers.has(userId)) {
+            onlineUsers.set(userId, new Set());
+        }
+        onlineUsers.get(userId).add(socket.id);
+        // Join personal room to receive real-time direct notifications/messages
+        socket.join(userId);
+        // Broadcast user online status change
+        io.emit("user_status_change", {
+            userId,
+            status: "online",
+            onlineUsers: Array.from(onlineUsers.keys()),
+        });
+        // Provide immediate list of online users to the connected client
+        socket.emit("online_users_list", Array.from(onlineUsers.keys()));
+        // Join a conversation room (for targeting typing status broadcasts)
+        socket.on("join_conversation", (conversationId) => {
+            socket.join(conversationId);
+            console.log(`Socket ${socket.id} joined conversation: ${conversationId}`);
+        });
+        // Leave a conversation room
+        socket.on("leave_conversation", (conversationId) => {
+            socket.leave(conversationId);
+            console.log(`Socket ${socket.id} left conversation: ${conversationId}`);
+        });
+        // Handle real-time messaging
+        socket.on("send_message", async (data) => {
+            try {
+                const { conversationId, content, parentMessageId, mediaUrl, mediaType } = data;
+                // Allow empty content for media messages
+                if (!mediaUrl && (!content || !content.trim()))
+                    return;
+                // Save message to database with encrypted content
+                const encryptedContent = content ? encryptionService.encrypt(content.trim()) : "";
+                const message = await prisma.message.create({
+                    data: {
+                        content: encryptedContent,
+                        conversationId,
+                        senderId: userId,
+                        parentMessageId: parentMessageId || null,
+                        mediaUrl: mediaUrl || null,
+                        mediaType: mediaType || "TEXT",
+                    },
+                    include: {
+                        sender: {
+                            select: {
+                                id: true,
+                                username: true,
+                                avatarUrl: true,
+                            },
+                        },
+                        parentMessage: {
+                            include: {
+                                sender: {
+                                    select: {
+                                        id: true,
+                                        username: true,
+                                    },
+                                },
+                            },
+                        },
+                        receipts: true,
+                    },
+                });
+                // Decrypt the message content for broadcasting
+                const decryptedMessage = {
+                    ...message,
+                    content: content ? content.trim() : "",
+                    parentMessage: message.parentMessage
+                        ? {
+                            ...message.parentMessage,
+                            content: encryptionService.decrypt(message.parentMessage.content),
+                        }
+                        : null,
+                };
+                // Touch conversation timestamp
+                await prisma.conversation.update({
+                    where: { id: conversationId },
+                    data: { updatedAt: new Date() },
+                });
+                // Find conversation participants
+                const participants = await prisma.participant.findMany({
+                    where: { conversationId },
+                    select: { userId: true },
+                });
+                // Create Message Receipts for all other participants
+                const receiptsData = [];
+                for (const participant of participants) {
+                    if (participant.userId === userId)
+                        continue;
+                    const roomSockets = io.sockets.adapter.rooms.get(conversationId);
+                    const userSockets = onlineUsers.get(participant.userId);
+                    let status = "SENT";
+                    if (userSockets && roomSockets) {
+                        const isViewing = Array.from(userSockets).some(sid => roomSockets.has(sid));
+                        status = isViewing ? "READ" : "DELIVERED";
+                    }
+                    else if (onlineUsers.has(participant.userId)) {
+                        status = "DELIVERED";
+                    }
+                    const receipt = await prisma.messageReceipt.create({
+                        data: {
+                            messageId: message.id,
+                            userId: participant.userId,
+                            status,
+                        },
+                    });
+                    receiptsData.push(receipt);
+                }
+                decryptedMessage.receipts = receiptsData;
+                // Broadcast to all participants using their personal user rooms
+                participants.forEach((participant) => {
+                    io.to(participant.userId).emit("new_message", {
+                        message: decryptedMessage,
+                        conversationId,
+                    });
+                });
+            }
+            catch (error) {
+                console.error("Socket send_message error:", error);
+            }
+        });
+        // Handle marking messages as read
+        socket.on("mark_read", async (data) => {
+            try {
+                const { conversationId } = data;
+                if (!conversationId)
+                    return;
+                // Find messages sent by others that don't have a READ receipt for this user
+                const messagesToRead = await prisma.message.findMany({
+                    where: {
+                        conversationId,
+                        senderId: { not: userId },
+                        receipts: {
+                            none: {
+                                userId,
+                                status: "READ",
+                            },
+                        },
+                    },
+                    select: { id: true },
+                });
+                if (messagesToRead.length > 0) {
+                    const messageIds = messagesToRead.map((m) => m.id);
+                    // Create or update receipt to READ for each message
+                    for (const mId of messageIds) {
+                        await prisma.messageReceipt.upsert({
+                            where: {
+                                messageId_userId: {
+                                    messageId: mId,
+                                    userId,
+                                },
+                            },
+                            update: {
+                                status: "READ",
+                            },
+                            create: {
+                                messageId: mId,
+                                userId,
+                                status: "READ",
+                            },
+                        });
+                    }
+                    // Broadcast to everyone in the conversation room
+                    io.to(conversationId).emit("messages_read", {
+                        conversationId,
+                        userId, // The user who read the messages
+                    });
+                }
+            }
+            catch (error) {
+                console.error("Socket mark_read error:", error);
+            }
+        });
+        // Handle edit message
+        socket.on("edit_message", async (data) => {
+            try {
+                const { messageId, content } = data;
+                if (!content || !content.trim())
+                    return;
+                // Verify message ownership
+                const existing = await prisma.message.findUnique({
+                    where: { id: messageId },
+                });
+                if (!existing || existing.senderId !== userId)
+                    return;
+                // Update message
+                const encryptedContent = content ? encryptionService.encrypt(content.trim()) : "";
+                const updatedMessage = await prisma.message.update({
+                    where: { id: messageId },
+                    data: {
+                        content: encryptedContent,
+                        isEdited: true,
+                    },
+                    include: {
+                        sender: {
+                            select: {
+                                id: true,
+                                username: true,
+                                avatarUrl: true,
+                            },
+                        },
+                        parentMessage: {
+                            include: {
+                                sender: {
+                                    select: {
+                                        id: true,
+                                        username: true,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                });
+                // Decrypt for broadcasting
+                const decryptedMessage = {
+                    ...updatedMessage,
+                    content: content ? content.trim() : "",
+                    parentMessage: updatedMessage.parentMessage
+                        ? {
+                            ...updatedMessage.parentMessage,
+                            content: encryptionService.decrypt(updatedMessage.parentMessage.content),
+                        }
+                        : null,
+                };
+                // Find conversation participants
+                const participants = await prisma.participant.findMany({
+                    where: { conversationId: existing.conversationId },
+                    select: { userId: true },
+                });
+                // Broadcast edit to all participants
+                participants.forEach((participant) => {
+                    io.to(participant.userId).emit("message_edited", {
+                        message: decryptedMessage,
+                        conversationId: existing.conversationId,
+                    });
+                });
+            }
+            catch (error) {
+                console.error("Socket edit_message error:", error);
+            }
+        });
+        // Handle delete message (Delete for me vs. Delete for everyone)
+        socket.on("delete_message", async (data) => {
+            try {
+                const { messageId, deleteType } = data;
+                const existing = await prisma.message.findUnique({
+                    where: { id: messageId },
+                    include: {
+                        sender: true,
+                    },
+                });
+                if (!existing)
+                    return;
+                if (deleteType === "everyone") {
+                    // Verify message ownership: only the sender can delete for everyone
+                    if (existing.senderId !== userId)
+                        return;
+                    // Soft delete: mark message as deleted but keep it in DB
+                    // so others can see the placeholder "This message was deleted"
+                    const updatedMessage = await prisma.message.update({
+                        where: { id: messageId },
+                        data: {
+                            isDeleted: true,
+                            content: "", // clear content
+                            mediaUrl: null, // clear media
+                            mediaType: "TEXT",
+                        },
+                        include: {
+                            sender: {
+                                select: { id: true, username: true, avatarUrl: true },
+                            },
+                            receipts: true,
+                        },
+                    });
+                    // Find conversation participants
+                    const participants = await prisma.participant.findMany({
+                        where: { conversationId: existing.conversationId },
+                        select: { userId: true },
+                    });
+                    // Broadcast the updated soft-deleted message to everyone
+                    participants.forEach((participant) => {
+                        io.to(participant.userId).emit("message_edited", {
+                            message: updatedMessage,
+                            conversationId: existing.conversationId,
+                        });
+                    });
+                }
+                else if (deleteType === "me") {
+                    // Delete for me: Create a record in DeletedMessage
+                    await prisma.deletedMessage.upsert({
+                        where: {
+                            messageId_userId: {
+                                messageId,
+                                userId,
+                            },
+                        },
+                        update: {},
+                        create: {
+                            messageId,
+                            userId,
+                        },
+                    });
+                    // Emit to the current user's socket room only
+                    io.to(userId).emit("message_deleted_for_me", {
+                        messageId,
+                        conversationId: existing.conversationId,
+                    });
+                }
+            }
+            catch (error) {
+                console.error("Socket delete_message error:", error);
+            }
+        });
+        // Helper to save call log messages and broadcast to participants
+        const saveAndBroadcastCallLog = async (conversationId, senderId, callType, logStatus) => {
+            try {
+                if (!conversationId)
+                    return;
+                const message = await prisma.message.create({
+                    data: {
+                        content: logStatus,
+                        conversationId,
+                        senderId,
+                        mediaUrl: callType,
+                        mediaType: "CALL_LOG",
+                    },
+                    include: {
+                        sender: {
+                            select: {
+                                id: true,
+                                username: true,
+                                avatarUrl: true,
+                            },
+                        },
+                        receipts: true,
+                    },
+                });
+                // Touch conversation timestamp
+                await prisma.conversation.update({
+                    where: { id: conversationId },
+                    data: { updatedAt: new Date() },
+                });
+                // Find conversation participants
+                const participants = await prisma.participant.findMany({
+                    where: { conversationId },
+                    select: { userId: true },
+                });
+                const receiptsData = [];
+                for (const participant of participants) {
+                    if (participant.userId === senderId)
+                        continue;
+                    const roomSockets = io.sockets.adapter.rooms.get(conversationId);
+                    const userSockets = onlineUsers.get(participant.userId);
+                    let status = "SENT";
+                    if (userSockets && roomSockets) {
+                        const isViewing = Array.from(userSockets).some(sid => roomSockets.has(sid));
+                        status = isViewing ? "READ" : "DELIVERED";
+                    }
+                    else if (onlineUsers.has(participant.userId)) {
+                        status = "DELIVERED";
+                    }
+                    const receipt = await prisma.messageReceipt.create({
+                        data: {
+                            messageId: message.id,
+                            userId: participant.userId,
+                            status,
+                        },
+                    });
+                    receiptsData.push(receipt);
+                }
+                message.receipts = receiptsData;
+                participants.forEach((participant) => {
+                    io.to(participant.userId).emit("new_message", {
+                        message,
+                        conversationId,
+                    });
+                });
+            }
+            catch (err) {
+                console.error("Error saving call log message:", err);
+            }
+        };
+        // Caller sends offer → forward to recipient as incoming call notification
+        socket.on("call_offer", (data) => {
+            io.to(data.targetUserId).emit("call_incoming", {
+                callerId: userId,
+                callerName: data.callerName || username,
+                callerAvatar: data.callerAvatar || null,
+                offer: data.offer,
+                callType: data.callType,
+                conversationId: data.conversationId,
+            });
+        });
+        // Receiver accepts the call → send SDP answer back to caller
+        socket.on("call_answer", (data) => {
+            io.to(data.callerId).emit("call_answered", {
+                answer: data.answer,
+                answererId: userId,
+            });
+        });
+        // Receiver rejects the call
+        socket.on("call_reject", (data) => {
+            io.to(data.callerId).emit("call_rejected", { rejecterId: userId });
+            if (data.conversationId) {
+                saveAndBroadcastCallLog(data.conversationId, data.callerId, data.callType, "declined");
+            }
+        });
+        // Either side ends the active call
+        socket.on("call_end", (data) => {
+            io.to(data.peerId).emit("call_ended", { endedBy: userId });
+            if (data.conversationId) {
+                const originalCallerId = data.callerId || (data.status === "missed" ? userId : (userId === data.peerId ? userId : data.peerId));
+                const logContent = data.status === "connected" ? `connected:${data.duration || 0}` : "missed";
+                saveAndBroadcastCallLog(data.conversationId, originalCallerId, data.callType, logContent);
+            }
+        });
+        // Exchange ICE candidates for NAT traversal
+        socket.on("ice_candidate", (data) => {
+            io.to(data.targetUserId).emit("ice_candidate", {
+                candidate: data.candidate,
+                fromUserId: userId,
+            });
+        });
+        // Handle typing indicator
+        socket.on("typing", (data) => {
+            const { conversationId, isTyping } = data;
+            // Broadcast user typing state to other users inside the conversation room
+            socket.to(conversationId).emit("user_typing", {
+                conversationId,
+                userId,
+                username,
+                isTyping,
+            });
+        });
+        // Handle client disconnect
+        socket.on("disconnect", () => {
+            console.log(`User disconnected from socket: ${username} (${userId})`);
+            const userSockets = onlineUsers.get(userId);
+            if (userSockets) {
+                userSockets.delete(socket.id);
+                if (userSockets.size === 0) {
+                    onlineUsers.delete(userId);
+                    const lastSeenTime = new Date();
+                    // Update lastSeen in database asynchronously
+                    prisma.user.update({
+                        where: { id: userId },
+                        data: { lastSeen: lastSeenTime },
+                    }).catch(err => {
+                        console.error("Error updating user lastSeen on socket disconnect:", err);
+                    });
+                    // Broadcast user offline status change with lastSeen timestamp
+                    io.emit("user_status_change", {
+                        userId,
+                        status: "offline",
+                        lastSeen: lastSeenTime,
+                        onlineUsers: Array.from(onlineUsers.keys()),
+                    });
+                }
+            }
+        });
+    });
+};
+//# sourceMappingURL=chat.socket.js.map

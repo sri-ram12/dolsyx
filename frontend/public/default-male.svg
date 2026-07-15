@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a2744;stop-opacity:1"/>
+      <stop offset="100%" style="stop-color:#0d1a3a;stop-opacity:1"/>
+    </linearGradient>
+    <linearGradient id="bodyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#2a9d8f;stop-opacity:1"/>
+      <stop offset="100%" style="stop-color:#1a7a6e;stop-opacity:1"/>
+    </linearGradient>
+    <linearGradient id="skinGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#e8c5a0;stop-opacity:1"/>
+      <stop offset="100%" style="stop-color:#d4a878;stop-opacity:1"/>
+    </linearGradient>
+  </defs>
+  <!-- Background circle -->
+  <circle cx="100" cy="100" r="100" fill="url(#bgGrad)"/>
+  <!-- Body / Shirt -->
+  <path d="M15 200 C15 145 52 122 100 122 C148 122 185 145 185 200Z" fill="url(#bodyGrad)"/>
+  <!-- Neck -->
+  <rect x="87" y="105" width="26" height="22" rx="6" fill="url(#skinGrad)"/>
+  <!-- Head -->
+  <ellipse cx="100" cy="82" rx="36" ry="40" fill="url(#skinGrad)"/>
+  <!-- Hair -->
+  <path d="M64 72 C64 42 80 30 100 30 C120 30 136 42 136 72 C132 60 68 60 64 72Z" fill="#2d1b10"/>
+  <!-- Eyes -->
+  <ellipse cx="87" cy="80" rx="5" ry="5.5" fill="#fff"/>
+  <ellipse cx="113" cy="80" rx="5" ry="5.5" fill="#fff"/>
+  <circle cx="88" cy="81" r="3" fill="#2d1b10"/>
+  <circle cx="114" cy="81" r="3" fill="#2d1b10"/>
+  <!-- Subtle smile -->
+  <path d="M90 97 Q100 104 110 97" stroke="#c49570" stroke-width="2" fill="none" stroke-linecap="round"/>
+</svg>

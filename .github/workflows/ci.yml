@@ -1,0 +1,52 @@
+name: DOLSYX CI/CD Checks
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+
+    - name: Install Global Dependencies
+      run: npm install -g typescript
+
+    # --- Backend Checks ---
+    - name: Install Backend Dependencies
+      working-directory: ./backend
+      run: npm ci
+
+    - name: Prisma Generate
+      working-directory: ./backend
+      run: npx prisma generate
+
+    - name: Build Backend (TypeScript)
+      working-directory: ./backend
+      run: npm run build
+      
+    # --- Frontend Checks ---
+    - name: Install Frontend Dependencies
+      working-directory: ./frontend
+      run: npm ci
+      
+    - name: Lint Frontend
+      working-directory: ./frontend
+      run: npm run lint
+      
+    - name: Build Frontend
+      working-directory: ./frontend
+      run: npm run build
+      env:
+        NEXT_PUBLIC_API_URL: "http://localhost:4000"

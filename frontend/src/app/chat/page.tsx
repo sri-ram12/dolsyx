@@ -1,0 +1,578 @@
+"use client";
+
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useAuth, API_URL } from "@/context/auth-context";
+import { useSocket } from "@/hooks/use-socket";
+import { useRouter } from "next/navigation";
+import ChatSidebar, { Chat } from "@/components/chat-sidebar";
+import ChatWindow from "@/components/chat-window";
+import ProductivityPanel from "@/components/productivity-panel";
+import StatusPanel from "@/components/status-panel";
+import CallModal from "@/components/call-modal";
+import AppLock from "@/components/app-lock";
+import { useWebRTC } from "@/hooks/use-webrtc";
+
+export default function ChatPage() {
+  const { user, token, isAuthenticated, isLoading: authLoading } = useAuth();
+  const router = useRouter();
+  const { socket } = useSocket(token);
+
+  const [chats, setChats] = useState<Chat[]>([]);
+  const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
+  const selectedChatRef = useRef<Chat | null>(null);
+  const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
+  const [isChatsLoading, setIsChatsLoading] = useState(true);
+  const [isProductivityOpen, setIsProductivityOpen] = useState(false);
+  const [isLocked, setIsLocked] = useState(true);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const hasPin = !!localStorage.getItem("dolsyx_pin_hash");
+      const unlocked = sessionStorage.getItem("dolsyx_unlocked") === "true";
+      setIsLocked(hasPin && !unlocked);
+    }
+  }, []);
+
+  // Unread message counts
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
+
+  // Status panel
+  const [showStatusPanel, setShowStatusPanel] = useState(false);
+
+  // ── Call States ──────────────────────────────────────────────────────────
+  const [callState, setCallState] = useState<{
+    isOpen: boolean;
+    type: "audio" | "video";
+    status: "incoming" | "outgoing" | "connected" | "disconnected";
+    peerId: string;
+    peerName: string;
+    peerAvatar: string | null;
+    conversationId: string;
+    offer: any | null;
+    callerId: string;
+  }>({
+    isOpen: false,
+    type: "audio",
+    status: "disconnected",
+    peerId: "",
+    peerName: "",
+    peerAvatar: null,
+    conversationId: "",
+    offer: null,
+    callerId: "",
+  });
+
+  const callStateRef = useRef(callState);
+  useEffect(() => {
+    callStateRef.current = callState;
+  }, [callState]);
+
+  const [callDuration, setCallDuration] = useState(0);
+
+  // Call timer duration
+  useEffect(() => {
+    let timer: any;
+    if (callState.status === "connected") {
+      setCallDuration(0);
+      timer = setInterval(() => {
+        setCallDuration((prev) => prev + 1);
+      }, 1000);
+    } else {
+      setCallDuration(0);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [callState.status]);
+
+  const {
+    localStream,
+    remoteStream,
+    isMuted,
+    isCameraOff,
+    isSpeakerOff,
+    createOffer,
+    handleOffer,
+    handleAnswer,
+    addIceCandidate,
+    hangup,
+    toggleMute,
+    toggleCamera,
+    toggleSpeaker,
+  } = useWebRTC({
+    onIceCandidate: (candidate) => {
+      if (socket && callStateRef.current.peerId) {
+        socket.emit("ice_candidate", {
+          targetUserId: callStateRef.current.peerId,
+          candidate,
+        });
+      }
+    },
+  });
+
+  const handleStartCall = async (type: "audio" | "video") => {
+    if (!selectedChat || !selectedChat.recipient) return;
+    const peer = selectedChat.recipient;
+
+    setCallState({
+      isOpen: true,
+      type,
+      status: "outgoing",
+      peerId: peer.id,
+      peerName: peer.username,
+      peerAvatar: peer.avatarUrl,
+      conversationId: selectedChat.id,
+      offer: null,
+      callerId: user?.id || "",
+    });
+
+    try {
+      const offer = await createOffer(type);
+      socket?.emit("call_offer", {
+        targetUserId: peer.id,
+        offer,
+        callType: type,
+        conversationId: selectedChat.id,
+        callerName: user?.username || "Someone",
+        callerAvatar: user?.avatarUrl || null,
+      });
+    } catch (e) {
+      console.error("Failed to start call:", e);
+      setCallState((prev) => ({ ...prev, status: "disconnected" }));
+      hangup();
+      setTimeout(() => {
+        setCallState((prev) => ({ ...prev, isOpen: false }));
+      }, 1500);
+    }
+  };
+
+  const handleAcceptCall = async () => {
+    if (!callState.offer || !callState.peerId) return;
+    setCallState((prev) => ({ ...prev, status: "connected" }));
+    try {
+      const answer = await handleOffer(callState.offer, callState.type);
+      socket?.emit("call_answer", {
+        callerId: callState.peerId,
+        answer,
+      });
+    } catch (e) {
+      console.error("Failed to accept call:", e);
+      handleDeclineCall();
+    }
+  };
+
+  const handleDeclineCall = () => {
+    if (callState.peerId) {
+      socket?.emit("call_reject", {
+        callerId: callState.peerId,
+        conversationId: callState.conversationId,
+        callType: callState.type,
+      });
+    }
+    setCallState((prev) => ({ ...prev, status: "disconnected" }));
+    hangup();
+    setTimeout(() => {
+      setCallState((prev) => ({ ...prev, isOpen: false }));
+    }, 1500);
+  };
+
+  const handleHangupCall = () => {
+    if (callState.peerId) {
+      const isConnected = callState.status === "connected";
+      socket?.emit("call_end", {
+        peerId: callState.peerId,
+        conversationId: callState.conversationId,
+        callType: callState.type,
+        status: isConnected ? "connected" : "missed",
+        duration: isConnected ? callDuration : undefined,
+        callerId: callState.callerId,
+      });
+    }
+    setCallState((prev) => ({ ...prev, status: "disconnected" }));
+    hangup();
+    setTimeout(() => {
+      setCallState((prev) => ({ ...prev, isOpen: false }));
+    }, 1500);
+  };
+
+  // Keep selectedChatRef in sync
+  useEffect(() => {
+    selectedChatRef.current = selectedChat;
+  }, [selectedChat]);
+
+  // Request browser notification permission on mount
+  useEffect(() => {
+    if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  // Redirect if not authenticated
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      router.push("/login");
+    }
+  }, [isAuthenticated, authLoading, router]);
+
+  // Fetch conversations list
+  const fetchChats = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_URL}/api/chats`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setChats(data);
+
+        // Populate initial unread counts from persistent database state
+        const initialUnreads: Record<string, number> = {};
+        data.forEach((c: any) => {
+          if (c.unreadCount > 0) {
+            initialUnreads[c.id] = c.unreadCount;
+          }
+        });
+        setUnreadCounts(initialUnreads);
+      }
+    } catch (err) {
+      console.error("Error fetching chats:", err);
+    } finally {
+      setIsChatsLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (token) {
+      fetchChats();
+    }
+  }, [token, fetchChats]);
+
+  // Clear unread when selecting a chat
+  const handleSelectChat = useCallback((chat: Chat) => {
+    setSelectedChat(chat);
+    setUnreadCounts((prev) => {
+      const next = { ...prev };
+      delete next[chat.id];
+      return next;
+    });
+  }, []);
+
+  // Fire a browser notification
+  const fireNotification = useCallback((title: string, body: string, iconUrl?: string, conversationId?: string) => {
+    if (typeof window === "undefined") return;
+    
+    // Only skip notification if document is visible AND the user has the SPECIFIC conversation open
+    if (document.visibilityState === "visible" && selectedChatRef.current && selectedChatRef.current.id === conversationId) {
+      return;
+    }
+
+    if ("Notification" in window && Notification.permission === "granted") {
+      try {
+        const notif = new Notification(title, {
+          body,
+          icon: iconUrl || "/favicon.ico",
+          silent: false,
+        });
+        notif.onclick = () => {
+          window.focus();
+          notif.close();
+        };
+      } catch (e) {
+        // Some browsers don't support Notification constructor
+      }
+    }
+  }, []);
+
+  // Set up socket listeners for online status and real-time sidebar updates
+  useEffect(() => {
+    if (!socket) return;
+
+    socket.on("online_users_list", (usersList: string[]) => {
+      setOnlineUsers(usersList);
+    });
+
+    socket.on(
+      "user_status_change",
+      (data: { userId: string; status: "online" | "offline"; lastSeen?: string; onlineUsers: string[] }) => {
+        setOnlineUsers(data.onlineUsers);
+
+        setChats((prev) =>
+          prev.map((c) => {
+            if (c.recipient && c.recipient.id === data.userId) {
+              return {
+                ...c,
+                recipient: {
+                  ...c.recipient,
+                  lastSeen: data.status === "offline" && data.lastSeen ? data.lastSeen : c.recipient.lastSeen,
+                },
+              };
+            }
+            return c;
+          })
+        );
+
+        setSelectedChat((prev) => {
+          if (prev && prev.recipient && prev.recipient.id === data.userId) {
+            return {
+              ...prev,
+              recipient: {
+                ...prev.recipient,
+                lastSeen: data.status === "offline" && data.lastSeen ? data.lastSeen : prev.recipient.lastSeen,
+              },
+            };
+          }
+          return prev;
+        });
+      }
+    );
+
+    // Listen for conversation deleted events
+    socket.on("conversation_deleted", (data: { conversationId: string }) => {
+      setChats((prev) => prev.filter((c) => c.id !== data.conversationId));
+      setSelectedChat((prev) => {
+        if (prev && prev.id === data.conversationId) {
+          return null;
+        }
+        return prev;
+      });
+      // Also clear unread for this conversation
+      setUnreadCounts((prev) => {
+        const next = { ...prev };
+        delete next[data.conversationId];
+        return next;
+      });
+    });
+
+    // Listen for new conversations (like newly created groups)
+    socket.on("new_conversation", (data: { chat: Chat }) => {
+      setChats((prevChats) => {
+        const exists = prevChats.some((c) => c.id === data.chat.id);
+        if (exists) return prevChats;
+        return [data.chat, ...prevChats];
+      });
+    });
+
+    // Listen for incoming messages to update the sidebar's preview state and sorting order
+    socket.on("new_message", (data: { message: any; conversationId: string }) => {
+      setChats((prevChats) => {
+        const updated = prevChats.map((c) => {
+          if (c.id === data.conversationId) {
+            return {
+              ...c,
+              lastMessage: data.message,
+              updatedAt: data.message.createdAt,
+            };
+          }
+          return c;
+        });
+
+        // If the conversation doesn't exist in the list yet, pull fresh list
+        const exists = prevChats.some((c) => c.id === data.conversationId);
+        if (!exists) {
+          fetchChats();
+          return prevChats;
+        }
+
+        // Re-sort chats so the most recently updated one is on top
+        return [...updated].sort(
+          (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+        );
+      });
+
+      // Increment unread count if this message is NOT for the currently viewed chat
+      // and it's not sent by the current user
+      const currentChat = selectedChatRef.current;
+      if (data.message.senderId !== user?.id) {
+        if (!currentChat || currentChat.id !== data.conversationId) {
+          setUnreadCounts((prev) => ({
+            ...prev,
+            [data.conversationId]: (prev[data.conversationId] || 0) + 1,
+          }));
+        }
+
+        // Fire browser notification
+        const senderName = data.message.sender?.username || "Someone";
+        const chatName = chats.find((c) => c.id === data.conversationId)?.name || senderName;
+        let body = data.message.content || "";
+        if (data.message.mediaType === "IMAGE") body = "📷 Image";
+        if (data.message.mediaType === "VIDEO") body = "🎬 Video";
+        if (data.message.mediaType === "AUDIO") body = "🎵 Audio";
+        if (data.message.mediaType === "FILE") body = "📎 File";
+
+        fireNotification(chatName, `${senderName}: ${body}`, data.message.sender?.avatarUrl, data.conversationId);
+      }
+    });
+
+    // Listen for new status updates
+    socket.on("new_status", () => {
+      // The status panel will refresh its own data when opened
+    });
+
+    // Call Signaling listeners
+    socket.on("call_incoming", (data: {
+      callerId: string;
+      callerName: string;
+      callerAvatar: string | null;
+      offer: any;
+      callType: "audio" | "video";
+      conversationId: string;
+    }) => {
+      setCallState({
+        isOpen: true,
+        type: data.callType,
+        status: "incoming",
+        peerId: data.callerId,
+        peerName: data.callerName,
+        peerAvatar: data.callerAvatar,
+        conversationId: data.conversationId,
+        offer: data.offer,
+        callerId: data.callerId,
+      });
+    });
+
+    socket.on("call_answered", async (data: { answer: any; answererId: string }) => {
+      setCallState((prev) => ({ ...prev, status: "connected" }));
+      await handleAnswer(data.answer);
+    });
+
+    socket.on("call_rejected", (data: { rejecterId: string }) => {
+      setCallState((prev) => ({ ...prev, status: "disconnected" }));
+      hangup();
+      setTimeout(() => {
+        setCallState((prev) => ({ ...prev, isOpen: false }));
+      }, 1500);
+    });
+
+    socket.on("call_ended", (data: { endedBy: string }) => {
+      setCallState((prev) => ({ ...prev, status: "disconnected" }));
+      hangup();
+      setTimeout(() => {
+        setCallState((prev) => ({ ...prev, isOpen: false }));
+      }, 1500);
+    });
+
+    socket.on("ice_candidate", async (data: { candidate: any; fromUserId: string }) => {
+      await addIceCandidate(data.candidate);
+    });
+
+    return () => {
+      socket.off("online_users_list");
+      socket.off("user_status_change");
+      socket.off("conversation_deleted");
+      socket.off("new_conversation");
+      socket.off("new_message");
+      socket.off("new_status");
+      socket.off("call_incoming");
+      socket.off("call_answered");
+      socket.off("call_rejected");
+      socket.off("call_ended");
+      socket.off("ice_candidate");
+    };
+  }, [socket, user, fetchChats, fireNotification, chats]);
+
+  const handleChatCreated = (newChat: Chat) => {
+    setChats((prev) => {
+      const exists = prev.some((c) => c.id === newChat.id);
+      if (exists) return prev;
+      return [newChat, ...prev];
+    });
+    setSelectedChat(newChat);
+  };
+
+  if (authLoading || isChatsLoading) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center" style={{ background: "radial-gradient(ellipse at top, #0a1628, #050d1a, #000814)" }}>
+        <div className="flex flex-col items-center gap-4">
+          <div className="text-4xl font-extrabold tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 via-teal-400 to-cyan-500 animate-pulse">
+            DOLSYX
+          </div>
+          <div className="h-1 w-20 overflow-hidden rounded-full bg-cyan-900/40">
+            <div className="h-full w-full origin-left animate-[pulse_1.5s_infinite_ease-in-out] bg-gradient-to-r from-cyan-400 to-teal-400" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-screen w-screen overflow-hidden" style={{ background: "var(--theme-bg-app)" }}>
+      <div className="flex h-full w-full overflow-hidden border border-[var(--theme-border-color)] bg-[var(--theme-bg-container)] backdrop-blur-xl shadow-2xl">
+        {/* On mobile, show sidebar only if no chat is selected */}
+        <div
+          className={`${selectedChat ? "hidden sm:flex" : "flex"} h-full w-full sm:w-auto shrink-0`}
+        >
+          <ChatSidebar
+            chats={chats}
+            selectedChatId={selectedChat?.id || null}
+            onSelectChat={handleSelectChat}
+            onlineUsers={onlineUsers}
+            onChatCreated={handleChatCreated}
+            unreadCounts={unreadCounts}
+            onOpenStatus={() => setShowStatusPanel(true)}
+          />
+        </div>
+
+        {/* On mobile, show chat window only if a chat is selected */}
+        <div className={`${selectedChat ? "flex" : "hidden sm:flex"} h-full flex-1`}>
+          <ChatWindow
+            chat={selectedChat}
+            socket={socket}
+            onlineUsers={onlineUsers}
+            onBack={() => setSelectedChat(null)}
+            onToggleProductivity={() => setIsProductivityOpen(!isProductivityOpen)}
+            isProductivityOpen={isProductivityOpen}
+            onChatDeleted={(conversationId) => {
+              setChats((prev) => prev.filter((c) => c.id !== conversationId));
+              setSelectedChat(null);
+            }}
+            onStartCall={handleStartCall}
+          />
+        </div>
+
+        {/* Productivity Workspace slide-out panel */}
+        {isProductivityOpen && (
+          <ProductivityPanel
+            activeConversationId={selectedChat?.id || null}
+            activeConversationName={selectedChat?.name || null}
+            isGroupChat={selectedChat?.isGroup || false}
+            participants={(selectedChat as any)?.participants || []}
+            onClose={() => setIsProductivityOpen(false)}
+          />
+        )}
+      </div>
+
+      {/* Status Panel */}
+      {showStatusPanel && (
+        <StatusPanel onClose={() => setShowStatusPanel(false)} />
+      )}
+
+      {/* Call Modal */}
+      <CallModal
+        isOpen={callState.isOpen}
+        callType={callState.type}
+        status={callState.status}
+        callerName={callState.peerName}
+        callerAvatar={callState.peerAvatar}
+        localStream={localStream}
+        remoteStream={remoteStream}
+        isMuted={isMuted}
+        isCameraOff={isCameraOff}
+        isSpeakerOff={isSpeakerOff}
+        onAccept={handleAcceptCall}
+        onDecline={handleDeclineCall}
+        onHangup={handleHangupCall}
+        onToggleMute={toggleMute}
+        onToggleCamera={toggleCamera}
+        onToggleSpeaker={toggleSpeaker}
+        duration={callDuration}
+      />
+
+      {isLocked && (
+        <AppLock onUnlock={() => setIsLocked(false)} />
+      )}
+    </div>
+  );
+}

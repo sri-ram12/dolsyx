@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920">
+    <rect width="1080" height="1920" fill="#f0ebe3"/>
+    <defs>
+      <pattern id="p" x="0" y="0" width="120" height="120" patternUnits="userSpaceOnUse">
+        <path d="M20,28 L30,18 Q37,11 44,18 Q51,11 58,18 L68,28 Q75,38 44,55 Q13,38 20,28Z" fill="none" stroke="#c8a882" stroke-width="1.5"/>
+        <polygon points="100,10 103,20 114,20 105,27 108,37 100,31 92,37 95,27 86,20 97,20" fill="none" stroke="#c8a882" stroke-width="1.5"/>
+        <rect x="5" y="70" width="35" height="22" rx="5" fill="none" stroke="#c8a882" stroke-width="1.5"/>
+        <path d="M15,92 L12,100 L22,92" fill="none" stroke="#c8a882" stroke-width="1.5"/>
+        <path d="M80,65 L95,60 L95,75 Q95,80 90,80 Q85,80 85,75 Q85,70 90,70 L95,68" fill="none" stroke="#c8a882" stroke-width="1.5"/>
+        <circle cx="30" cy="100" r="5" fill="none" stroke="#c8a882" stroke-width="1.5"/>
+        <circle cx="22" cy="100" r="4" fill="none" stroke="#c8a882" stroke-width="1.5"/>
+        <circle cx="38" cy="100" r="4" fill="none" stroke="#c8a882" stroke-width="1.5"/>
+        <circle cx="26" cy="93" r="4" fill="none" stroke="#c8a882" stroke-width="1.5"/>
+        <circle cx="34" cy="93" r="4" fill="none" stroke="#c8a882" stroke-width="1.5"/>
+        <path d="M100,70 L93,85 L100,83 L93,100" fill="none" stroke="#c8a882" stroke-width="1.5"/>
+      </pattern>
+    </defs>
+    <rect width="1080" height="1920" fill="url(#p)"/>
+  </svg>

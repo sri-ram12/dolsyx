@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920">
+    <rect width="1080" height="1920" fill="#075E54"/>
+    <defs>
+      <pattern id="p" x="0" y="0" width="80" height="92" patternUnits="userSpaceOnUse">
+        <polygon points="40,4 72,22 72,58 40,76 8,58 8,22" fill="none" stroke="#04443c" stroke-width="1.5"/>
+        <polygon points="0,50 32,68 32,104" fill="none" stroke="#04443c" stroke-width="1.5"/>
+        <polygon points="80,50 48,68 48,104" fill="none" stroke="#04443c" stroke-width="1.5"/>
+      </pattern>
+    </defs>
+    <rect width="1080" height="1920" fill="url(#p)" opacity="0.8"/>
+  </svg>

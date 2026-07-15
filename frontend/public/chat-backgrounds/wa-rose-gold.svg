@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920">
+    <defs>
+      <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#1a0a12"/>
+        <stop offset="40%" stop-color="#2e1520"/>
+        <stop offset="100%" stop-color="#1a0a12"/>
+      </linearGradient>
+    </defs>
+    <rect width="1080" height="1920" fill="url(#g)"/>
+    <defs>
+      <pattern id="p" x="0" y="0" width="80" height="80" patternUnits="userSpaceOnUse">
+        <path d="M0,40 Q20,20 40,40 Q60,60 80,40" fill="none" stroke="#c0706018" stroke-width="1.5"/>
+        <path d="M0,80 Q20,60 40,80" fill="none" stroke="#c0706018" stroke-width="1.5"/>
+        <path d="M40,0 Q60,20 80,0" fill="none" stroke="#c0706018" stroke-width="1.5"/>
+      </pattern>
+    </defs>
+    <rect width="1080" height="1920" fill="url(#p)"/>
+  </svg>

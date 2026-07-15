@@ -1,0 +1,36 @@
+# Node dependencies
+node_modules/
+.pnpm-store/
+
+# Local configuration files (Secrets)
+.env
+.env*.local
+.env.production
+.env.development
+.env.test
+
+# SQLite Database Files
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+backend/prisma/dev.db
+
+# Build outputs
+.next/
+dist/
+build/
+out/
+.docusaurus/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+lerna-debug.log*
+
+# OS Files
+.DS_Store
+Thumbs.db
+desktop.ini

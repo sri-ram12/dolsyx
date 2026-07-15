@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920">
+    <rect width="1080" height="1920" fill="#fce4ec"/>
+    <defs>
+      <pattern id="p" x="0" y="0" width="80" height="80" patternUnits="userSpaceOnUse">
+        <circle cx="40" cy="40" r="15" fill="none" stroke="#f8bbd0" stroke-width="1.5"/>
+        <circle cx="0" cy="0" r="10" fill="none" stroke="#f8bbd0" stroke-width="1"/>
+        <circle cx="80" cy="0" r="10" fill="none" stroke="#f8bbd0" stroke-width="1"/>
+        <circle cx="0" cy="80" r="10" fill="none" stroke="#f8bbd0" stroke-width="1"/>
+        <circle cx="80" cy="80" r="10" fill="none" stroke="#f8bbd0" stroke-width="1"/>
+      </pattern>
+    </defs>
+    <rect width="1080" height="1920" fill="url(#p)"/>
+  </svg>

@@ -1,0 +1,358 @@
+import jwt from "jsonwebtoken";
+import crypto from "crypto";
+import { prisma } from "../config/db.js";
+import { emailService } from "../services/email.service.js";
+const JWT_SECRET = process.env.JWT_SECRET || "dolsyx_super_secret_key_123456";
+// Helper to generate a unique username from a Full Name
+async function generateUniqueUsername(fullName) {
+    const baseUsername = fullName.trim();
+    let uniqueUsername = baseUsername;
+    let counter = 1;
+    while (true) {
+        const existing = await prisma.user.findFirst({
+            where: {
+                username: {
+                    equals: uniqueUsername,
+                },
+            },
+        });
+        if (!existing) {
+            return uniqueUsername;
+        }
+        uniqueUsername = `${baseUsername} ${counter}`;
+        counter++;
+    }
+}
+// Generate OTP, enforce rate limiting (max 5 requests per hour), and send email
+export const sendOtp = async (req, res) => {
+    try {
+        const { fullName, email } = req.body;
+        if (!email) {
+            res.status(400).json({ message: "Email address is required" });
+            return;
+        }
+        const trimmedEmail = email.trim().toLowerCase();
+        // Basic email format validation
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+            res.status(400).json({ message: "Invalid email format" });
+            return;
+        }
+        // Check if user exists
+        const existingUser = await prisma.user.findUnique({
+            where: { email: trimmedEmail }
+        });
+        if (!existingUser && !fullName) {
+            res.status(400).json({ isNewUser: true, message: "Full name is required to create a new account." });
+            return;
+        }
+        if (existingUser) {
+            // Direct login for existing users
+            const token = jwt.sign({ id: existingUser.id, email: existingUser.email }, JWT_SECRET, { expiresIn: "30d" });
+            // Update last seen
+            await prisma.user.update({
+                where: { id: existingUser.id },
+                data: { lastSeen: new Date() },
+            });
+            res.status(200).json({
+                isDirectLogin: true,
+                message: "Logged in successfully",
+                token,
+                user: {
+                    id: existingUser.id,
+                    email: existingUser.email,
+                    username: existingUser.username,
+                    avatarUrl: existingUser.avatarUrl,
+                    bio: existingUser.bio,
+                    lastSeen: new Date(),
+                    phoneNumber: existingUser.phoneNumber,
+                },
+            });
+            return;
+        }
+        const trimmedName = fullName.trim();
+        // Generate cryptographically secure 6-digit random OTP
+        const code = crypto.randomInt(100000, 1000000).toString();
+        // Expiration time: 5 minutes from now
+        const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+        // Hash OTP code using SHA-256
+        const hashedCode = crypto.createHash("sha256").update(code).digest("hex");
+        const now = new Date();
+        const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+        // Look up existing OTP for rate limiting
+        const otpRecord = await prisma.otp.findUnique({
+            where: { email: trimmedEmail },
+        });
+        if (otpRecord) {
+            // Check if last requested was within 1 hour
+            if (otpRecord.lastRequestedAt > oneHourAgo) {
+                if (otpRecord.requestCount >= 5) {
+                    res.status(429).json({
+                        message: "Too many OTP requests. Maximum 5 OTP requests per hour are allowed.",
+                    });
+                    return;
+                }
+                // Update OTP record and increment count
+                await prisma.otp.update({
+                    where: { email: trimmedEmail },
+                    data: {
+                        code: hashedCode,
+                        expiresAt,
+                        attempts: 0, // Reset verification attempts on new OTP request
+                        requestCount: otpRecord.requestCount + 1,
+                        lastRequestedAt: now,
+                    },
+                });
+            }
+            else {
+                // Last requested was more than 1 hour ago, reset count to 1
+                await prisma.otp.update({
+                    where: { email: trimmedEmail },
+                    data: {
+                        code: hashedCode,
+                        expiresAt,
+                        attempts: 0,
+                        requestCount: 1,
+                        lastRequestedAt: now,
+                    },
+                });
+            }
+        }
+        else {
+            // Create new OTP record
+            await prisma.otp.create({
+                data: {
+                    email: trimmedEmail,
+                    code: hashedCode,
+                    expiresAt,
+                    requestCount: 1,
+                    lastRequestedAt: now,
+                },
+            });
+        }
+        console.log(`\n==========================================`);
+        console.log(`[OTP] Verification code for ${trimmedEmail} is: ${code}`);
+        console.log(`==========================================\n`);
+        // Asynchronously send HTML email
+        const emailSent = await emailService.sendOtpEmail({
+            to: trimmedEmail,
+            subject: "Login Verification Code",
+            name: trimmedName,
+            otp: code,
+        });
+        if (!emailSent) {
+            // Log warning but continue, as developer might not have SMTP configured yet
+            console.warn(`[OTP] Failed to deliver email to ${trimmedEmail}, fallback to console display.`);
+        }
+        res.status(200).json({
+            message: process.env.NODE_ENV === "production" ? "OTP sent successfully" : `OTP sent successfully. Code: ${code}`,
+        });
+    }
+    catch (error) {
+        console.error("SendOtp error:", error);
+        res.status(500).json({ message: "Internal server error" });
+    }
+};
+// Resend OTP endpoint (wrapper around sendOtp)
+export const resendOtp = async (req, res) => {
+    // If no fullName was passed, check if a user with this email already exists to use their username
+    if (!req.body.fullName && req.body.email) {
+        const user = await prisma.user.findUnique({
+            where: { email: req.body.email.trim().toLowerCase() }
+        });
+        req.body.fullName = user?.username || "User";
+    }
+    return sendOtp(req, res);
+};
+// Verify OTP, enforce maximum 5 verification attempts, update user database and establish session
+export const verifyOtp = async (req, res) => {
+    try {
+        const { email, code, fullName } = req.body;
+        if (!email || !code) {
+            res.status(400).json({ message: "Email and verification code are required" });
+            return;
+        }
+        const trimmedEmail = email.trim().toLowerCase();
+        const trimmedCode = code.trim();
+        // Fetch OTP record
+        const otpRecord = await prisma.otp.findUnique({
+            where: { email: trimmedEmail },
+        });
+        if (!otpRecord) {
+            res.status(400).json({ message: "No OTP request found for this email address" });
+            return;
+        }
+        // Limit attempts to max 5
+        if (otpRecord.attempts >= 5) {
+            res.status(400).json({
+                message: "Maximum verification attempts exceeded. Please request a new OTP.",
+            });
+            return;
+        }
+        // Increment attempts immediately
+        await prisma.otp.update({
+            where: { email: trimmedEmail },
+            data: {
+                attempts: otpRecord.attempts + 1,
+            },
+        });
+        // Check expiration (5 minutes)
+        if (new Date() > otpRecord.expiresAt) {
+            res.status(400).json({ message: "OTP has expired. Please request a new one." });
+            return;
+        }
+        // Verify OTP code hash
+        const hashedCode = crypto.createHash("sha256").update(trimmedCode).digest("hex");
+        if (otpRecord.code !== hashedCode) {
+            res.status(400).json({ message: "Invalid OTP" });
+            return;
+        }
+        // OTP verified successfully. Remove the OTP record.
+        await prisma.otp.delete({
+            where: { email: trimmedEmail },
+        });
+        // Retrieve or create User
+        let user = await prisma.user.findUnique({
+            where: { email: trimmedEmail },
+        });
+        if (!user) {
+            // Create user automatically
+            const name = fullName ? fullName.trim() : "User";
+            const uniqueUsername = await generateUniqueUsername(name);
+            user = await prisma.user.create({
+                data: {
+                    username: uniqueUsername,
+                    email: trimmedEmail,
+                    avatarUrl: null,
+                    emailVerified: true,
+                    isOnline: true,
+                    lastLogin: new Date(),
+                    lastSeen: new Date(),
+                },
+            });
+        }
+        else {
+            // Update existing user login timestamps & online status
+            user = await prisma.user.update({
+                where: { id: user.id },
+                data: {
+                    isOnline: true,
+                    lastLogin: new Date(),
+                    lastSeen: new Date(),
+                },
+            });
+        }
+        // Generate JWT token
+        const token = jwt.sign({ id: user.id, username: user.username, email: user.email }, JWT_SECRET, { expiresIn: "7d" });
+        res.status(200).json({
+            message: "Authentication successful",
+            token,
+            user: {
+                id: user.id,
+                username: user.username,
+                email: user.email,
+                avatarUrl: user.avatarUrl,
+                bio: user.bio,
+                createdAt: user.createdAt,
+            },
+        });
+    }
+    catch (error) {
+        console.error("VerifyOtp error:", error);
+        res.status(500).json({ message: "Internal server error" });
+    }
+};
+// Retrieve currently authenticated user context details
+export const getMe = async (req, res) => {
+    try {
+        if (!req.user) {
+            res.status(401).json({ message: "Unauthorized" });
+            return;
+        }
+        res.json({ user: req.user });
+    }
+    catch (error) {
+        console.error("GetMe error:", error);
+        res.status(500).json({ message: "Internal server error" });
+    }
+};
+// Terminate user session and update online status to offline
+export const logout = async (req, res) => {
+    try {
+        if (req.user) {
+            await prisma.user.update({
+                where: { id: req.user.id },
+                data: {
+                    isOnline: false,
+                    lastSeen: new Date(),
+                },
+            });
+        }
+        res.status(200).json({ message: "Logout successful" });
+    }
+    catch (error) {
+        console.error("Logout error:", error);
+        res.status(500).json({ message: "Internal server error" });
+    }
+};
+// Edit user profile details
+export const updateProfile = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { username, bio, avatarUrl } = req.body;
+        let updatedUsername = undefined;
+        if (username !== undefined) {
+            const trimmed = username.trim();
+            if (!trimmed) {
+                res.status(400).json({ message: "Name cannot be empty" });
+                return;
+            }
+            const existing = await prisma.user.findFirst({
+                where: {
+                    username: {
+                        equals: trimmed,
+                    },
+                    id: {
+                        not: userId,
+                    },
+                },
+            });
+            if (existing) {
+                res.status(400).json({ message: "Name is already taken" });
+                return;
+            }
+            updatedUsername = trimmed;
+        }
+        const updatedUser = await prisma.user.update({
+            where: { id: userId },
+            data: {
+                ...(updatedUsername !== undefined && { username: updatedUsername }),
+                ...(bio !== undefined && { bio }),
+                ...(avatarUrl !== undefined && { avatarUrl }),
+            },
+            select: {
+                id: true,
+                username: true,
+                email: true,
+                avatarUrl: true,
+                bio: true,
+                createdAt: true,
+            },
+        });
+        res.json({
+            message: "Profile updated successfully",
+            user: updatedUser,
+        });
+    }
+    catch (error) {
+        console.error("UpdateProfile error:", error);
+        res.status(500).json({ message: "Internal server error" });
+    }
+};
+// Placeholders for compatibility if old client routes are hit
+export const login = async (req, res) => {
+    res.status(400).json({ message: "Password authentication is disabled. Please login using Email OTP." });
+};
+export const register = async (req, res) => {
+    res.status(400).json({ message: "Password registration is disabled. Please login using Email OTP." });
+};
+//# sourceMappingURL=auth.controller.js.map

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920">
+    <rect width="1080" height="1920" fill="#111827"/>
+    <defs>
+      <pattern id="p" x="0" y="0" width="60" height="60" patternUnits="userSpaceOnUse">
+        <polygon points="0,0 30,0 0,30" fill="#ffffff05"/>
+        <polygon points="60,0 30,0 60,30" fill="#ffffff08"/>
+        <polygon points="0,60 30,60 0,30" fill="#ffffff08"/>
+        <polygon points="60,60 30,60 60,30" fill="#ffffff05"/>
+        <polygon points="30,0 60,0 30,60 0,60" fill="#ffffff03"/>
+      </pattern>
+    </defs>
+    <rect width="1080" height="1920" fill="url(#p)"/>
+  </svg>

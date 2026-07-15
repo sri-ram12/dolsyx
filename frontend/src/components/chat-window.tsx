@@ -1,0 +1,2203 @@
+"use client";
+
+import React, { useState, useEffect, useRef } from "react";
+import TwemojiText from "./twemoji-text";
+import { useAuth, API_URL } from "@/context/auth-context";
+import { useTheme } from "@/context/theme-context";
+import { useToast } from "@/context/toast-context";
+import { Chat } from "./chat-sidebar";
+import {
+  Send,
+  Smile,
+  Info,
+  MoreVertical,
+  ArrowLeft,
+  CheckSquare,
+  CornerUpLeft,
+  Edit3,
+  Trash2,
+  X,
+  Paperclip,
+  Download,
+  FileIcon,
+  Loader2,
+  Play,
+  Volume2,
+  User,
+  Phone,
+  Video,
+  Mail,
+  Camera,
+  Mic,
+  Square,
+  Image as ImageIcon,
+  Ban,
+} from "lucide-react";
+import { Socket } from "socket.io-client";
+import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
+import { getDefaultAvatar, getAvatarUrl } from "@/utils/avatar";
+import { SoundEngine } from "@/utils/sound";
+
+interface Message {
+  id: string;
+  content: string;
+  senderId: string;
+  conversationId: string;
+  createdAt: string;
+  isEdited?: boolean;
+  isDeleted?: boolean;
+  mediaUrl?: string | null;
+  mediaType?: "TEXT" | "IMAGE" | "VIDEO" | "FILE" | "AUDIO" | "CODE_SNIPPET" | "STICKER" | "CALL_LOG" | null;
+  sender: {
+    id: string;
+    username: string;
+    avatarUrl: string | null;
+    bio?: string | null;
+  };
+  receipts?: any[];
+  parentMessage?: {
+    id: string;
+    content: string;
+    sender: {
+      id: string;
+      username: string;
+    };
+  } | null;
+}
+
+interface ChatWindowProps {
+  chat: Chat | null;
+  socket: Socket | null;
+  onlineUsers: string[];
+  onBack: () => void;
+  onToggleProductivity: () => void;
+  isProductivityOpen: boolean;
+  onChatDeleted?: (conversationId: string) => void;
+  onStartCall?: (type: "audio" | "video") => void;
+}
+
+// Chat wallpaper backgrounds — classic & AI-generated
+const CHAT_WALLPAPERS = [
+  { id: "default", name: "Default Aqua", type: "css" as const, value: "" },
+
+  // ── AI-Generated ─────────────────────────────────────────────────────────
+  { id: "wa-dark-doodle-ai", name: "Dark Doodle", type: "image" as const, value: "/chat-backgrounds/wa-dark-doodle-ai.png" },
+  { id: "wa-teal-ai", name: "Teal Classic", type: "image" as const, value: "/chat-backgrounds/wa-teal-ai.png" },
+  { id: "wa-midnight-ai", name: "Midnight Blue", type: "image" as const, value: "/chat-backgrounds/wa-midnight-ai.png" },
+  { id: "wa-geometric-ai", name: "Geometric Dark", type: "image" as const, value: "/chat-backgrounds/wa-geometric-ai.png" },
+
+  // ── SVG Pattern Backgrounds ──────────────────────────────────────────────
+  { id: "wa-light-doodle", name: "Light Doodle", type: "image" as const, value: "/chat-backgrounds/wa-light-doodle.svg" },
+  { id: "wa-teal-hex", name: "Teal Hex", type: "image" as const, value: "/chat-backgrounds/wa-teal-hex.svg" },
+  { id: "wa-midnight-grid", name: "Midnight Grid", type: "image" as const, value: "/chat-backgrounds/wa-midnight-grid.svg" },
+  { id: "wa-polka-dots", name: "Polka Dots", type: "image" as const, value: "/chat-backgrounds/wa-polka-dots.svg" },
+  { id: "wa-purple-abstract", name: "Purple Haze", type: "image" as const, value: "/chat-backgrounds/wa-purple-abstract.svg" },
+  { id: "wa-olive", name: "Olive Classic", type: "image" as const, value: "/chat-backgrounds/wa-olive.svg" },
+  { id: "wa-triangles", name: "Dark Triangles", type: "image" as const, value: "/chat-backgrounds/wa-triangles.svg" },
+  { id: "wa-soft-pink", name: "Soft Pink", type: "image" as const, value: "/chat-backgrounds/wa-soft-pink.svg" },
+  { id: "wa-circuit", name: "Circuit Board", type: "image" as const, value: "/chat-backgrounds/wa-circuit.svg" },
+  { id: "wa-dark-teal", name: "Dark Teal", type: "image" as const, value: "/chat-backgrounds/wa-dark-teal.svg" },
+  { id: "wa-rose-gold", name: "Rose Gold", type: "image" as const, value: "/chat-backgrounds/wa-rose-gold.svg" },
+
+  // ── CSS Gradients ─────────────────────────────────────────────────────────
+  { id: "gradient-sunset", name: "Sunset", type: "css" as const, value: "linear-gradient(135deg, #1a0a2e 0%, #3d1a4e 30%, #8b3a62 60%, #d46a3a 85%, #f4a460 100%)" },
+  { id: "gradient-aurora", name: "Aurora", type: "css" as const, value: "linear-gradient(135deg, #0a0a2e 0%, #1a3a5c 30%, #2a5a4a 60%, #1a9a6a 85%, #0aaa8a 100%)" },
+  { id: "gradient-midnight", name: "Midnight", type: "css" as const, value: "linear-gradient(180deg, #0a0a1a 0%, #1a1a3a 50%, #0a0a2a 100%)" },
+  { id: "gradient-rose", name: "Rose Gold", type: "css" as const, value: "linear-gradient(135deg, #1a0a15 0%, #3a1a25 30%, #6a3a4a 60%, #9a6a6a 85%, #c4a080 100%)" },
+  { id: "gradient-ocean", name: "Deep Ocean", type: "css" as const, value: "linear-gradient(180deg, #000a14 0%, #001a2a 30%, #002a3a 60%, #003a4a 85%, #004a5a 100%)" },
+  { id: "gradient-neon", name: "Neon Cyber", type: "css" as const, value: "linear-gradient(135deg, #0a0a1a 0%, #1a0a2a 30%, #0a1a3a 60%, #0a2a3a 100%)" },
+];
+
+
+
+
+// Utility: detect if a string is only emojis
+function isOnlyEmojis(str: string): boolean {
+  const emojiRegex =
+    /^[\p{Emoji_Presentation}\p{Extended_Pictographic}\u{1F3FB}-\u{1F3FF}\u{1F9B0}-\u{1F9B3}\uFE0F\u200D\s]+$/u;
+  return emojiRegex.test(str.trim()) && str.trim().length > 0 && str.trim().length <= 16;
+}
+
+function getEmojiAnimationClass(str: string) {
+  if (/❤️|💖|💗|💓|🔥|🥰/.test(str)) return "animate-emoji-pulse";
+  if (/✨|⭐|🌟|💫/.test(str)) return "animate-emoji-spin";
+  return "animate-emoji-bounce";
+}
+
+function CallLogMessage({ msg, isMe }: { msg: Message; isMe: boolean }) {
+  const callType = msg.mediaUrl === "video" ? "Video" : "Voice";
+  const logStatus = msg.content; // "missed", "declined", "connected:duration"
+  
+  const isMissed = logStatus === "missed" || logStatus === "declined";
+  const isConnected = logStatus.startsWith("connected:");
+  
+  let durationStr = "";
+  if (isConnected) {
+    const durationSeconds = parseInt(logStatus.split(":")[1] || "0", 10);
+    const mins = Math.floor(durationSeconds / 60);
+    const secs = durationSeconds % 60;
+    durationStr = ` (${mins}:${secs.toString().padStart(2, "0")})`;
+  }
+
+  let label = "";
+  const Icon = msg.mediaUrl === "video" ? Video : Phone;
+
+  if (isMe) {
+    if (isConnected) {
+      label = `Outgoing ${callType} Call${durationStr}`;
+    } else if (logStatus === "declined") {
+      label = `Declined ${callType} Call`;
+    } else {
+      label = `Cancelled ${callType} Call`;
+    }
+  } else {
+    if (isConnected) {
+      label = `Incoming ${callType} Call${durationStr}`;
+    } else {
+      label = `Missed ${callType} Call`;
+    }
+  }
+
+  return (
+    <div
+      className={`flex items-center gap-3 rounded-2xl border px-3.5 py-2.5 shadow-md select-none min-w-[220px] transition-all hover:bg-slate-800/10 ${
+        isMissed
+          ? "border-red-500/20 bg-red-950/10 text-red-200"
+          : "border-emerald-500/20 bg-emerald-950/10 text-emerald-200"
+      }`}
+    >
+      <div
+        className={`h-9 w-9 rounded-full flex items-center justify-center shrink-0 ${
+          isMissed
+            ? "bg-red-500/15 text-red-400"
+            : "bg-emerald-500/15 text-emerald-400"
+        }`}
+      >
+        <Icon className="h-4.5 w-4.5" />
+      </div>
+      <div className="flex-1 flex flex-col text-left">
+        <span className="text-xs font-semibold">{label}</span>
+        <span className="text-[9px] opacity-60 mt-0.5">
+          {isConnected ? "Connected" : isMissed ? (logStatus === "declined" ? "Declined" : "No Answer") : "Calling"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function AudioMessage({ msg, isMe, theme }: { msg: Message; isMe: boolean; theme: string }) {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const updateProgress = () => {
+      setProgress((audio.currentTime / audio.duration) * 100 || 0);
+      setCurrentTime(audio.currentTime);
+    };
+
+    const handleLoadedMetadata = () => setDuration(audio.duration);
+    const handleEnded = () => {
+      setIsPlaying(false);
+      setProgress(0);
+      setCurrentTime(0);
+    };
+
+    audio.addEventListener("timeupdate", updateProgress);
+    audio.addEventListener("loadedmetadata", handleLoadedMetadata);
+    audio.addEventListener("ended", handleEnded);
+
+    return () => {
+      audio.removeEventListener("timeupdate", updateProgress);
+      audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
+      audio.removeEventListener("ended", handleEnded);
+    };
+  }, []);
+
+  const togglePlay = () => {
+    if (audioRef.current) {
+      if (isPlaying) {
+        audioRef.current.pause();
+      } else {
+        audioRef.current.play();
+      }
+      setIsPlaying(!isPlaying);
+    }
+  };
+
+  const formatTime = (time: number) => {
+    if (isNaN(time)) return "0:00";
+    const minutes = Math.floor(time / 60);
+    const seconds = Math.floor(time % 60);
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  return (
+    <div
+      className={`flex items-center gap-3 rounded-2xl border px-3 py-2.5 shadow-md cursor-pointer hover:opacity-90 transition-opacity min-w-[200px] ${
+        isMe
+          ? theme.startsWith("aqua") ? "bg-[#005c4b] border-[#005c4b]" : "bg-gradient-to-tr from-cyan-600 to-blue-600 border-blue-500/30"
+          : "bg-[var(--theme-bg-sidebar-search)] border-[var(--theme-border-color)]"
+      }`}
+      onClick={togglePlay}
+    >
+      <div className="h-10 w-10 rounded-full bg-[var(--theme-text-primary)]/20 flex items-center justify-center text-[var(--theme-text-primary)] shrink-0">
+        {isPlaying ? (
+          <Square className="h-4 w-4" fill="currentColor" />
+        ) : (
+          <Play className="h-5 w-5 translate-x-[1px]" fill="currentColor" />
+        )}
+      </div>
+      <div className="flex-1 flex flex-col gap-1">
+        <div className="h-1 w-full bg-[var(--theme-text-primary)]/20 rounded-full overflow-hidden">
+          <div 
+            className="h-full bg-[var(--theme-text-primary)] rounded-full transition-all duration-100 ease-linear" 
+            style={{ width: `${progress}%` }} 
+          />
+        </div>
+        <div className="flex justify-between items-center text-[10px] text-[var(--theme-text-primary)]/70 font-semibold">
+          <span>{formatTime(currentTime)}</span>
+          <span>{formatTime(duration)}</span>
+        </div>
+      </div>
+      <audio ref={audioRef} src={msg.mediaUrl || ""} className="hidden" preload="metadata" />
+    </div>
+  );
+}
+
+export default function ChatWindow({
+  chat,
+  socket,
+  onlineUsers,
+  onBack,
+  onToggleProductivity,
+  isProductivityOpen,
+  onChatDeleted,
+  onStartCall,
+}: ChatWindowProps) {
+  const { user, token } = useAuth();
+  const { theme } = useTheme();
+  const { toast } = useToast();
+
+  // Blocked and Block list states
+  const [blockedIds, setBlockedIds] = useState<string[]>([]);
+
+  // Camera preview states
+  const [showCameraPreview, setShowCameraPreview] = useState(false);
+  const [capturedBlob, setCapturedBlob] = useState<Blob | null>(null);
+  const [capturedPreviewUrl, setCapturedPreviewUrl] = useState("");
+
+  // Clear Chat status
+  const [isClearingChat, setIsClearingChat] = useState(false);
+
+  // Custom confirm modals (replaces native browser confirm())
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [showDeleteChatConfirm, setShowDeleteChatConfirm] = useState(false);
+
+  // ── Audio notification ────────────────────────────────────────────────────
+  // AudioContext must be created AND resumed inside a user-gesture handler.
+  // We pre-unlock it on the very first click/keydown so it is already in
+  // "running" state when a socket message arrives later.
+  const audioCtxRef = useRef<AudioContext | null>(null);
+
+  // Unlock AudioContext on first user interaction
+  useEffect(() => {
+    const unlock = () => {
+      try {
+        const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+        if (!AudioCtxClass) return;
+        if (!audioCtxRef.current || audioCtxRef.current.state === "closed") {
+          audioCtxRef.current = new AudioCtxClass();
+        }
+        if (audioCtxRef.current.state === "suspended") {
+          audioCtxRef.current.resume();
+        }
+      } catch (_) {}
+      // Remove listeners after first unlock
+      document.removeEventListener("click", unlock);
+      document.removeEventListener("keydown", unlock);
+    };
+    document.addEventListener("click", unlock);
+    document.addEventListener("keydown", unlock);
+    return () => {
+      document.removeEventListener("click", unlock);
+      document.removeEventListener("keydown", unlock);
+    };
+  }, []);
+
+  const playNotificationSound = () => {
+    SoundEngine.playNotification();
+  };
+
+
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [inputValue, setInputValue] = useState("");
+  const [isRecipientTyping, setIsRecipientTyping] = useState(false);
+  const [typingUsername, setTypingUsername] = useState("");
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // File Upload State
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
+
+  // Emoji Picker State
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const emojiPickerRef = useRef<HTMLDivElement>(null);
+
+  // Message Actions state
+  const [replyingToMessage, setReplyingToMessage] = useState<Message | null>(null);
+  const [editingMessage, setEditingMessage] = useState<Message | null>(null);
+  const [hoveredMessageId, setHoveredMessageId] = useState<string | null>(null);
+  const [deleteConfirmMessage, setDeleteConfirmMessage] = useState<Message | null>(null);
+
+  // Message Selection State
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedMessageIds, setSelectedMessageIds] = useState<Set<string>>(new Set());
+
+  // Header options dropdown & deletion
+  const [showHeaderMenu, setShowHeaderMenu] = useState(false);
+  const [isDeletingChat, setIsDeletingChat] = useState(false);
+  const headerMenuRef = useRef<HTMLDivElement>(null);
+
+  // Profile View Modal
+  const [profileUser, setProfileUser] = useState<any | null>(null);
+
+  // Camera Capture State
+  const [showCamera, setShowCamera] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
+
+  // Voice Recording State
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Wallpaper Background Picker
+  const [showWallpaperPicker, setShowWallpaperPicker] = useState(false);
+  const [selectedWallpaper, setSelectedWallpaper] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("dolsyx_chat_wallpaper") || "default";
+    }
+    return "default";
+  });
+  const [customWallpapers, setCustomWallpapers] = useState<{ id: string; name: string; type: "image"; value: string }[]>([]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const stored = localStorage.getItem("dolsyx_custom_wallpapers");
+        if (stored) {
+          setCustomWallpapers(JSON.parse(stored));
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  }, []);
+
+  // Camera stream attachment effect to fix the camera render race condition
+  useEffect(() => {
+    if (showCamera && cameraStreamRef.current && videoRef.current) {
+      videoRef.current.srcObject = cameraStreamRef.current;
+    }
+  }, [showCamera]);
+
+  const wallpaperUploadRef = useRef<HTMLInputElement>(null);
+
+  const handleWallpaperUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string;
+      const id = `custom-${Date.now()}`;
+      const name = file.name.replace(/\.[^/.]+$/, "") || "My Wallpaper";
+      const newWp = { id, name, type: "image" as const, value: dataUrl };
+      setCustomWallpapers((prev) => {
+        const updated = [...prev, newWp];
+        if (typeof window !== "undefined") {
+          localStorage.setItem("dolsyx_custom_wallpapers", JSON.stringify(updated));
+        }
+        return updated;
+      });
+      setSelectedWallpaper(id);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("dolsyx_chat_wallpaper", id);
+      }
+    };
+    reader.readAsDataURL(file);
+    if (wallpaperUploadRef.current) wallpaperUploadRef.current.value = "";
+  };
+
+  const handleDeleteCustomWallpaper = (id: string) => {
+    setCustomWallpapers((prev) => {
+      const updated = prev.filter((w) => w.id !== id);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("dolsyx_custom_wallpapers", JSON.stringify(updated));
+      }
+      return updated;
+    });
+    if (selectedWallpaper === id) {
+      setSelectedWallpaper("default");
+      if (typeof window !== "undefined") {
+        localStorage.setItem("dolsyx_chat_wallpaper", "default");
+      }
+    }
+  };
+
+  // Fetch message history on chat select
+  useEffect(() => {
+    if (!chat || !token) return;
+
+    const fetchMessages = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/chats/${chat.id}/messages`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          setMessages(data);
+          if (socket) {
+            socket.emit("mark_read", { conversationId: chat.id });
+          }
+        }
+      } catch (err) {
+        console.error("Error loading message history:", err);
+      }
+    };
+
+    const fetchBlocks = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/auth/blocks`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setBlockedIds(data.blockedIds || []);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    };
+
+    fetchMessages();
+    fetchBlocks();
+    setIsRecipientTyping(false);
+    setReplyingToMessage(null);
+    setEditingMessage(null);
+    setInputValue("");
+    setShowEmojiPicker(false);
+    setDeleteConfirmMessage(null);
+    setProfileUser(null);
+
+    // Join conversation socket channel
+    if (socket) {
+      socket.emit("join_conversation", chat.id);
+    }
+
+    return () => {
+      // Leave conversation socket channel on unmount
+      if (socket && chat) {
+        socket.emit("leave_conversation", chat.id);
+      }
+    };
+  }, [chat, token, socket]);
+
+  // Scroll to bottom helper
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isRecipientTyping]);
+
+  // Close emoji picker when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (emojiPickerRef.current && !emojiPickerRef.current.contains(e.target as Node)) {
+        setShowEmojiPicker(false);
+      }
+    };
+    if (showEmojiPicker) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showEmojiPicker]);
+
+  // Close header options menu when clicking outside
+  useEffect(() => {
+    const handleHeaderClickOutside = (e: MouseEvent) => {
+      if (headerMenuRef.current && !headerMenuRef.current.contains(e.target as Node)) {
+        setShowHeaderMenu(false);
+      }
+    };
+    if (showHeaderMenu) {
+      document.addEventListener("mousedown", handleHeaderClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleHeaderClickOutside);
+  }, [showHeaderMenu]);
+
+  const handleDeleteChat = async () => {
+    if (!chat || !token) return;
+    setIsDeletingChat(true);
+    try {
+      const res = await fetch(`${API_URL}/api/chats/${chat.id}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (res.ok) {
+        setShowHeaderMenu(false);
+        if (onChatDeleted) {
+          onChatDeleted(chat.id);
+        }
+        onBack();
+      } else {
+        toast("Failed to delete overall chat", "error");
+      }
+    } catch (err) {
+      console.error(err);
+      toast("Error deleting conversation", "error");
+    } finally {
+      setIsDeletingChat(false);
+      setShowDeleteChatConfirm(false);
+    }
+  };
+  const handleClearChat = async () => {
+    if (!chat || !token) return;
+    setIsClearingChat(true);
+    try {
+      const res = await fetch(`${API_URL}/api/chats/${chat.id}/messages`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (res.ok) {
+        setShowHeaderMenu(false);
+        setMessages([]);
+        toast("Chat messages cleared", "success");
+      } else {
+        toast("Failed to clear chat messages", "error");
+      }
+    } catch (err) {
+      console.error(err);
+      toast("Error clearing messages", "error");
+    } finally {
+      setIsClearingChat(false);
+      setShowClearConfirm(false);
+    }
+  };
+  // Listen to live message and typing events
+  useEffect(() => {
+    if (!socket || !chat) return;
+
+    const handleNewMessage = (data: { message: Message; conversationId: string }) => {
+      if (data.conversationId === chat.id) {
+        setMessages((prev) => [...prev, data.message]);
+        setIsRecipientTyping(false);
+        socket.emit("mark_read", { conversationId: chat.id });
+        // Play notification sound only for incoming messages (not our own)
+        if (data.message.senderId !== user?.id) {
+          playNotificationSound();
+        }
+      }
+    };
+
+    const handleMessagesRead = (data: { conversationId: string; userId: string }) => {
+      if (data.conversationId === chat.id) {
+        setMessages((prev) =>
+          prev.map((msg) => {
+            if (msg.senderId === user?.id && data.userId !== user?.id) {
+              const updatedReceipts = msg.receipts
+                ? msg.receipts.map((r: any) =>
+                    r.userId === data.userId ? { ...r, status: "READ" } : r
+                  )
+                : [{ userId: data.userId, status: "READ" }];
+
+              const hasReadReceipt = updatedReceipts.some(
+                (r: any) => r.userId === data.userId && r.status === "READ"
+              );
+              if (!hasReadReceipt) {
+                updatedReceipts.push({ userId: data.userId, status: "READ" });
+              }
+
+              return { ...msg, receipts: updatedReceipts };
+            }
+            return msg;
+          })
+        );
+      }
+    };
+
+    const handleUserTyping = (data: {
+      conversationId: string;
+      userId: string;
+      username: string;
+      isTyping: boolean;
+    }) => {
+      if (data.conversationId === chat.id && data.userId !== user?.id) {
+        setTypingUsername(data.username);
+        setIsRecipientTyping(data.isTyping);
+      }
+    };
+
+    const handleMessageEdited = (data: { message: Message; conversationId: string }) => {
+      if (data.conversationId === chat.id) {
+        setMessages((prev) =>
+          prev.map((msg) => (msg.id === data.message.id ? data.message : msg))
+        );
+      }
+    };
+
+    const handleMessageDeleted = (data: { messageId: string; conversationId: string }) => {
+      if (data.conversationId === chat.id) {
+        setMessages((prev) => prev.filter((msg) => msg.id !== data.messageId));
+      }
+    };
+
+    const handleMessageDeletedForMe = (data: { messageId: string; conversationId: string }) => {
+      if (data.conversationId === chat.id) {
+        setMessages((prev) => prev.filter((msg) => msg.id !== data.messageId));
+      }
+    };
+
+    const handleChatCleared = (data: { conversationId: string }) => {
+      if (data.conversationId === chat.id) {
+        setMessages([]);
+      }
+    };
+
+    socket.on("new_message", handleNewMessage);
+    socket.on("messages_read", handleMessagesRead);
+    socket.on("user_typing", handleUserTyping);
+    socket.on("message_edited", handleMessageEdited);
+    socket.on("message_deleted", handleMessageDeleted);
+    socket.on("message_deleted_for_me", handleMessageDeletedForMe);
+    socket.on("chat_cleared", handleChatCleared);
+
+    return () => {
+      socket.off("new_message", handleNewMessage);
+      socket.off("messages_read", handleMessagesRead);
+      socket.off("user_typing", handleUserTyping);
+      socket.off("message_edited", handleMessageEdited);
+      socket.off("message_deleted", handleMessageDeleted);
+      socket.off("message_deleted_for_me", handleMessageDeletedForMe);
+      socket.off("chat_cleared", handleChatCleared);
+    };
+  }, [socket, chat, user]);
+
+  const toggleMessageSelection = (messageId: string) => {
+    setSelectedMessageIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(messageId)) {
+        next.delete(messageId);
+      } else {
+        next.add(messageId);
+      }
+      return next;
+    });
+  };
+
+  const handleDeleteSelected = async () => {
+    if (!socket || !chat || selectedMessageIds.size === 0) return;
+    
+    // We will delete for me for all selected messages
+    for (const msgId of selectedMessageIds) {
+      socket.emit("delete_message", {
+        messageId: msgId,
+        deleteType: "me",
+      });
+    }
+
+    setIsSelectionMode(false);
+    setSelectedMessageIds(new Set());
+    toast("Selected messages deleted.", "success");
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInputValue(e.target.value);
+
+    if (!socket || !chat) return;
+
+    // Emit typing status
+    socket.emit("typing", { conversationId: chat.id, isTyping: true });
+
+    // Debounce to emit isTyping: false
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    typingTimeoutRef.current = setTimeout(() => {
+      socket.emit("typing", { conversationId: chat.id, isTyping: false });
+    }, 1500);
+  };
+
+  const handleSendMessage = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inputValue.trim() || !socket || !chat) return;
+
+    if (editingMessage) {
+      // Send Edit event
+      socket.emit("edit_message", {
+        messageId: editingMessage.id,
+        content: inputValue.trim(),
+      });
+      setEditingMessage(null);
+    } else {
+      // Send regular message or reply
+      socket.emit("send_message", {
+        conversationId: chat.id,
+        content: inputValue.trim(),
+        parentMessageId: replyingToMessage?.id || undefined,
+      });
+      setReplyingToMessage(null);
+    }
+
+    // Clear typing timeout and emit stopped typing
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+    socket.emit("typing", { conversationId: chat.id, isTyping: false });
+
+    setInputValue("");
+  };
+
+  const handleEditClick = (msg: Message) => {
+    setEditingMessage(msg);
+    setReplyingToMessage(null);
+    setInputValue(msg.content);
+  };
+
+  const handleDeleteClick = (msg: Message) => {
+    setDeleteConfirmMessage(msg);
+  };
+
+  const handleToggleBlock = async (targetUserId: string) => {
+    if (!token) return;
+    const isBlocked = blockedIds.includes(targetUserId);
+    const method = isBlocked ? "DELETE" : "POST";
+    try {
+      const res = await fetch(`${API_URL}/api/auth/block/${targetUserId}`, {
+        method,
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      if (res.ok) {
+        if (isBlocked) {
+          setBlockedIds(prev => prev.filter(id => id !== targetUserId));
+          toast("User unblocked", "success");
+        } else {
+          setBlockedIds(prev => [...prev, targetUserId]);
+          toast("User blocked", "success");
+        }
+      } else {
+        toast("Failed to update block status", "error");
+      }
+    } catch (e) {
+      console.error(e);
+      toast("Error blocking/unblocking user", "error");
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0];
+    if (!selectedFile || !socket || !chat || !token) return;
+
+    setIsUploadingFile(true);
+
+    const formData = new FormData();
+    formData.append("file", selectedFile);
+
+    try {
+      const res = await fetch(`${API_URL}/api/chats/upload`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        let mediaType: "IMAGE" | "VIDEO" | "FILE" | "AUDIO" = "FILE";
+        if (data.fileType.startsWith("image/")) mediaType = "IMAGE";
+        else if (data.fileType.startsWith("video/")) mediaType = "VIDEO";
+        else if (data.fileType.startsWith("audio/")) mediaType = "AUDIO";
+
+        socket.emit("send_message", {
+          conversationId: chat.id,
+          content: "",
+          mediaUrl: data.fileUrl,
+          mediaType,
+        });
+      } else {
+        toast("File upload failed. Please try again.", "error");
+      }
+    } catch (err) {
+      console.error("Upload error:", err);
+      toast("Error uploading file.", "error");
+    } finally {
+      setIsUploadingFile(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const uploadMediaData = async (blob: Blob, fileType: "IMAGE" | "AUDIO") => {
+    if (!socket || !chat || !token) return;
+    const formData = new FormData();
+    const ext = fileType === "IMAGE" ? "png" : "webm";
+    const filename = `capture_${Date.now()}.${ext}`;
+    formData.append("file", blob, filename);
+
+    try {
+      const res = await fetch(`${API_URL}/api/chats/upload`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        socket.emit("send_message", {
+          conversationId: chat.id,
+          content: "",
+          mediaUrl: data.fileUrl,
+          mediaType: fileType,
+        });
+      } else {
+        toast(`${fileType} upload failed.`, "error");
+      }
+    } catch (err) {
+      console.error(`${fileType} upload error:`, err);
+      toast(`Error uploading ${fileType.toLowerCase()}.`, "error");
+    }
+  };
+
+  // Camera Handlers
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      cameraStreamRef.current = stream;
+      setShowCamera(true);
+    } catch (err) {
+      console.error("Camera access denied:", err);
+      toast("Could not access camera. Please check permissions.", "error");
+    }
+  };
+
+  const stopCamera = () => {
+    if (cameraStreamRef.current) {
+      cameraStreamRef.current.getTracks().forEach(track => track.stop());
+      cameraStreamRef.current = null;
+    }
+    setShowCamera(false);
+  };
+
+  const capturePhoto = () => {
+    if (videoRef.current) {
+      const video = videoRef.current;
+      
+      if (video.videoWidth === 0) {
+        toast("Camera not ready. Please wait a second and try again.", "warning");
+        return;
+      }
+      
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => {
+          if (blob) {
+            setCapturedBlob(blob);
+            setCapturedPreviewUrl(URL.createObjectURL(blob));
+            setShowCameraPreview(true);
+            stopCamera();
+          } else {
+            toast("Failed to capture image. Please try again.", "error");
+          }
+        }, "image/png");
+      }
+    }
+  };
+
+  // Voice Recording Handlers
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        uploadMediaData(audioBlob, "AUDIO");
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordingDuration(0);
+      
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingDuration((prev) => prev + 1);
+      }, 1000);
+    } catch (err) {
+      console.error("Microphone access denied:", err);
+      toast("Could not access microphone. Please check permissions.", "error");
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+      }
+    }
+  };
+
+  const onEmojiClick = (emojiData: EmojiClickData) => {
+    setInputValue((prev) => prev + emojiData.emoji);
+  };
+
+  const formatMessageTime = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  };
+
+  const formatLastSeen = (dateString: string) => {
+    try {
+      const date = new Date(dateString);
+      const now = new Date();
+      const diffMs = now.getTime() - date.getTime();
+      const diffMins = Math.floor(diffMs / 60000);
+      const isToday = date.toDateString() === now.toDateString();
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const isYesterday = date.toDateString() === yesterday.toDateString();
+
+      const timeStr = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+      if (isToday) return `today at ${timeStr}`;
+      if (isYesterday) return `yesterday at ${timeStr}`;
+
+      return (
+        date.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }) +
+        " at " +
+        timeStr
+      );
+    } catch (e) {
+      return "offline";
+    }
+  };
+
+  if (!chat) {
+    return (
+      <div className="hidden flex-1 flex-col items-center justify-center bg-[var(--theme-bg-chat)] p-8 text-center sm:flex transition-all duration-300">
+        <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-[var(--theme-bg-sidebar-search)] border border-[var(--theme-border-color)] text-[var(--theme-text-secondary)] shadow-inner mb-6 animate-pulse">
+          <Send className="h-8 w-8" />
+        </div>
+        <h3 className="text-xl font-bold text-[var(--theme-text-primary)] mb-2">
+          {theme.startsWith("aqua") ? "DOLSYX Chat" : "DOLSYX Messenger"}
+        </h3>
+        <p className="text-[var(--theme-text-secondary)] max-w-sm text-sm">
+          Select an active chat from the sidebar or search for users to start a new real-time
+          conversation.
+        </p>
+      </div>
+    );
+  }
+
+  const isOnline = chat.recipient ? onlineUsers.includes(chat.recipient.id) : false;
+
+  return (
+    <div className="flex h-full flex-col bg-[var(--theme-bg-app)] relative w-full overflow-hidden">
+      {/* Wallpaper rendering logic */}
+      {(() => {
+        const wp = CHAT_WALLPAPERS.find(w => w.id === selectedWallpaper) || customWallpapers.find(w => w.id === selectedWallpaper);
+        if (!wp || wp.id === "default") {
+          return <div className="aqua-wallpaper z-0" />;
+        }
+        if (wp.type === "image") {
+          return (
+            <div 
+              className="absolute inset-0 pointer-events-none opacity-50 z-0"
+              style={{ 
+                backgroundImage: `url(${wp.value})`, 
+                backgroundSize: "cover",
+                backgroundPosition: "center",
+                backgroundAttachment: "fixed" 
+              }} 
+            />
+          );
+        }
+        if (wp.type === "css") {
+          return (
+            <div 
+              className="absolute inset-0 pointer-events-none opacity-40 z-0"
+              style={{ background: wp.value }} 
+            />
+          );
+        }
+      })()}
+
+      {/* Header */}
+      <div className="flex h-[72px] shrink-0 items-center justify-between border-b border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)]/80 backdrop-blur-md px-4 sm:px-6 relative z-30">
+        <div className="flex items-center gap-4 min-w-0">
+          <button
+            onClick={onBack}
+            className="flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/55 text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] sm:hidden transition-all duration-200 cursor-pointer"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+
+          {/* Clickable avatar + name → opens profile */}
+          <button
+            onClick={() => !chat.isGroup && setProfileUser(chat.recipient)}
+            className={`flex items-center gap-3 min-w-0 text-left ${!chat.isGroup ? "cursor-pointer hover:opacity-80 transition-opacity" : "cursor-default"}`}
+            title={chat.isGroup ? undefined : "View profile"}
+          >
+            <div className="relative shrink-0">
+            <img
+                src={getAvatarUrl(chat.avatarUrl, chat.name)}
+                alt={chat.name}
+                className="h-10 w-10 rounded-full border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)]"
+              />
+              {isOnline && (
+                <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-[var(--theme-bg-container)] bg-green-500 shadow-md animate-pulse" />
+              )}
+            </div>
+
+            <div className="min-w-0">
+              <h4 className="text-sm font-bold truncate text-[var(--theme-text-primary)]">{chat.name}</h4>
+              <p className="text-[10px] text-[var(--theme-text-secondary)] font-medium flex items-center gap-1">
+                {isRecipientTyping ? (
+                  <span className="text-[var(--theme-accent)] font-bold animate-pulse">
+                    {chat.isGroup ? `${typingUsername} is typing...` : "typing..."}
+                  </span>
+                ) : chat.isGroup ? (
+                  <span>{chat.participants?.length || 2} members</span>
+                ) : isOnline ? (
+                  <span className="text-green-400 font-semibold flex items-center gap-1">
+                    Online
+                  </span>
+                ) : chat.recipient && chat.recipient.lastSeen ? (
+                  <span>Last seen {formatLastSeen(chat.recipient.lastSeen)}</span>
+                ) : (
+                  <span>Offline</span>
+                )}
+              </p>
+            </div>
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {/* Productivity workspace toggle button */}
+          <button
+            onClick={onToggleProductivity}
+            className={`flex h-9 w-9 items-center justify-center rounded-xl border transition-all cursor-pointer ${
+              isProductivityOpen
+                ? "border-[var(--theme-accent)] bg-[var(--theme-accent)]/10 text-[var(--theme-accent)] shadow-[0_0_15px_rgba(var(--theme-accent),0.15)]"
+                : "border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/55 text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]"
+            }`}
+            title="Toggle Productivity workspace"
+          >
+            <CheckSquare className="h-4 w-4" />
+          </button>
+          {chat && !chat.isGroup && onStartCall && (
+            <>
+              <button
+                onClick={() => onStartCall("audio")}
+                className="flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/55 text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-all cursor-pointer"
+                title="Voice Call"
+              >
+                <Phone className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => onStartCall("video")}
+                className="flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/55 text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-all cursor-pointer"
+                title="Video Call"
+              >
+                <Video className="h-4 w-4" />
+              </button>
+            </>
+          )}
+          {!chat.isGroup && (
+            <button
+              onClick={() => setProfileUser(chat.recipient)}
+              className="flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/55 text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-all cursor-pointer"
+              title="View profile"
+            >
+              <Info className="h-4 w-4" />
+            </button>
+          )}
+          
+          <div className="relative" ref={headerMenuRef}>
+            <button
+              onClick={() => setShowHeaderMenu((v) => !v)}
+              className={`flex h-9 w-9 items-center justify-center rounded-xl border transition-all cursor-pointer ${
+                showHeaderMenu
+                  ? "border-[var(--theme-accent)] bg-[var(--theme-accent)]/10 text-[var(--theme-accent)]"
+                  : "border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/55 text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]"
+              }`}
+              title="More Options"
+            >
+              <MoreVertical className="h-4 w-4" />
+            </button>
+
+            {showHeaderMenu && (
+              <div className="absolute right-0 top-11 z-50 w-44 rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] p-1.5 shadow-2xl animate-fade-in text-left">
+                {!chat.isGroup && (
+                  <button
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      setProfileUser(chat.recipient);
+                      setShowHeaderMenu(false);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-colors cursor-pointer"
+                  >
+                    <User className="h-3.5 w-3.5" />
+                    View Profile
+                  </button>
+                )}
+                <button
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    setIsSelectionMode(true);
+                    setSelectedMessageIds(new Set());
+                    setShowHeaderMenu(false);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-colors cursor-pointer"
+                >
+                  <CheckSquare className="h-3.5 w-3.5" />
+                  Select Messages
+                </button>
+                <button
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    setShowWallpaperPicker(true);
+                    setShowHeaderMenu(false);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-colors cursor-pointer"
+                >
+                  <ImageIcon className="h-3.5 w-3.5" />
+                  Chat Wallpaper
+                </button>
+                <button
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    setShowHeaderMenu(false);
+                    setShowClearConfirm(true);
+                  }}
+                  disabled={isClearingChat}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-amber-500 hover:bg-amber-500/10 hover:text-amber-400 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  {isClearingChat ? "Clearing..." : "Clear Chat"}
+                </button>
+                <button
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    setShowHeaderMenu(false);
+                    setShowDeleteChatConfirm(true);
+                  }}
+                  disabled={isDeletingChat}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  {isDeletingChat ? "Deleting..." : "Delete Chat"}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Messages Scroll Area */}
+      <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 relative z-10">
+        {messages.length === 0 ? (
+          <div className="flex flex-col items-center justify-center text-center h-full py-12 px-4 space-y-3 relative z-10">
+            <Smile className="h-8 w-8 text-[var(--theme-text-secondary)]/50 animate-bounce" />
+            <p className="text-sm text-[var(--theme-text-primary)]">Say hello!</p>
+            <p className="text-xs text-[var(--theme-text-secondary)]/60">
+              Start the conversation by sending a message below.
+            </p>
+          </div>
+        ) : (
+          messages.map((msg) => {
+            const isMe = msg.senderId === user?.id;
+            const isMsgDeleted = !!msg.isDeleted;
+            const isMsgEdited = !!msg.isEdited;
+            const emojiOnly = !msg.mediaUrl && !isMsgDeleted && isOnlyEmojis(msg.content);
+
+            const isSelected = selectedMessageIds.has(msg.id);
+            return (
+              <div
+                key={msg.id}
+                onMouseEnter={() => !isMsgDeleted && setHoveredMessageId(msg.id)}
+                onMouseLeave={() => setHoveredMessageId(null)}
+                onClick={() => isSelectionMode && toggleMessageSelection(msg.id)}
+                className={`group flex items-end gap-3 max-w-[85%] sm:max-w-[70%] relative z-10 transition-all duration-200 ${
+                  isSelectionMode ? "cursor-pointer hover:bg-white/5 p-1 rounded-xl" : ""
+                } ${
+                  isMe ? "ml-auto flex-row-reverse" : "mr-auto"
+                }`}
+              >
+                {isSelectionMode && (
+                  <div className="shrink-0 flex items-center justify-center h-8 w-8">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      readOnly
+                      className="h-4.5 w-4.5 rounded-md border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] text-[var(--theme-accent)] focus:ring-[var(--theme-accent)] transition-all cursor-pointer"
+                    />
+                  </div>
+                )}
+                {!isMe && (
+                  <button
+                    onClick={() => setProfileUser(msg.sender)}
+                    className="shrink-0 rounded-full cursor-pointer hover:opacity-80 transition-opacity"
+                    title={`View ${msg.sender.username}'s profile`}
+                  >
+                    <img
+                      src={getAvatarUrl(msg.sender.avatarUrl, msg.sender.username)}
+                      alt={msg.sender.username}
+                      className="h-8 w-8 rounded-full border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)]"
+                    />
+                  </button>
+                )}
+                <div className="flex flex-col relative">
+                  {/* Quoted parent message (replies) */}
+                  {msg.parentMessage && !isMsgDeleted && (
+                    <div className="rounded-lg bg-[var(--theme-bg-sidebar-search)]/80 border-l-2 border-[var(--theme-accent)] px-3 py-1.5 text-[11px] text-[var(--theme-text-secondary)] mb-1 select-none pointer-events-none max-w-sm truncate">
+                      <span className="font-bold text-[var(--theme-accent)] text-[9px] block">
+                        {msg.parentMessage.sender.username}
+                      </span>
+                      {msg.parentMessage.content}
+                    </div>
+                  )}
+
+                  {/* Message bubble depending on mediaType */}
+                  {isMsgDeleted ? (
+                    <div
+                      className={`rounded-2xl px-4 py-2 text-sm italic opacity-60 bg-zinc-900 border border-zinc-800 text-zinc-500 relative`}
+                    >
+                      <TwemojiText text="This message was deleted" />
+                    </div>
+                  ) : msg.mediaType === "STICKER" ? (
+                    <div className="relative py-1 select-none">
+                      <img
+                        src={msg.mediaUrl || ""}
+                        alt="Sticker"
+                        className="w-28 h-28 object-contain transition-transform duration-200 hover:scale-110"
+                      />
+                    </div>
+                  ) : msg.mediaType === "CALL_LOG" ? (
+                    <CallLogMessage msg={msg} isMe={isMe} />
+                  ) : msg.mediaType === "IMAGE" ? (
+                    <div className="flex flex-col space-y-1">
+                      <div className="max-w-xs rounded-2xl overflow-hidden border border-zinc-800 bg-zinc-900 shadow-md">
+                        <img
+                          src={msg.mediaUrl || ""}
+                          alt={msg.content || "Image attachment"}
+                          className="w-full max-h-60 object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                          onClick={() => window.open(msg.mediaUrl || "", "_blank")}
+                        />
+                      </div>
+                      {msg.content && msg.content !== msg.id && (
+                        <div
+                          className={`rounded-2xl px-4 py-2 text-sm shadow-md ${
+                            isMe
+                              ? "rounded-br-none bg-gradient-to-tr from-violet-600 to-indigo-600 text-white"
+                              : "rounded-bl-none bg-zinc-900 border border-zinc-800/80 text-zinc-100"
+                          }`}
+                        >
+                          {msg.content}
+                        </div>
+                      )}
+                    </div>
+                  ) : msg.mediaType === "VIDEO" ? (
+                    <div className="flex flex-col space-y-1">
+                      <div className="max-w-xs rounded-2xl overflow-hidden border border-zinc-800 bg-black shadow-md">
+                        <video
+                          src={msg.mediaUrl || ""}
+                          controls
+                          preload="metadata"
+                          playsInline
+                          className="w-full max-h-72 object-contain bg-black rounded-2xl"
+                          style={{ display: "block" }}
+                          onError={(e) => {
+                            console.error("Video error:", e);
+                          }}
+                        >
+                          <source src={msg.mediaUrl || ""} />
+                          Your browser does not support video playback.
+                        </video>
+                      </div>
+                      {msg.content && msg.content !== msg.id && (
+                        <div
+                          className={`rounded-2xl px-4 py-2 text-sm shadow-md ${
+                            isMe
+                              ? "rounded-br-none bg-gradient-to-tr from-violet-600 to-indigo-600 text-white"
+                              : "rounded-bl-none bg-zinc-900 border border-zinc-800/80 text-zinc-100"
+                          }`}
+                        >
+                          {msg.content}
+                        </div>
+                      )}
+                    </div>
+                  ) : msg.mediaType === "AUDIO" ? (
+                    <div className={`flex flex-col space-y-1 max-w-xs`}>
+                      <AudioMessage msg={msg} isMe={isMe} theme={theme} />
+                      {msg.content && msg.content !== msg.id && (
+                        <div className={`text-[10px] ${isMe ? "text-right text-white/60" : "text-zinc-500"} truncate`}>
+                          {msg.content}
+                        </div>
+                      )}
+                    </div>
+                  ) : msg.mediaType === "FILE" ? (
+                    <div className="flex items-center gap-3 max-w-xs rounded-2xl border border-zinc-800 bg-zinc-900/60 p-3 shadow-md">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-850 text-violet-400">
+                        <FileIcon className="h-4.5 w-4.5" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-semibold text-white truncate">
+                          {msg.content || "Attachment"}
+                        </p>
+                        <p className="text-[9px] text-zinc-550">File Attachment</p>
+                      </div>
+                      <a
+                        href={msg.mediaUrl || ""}
+                        download={msg.content}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                      </a>
+                    </div>
+                  ) : emojiOnly ? (
+                    /* Big emoji-only messages */
+                    <div
+                      className={`select-none leading-none py-1 ${getEmojiAnimationClass(msg.content)}`}
+                      style={{ fontSize: msg.content.trim().length <= 2 ? "2rem" : msg.content.trim().length <= 5 ? "1.6rem" : "1.25rem" }}
+                    >
+                      <TwemojiText text={msg.content} />
+                    </div>
+                  ) : (
+                    <div
+                      className={`rounded-2xl px-4 py-2 text-sm transition-all relative premium-chat-bubble ${
+                        isMe
+                          ? theme.startsWith("aqua")
+                            ? "bubble-tail-me border border-[var(--theme-border-color)]/10"
+                            : "rounded-br-none border border-white/5"
+                          : theme.startsWith("aqua")
+                            ? "bubble-tail-them border border-black/5"
+                            : "rounded-bl-none border border-[var(--theme-border-color)]/60"
+                      }`}
+                      style={{
+                        background: isMe
+                          ? typeof (window as any) !== 'undefined'
+                            ? `var(--theme-bubble-sent)`
+                            : undefined
+                          : `var(--theme-bubble-received)`,
+                        color: isMe ? `var(--theme-bubble-sent-text)` : `var(--theme-bubble-received-text)`,
+                      }}
+                    >
+                      <TwemojiText text={msg.content} />
+                    </div>
+                  )}
+
+                  {/* Footer status text */}
+                  <div
+                    className={`flex items-center gap-1 mt-1 text-[9px] text-[var(--theme-text-secondary)]/70 font-medium ${
+                      isMe ? "justify-end mr-1" : "justify-start ml-1"
+                    }`}
+                  >
+                    <span>{formatMessageTime(msg.createdAt)}</span>
+                    {isMsgEdited && !isMsgDeleted && <span className="opacity-60">(edited)</span>}
+                    {isMe && !isMsgDeleted && (() => {
+                      const status = (() => {
+                        if (!msg.receipts || msg.receipts.length === 0) return "SENT";
+                        const otherReceipts = msg.receipts.filter((r: any) => r.userId !== user?.id);
+                        if (otherReceipts.length === 0) return "SENT";
+                        if (otherReceipts.some((r: any) => r.status === "READ")) return "READ";
+                        if (otherReceipts.some((r: any) => r.status === "DELIVERED")) return "DELIVERED";
+                        return "SENT";
+                      })();
+
+                      if (status === "READ") {
+                        return (
+                          <span className="ml-1 shrink-0 inline-flex items-center" title="Read">
+                            {/* Double blue ticks */}
+                            <svg width="18" height="11" viewBox="0 0 18 11" style={{ color: "#34b7f1" }}>
+                              <path d="M1 6l3.5 3.5L12 1" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                              <path d="M6 6l3.5 3.5L17 1" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                          </span>
+                        );
+                      } else if (status === "DELIVERED") {
+                        return (
+                          <span className="ml-1 shrink-0 inline-flex items-center" title="Delivered">
+                            {/* Double grey ticks */}
+                            <svg width="18" height="11" viewBox="0 0 18 11" className="text-[var(--theme-text-secondary)]/50">
+                              <path d="M1 6l3.5 3.5L12 1" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                              <path d="M6 6l3.5 3.5L17 1" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                          </span>
+                        );
+                      } else {
+                        return (
+                          <span className="ml-1 shrink-0 inline-flex items-center" title="Sent">
+                            {/* Single grey tick */}
+                            <svg width="12" height="11" viewBox="0 0 12 11" className="text-[var(--theme-text-secondary)]/50">
+                              <path d="M1 6l3.5 3.5L11 1" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                          </span>
+                        );
+                      }
+                    })()}
+                  </div>
+                </div>
+
+                {/* Hover Message Actions Overlay */}
+                {hoveredMessageId === msg.id && !isMsgDeleted && (
+                  <div
+                    className={`absolute bottom-8 flex gap-1 bg-zinc-950/90 border border-zinc-850 px-1.5 py-1 rounded-xl shadow-xl z-20 transition-all ${
+                      isMe ? "right-0" : "left-0"
+                    }`}
+                  >
+                    <button
+                      onClick={() => setReplyingToMessage(msg)}
+                      className="p-1 text-zinc-400 hover:text-white hover:bg-zinc-900 rounded-lg transition-colors cursor-pointer"
+                      title="Reply"
+                    >
+                      <CornerUpLeft className="h-3.5 w-3.5" />
+                    </button>
+                    {isMe && !msg.mediaUrl && (
+                      <button
+                        onClick={() => handleEditClick(msg)}
+                        className="p-1 text-zinc-400 hover:text-white hover:bg-zinc-900 rounded-lg transition-colors cursor-pointer"
+                        title="Edit"
+                      >
+                        <Edit3 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleDeleteClick(msg)}
+                      className="p-1 text-zinc-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer"
+                      title="Delete"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
+
+        {/* Typing Indicator Bubble */}
+        {isRecipientTyping && (
+          <div className="flex items-end gap-3 mr-auto animate-fade-in">
+            <div className="shrink-0 h-8 w-8 rounded-full border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] flex items-center justify-center">
+              <img
+                src={getAvatarUrl(chat.avatarUrl, chat.name)}
+                alt={chat.name}
+                className="h-8 w-8 rounded-full object-cover"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              {chat.isGroup && (
+                <span className="text-[10px] text-[var(--theme-text-secondary)] pl-1 font-semibold">{typingUsername}</span>
+              )}
+              <div className="flex items-center gap-1.5 rounded-2xl rounded-bl-sm bg-[var(--theme-bg-sidebar)] border border-[var(--theme-border-color)] px-4 py-3 shadow-sm">
+                <span className="h-2 w-2 rounded-full bg-[var(--theme-accent)] animate-bounce" style={{ animationDelay: "0ms" }} />
+                <span className="h-2 w-2 rounded-full bg-[var(--theme-accent)] animate-bounce" style={{ animationDelay: "150ms" }} />
+                <span className="h-2 w-2 rounded-full bg-[var(--theme-accent)] animate-bounce" style={{ animationDelay: "300ms" }} />
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Input Message Area */}
+      <div className="border-t border-[var(--theme-border-color)] bg-[var(--theme-bg-chat-input)] transition-colors duration-300 relative z-10">
+        {isSelectionMode ? (
+          <div className="flex items-center justify-between p-4 bg-[#0a1420] border-t border-[var(--theme-border-color)] animate-fade-in">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSelectionMode(false);
+                  setSelectedMessageIds(new Set());
+                }}
+                className="flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--theme-border-color)] hover:border-zinc-700 text-[var(--theme-text-secondary)] hover:text-white transition-all cursor-pointer"
+                title="Cancel selection"
+              >
+                <X className="h-4.5 w-4.5" />
+              </button>
+              <span className="text-sm font-bold text-white">
+                {selectedMessageIds.size} messages selected
+              </span>
+            </div>
+            <button
+              type="button"
+              disabled={selectedMessageIds.size === 0}
+              onClick={handleDeleteSelected}
+              className="flex items-center gap-2 rounded-xl bg-red-500 hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed px-4 py-2 text-xs font-bold text-white transition-all cursor-pointer"
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete for Me
+            </button>
+          </div>
+        ) : (
+          <>
+            {/* Reply Preview */}
+            {replyingToMessage && (
+              <div className="flex items-center justify-between border-b border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)]/50 px-5 py-2.5 text-xs">
+                <div className="flex-1 min-w-0 border-l-2 border-[var(--theme-accent)] pl-3">
+                  <span className="font-semibold text-[var(--theme-accent)] text-[10px] block">
+                    Replying to {replyingToMessage.sender.username}
+                  </span>
+                  <p className="text-[var(--theme-text-primary)] truncate">{replyingToMessage.content}</p>
+                </div>
+                <button
+                  onClick={() => setReplyingToMessage(null)}
+                  className="rounded-lg p-1 text-[var(--theme-text-secondary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] hover:text-[var(--theme-text-primary)] transition-colors cursor-pointer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            )}
+
+            {/* Edit Preview */}
+            {editingMessage && (
+              <div className="flex items-center justify-between border-b border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)]/50 px-5 py-2.5 text-xs">
+                <div className="flex-1 min-w-0 border-l-2 border-amber-500 pl-3">
+                  <span className="font-semibold text-amber-500 text-[10px] block">
+                    Editing message
+                  </span>
+                  <p className="text-[var(--theme-text-primary)] truncate">{editingMessage.content}</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setEditingMessage(null);
+                    setInputValue("");
+                  }}
+                  className="rounded-lg p-1 text-[var(--theme-text-secondary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] hover:text-[var(--theme-text-primary)] transition-colors cursor-pointer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            )}
+
+            {/* Hidden File Input - accepts images, videos, audio and documents */}
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileUpload}
+              className="hidden"
+              accept="image/*,video/*,audio/*,application/pdf,text/*,application/zip,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            />
+
+            {/* Form Input */}
+            {chat.recipient && blockedIds.includes(chat.recipient.id) ? (
+              <div className="p-4 text-center bg-red-950/10 border border-red-500/20 text-red-400 text-xs font-semibold rounded-xl flex items-center justify-center gap-2 m-2 sm:m-4">
+                <Ban className="h-4.5 w-4.5" />
+                <span>You have blocked this contact.</span>
+                <button
+                  type="button"
+                  onClick={() => handleToggleBlock(chat.recipient!.id)}
+                  className="underline font-bold text-[var(--theme-accent)] hover:opacity-80 transition-opacity ml-1 cursor-pointer"
+                >
+                  Unblock User
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleSendMessage} className="p-2 sm:p-4 relative animate-fade-in">
+                <div className="flex items-center gap-2 sm:gap-3">
+                  {/* File Upload Button */}
+                  <button
+                    type="button"
+                    disabled={isUploadingFile || isRecording}
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/55 text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-all duration-200 cursor-pointer disabled:opacity-50"
+                    title="Attach File"
+                  >
+                    {isUploadingFile ? (
+                      <Loader2 className="h-4 w-4 animate-spin text-[var(--theme-accent)]" />
+                    ) : (
+                      <Paperclip className="h-4 w-4" />
+                    )}
+                  </button>
+                  
+                  {/* Camera Button */}
+                  <button
+                    type="button"
+                    disabled={isRecording}
+                    onClick={startCamera}
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/55 text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-all duration-200 cursor-pointer disabled:opacity-50"
+                    title="Camera"
+                  >
+                    <Camera className="h-4 w-4" />
+                  </button>
+
+                  {/* Emoji Picker Button */}
+                  <div className="relative hidden sm:block" ref={emojiPickerRef}>
+                    <button
+                      type="button"
+                      disabled={isRecording}
+                      onClick={() => setShowEmojiPicker((v) => !v)}
+                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition-all duration-200 cursor-pointer ${
+                        showEmojiPicker
+                          ? "border-[var(--theme-accent)] text-[var(--theme-accent)] bg-[var(--theme-accent)]/10"
+                          : "border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/55 text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]"
+                      }`}
+                      title="Emoji"
+                    >
+                      <Smile className="h-4 w-4" />
+                    </button>
+
+                    {showEmojiPicker && (
+                      <div className="absolute bottom-14 left-0 z-50 shadow-2xl rounded-2xl overflow-hidden animate-fade-in">
+                        <EmojiPicker
+                          onEmojiClick={(emojiData) => {
+                            onEmojiClick(emojiData);
+                          }}
+                          theme={(theme === "aqua-light" ? "light" : "dark") as Theme}
+                          width={320}
+                          height={420}
+                          searchPlaceholder="Search emoji..."
+                          previewConfig={{ showPreview: false }}
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {isRecording ? (
+                    <div className="flex-1 flex items-center justify-between rounded-xl border border-red-500/50 bg-red-500/10 px-4 py-2.5">
+                      <div className="flex items-center gap-2 text-red-500 animate-pulse">
+                        <Mic className="h-4 w-4" />
+                        <span className="text-sm font-semibold text-red-400">
+                          {Math.floor(recordingDuration / 60)}:{(recordingDuration % 60).toString().padStart(2, '0')}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={stopRecording}
+                        className="rounded-lg bg-red-500 p-1 text-white hover:bg-red-650 cursor-pointer"
+                      >
+                        <Square className="h-4 w-4" fill="currentColor" />
+                      </button>
+                    </div>
+                  ) : (
+                    <input
+                      type="text"
+                      value={inputValue}
+                      onChange={handleInputChange}
+                      placeholder={editingMessage ? "Edit your message..." : "Type a message..."}
+                      className="flex-1 min-w-0 rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-chat-input-field)] px-3 sm:px-4 py-2.5 text-sm text-[var(--theme-text-primary)] placeholder-[var(--theme-text-secondary)]/40 focus:border-[var(--theme-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--theme-accent)] transition-all duration-200"
+                    />
+                  )}
+
+                  {!inputValue.trim() && !isRecording ? (
+                    <button
+                      type="button"
+                      onClick={startRecording}
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--theme-bg-sidebar-search)] border border-[var(--theme-border-color)] text-[var(--theme-accent)] hover:text-white hover:bg-[var(--theme-accent)] shadow-lg transition-all duration-200 cursor-pointer"
+                      title="Hold or Click to Record"
+                    >
+                      <Mic className="h-4 w-4" />
+                    </button>
+                  ) : (
+                    <button
+                      type="submit"
+                      disabled={isRecording || !inputValue.trim()}
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[var(--theme-accent-text)] shadow-lg hover:opacity-95 transition-all duration-200 cursor-pointer disabled:opacity-50 animate-fade-in"
+                      style={{
+                        background: "linear-gradient(to top right, #0097a7, #00d4ff)"
+                      }}
+                    >
+                      <Send className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+              </form>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Camera Modal */}
+      {showCamera && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-md p-4 animate-fade-in">
+          <div className="w-full max-w-2xl bg-[#020b16] rounded-2xl border border-[var(--theme-border-color)] overflow-hidden shadow-2xl">
+            <div className="p-4 border-b border-[var(--theme-border-color)] flex justify-between items-center bg-[#001428]">
+              <h3 className="text-white font-semibold flex items-center gap-2">
+                <Camera className="h-5 w-5 text-cyan-400" />
+                Capture Photo
+              </h3>
+              <button onClick={stopCamera} className="text-gray-400 hover:text-white bg-white/10 p-1.5 rounded-lg cursor-pointer">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="relative aspect-video bg-black flex items-center justify-center">
+              <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
+              <canvas ref={canvasRef} className="absolute inset-0 opacity-0 pointer-events-none" />
+            </div>
+            <div className="p-6 flex justify-center bg-[#001428]">
+              <button
+                type="button"
+                onClick={capturePhoto}
+                className="h-16 w-16 rounded-full border-4 border-cyan-500 bg-white hover:bg-gray-200 flex items-center justify-center cursor-pointer transition-transform hover:scale-105 active:scale-95 shadow-[0_0_20px_rgba(0,212,255,0.4)]"
+              >
+                <div className="h-12 w-12 rounded-full border-2 border-black" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Camera Capture Image Preview Modal */}
+      {showCameraPreview && (
+        <div className="fixed inset-0 z-[101] flex items-center justify-center bg-black/95 backdrop-blur-md p-4 animate-fade-in">
+          <div className="w-full max-w-2xl bg-[#020b16] rounded-2xl border border-[var(--theme-border-color)] overflow-hidden shadow-2xl">
+            <div className="p-4 border-b border-[var(--theme-border-color)] flex justify-between items-center bg-[#001428]">
+              <h3 className="text-white font-semibold">Preview Captured Photo</h3>
+              <button
+                onClick={() => {
+                  setShowCameraPreview(false);
+                  setCapturedBlob(null);
+                  setCapturedPreviewUrl("");
+                }}
+                className="text-gray-400 hover:text-white bg-white/10 p-1.5 rounded-lg cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="relative aspect-video bg-black flex items-center justify-center">
+              <img src={capturedPreviewUrl} alt="Preview Captured" className="w-full h-full object-contain" />
+            </div>
+            <div className="p-4 flex gap-3 bg-[#001428]">
+              <button
+                onClick={() => {
+                  setShowCameraPreview(false);
+                  setCapturedBlob(null);
+                  setCapturedPreviewUrl("");
+                  startCamera();
+                }}
+                className="flex-1 py-3 rounded-xl border border-[var(--theme-border-color)] hover:bg-[var(--theme-bg-sidebar-item-hover)] text-xs font-bold text-[var(--theme-text-secondary)] hover:text-white transition-all cursor-pointer"
+              >
+                Retake
+              </button>
+              <button
+                onClick={() => {
+                  if (capturedBlob) {
+                    uploadMediaData(capturedBlob, "IMAGE");
+                  }
+                  setShowCameraPreview(false);
+                  setCapturedBlob(null);
+                  setCapturedPreviewUrl("");
+                }}
+                className="flex-1 py-3 rounded-xl bg-[var(--theme-accent)] text-black text-xs font-bold transition-all cursor-pointer hover:opacity-90"
+              >
+                Send Photo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Hidden wallpaper upload input */}
+      <input
+        type="file"
+        ref={wallpaperUploadRef}
+        onChange={handleWallpaperUpload}
+        accept="image/*"
+        className="hidden"
+      />
+
+      {/* Wallpaper Picker Modal */}
+      {showWallpaperPicker && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="w-full max-w-2xl max-h-[85vh] flex flex-col rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] shadow-2xl overflow-hidden">
+            <div className="p-4 border-b border-[var(--theme-border-color)] flex justify-between items-center shrink-0">
+              <h3 className="text-[var(--theme-text-primary)] font-bold flex items-center gap-2">
+                <ImageIcon className="h-5 w-5 text-[var(--theme-accent)]" />
+                Chat Wallpaper
+              </h3>
+              <button onClick={() => setShowWallpaperPicker(false)} className="text-[var(--theme-text-secondary)] hover:text-white bg-white/5 p-1.5 rounded-lg cursor-pointer">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
+              {/* My Uploads section */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-xs font-bold text-[var(--theme-text-secondary)] uppercase tracking-wider">My Uploads</span>
+                  <button
+                    onClick={() => wallpaperUploadRef.current?.click()}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--theme-accent)]/15 border border-[var(--theme-accent)]/40 text-[var(--theme-accent)] text-xs font-semibold hover:bg-[var(--theme-accent)]/25 transition-all cursor-pointer"
+                  >
+                    <ImageIcon className="h-3.5 w-3.5" />
+                    Upload Image
+                  </button>
+                </div>
+                {customWallpapers.length === 0 ? (
+                  <button
+                    onClick={() => wallpaperUploadRef.current?.click()}
+                    className="w-full flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/50 p-8 text-[var(--theme-text-secondary)] hover:text-[var(--theme-accent)] transition-all cursor-pointer"
+                  >
+                    <ImageIcon className="h-8 w-8 opacity-50" />
+                    <span className="text-xs font-medium">Click to upload your own background</span>
+                    <span className="text-[10px] opacity-60">Supports JPG, PNG, WEBP, GIF</span>
+                  </button>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                    {customWallpapers.map((wp) => (
+                      <div key={wp.id} className="relative group">
+                        <button
+                          onClick={() => {
+                            setSelectedWallpaper(wp.id);
+                            if (typeof window !== "undefined") {
+                              localStorage.setItem("dolsyx_chat_wallpaper", wp.id);
+                            }
+                          }}
+                          className={`relative flex flex-col items-center gap-2 w-full cursor-pointer transition-all hover:scale-105 ${selectedWallpaper === wp.id ? 'ring-2 ring-[var(--theme-accent)] ring-offset-2 ring-offset-[var(--theme-bg-sidebar)] rounded-xl' : ''}`}
+                        >
+                          <div
+                            className="w-full aspect-[9/16] rounded-xl border border-[var(--theme-border-color)] shadow-md overflow-hidden relative"
+                            style={{
+                              backgroundImage: `url(${wp.value})`,
+                              backgroundSize: 'cover',
+                              backgroundPosition: 'center'
+                            }}
+                          >
+                            {selectedWallpaper === wp.id && (
+                              <div className="absolute top-2 right-2 h-6 w-6 rounded-full bg-[var(--theme-accent)] flex items-center justify-center text-black shadow-lg">
+                                <CheckSquare className="h-4 w-4" />
+                              </div>
+                            )}
+                          </div>
+                          <span className="text-xs font-medium text-[var(--theme-text-primary)] truncate w-full text-center px-1">{wp.name}</span>
+                        </button>
+                        {/* Delete button */}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDeleteCustomWallpaper(wp.id); }}
+                          className="absolute top-1 left-1 h-6 w-6 rounded-full bg-red-500/80 hover:bg-red-500 flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity shadow-lg cursor-pointer"
+                          title="Remove"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Built-in Wallpapers section */}
+              <div>
+                <span className="text-xs font-bold text-[var(--theme-text-secondary)] uppercase tracking-wider block mb-3">Built-in Themes</span>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                  {CHAT_WALLPAPERS.map((wp) => (
+                    <button
+                      key={wp.id}
+                      onClick={() => {
+                        setSelectedWallpaper(wp.id);
+                        if (typeof window !== "undefined") {
+                          localStorage.setItem("dolsyx_chat_wallpaper", wp.id);
+                        }
+                      }}
+                      className={`relative flex flex-col items-center gap-2 cursor-pointer transition-all hover:scale-105 ${selectedWallpaper === wp.id ? 'ring-2 ring-[var(--theme-accent)] ring-offset-2 ring-offset-[var(--theme-bg-sidebar)] rounded-xl' : ''}`}
+                    >
+                      <div 
+                        className="w-full aspect-[9/16] rounded-xl border border-[var(--theme-border-color)] shadow-md overflow-hidden relative"
+                        style={{
+                          background: wp.type === 'css' ? wp.value || 'var(--theme-bg-app)' : 'var(--theme-bg-app)',
+                          backgroundImage: wp.type === 'image' ? `url(${wp.value})` : 'none',
+                          backgroundSize: 'cover',
+                          backgroundPosition: 'center'
+                        }}
+                      >
+                        {wp.id === 'default' && (
+                          <div className="aqua-wallpaper" />
+                        )}
+                        {selectedWallpaper === wp.id && (
+                          <div className="absolute top-2 right-2 h-6 w-6 rounded-full bg-[var(--theme-accent)] flex items-center justify-center text-black shadow-lg">
+                            <CheckSquare className="h-4 w-4" />
+                          </div>
+                        )}
+                      </div>
+                      <span className="text-xs font-medium text-[var(--theme-text-primary)]">{wp.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="p-4 border-t border-[var(--theme-border-color)] shrink-0 flex justify-end">
+              <button onClick={() => setShowWallpaperPicker(false)} className="px-6 py-2 rounded-xl bg-[var(--theme-accent)] text-black font-bold cursor-pointer">
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal Overlay */}
+      {deleteConfirmMessage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
+        <div className="w-full max-w-sm rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] p-6 shadow-2xl space-y-4">
+            <h4 className="text-sm font-bold text-[var(--theme-text-primary)]">Delete Message?</h4>
+            <p className="text-xs text-[var(--theme-text-secondary)] leading-relaxed">
+              Would you like to delete this message only for yourself, or delete it for everyone in the conversation?
+            </p>
+            <div className="flex flex-col gap-2 pt-2">
+              {deleteConfirmMessage.senderId === user?.id && (
+                <button
+                  onClick={() => {
+                    if (socket) {
+                      socket.emit("delete_message", {
+                        messageId: deleteConfirmMessage.id,
+                        deleteType: "everyone",
+                      });
+                    }
+                    setDeleteConfirmMessage(null);
+                  }}
+                  className="w-full rounded-xl bg-red-500 hover:bg-red-600 py-2.5 text-xs font-bold text-white transition-all cursor-pointer"
+                >
+                  Delete for Everyone
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  if (socket) {
+                    socket.emit("delete_message", {
+                      messageId: deleteConfirmMessage.id,
+                      deleteType: "me",
+                    });
+                  }
+                  setDeleteConfirmMessage(null);
+                }}
+                className="w-full rounded-xl bg-[var(--theme-bg-sidebar-search)] hover:bg-[var(--theme-bg-sidebar-item-hover)] py-2.5 text-xs font-bold text-[var(--theme-text-primary)] border border-[var(--theme-border-color)] transition-all cursor-pointer"
+              >
+                Delete for Me
+              </button>
+              <button
+                onClick={() => setDeleteConfirmMessage(null)}
+                className="w-full py-2 text-xs text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Generic Profile View Modal */}
+      {profileUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="w-full max-w-sm rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] shadow-2xl overflow-hidden">
+            {/* Cover gradient - aqua */}
+            <div className="h-24 bg-gradient-to-br from-cyan-600 via-teal-500 to-cyan-800 relative">
+              <button
+                onClick={() => setProfileUser(null)}
+                className="absolute right-3 top-3 rounded-lg p-1.5 bg-black/30 text-white hover:bg-black/50 transition-colors cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Avatar overlapping cover */}
+            <div className="flex flex-col items-center -mt-12 px-6 pb-6 space-y-3">
+              <div className="relative">
+                <img
+                  src={getAvatarUrl(profileUser.avatarUrl, profileUser.username)}
+                  alt={profileUser.username}
+                  className="h-24 w-24 rounded-full border-4 border-[var(--theme-bg-sidebar)] bg-[var(--theme-bg-sidebar-search)] object-cover shadow-xl"
+                />
+                {onlineUsers.includes(profileUser.id) && (
+                  <span className="absolute bottom-1 right-1 h-4 w-4 rounded-full border-2 border-[var(--theme-bg-sidebar)] bg-green-500 shadow-md" />
+                )}
+              </div>
+
+              <div className="text-center space-y-1">
+                <h3 className="text-lg font-bold text-[var(--theme-text-primary)]">
+                  {profileUser.username}
+                </h3>
+                <p className="text-xs font-medium">
+                  {onlineUsers.includes(profileUser.id) ? (
+                    <span className="text-green-400 flex items-center justify-center gap-1">
+                      <span className="h-1.5 w-1.5 rounded-full bg-green-400 animate-pulse inline-block" />
+                      Online
+                    </span>
+                  ) : profileUser.lastSeen ? (
+                    <span className="text-[var(--theme-text-secondary)]">
+                      Last seen {formatLastSeen(profileUser.lastSeen)}
+                    </span>
+                  ) : (
+                    <span className="text-[var(--theme-text-secondary)]">Offline</span>
+                  )}
+                </p>
+              </div>
+
+              {/* About / Bio */}
+              <div className="w-full rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] p-3 text-center">
+                <p className="text-[10px] font-semibold text-[var(--theme-text-secondary)] mb-1 uppercase tracking-wider">About</p>
+                <p className="text-sm text-[var(--theme-text-primary)]">
+                  {profileUser.bio || "Hey there! I am using DOLSYX."}
+                </p>
+              </div>
+
+              {/* Contact info */}
+              <div className="w-full space-y-2">
+                {profileUser.email && (
+                  <div className="flex items-center gap-3 rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] px-3 py-2.5">
+                    <Mail className="h-4 w-4 text-[var(--theme-accent)] shrink-0" />
+                    <span className="text-xs text-[var(--theme-text-primary)] truncate">{profileUser.email}</span>
+                  </div>
+                )}
+                {profileUser.phoneNumber && (
+                  <div className="flex items-center gap-3 rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] px-3 py-2.5">
+                    <Phone className="h-4 w-4 text-[var(--theme-accent)] shrink-0" />
+                    <span className="text-xs text-[var(--theme-text-primary)]">{profileUser.phoneNumber}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Block/Unblock toggle button */}
+              {user?.id !== profileUser.id && (
+                <button
+                  type="button"
+                  onClick={() => handleToggleBlock(profileUser.id)}
+                  className={`w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-bold transition-all cursor-pointer border ${
+                    blockedIds.includes(profileUser.id)
+                      ? "border-emerald-500/30 hover:bg-emerald-500/10 text-emerald-400"
+                      : "border-red-500/30 hover:bg-red-500/10 text-red-400"
+                  }`}
+                >
+                  <Ban className="h-4 w-4" />
+                  {blockedIds.includes(profileUser.id) ? "Unblock User" : "Block User"}
+                </button>
+              )}
+
+              <button
+                onClick={() => setProfileUser(null)}
+                className="w-full rounded-xl border border-[var(--theme-border-color)] hover:bg-[var(--theme-bg-sidebar-item-hover)] py-2.5 text-xs font-bold text-[var(--theme-text-secondary)] transition-all cursor-pointer mt-1"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Clear Chat Confirmation Modal ──────────────────────────────── */}
+      {showClearConfirm && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-sm rounded-2xl border border-amber-500/20 bg-[var(--theme-bg-sidebar)] shadow-2xl shadow-amber-900/20 overflow-hidden">
+            {/* Icon header */}
+            <div className="flex flex-col items-center gap-3 px-6 pt-8 pb-4">
+              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-amber-500/10 border border-amber-500/20">
+                <Trash2 className="h-7 w-7 text-amber-400" />
+              </div>
+              <h3 className="text-base font-bold text-[var(--theme-text-primary)] text-center">Clear All Messages?</h3>
+              <p className="text-xs text-[var(--theme-text-secondary)] text-center leading-relaxed">
+                This will permanently delete all messages in this chat. This action <span className="font-bold text-amber-400">cannot be undone</span>.
+              </p>
+            </div>
+            {/* Divider */}
+            <div className="h-px bg-[var(--theme-border-color)] mx-6" />
+            {/* Actions */}
+            <div className="flex gap-3 p-5">
+              <button
+                onClick={() => setShowClearConfirm(false)}
+                className="flex-1 rounded-xl border border-[var(--theme-border-color)] py-2.5 text-sm font-semibold text-[var(--theme-text-secondary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] hover:text-[var(--theme-text-primary)] transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleClearChat}
+                disabled={isClearingChat}
+                className="flex-1 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-60 py-2.5 text-sm font-bold text-black transition-all cursor-pointer flex items-center justify-center gap-2"
+              >
+                {isClearingChat ? (
+                  <><Loader2 className="h-4 w-4 animate-spin" />Clearing...</>
+                ) : (
+                  <><Trash2 className="h-4 w-4" />Clear Chat</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete Chat Confirmation Modal ─────────────────────────────── */}
+      {showDeleteChatConfirm && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-sm rounded-2xl border border-red-500/20 bg-[var(--theme-bg-sidebar)] shadow-2xl shadow-red-900/20 overflow-hidden">
+            {/* Icon header */}
+            <div className="flex flex-col items-center gap-3 px-6 pt-8 pb-4">
+              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-red-500/10 border border-red-500/20">
+                <Trash2 className="h-7 w-7 text-red-400" />
+              </div>
+              <h3 className="text-base font-bold text-[var(--theme-text-primary)] text-center">Delete Conversation?</h3>
+              <p className="text-xs text-[var(--theme-text-secondary)] text-center leading-relaxed">
+                This will permanently delete this entire conversation including all messages. This action <span className="font-bold text-red-400">cannot be undone</span>.
+              </p>
+            </div>
+            {/* Divider */}
+            <div className="h-px bg-[var(--theme-border-color)] mx-6" />
+            {/* Actions */}
+            <div className="flex gap-3 p-5">
+              <button
+                onClick={() => setShowDeleteChatConfirm(false)}
+                className="flex-1 rounded-xl border border-[var(--theme-border-color)] py-2.5 text-sm font-semibold text-[var(--theme-text-secondary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] hover:text-[var(--theme-text-primary)] transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteChat}
+                disabled={isDeletingChat}
+                className="flex-1 rounded-xl bg-red-500 hover:bg-red-600 disabled:opacity-60 py-2.5 text-sm font-bold text-white transition-all cursor-pointer flex items-center justify-center gap-2"
+              >
+                {isDeletingChat ? (
+                  <><Loader2 className="h-4 w-4 animate-spin" />Deleting...</>
+                ) : (
+                  <><Trash2 className="h-4 w-4" />Delete Chat</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

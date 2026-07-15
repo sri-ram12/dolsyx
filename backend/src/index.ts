@@ -4,6 +4,7 @@ import { Server } from "socket.io";
 import cors from "cors";
 import dotenv from "dotenv";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import authRoutes from "./routes/auth.routes.js";
 import chatRoutes from "./routes/chat.routes.js";
@@ -81,14 +82,46 @@ if (IS_PRODUCTION) {
   app.use("/_next/static", express.static(nextStaticPath));
   app.use("/public", express.static(nextPublicPath));
 
+  // Helper to recursively find server.js inside Next.js standalone output
+  const findNextServerJs = (dir: string): string | null => {
+    try {
+      const files = fs.readdirSync(dir);
+      for (const file of files) {
+        const fullPath = path.join(dir, file);
+        const stat = fs.statSync(fullPath);
+        if (stat.isDirectory()) {
+          if (file === "node_modules") continue;
+          const found = findNextServerJs(fullPath);
+          if (found) return found;
+        } else if (file === "server.js") {
+          return fullPath;
+        }
+      }
+    } catch (e) {
+      console.error(`Error scanning directory ${dir}:`, e);
+    }
+    return null;
+  };
+
   // Serve all other routes via Next.js standalone server
   app.all("*path", async (req, res) => {
     try {
-      const { default: nextServer } = await import(
-        path.join(nextStandalonePath, "server.js")
-      ) as { default: (req: express.Request, res: express.Response) => void };
+      const serverJsPath = findNextServerJs(nextStandalonePath);
+      if (!serverJsPath) {
+        console.error(`[Monolith] Could not locate server.js under ${nextStandalonePath}`);
+        res.status(500).send("Frontend server.js not found");
+        return;
+      }
+      
+      // Convert Windows path to file URL to make it compatible with ESM import
+      const fileUrl = new URL(`file://${serverJsPath.replace(/\\/g, "/")}`).href;
+      
+      const { default: nextServer } = await import(fileUrl) as {
+        default: (req: express.Request, res: express.Response) => void;
+      };
       nextServer(req, res);
-    } catch {
+    } catch (err) {
+      console.error("[Monolith] Next.js frontend route handler error:", err);
       res.status(500).send("Frontend server error");
     }
   });

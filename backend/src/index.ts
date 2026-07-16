@@ -121,9 +121,36 @@ if (IS_PRODUCTION) {
     app.use("/", express.static(nextPublicPath));
 
     // Proxy all other requests to the Next.js child process
+    let nextIsReady = false;
+    const waitForNext = (port: number, retries = 20, delay = 1000): Promise<void> =>
+      new Promise((resolve) => {
+        const http_mod = require("http");
+        const attempt = () => {
+          const req = http_mod.request({ hostname: "127.0.0.1", port, path: "/", method: "HEAD" }, () => {
+            nextIsReady = true;
+            resolve();
+          });
+          req.on("error", () => {
+            if (retries-- > 0) setTimeout(attempt, delay);
+            else { nextIsReady = true; resolve(); } // give up waiting, let proxy handle errors
+          });
+          req.end();
+        };
+        attempt();
+      });
+
     const nextProxy = createProxyMiddleware({
       target: `http://127.0.0.1:${NEXT_PORT}`,
       changeOrigin: true,
+      on: {
+        error: (err: Error, req: any, res: any) => {
+          console.error("[Monolith] Proxy error:", err.message);
+          if (!res.headersSent) {
+            res.writeHead(502, { "Content-Type": "text/plain" });
+          }
+          res.end("Service starting up, please refresh in a moment.");
+        },
+      },
     } as any);
 
     // Only proxy non-API routes to Next.js
@@ -138,6 +165,11 @@ if (IS_PRODUCTION) {
         return next();
       }
       return (nextProxy as any)(req, res, next);
+    });
+
+    // Start waiting for Next.js in background (non-blocking)
+    waitForNext(NEXT_PORT).then(() => {
+      console.log(`[Monolith] Next.js frontend is ready on port ${NEXT_PORT}`);
     });
   }
 }

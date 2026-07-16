@@ -107,7 +107,7 @@ if (IS_PRODUCTION) {
     // Spawn the Next.js standalone server on its own port
     const nextProcess = spawn(process.execPath, [serverJsPath], {
       cwd: serverDir,
-      env: { ...process.env, PORT: String(NEXT_PORT), NODE_ENV: "production" },
+      env: { ...process.env, PORT: String(NEXT_PORT), HOSTNAME: "127.0.0.1", NODE_ENV: "production" },
       stdio: "inherit",
     });
     nextProcess.on("error", (err: Error) => console.error("[Monolith] Next.js process error:", err));

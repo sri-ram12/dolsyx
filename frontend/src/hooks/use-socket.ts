@@ -23,8 +23,6 @@ export const useSocket = (token: string | null) => {
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
     });
-
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSocket(newSocket);
 
     newSocket.on("connect", () => {

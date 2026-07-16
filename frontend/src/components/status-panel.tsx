@@ -117,6 +117,15 @@ export default function StatusPanel({ onClose, onNewStatus }: StatusPanelProps) 
     };
   }, [socket]);
 
+  const goNextStory = () => {
+    if (!viewingGroup) return;
+    if (viewingIndex < viewingGroup.statuses.length - 1) {
+      setViewingIndex((i) => i + 1);
+    } else {
+      setViewingGroup(null);
+    }
+  };
+
   // Story progress timer
   useEffect(() => {
     if (!viewingGroup) return;
@@ -149,20 +158,12 @@ export default function StatusPanel({ onClose, onNewStatus }: StatusPanelProps) 
     return () => {
       if (progressTimer.current) clearInterval(progressTimer.current);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewingGroup, viewingIndex]);
 
   const openGroup = (group: StatusGroup) => {
     setViewingGroup(group);
     setViewingIndex(0);
-  };
-
-  const goNextStory = () => {
-    if (!viewingGroup) return;
-    if (viewingIndex < viewingGroup.statuses.length - 1) {
-      setViewingIndex((i) => i + 1);
-    } else {
-      setViewingGroup(null);
-    }
   };
 
   const goPrevStory = () => {

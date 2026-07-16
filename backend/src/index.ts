@@ -121,20 +121,18 @@ if (IS_PRODUCTION) {
     app.use("/", express.static(nextPublicPath));
 
     // Proxy all other requests to the Next.js child process
-    let nextIsReady = false;
     const waitForNext = (port: number, retries = 20, delay = 1000): Promise<void> =>
       new Promise((resolve) => {
-        const http_mod = require("http");
+        // Use the already-imported `http` (ESM — no require() allowed)
         const attempt = () => {
-          const req = http_mod.request({ hostname: "127.0.0.1", port, path: "/", method: "HEAD" }, () => {
-            nextIsReady = true;
+          const probe = http.request({ hostname: "127.0.0.1", port, path: "/", method: "HEAD" }, () => {
             resolve();
           });
-          req.on("error", () => {
+          probe.on("error", () => {
             if (retries-- > 0) setTimeout(attempt, delay);
-            else { nextIsReady = true; resolve(); } // give up waiting, let proxy handle errors
+            else resolve(); // give up waiting, let proxy handle errors
           });
-          req.end();
+          probe.end();
         };
         attempt();
       });

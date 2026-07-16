@@ -47,6 +47,9 @@ class EmailService {
               user,
               pass,
             },
+            connectionTimeout: 3000,
+            greetingTimeout: 3000,
+            socketTimeout: 3000,
           }
         : {
             host,
@@ -56,6 +59,9 @@ class EmailService {
               user,
               pass,
             },
+            connectionTimeout: 3000,
+            greetingTimeout: 3000,
+            socketTimeout: 3000,
           };
       this.transporter = nodemailer.createTransport(transportConfig);
       return this.transporter;

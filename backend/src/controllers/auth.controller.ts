@@ -168,6 +168,7 @@ export const sendOtp = async (req: Request, res: Response): Promise<void> => {
       console.warn(`[OTP] Failed to deliver email to ${trimmedEmail}, fallback to console display.`);
       res.status(200).json({
         message: `OTP email delivery failed. For demo purposes, use code: ${code}`,
+        otpCode: code,
       });
       return;
     }

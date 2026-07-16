@@ -98,10 +98,15 @@ export default function LoginPage() {
         setCountdown(300); // Reset to 5 minutes
         setInfo(data.message || `Verification code sent to ${email.trim().toLowerCase()}.`);
         
-        // Focus first digit
-        setTimeout(() => {
-          inputRefs[0].current?.focus();
-        }, 100);
+        if (data.otpCode) {
+          setOtpDigits(data.otpCode.split(""));
+          verifyCode(data.otpCode);
+        } else {
+          // Focus first digit
+          setTimeout(() => {
+            inputRefs[0].current?.focus();
+          }, 100);
+        }
       } else {
         if (data.isNewUser) {
           setIsNewUser(true);
@@ -140,11 +145,16 @@ export default function LoginPage() {
 
       if (res.ok) {
         setCountdown(300); // Reset countdown
-        setInfo(`A new verification code was sent to ${email.trim().toLowerCase()}.`);
+        setInfo(data.message || `A new verification code was sent to ${email.trim().toLowerCase()}.`);
         
-        setTimeout(() => {
-          inputRefs[0].current?.focus();
-        }, 100);
+        if (data.otpCode) {
+          setOtpDigits(data.otpCode.split(""));
+          verifyCode(data.otpCode);
+        } else {
+          setTimeout(() => {
+            inputRefs[0].current?.focus();
+          }, 100);
+        }
       } else {
         setError(data.message || "Failed to resend OTP.");
       }

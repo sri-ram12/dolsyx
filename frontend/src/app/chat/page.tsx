@@ -12,6 +12,9 @@ import CallModal from "@/components/call-modal";
 import AppLock from "@/components/app-lock";
 import { useWebRTC } from "@/hooks/use-webrtc";
 import { SoundEngine } from "@/utils/sound";
+import { MessageSquare, Phone, Circle, Settings as SettingsIcon } from "lucide-react";
+import SettingsPanel from "@/components/settings-panel";
+import CallsSidebar from "@/components/calls-sidebar";
 
 export default function ChatPage() {
   const { user, token, isAuthenticated, isLoading: authLoading } = useAuth();
@@ -24,7 +27,9 @@ export default function ChatPage() {
   const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
   const [isChatsLoading, setIsChatsLoading] = useState(true);
   const [isProductivityOpen, setIsProductivityOpen] = useState(false);
-  const [isLocked, setIsLocked] = useState(true);
+  const [isLocked, setIsLocked] = useState(false); // starts false; useEffect below sets it if PIN exists
+  const [activeRailTab, setActiveRailTab] = useState<"chats" | "calls">("chats");
+  const [showSettingsPanel, setShowSettingsPanel] = useState(false);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -137,9 +142,10 @@ export default function ChatPage() {
     },
   });
 
-  const handleStartCall = async (type: "audio" | "video") => {
-    if (!selectedChat || !selectedChat.recipient) return;
-    const peer = selectedChat.recipient;
+  const handleStartCall = async (type: "audio" | "video", targetChat?: Chat) => {
+    const currentChat = targetChat || selectedChat;
+    if (!currentChat || !currentChat.recipient) return;
+    const peer = currentChat.recipient;
 
     setCallState({
       isOpen: true,
@@ -148,7 +154,7 @@ export default function ChatPage() {
       peerId: peer.id,
       peerName: peer.username,
       peerAvatar: peer.avatarUrl,
-      conversationId: selectedChat.id,
+      conversationId: currentChat.id,
       offer: null,
       callerId: user?.id || "",
     });
@@ -159,7 +165,7 @@ export default function ChatPage() {
         targetUserId: peer.id,
         offer,
         callType: type,
-        conversationId: selectedChat.id,
+        conversationId: currentChat.id,
         callerName: user?.username || "Someone",
         callerAvatar: user?.avatarUrl || null,
       });
@@ -244,6 +250,8 @@ export default function ChatPage() {
   // Fetch conversations list
   const fetchChats = useCallback(async () => {
     if (!token) return;
+    // Safety timeout – if the request hangs for >10s, release the loading spinner
+    const timeoutId = setTimeout(() => setIsChatsLoading(false), 10000);
     try {
       const res = await fetch(`${API_URL}/api/chats`, {
         headers: {
@@ -267,6 +275,7 @@ export default function ChatPage() {
     } catch (err) {
       console.error("Error fetching chats:", err);
     } finally {
+      clearTimeout(timeoutId);
       setIsChatsLoading(false);
     }
   }, [token]);
@@ -527,49 +536,144 @@ export default function ChatPage() {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden" style={{ background: "var(--theme-bg-app)" }}>
-      <div className="flex h-full w-full overflow-hidden border border-[var(--theme-border-color)] bg-[var(--theme-bg-container)] backdrop-blur-xl shadow-2xl">
-        {/* On mobile, show sidebar only if no chat is selected */}
-        <div
-          className={`${selectedChat ? "hidden sm:flex" : "flex"} h-full w-full sm:w-auto shrink-0`}
-        >
-          <ChatSidebar
-            chats={chats}
-            selectedChatId={selectedChat?.id || null}
-            onSelectChat={handleSelectChat}
-            onlineUsers={onlineUsers}
-            onChatCreated={handleChatCreated}
-            unreadCounts={unreadCounts}
-            onOpenStatus={() => setShowStatusPanel(true)}
-          />
+      <div className="flex flex-col-reverse sm:flex-row h-full w-full overflow-hidden border border-[var(--theme-border-color)] bg-[var(--theme-bg-container)] backdrop-blur-xl shadow-2xl relative">
+        
+        {/* Navigation Rail (Bottom on Mobile, Left on Desktop) */}
+        <div className={`
+          ${selectedChat ? "hidden sm:flex" : "flex"} 
+          flex-row sm:flex-col 
+          items-center justify-around sm:justify-between 
+          w-full sm:w-16 
+          h-[60px] sm:h-full 
+          bg-[var(--theme-bg-sidebar-header)] 
+          border-t sm:border-t-0 sm:border-r border-[var(--theme-border-color)] 
+          py-1 sm:py-4 
+          shrink-0 transition-colors duration-300 z-10
+        `}>
+          <div className="flex flex-row sm:flex-col items-center justify-around sm:justify-start gap-1 sm:gap-4 w-full h-full sm:h-auto px-2 sm:px-0">
+            <button
+              onClick={() => { setActiveRailTab("chats"); setShowSettingsPanel(false); setSelectedChat(null); }}
+              className={`flex flex-col sm:flex-row items-center justify-center p-2 sm:p-3 rounded-xl transition-all cursor-pointer flex-1 sm:flex-none ${activeRailTab === "chats" && !showSettingsPanel ? "text-[var(--theme-accent)] sm:bg-[var(--theme-accent)]/20" : "text-[var(--theme-text-secondary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] hover:text-[var(--theme-text-primary)]"}`}
+              title="Chats"
+            >
+              <MessageSquare className="h-6 w-6 sm:h-6 sm:w-6 mb-1 sm:mb-0" />
+              <span className="text-[10px] font-medium sm:hidden">Chats</span>
+            </button>
+            <button
+              onClick={() => setShowStatusPanel(true)}
+              className="flex flex-col sm:flex-row items-center justify-center p-2 sm:p-3 rounded-xl text-[var(--theme-text-secondary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] hover:text-[var(--theme-text-primary)] transition-all cursor-pointer flex-1 sm:flex-none"
+              title="Status Updates"
+            >
+              <Circle className="h-6 w-6 sm:h-6 sm:w-6 mb-1 sm:mb-0" />
+              <span className="text-[10px] font-medium sm:hidden">Status</span>
+            </button>
+            <button
+              onClick={() => { setActiveRailTab("calls"); setShowSettingsPanel(false); setSelectedChat(null); }}
+              className={`flex flex-col sm:flex-row items-center justify-center p-2 sm:p-3 rounded-xl transition-all cursor-pointer flex-1 sm:flex-none ${activeRailTab === "calls" && !showSettingsPanel ? "text-[var(--theme-accent)] sm:bg-[var(--theme-accent)]/20" : "text-[var(--theme-text-secondary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] hover:text-[var(--theme-text-primary)]"}`}
+              title="Calls"
+            >
+              <Phone className="h-6 w-6 sm:h-6 sm:w-6 mb-1 sm:mb-0" />
+              <span className="text-[10px] font-medium sm:hidden">Calls</span>
+            </button>
+            {/* Settings button on mobile */}
+            <button
+              onClick={() => setShowSettingsPanel(true)}
+              className={`flex sm:hidden flex-col items-center justify-center p-2 rounded-xl transition-all cursor-pointer flex-1 ${showSettingsPanel ? "text-[var(--theme-accent)]" : "text-[var(--theme-text-secondary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] hover:text-[var(--theme-text-primary)]"}`}
+              title="Settings"
+            >
+              <SettingsIcon className="h-6 w-6 mb-1" />
+              <span className="text-[10px] font-medium">Settings</span>
+            </button>
+          </div>
+          
+          <div className="hidden sm:flex flex-col items-center gap-4 w-full">
+            <button
+              onClick={() => setShowSettingsPanel(true)}
+              className={`p-3 rounded-xl transition-all cursor-pointer ${showSettingsPanel ? "bg-[var(--theme-accent)]/20 text-[var(--theme-accent)]" : "text-[var(--theme-text-secondary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] hover:text-[var(--theme-text-primary)]"}`}
+              title="Settings"
+            >
+              <SettingsIcon className="h-6 w-6" />
+            </button>
+            {user && (
+              <div 
+                className="p-1 cursor-pointer hover:opacity-80 transition-opacity" 
+                onClick={() => setShowSettingsPanel(true)}
+                title="Profile"
+              >
+                <img 
+                  src={user.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.username)}&background=0D8ABC&color=fff`} 
+                  alt="Profile" 
+                  className="h-8 w-8 rounded-full border border-[var(--theme-border-color)] object-cover" 
+                />
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* On mobile, show chat window only if a chat is selected */}
-        <div className={`${selectedChat ? "flex" : "hidden sm:flex"} h-full flex-1`}>
-          <ChatWindow
-            chat={selectedChat}
-            socket={socket}
-            onlineUsers={onlineUsers}
-            onBack={() => setSelectedChat(null)}
-            onToggleProductivity={() => setIsProductivityOpen(!isProductivityOpen)}
-            isProductivityOpen={isProductivityOpen}
-            onChatDeleted={(conversationId) => {
-              setChats((prev) => prev.filter((c) => c.id !== conversationId));
-              setSelectedChat(null);
-            }}
-            onStartCall={handleStartCall}
-          />
-        </div>
+        {/* Content Area */}
+        <div className="flex flex-row flex-1 overflow-hidden w-full relative">
+          {/* On mobile, show sidebar only if no chat is selected */}
+          <div
+            className={`${selectedChat ? "hidden sm:flex" : "flex"} h-full w-full sm:w-auto shrink-0`}
+          >
+            {showSettingsPanel ? (
+              <div className="w-full sm:w-80 h-full">
+                <SettingsPanel
+                  onClose={() => setShowSettingsPanel(false)}
+                  onSelectChat={handleSelectChat as any}
+                />
+              </div>
+            ) : activeRailTab === "calls" ? (
+              <div className="h-full w-full sm:w-80 border-r border-[var(--theme-border-color)]">
+                <CallsSidebar onStartCall={(chatId, type) => {
+                  const chat = chats.find(c => c.id === chatId);
+                  if (chat) {
+                    setSelectedChat(chat);
+                    handleStartCall(type, chat);
+                  }
+                }} />
+              </div>
+            ) : (
+              <ChatSidebar
+                chats={chats}
+                selectedChatId={selectedChat?.id || null}
+                onSelectChat={handleSelectChat}
+                onlineUsers={onlineUsers}
+                onChatCreated={handleChatCreated}
+                unreadCounts={unreadCounts}
+                onOpenStatus={() => setShowStatusPanel(true)}
+              />
+            )}
+          </div>
 
-        {/* Productivity Workspace slide-out panel */}
-        {isProductivityOpen && (
-          <ProductivityPanel
-            activeConversationId={selectedChat?.id || null}
-            activeConversationName={selectedChat?.name || null}
-            isGroupChat={selectedChat?.isGroup || false}
-            participants={(selectedChat as any)?.participants || []}
-            onClose={() => setIsProductivityOpen(false)}
-          />
-        )}
+          {/* On mobile, show chat window only if a chat is selected */}
+          <div className={`${selectedChat ? "flex" : "hidden sm:flex"} h-full flex-1 w-full relative`}>
+            <ChatWindow
+              chat={selectedChat}
+              socket={socket}
+              onlineUsers={onlineUsers}
+              onBack={() => setSelectedChat(null)}
+              onToggleProductivity={() => setIsProductivityOpen(!isProductivityOpen)}
+              isProductivityOpen={isProductivityOpen}
+              onChatDeleted={(conversationId) => {
+                setChats((prev) => prev.filter((c) => c.id !== conversationId));
+                setSelectedChat(null);
+              }}
+              onStartCall={handleStartCall}
+            />
+          </div>
+
+          {/* Productivity Workspace slide-out panel */}
+          {isProductivityOpen && (
+            <ProductivityPanel
+              activeConversationId={selectedChat?.id || null}
+              activeConversationName={selectedChat?.name || null}
+              isGroupChat={selectedChat?.isGroup || false}
+              participants={(selectedChat as any)?.participants || []}
+              onClose={() => setIsProductivityOpen(false)}
+            />
+          )}
+        </div>
       </div>
 
       {/* Status Panel */}

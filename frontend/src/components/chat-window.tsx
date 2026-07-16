@@ -35,7 +35,7 @@ import {
 } from "lucide-react";
 import { Socket } from "socket.io-client";
 import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
-import { getDefaultAvatar, getAvatarUrl } from "@/utils/avatar";
+import { getDefaultAvatar, getAvatarUrl, resolveMediaUrl } from "@/utils/avatar";
 import { SoundEngine } from "@/utils/sound";
 
 interface Message {
@@ -160,24 +160,24 @@ function CallLogMessage({ msg, isMe }: { msg: Message; isMe: boolean }) {
 
   return (
     <div
-      className={`flex items-center gap-3 rounded-2xl border px-3.5 py-2.5 shadow-md select-none min-w-[220px] transition-all hover:bg-slate-800/10 ${
-        isMissed
-          ? "border-red-500/20 bg-red-950/10 text-red-200"
-          : "border-emerald-500/20 bg-emerald-950/10 text-emerald-200"
+      className={`flex items-center gap-3 rounded-2xl border px-3.5 py-2.5 shadow-md select-none min-w-[220px] transition-all hover:brightness-110 ${
+        isMe 
+          ? "bg-[var(--theme-bubble-sent)] text-[var(--theme-bubble-sent-text)] border-transparent" 
+          : "bg-[var(--theme-bubble-received)] text-[var(--theme-bubble-received-text)] border-[var(--theme-border-color)]"
       }`}
     >
       <div
         className={`h-9 w-9 rounded-full flex items-center justify-center shrink-0 ${
           isMissed
-            ? "bg-red-500/15 text-red-400"
-            : "bg-emerald-500/15 text-emerald-400"
+            ? "bg-red-500/20 text-red-500"
+            : "bg-emerald-500/20 text-emerald-500"
         }`}
       >
         <Icon className="h-4.5 w-4.5" />
       </div>
       <div className="flex-1 flex flex-col text-left">
         <span className="text-xs font-semibold">{label}</span>
-        <span className="text-[9px] opacity-60 mt-0.5">
+        <span className="text-[9px] opacity-80 mt-0.5">
           {isConnected ? "Connected" : isMissed ? (logStatus === "declined" ? "Declined" : "No Answer") : "Calling"}
         </span>
       </div>
@@ -241,12 +241,12 @@ function AudioMessage({ msg, isMe, theme }: { msg: Message; isMe: boolean; theme
     <div
       className={`flex items-center gap-3 rounded-2xl border px-3 py-2.5 shadow-md cursor-pointer hover:opacity-90 transition-opacity min-w-[200px] ${
         isMe
-          ? theme.startsWith("aqua") ? "bg-[#005c4b] border-[#005c4b]" : "bg-gradient-to-tr from-cyan-600 to-blue-600 border-blue-500/30"
-          : "bg-[var(--theme-bg-sidebar-search)] border-[var(--theme-border-color)]"
+          ? "bg-[var(--theme-bubble-sent)] text-[var(--theme-bubble-sent-text)] border-transparent"
+          : "bg-[var(--theme-bubble-received)] text-[var(--theme-bubble-received-text)] border-[var(--theme-border-color)]"
       }`}
       onClick={togglePlay}
     >
-      <div className="h-10 w-10 rounded-full bg-[var(--theme-text-primary)]/20 flex items-center justify-center text-[var(--theme-text-primary)] shrink-0">
+      <div className={`h-10 w-10 rounded-full flex items-center justify-center shrink-0 ${isMe ? "bg-[var(--theme-bubble-sent-text)]/20 text-[var(--theme-bubble-sent-text)]" : "bg-[var(--theme-bubble-received-text)]/20 text-[var(--theme-bubble-received-text)]"}`}>
         {isPlaying ? (
           <Square className="h-4 w-4" fill="currentColor" />
         ) : (
@@ -254,18 +254,18 @@ function AudioMessage({ msg, isMe, theme }: { msg: Message; isMe: boolean; theme
         )}
       </div>
       <div className="flex-1 flex flex-col gap-1">
-        <div className="h-1 w-full bg-[var(--theme-text-primary)]/20 rounded-full overflow-hidden">
+        <div className={`h-1 w-full rounded-full overflow-hidden ${isMe ? "bg-[var(--theme-bubble-sent-text)]/20" : "bg-[var(--theme-bubble-received-text)]/20"}`}>
           <div 
-            className="h-full bg-[var(--theme-text-primary)] rounded-full transition-all duration-100 ease-linear" 
+            className={`h-full rounded-full transition-all duration-100 ease-linear ${isMe ? "bg-[var(--theme-bubble-sent-text)]" : "bg-[var(--theme-bubble-received-text)]"}`} 
             style={{ width: `${progress}%` }} 
           />
         </div>
-        <div className="flex justify-between items-center text-[10px] text-[var(--theme-text-primary)]/70 font-semibold">
+        <div className={`flex justify-between items-center text-[10px] font-semibold opacity-80 ${isMe ? "text-[var(--theme-bubble-sent-text)]" : "text-[var(--theme-bubble-received-text)]"}`}>
           <span>{formatTime(currentTime)}</span>
           <span>{formatTime(duration)}</span>
         </div>
       </div>
-      <audio ref={audioRef} src={msg.mediaUrl || ""} className="hidden" preload="metadata" />
+      <audio ref={audioRef} src={resolveMediaUrl(msg.mediaUrl) || ""} className="hidden" preload="metadata" />
     </div>
   );
 }
@@ -608,7 +608,23 @@ export default function ChatWindow({
 
     const handleNewMessage = (data: { message: Message; conversationId: string }) => {
       if (data.conversationId === chat.id) {
-        setMessages((prev) => [...prev, data.message]);
+        setMessages((prev) => {
+          if (prev.some(m => m.id === data.message.id)) return prev;
+          
+          if (data.message.senderId === user?.id) {
+            const tempIndex = prev.findIndex(m => 
+              m.id.startsWith("temp-") && 
+              m.content === data.message.content && 
+              m.mediaUrl === data.message.mediaUrl
+            );
+            if (tempIndex !== -1) {
+              const newMessages = [...prev];
+              newMessages[tempIndex] = data.message;
+              return newMessages;
+            }
+          }
+          return [...prev, data.message];
+        });
         setIsRecipientTyping(false);
         socket.emit("mark_read", { conversationId: chat.id });
         // Play notification sound only for incoming messages (not our own)
@@ -759,10 +775,34 @@ export default function ChatWindow({
       });
       setEditingMessage(null);
     } else {
+      const newMsgContent = inputValue.trim();
+      const tempId = `temp-${Date.now()}`;
+      
+      const optimisticMsg: any = {
+        id: tempId,
+        content: newMsgContent,
+        senderId: user?.id || "",
+        conversationId: chat.id,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        parentMessageId: replyingToMessage?.id || null,
+        parentMessage: replyingToMessage || null,
+        mediaUrl: null,
+        mediaType: "TEXT",
+        sender: user ? {
+          id: user.id,
+          username: user.username,
+          avatarUrl: user.avatarUrl
+        } : null,
+        receipts: []
+      };
+      
+      setMessages(prev => [...prev, optimisticMsg]);
+
       // Send regular message or reply
       socket.emit("send_message", {
         conversationId: chat.id,
-        content: inputValue.trim(),
+        content: newMsgContent,
         parentMessageId: replyingToMessage?.id || undefined,
       });
       setReplyingToMessage(null);
@@ -840,6 +880,29 @@ export default function ChatWindow({
         else if (data.fileType.startsWith("video/")) mediaType = "VIDEO";
         else if (data.fileType.startsWith("audio/")) mediaType = "AUDIO";
 
+        const tempId = `temp-${Date.now()}`;
+        const optimisticMsg: any = {
+          id: tempId,
+          content: "",
+          senderId: user?.id || "",
+          conversationId: chat.id,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          parentMessageId: null,
+          parentMessage: null,
+          mediaUrl: data.fileUrl,
+          mediaType: mediaType,
+          sender: user ? {
+            id: user.id,
+            username: user.username,
+            avatarUrl: user.avatarUrl
+          } : null,
+          receipts: []
+        };
+        
+        setMessages(prev => [...prev, optimisticMsg]);
+
+        // Store relative path instead of absolute URL
         socket.emit("send_message", {
           conversationId: chat.id,
           content: "",
@@ -874,6 +937,7 @@ export default function ChatWindow({
 
       if (res.ok) {
         const data = await res.json();
+        // Store relative path instead of absolute URL
         socket.emit("send_message", {
           conversationId: chat.id,
           content: "",
@@ -1117,18 +1181,7 @@ export default function ChatWindow({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Productivity workspace toggle button */}
-          <button
-            onClick={onToggleProductivity}
-            className={`flex h-9 w-9 items-center justify-center rounded-xl border transition-all cursor-pointer ${
-              isProductivityOpen
-                ? "border-[var(--theme-accent)] bg-[var(--theme-accent)]/10 text-[var(--theme-accent)] shadow-[0_0_15px_rgba(var(--theme-accent),0.15)]"
-                : "border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/55 text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]"
-            }`}
-            title="Toggle Productivity workspace"
-          >
-            <CheckSquare className="h-4 w-4" />
-          </button>
+          {/* Audio Call button - always visible for direct chats */}
           {chat && !chat.isGroup && onStartCall && (
             <>
               <button
@@ -1147,16 +1200,8 @@ export default function ChatWindow({
               </button>
             </>
           )}
-          {!chat.isGroup && (
-            <button
-              onClick={() => setProfileUser(chat.recipient)}
-              className="flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/55 text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-all cursor-pointer"
-              title="View profile"
-            >
-              <Info className="h-4 w-4" />
-            </button>
-          )}
           
+          {/* 3-dots menu — contains all other options */}
           <div className="relative" ref={headerMenuRef}>
             <button
               onClick={() => setShowHeaderMenu((v) => !v)}
@@ -1171,7 +1216,7 @@ export default function ChatWindow({
             </button>
 
             {showHeaderMenu && (
-              <div className="absolute right-0 top-11 z-50 w-44 rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] p-1.5 shadow-2xl animate-fade-in text-left">
+              <div className="absolute right-0 top-11 z-50 w-52 rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] p-1.5 shadow-2xl animate-fade-in text-left">
                 {!chat.isGroup && (
                   <button
                     onMouseDown={(e) => {
@@ -1185,6 +1230,22 @@ export default function ChatWindow({
                     View Profile
                   </button>
                 )}
+                {/* Productivity toggle */}
+                <button
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    setShowHeaderMenu(false);
+                    onToggleProductivity();
+                  }}
+                  className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold transition-colors cursor-pointer ${
+                    isProductivityOpen
+                      ? "text-[var(--theme-accent)] bg-[var(--theme-accent)]/10"
+                      : "text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-sidebar-item-hover)]"
+                  }`}
+                >
+                  <CheckSquare className="h-3.5 w-3.5" />
+                  {isProductivityOpen ? "Close Workspace" : "Open Workspace"}
+                </button>
                 <button
                   onMouseDown={(e) => {
                     e.preventDefault();
@@ -1312,7 +1373,7 @@ export default function ChatWindow({
                   ) : msg.mediaType === "STICKER" ? (
                     <div className="relative py-1 select-none">
                       <img
-                        src={msg.mediaUrl || ""}
+                        src={resolveMediaUrl(msg.mediaUrl) || ""}
                         alt="Sticker"
                         className="w-28 h-28 object-contain transition-transform duration-200 hover:scale-110"
                       />
@@ -1323,10 +1384,10 @@ export default function ChatWindow({
                     <div className="flex flex-col space-y-1">
                       <div className="max-w-xs rounded-2xl overflow-hidden border border-zinc-800 bg-zinc-900 shadow-md">
                         <img
-                          src={msg.mediaUrl || ""}
+                          src={resolveMediaUrl(msg.mediaUrl) || ""}
                           alt={msg.content || "Image attachment"}
                           className="w-full max-h-60 object-cover cursor-pointer hover:opacity-90 transition-opacity"
-                          onClick={() => window.open(msg.mediaUrl || "", "_blank")}
+                          onClick={() => window.open(resolveMediaUrl(msg.mediaUrl) || "", "_blank")}
                         />
                       </div>
                       {msg.content && msg.content !== msg.id && (
@@ -1345,7 +1406,7 @@ export default function ChatWindow({
                     <div className="flex flex-col space-y-1">
                       <div className="max-w-xs rounded-2xl overflow-hidden border border-zinc-800 bg-black shadow-md">
                         <video
-                          src={msg.mediaUrl || ""}
+                          src={resolveMediaUrl(msg.mediaUrl) || ""}
                           controls
                           preload="metadata"
                           playsInline
@@ -1355,7 +1416,7 @@ export default function ChatWindow({
                             console.error("Video error:", e);
                           }}
                         >
-                          <source src={msg.mediaUrl || ""} />
+                          <source src={resolveMediaUrl(msg.mediaUrl) || ""} />
                           Your browser does not support video playback.
                         </video>
                       </div>
@@ -1392,7 +1453,7 @@ export default function ChatWindow({
                         <p className="text-[9px] text-zinc-550">File Attachment</p>
                       </div>
                       <a
-                        href={msg.mediaUrl || ""}
+                        href={resolveMediaUrl(msg.mediaUrl) || ""}
                         download={msg.content}
                         target="_blank"
                         rel="noreferrer"
@@ -1551,7 +1612,7 @@ export default function ChatWindow({
       {/* Input Message Area */}
       <div className="border-t border-[var(--theme-border-color)] bg-[var(--theme-bg-chat-input)] transition-colors duration-300 relative z-10">
         {isSelectionMode ? (
-          <div className="flex items-center justify-between p-4 bg-[#0a1420] border-t border-[var(--theme-border-color)] animate-fade-in">
+          <div className="flex items-center justify-between p-4 bg-[var(--theme-bg-chat-input)] border-t border-[var(--theme-border-color)] animate-fade-in">
             <div className="flex items-center gap-3">
               <button
                 type="button"
@@ -1559,12 +1620,12 @@ export default function ChatWindow({
                   setIsSelectionMode(false);
                   setSelectedMessageIds(new Set());
                 }}
-                className="flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--theme-border-color)] hover:border-zinc-700 text-[var(--theme-text-secondary)] hover:text-white transition-all cursor-pointer"
+                className="flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/50 text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-all cursor-pointer"
                 title="Cancel selection"
               >
                 <X className="h-4.5 w-4.5" />
               </button>
-              <span className="text-sm font-bold text-white">
+              <span className="text-sm font-bold text-[var(--theme-text-primary)]">
                 {selectedMessageIds.size} messages selected
               </span>
             </div>
@@ -1806,7 +1867,7 @@ export default function ChatWindow({
             <div className="relative aspect-video bg-black flex items-center justify-center">
               <img src={capturedPreviewUrl} alt="Preview Captured" className="w-full h-full object-contain" />
             </div>
-            <div className="p-4 flex gap-3 bg-[#001428]">
+            <div className="p-4 flex gap-3 bg-[var(--theme-bg-chat-input)]">
               <button
                 onClick={() => {
                   setShowCameraPreview(false);
@@ -1814,7 +1875,7 @@ export default function ChatWindow({
                   setCapturedPreviewUrl("");
                   startCamera();
                 }}
-                className="flex-1 py-3 rounded-xl border border-[var(--theme-border-color)] hover:bg-[var(--theme-bg-sidebar-item-hover)] text-xs font-bold text-[var(--theme-text-secondary)] hover:text-white transition-all cursor-pointer"
+                className="flex-1 py-3 rounded-xl border border-[var(--theme-border-color)] hover:bg-[var(--theme-bg-sidebar-item-hover)] text-xs font-bold text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-all cursor-pointer"
               >
                 Retake
               </button>
@@ -1854,7 +1915,7 @@ export default function ChatWindow({
                 <ImageIcon className="h-5 w-5 text-[var(--theme-accent)]" />
                 Chat Wallpaper
               </h3>
-              <button onClick={() => setShowWallpaperPicker(false)} className="text-[var(--theme-text-secondary)] hover:text-white bg-white/5 p-1.5 rounded-lg cursor-pointer">
+              <button onClick={() => setShowWallpaperPicker(false)} className="text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] bg-[var(--theme-bg-sidebar-item-hover)] p-1.5 rounded-lg cursor-pointer">
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -1874,7 +1935,7 @@ export default function ChatWindow({
                 {customWallpapers.length === 0 ? (
                   <button
                     onClick={() => wallpaperUploadRef.current?.click()}
-                    className="w-full flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/50 p-8 text-[var(--theme-text-secondary)] hover:text-[var(--theme-accent)] transition-all cursor-pointer"
+                    className="w-full flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/50 p-8 text-[var(--theme-text-secondary)] hover:text-[var(--theme-accent)] hover:text-[var(--theme-accent)] transition-all cursor-pointer"
                   >
                     <ImageIcon className="h-8 w-8 opacity-50" />
                     <span className="text-xs font-medium">Click to upload your own background</span>

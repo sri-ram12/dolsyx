@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from "react";
 
-export type ThemeType = "dolsy-dark" | "aqua-light" | "aqua-dark";
+export type ThemeType = "dolsy-dark" | "aqua-light" | "aqua-dark" | "radiant-blue";
 
 interface ThemeContextType {
   theme: ThemeType;
@@ -16,6 +16,7 @@ const THEME_CLASS_MAP: Record<ThemeType, string> = {
   "dolsy-dark": "",                   // :root (default) — no extra class needed
   "aqua-light": "theme-whatsapp-light",
   "aqua-dark": "theme-whatsapp-dark",
+  "radiant-blue": "theme-radiant-blue",
 };
 
 const ALL_THEME_CLASSES = Object.values(THEME_CLASS_MAP).filter(Boolean);

@@ -233,18 +233,7 @@ export default function ChatSidebar({
           DOLSYX
         </span>
         <div className="flex items-center gap-2">
-          {onOpenStatus && (
-            <button
-              onClick={onOpenStatus}
-              className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--theme-border-color)] hover:border-[var(--theme-accent)] text-[var(--theme-text-secondary)] hover:text-[var(--theme-accent)] transition-all cursor-pointer bg-[var(--theme-bg-sidebar-search)]"
-              title="Status Updates"
-            >
-              <Radio className="h-4 w-4" />
-            </button>
-          )}
-          <span className="rounded-full bg-[var(--theme-accent)]/10 px-2.5 py-0.5 text-xs font-semibold text-[var(--theme-accent)] transition-all duration-300">
-            {theme === "aqua-light" ? "Aqua Light" : theme === "aqua-dark" ? "Aqua Dark" : "Aqua"}
-          </span>
+          {/* Action buttons removed per request */}
         </div>
       </div>
 
@@ -392,32 +381,7 @@ export default function ChatSidebar({
   }
       </div >
 
-  {/* Footer Profile Section */ }
-{
-  user && (
-    <div className="flex items-center justify-between border-t border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-header)] p-4 transition-colors duration-300">
-      <div
-        onClick={() => setShowSettings(true)}
-        className="flex items-center gap-3 min-w-0 cursor-pointer hover:opacity-80 transition-opacity w-full"
-        title="Settings"
-      >
-        <img
-          src={getAvatarUrl(user.avatarUrl, user.username)}
-          alt={user.username}
-          className="h-9 w-9 rounded-full border-2 border-[var(--theme-accent)]/40 bg-[var(--theme-bg-sidebar-search)] shrink-0 object-cover"
-        />
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold truncate text-[var(--theme-text-primary)]">{user.username}</p>
-          <span className="flex items-center text-[10px] text-green-400 font-medium">
-            <Circle className="fill-green-400 h-1.5 w-1.5 mr-1 animate-pulse" />
-            Active
-          </span>
-        </div>
-        <Settings className="h-4 w-4 text-[var(--theme-text-secondary)] hover:text-white transition-colors" />
-      </div>
-    </div>
-  )
-}
+  {/* Footer Profile Section removed - moved to navigation rail */}
 {
   showGroupDialog && (
     <GroupDialog

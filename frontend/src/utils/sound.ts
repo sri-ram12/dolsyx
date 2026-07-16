@@ -250,6 +250,8 @@ class SoundEngineClass {
     } catch {}
   }
 
+  private playPromise: Promise<void> | null = null;
+
   /* ── Public: Start ringtone loop ─────────────────────────────────── */
 
   playRingtone() {
@@ -259,10 +261,12 @@ class SoundEngineClass {
       if (key === "custom") {
         const dataUrl = typeof window !== "undefined" ? localStorage.getItem("dolsyx_custom_ring") : null;
         if (dataUrl) {
-          this.ringAudioEl = new Audio(dataUrl);
-          this.ringAudioEl.loop = true;
-          this.ringAudioEl.volume = 0.8;
-          this.ringAudioEl.play().catch(() => {});
+          const el = new Audio(dataUrl);
+          el.loop = true;
+          el.volume = 0.8;
+          this.ringAudioEl = el;
+          this.playPromise = el.play();
+          this.playPromise.catch(() => {});
           return;
         }
       }
@@ -284,9 +288,26 @@ class SoundEngineClass {
       clearInterval(this.ringIntervalId);
       this.ringIntervalId = null;
     }
-    if (this.ringAudioEl) {
-      this.ringAudioEl.pause();
+    const el = this.ringAudioEl;
+    if (el) {
       this.ringAudioEl = null;
+      if (this.playPromise) {
+        const promise = this.playPromise;
+        this.playPromise = null;
+        promise.then(() => {
+          el.pause();
+          el.removeAttribute("src");
+          el.load();
+        }).catch(() => {
+          el.pause();
+          el.removeAttribute("src");
+          el.load();
+        });
+      } else {
+        el.pause();
+        el.removeAttribute("src");
+        el.load();
+      }
     }
   }
 

@@ -5,7 +5,7 @@ import { useAuth, API_URL } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
 import { useToast } from "@/context/toast-context";
 import { useSocket } from "@/hooks/use-socket";
-import { getDefaultAvatar, getAvatarUrl } from "@/utils/avatar";
+import { getDefaultAvatar, getAvatarUrl, resolveMediaUrl } from "@/utils/avatar";
 import {
   X,
   Plus,
@@ -201,6 +201,7 @@ export default function StatusPanel({ onClose, onNewStatus }: StatusPanelProps) 
         });
         if (!uploadRes.ok) throw new Error("Upload failed");
         const uploadData = await uploadRes.json();
+        // Store relative path instead of absolute URL
         mediaUrl = uploadData.fileUrl;
         mediaType = uploadData.fileType.startsWith("video/") ? "VIDEO" : "IMAGE";
         setIsUploading(false);
@@ -321,14 +322,14 @@ export default function StatusPanel({ onClose, onNewStatus }: StatusPanelProps) 
           <div className="w-full h-full flex items-center justify-center">
             {currentStatus.mediaType === "IMAGE" && currentStatus.mediaUrl ? (
               <img
-                src={currentStatus.mediaUrl}
+                src={resolveMediaUrl(currentStatus.mediaUrl)}
                 alt="Status"
                 className="max-w-full max-h-full object-contain"
               />
             ) : currentStatus.mediaType === "VIDEO" && currentStatus.mediaUrl ? (
               <video
                 key={currentStatus.id}
-                src={currentStatus.mediaUrl}
+                src={resolveMediaUrl(currentStatus.mediaUrl)}
                 autoPlay
                 playsInline
                 muted={false}

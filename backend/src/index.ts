@@ -46,9 +46,15 @@ const corsOriginFn = (
 };
 
 // ── Middleware ───────────────────────────────────────────────────────────────
+// Trust proxy headers (for tunnels like serveo/ngrok where X-Forwarded-Proto is https)
+app.set("trust proxy", 1);
 app.use(cors({ origin: corsOriginFn, credentials: true }));
 app.use(express.json({ limit: "10mb" }));
-app.use("/uploads", express.static(path.join(__dirname, "../../uploads")));
+const uploadsDir = path.join(__dirname, "../uploads");
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+app.use("/uploads", express.static(uploadsDir));
 
 // ── API Routes ───────────────────────────────────────────────────────────────
 app.use("/api/auth", authRoutes);
@@ -73,9 +79,10 @@ const io = new Server(server, {
 app.set("io", io);
 initChatSocket(io);
 
-// ── Serve Next.js Frontend in Production ─────────────────────────────────────
+// ── Serve Next.js Frontend (Monolith & Dev Proxy) ────────────────────────────
+const NEXT_PORT = IS_PRODUCTION ? 3001 : 3000;
+
 if (IS_PRODUCTION) {
-  const NEXT_PORT = 3001;
   const nextStandalonePath = path.join(__dirname, "../../frontend/.next/standalone");
 
   // Helper to find server.js recursively (handles nested OneDrive paths)
@@ -119,58 +126,40 @@ if (IS_PRODUCTION) {
     app.use("/_next/static", express.static(nextStaticPath));
     // Serve Next.js public files at root level (so /default-male.svg etc. work)
     app.use("/", express.static(nextPublicPath));
-
-    // Proxy all other requests to the Next.js child process
-    const waitForNext = (port: number, retries = 20, delay = 1000): Promise<void> =>
-      new Promise((resolve) => {
-        // Use the already-imported `http` (ESM — no require() allowed)
-        const attempt = () => {
-          const probe = http.request({ hostname: "127.0.0.1", port, path: "/", method: "HEAD" }, () => {
-            resolve();
-          });
-          probe.on("error", () => {
-            if (retries-- > 0) setTimeout(attempt, delay);
-            else resolve(); // give up waiting, let proxy handle errors
-          });
-          probe.end();
-        };
-        attempt();
-      });
-
-    const nextProxy = createProxyMiddleware({
-      target: `http://127.0.0.1:${NEXT_PORT}`,
-      changeOrigin: true,
-      on: {
-        error: (err: Error, req: any, res: any) => {
-          console.error("[Monolith] Proxy error:", err.message);
-          if (!res.headersSent) {
-            res.writeHead(502, { "Content-Type": "text/plain" });
-          }
-          res.end("Service starting up, please refresh in a moment.");
-        },
-      },
-    } as any);
-
-    // Only proxy non-API routes to Next.js
-    app.use((req, res, next) => {
-      const p = req.path;
-      if (
-        p.startsWith("/api") ||
-        p.startsWith("/socket.io") ||
-        p.startsWith("/health") ||
-        p.startsWith("/uploads")
-      ) {
-        return next();
-      }
-      return (nextProxy as any)(req, res, next);
-    });
-
-    // Start waiting for Next.js in background (non-blocking)
-    waitForNext(NEXT_PORT).then(() => {
-      console.log(`[Monolith] Next.js frontend is ready on port ${NEXT_PORT}`);
-    });
   }
 }
+
+const nextProxy = createProxyMiddleware({
+  target: `http://127.0.0.1:${NEXT_PORT}`,
+  changeOrigin: true,
+  ws: true, // MUST be true for Next.js Hot Reloading (HMR) to work via /_next/webpack-hmr
+  on: {
+    error: (err: Error, req: any, res: any) => {
+      console.error("[Monolith Proxy] Error forwarding request:", err.message);
+      // res may be a Socket for WS errors - only call writeHead on real HTTP responses
+      if (res && typeof res.writeHead === "function" && !res.headersSent) {
+        res.writeHead(502, { "Content-Type": "text/plain" });
+        res.end("Frontend is starting up or unavailable. Please reload in a moment.");
+      } else if (res && typeof res.end === "function") {
+        try { res.end(); } catch (_) {}
+      }
+    },
+  },
+} as any);
+
+// Only proxy non-API, non-socket, non-static routes to Next.js
+app.use((req, res, next) => {
+  const p = req.path;
+  if (
+    p.startsWith("/api") ||
+    p.startsWith("/socket.io") ||
+    p.startsWith("/health") ||
+    p.startsWith("/uploads")
+  ) {
+    return next();
+  }
+  return (nextProxy as any)(req, res, next);
+});
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 server.listen(PORT, () => {

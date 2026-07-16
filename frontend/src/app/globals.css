@@ -88,6 +88,35 @@
   --foreground: #ecfdf5;
 }
 
+/* Radiant Blue Theme - Gorgeous Deep Blue Gradient & Electric Accents */
+.theme-radiant-blue {
+  --theme-bg-app: radial-gradient(circle at 50% 0%, #0d2a54 0%, #030a16 85%);
+  --theme-bg-container: rgba(255, 255, 255, 0.01);
+  --theme-bg-sidebar: rgba(8, 24, 48, 0.75);
+  --theme-bg-sidebar-header: rgba(3, 10, 22, 0.85);
+  --theme-bg-sidebar-search: rgba(255, 255, 255, 0.05);
+  --theme-bg-sidebar-item-active: linear-gradient(135deg, rgba(0, 119, 255, 0.2), rgba(0, 212, 255, 0.05));
+  --theme-bg-sidebar-item-hover: rgba(255, 255, 255, 0.04);
+  --theme-border-color: rgba(0, 149, 255, 0.18);
+  --theme-bg-chat: transparent;
+  --theme-bg-chat-header: rgba(3, 10, 22, 0.85);
+  --theme-bg-chat-input: rgba(8, 24, 48, 0.75);
+  --theme-bg-chat-input-field: rgba(255, 255, 255, 0.06);
+  --theme-accent: #0088ff;
+  --theme-accent-hover: #00d4ff;
+  --theme-accent-text: #ffffff;
+  --theme-text-primary: #f1f5f9;
+  --theme-text-secondary: #94a3b8;
+  --theme-bubble-sent: linear-gradient(135deg, #0052cc, #0088ff);
+  --theme-bubble-sent-text: #ffffff;
+  --theme-bubble-received: rgba(255, 255, 255, 0.07);
+  --theme-bubble-received-text: #f1f5f9;
+  --theme-checkmark-color: #00d4ff;
+  
+  --background: #030a16;
+  --foreground: #f1f5f9;
+}
+
 body {
   background: var(--theme-bg-app);
   color: var(--theme-text-primary);
@@ -221,26 +250,10 @@ img.emoji {
   animation: aqua-glow 2s ease-in-out infinite;
 }
 
-/* Animated Emojis */
-@keyframes emoji-bounce {
-  0%, 100% { transform: translateY(0) scale(1); }
-  50% { transform: translateY(-8px) scale(1.1); }
-}
-
-@keyframes emoji-pulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.15); filter: drop-shadow(0 0 10px rgba(255,100,100,0.6)); }
-}
-
-@keyframes emoji-spin {
-  0% { transform: rotate(0deg) scale(1); }
-  50% { transform: rotate(180deg) scale(1.1); }
-  100% { transform: rotate(360deg) scale(1); }
-}
-
-.animate-emoji-bounce { animation: emoji-bounce 2s ease-in-out infinite; display: inline-block; }
-.animate-emoji-pulse { animation: emoji-pulse 1.5s ease-in-out infinite; display: inline-block; }
-.animate-emoji-spin { animation: emoji-spin 3s linear infinite; display: inline-block; }
+/* Emoji messages - no animation, just display */
+.animate-emoji-bounce { display: inline-block; }
+.animate-emoji-pulse { display: inline-block; }
+.animate-emoji-spin { display: inline-block; }
 
 /* Premium Glassmorphism Overrides */
 .glass-panel {

@@ -288,13 +288,12 @@ export default function SettingsPanel({ onClose, onSelectChat }: SettingsPanelPr
         <span className="text-base font-bold text-[var(--theme-text-primary)]">Profile Settings</span>
       </div>
 
-      {/* Tabs */}
       <div className="flex border-b border-[var(--theme-border-color)] px-4 py-2 bg-[var(--theme-bg-sidebar-header)] overflow-x-auto gap-2">
         {["profile", "audio", "privacy", "lock"].map((t) => (
           <button
             key={t}
             onClick={() => setActiveTab(t as any)}
-            className={`px-3 py-1 text-xs font-bold rounded-lg capitalize transition-all cursor-pointer ${activeTab === t ? "bg-[var(--theme-accent)] text-black" : "text-[var(--theme-text-secondary)] hover:text-white"}`}
+            className={`px-3 py-1 text-xs font-bold rounded-lg capitalize transition-all cursor-pointer ${activeTab === t ? "bg-[var(--theme-accent)] text-[var(--theme-accent-text)]" : "text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]"}`}
           >
             {t}
           </button>
@@ -426,17 +425,18 @@ export default function SettingsPanel({ onClose, onSelectChat }: SettingsPanelPr
                 {/* Theme Selector Widget */}
                 <div className="flex flex-col gap-2 pt-2 border-t border-[var(--theme-border-color)]">
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Select Theme</label>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     {[
                       { id: "dolsy-dark", label: "Aqua Dark" },
                       { id: "aqua-light", label: "Aqua Light" },
                       { id: "aqua-dark", label: "Aqua Deep" },
+                      { id: "radiant-blue", label: "Radiant Blue" },
                     ].map((t) => (
                       <button
                         key={t.id}
                         type="button"
                         onClick={() => setTheme(t.id as any)}
-                        className={`py-2 rounded-lg text-center border text-[10px] font-bold transition-all cursor-pointer ${theme === t.id ? "bg-[var(--theme-accent)] text-black border-transparent" : "border-[var(--theme-border-color)] text-[var(--theme-text-secondary)] hover:text-white"}`}
+                        className={`py-2 rounded-lg text-center border text-[10px] font-bold transition-all cursor-pointer ${theme === t.id ? "bg-[var(--theme-accent)] text-[var(--theme-accent-text)] border-transparent" : "border-[var(--theme-border-color)] text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]"}`}
                       >
                         {t.label}
                       </button>
@@ -472,7 +472,7 @@ export default function SettingsPanel({ onClose, onSelectChat }: SettingsPanelPr
               <div className="flex items-center justify-between gap-3 pt-1">
                 <button
                   onClick={() => customNotifRef.current?.click()}
-                  className="flex-1 text-center py-2 px-3 rounded-lg border border-[var(--theme-border-color)] hover:border-[var(--theme-accent)] text-xs font-bold text-[var(--theme-text-secondary)] hover:text-white transition-all cursor-pointer"
+                  className="flex-1 text-center py-2 px-3 rounded-lg border border-[var(--theme-border-color)] hover:border-[var(--theme-accent)] text-xs font-bold text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-all cursor-pointer"
                 >
                   Upload Custom MP3
                 </button>
@@ -485,7 +485,7 @@ export default function SettingsPanel({ onClose, onSelectChat }: SettingsPanelPr
                 />
                 <button
                   onClick={() => SoundEngine.playNotification()}
-                  className="px-4 py-2 rounded-lg bg-[var(--theme-accent)] text-black text-xs font-bold cursor-pointer"
+                  className="px-4 py-2 rounded-lg bg-[var(--theme-accent)] text-[var(--theme-accent-text)] text-xs font-bold cursor-pointer"
                 >
                   Test Tone
                 </button>
@@ -512,7 +512,7 @@ export default function SettingsPanel({ onClose, onSelectChat }: SettingsPanelPr
               <div className="flex items-center justify-between gap-3 pt-1">
                 <button
                   onClick={() => customRingRef.current?.click()}
-                  className="flex-1 text-center py-2 px-3 rounded-lg border border-[var(--theme-border-color)] hover:border-[var(--theme-accent)] text-xs font-bold text-[var(--theme-text-secondary)] hover:text-white transition-all cursor-pointer"
+                  className="flex-1 text-center py-2 px-3 rounded-lg border border-[var(--theme-border-color)] hover:border-[var(--theme-accent)] text-xs font-bold text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-all cursor-pointer"
                 >
                   Upload Custom Ringtone
                 </button>

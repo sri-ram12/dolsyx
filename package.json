@@ -6,7 +6,7 @@
   "scripts": {
     "install:all": "npm install --include=dev && cd frontend && npm install --include=dev && cd ../backend && npm install --include=dev",
     "build": "cd frontend && npm run build && cd ../backend && npm run build",
-    "postbuild": "cd backend && npx prisma generate && npx prisma migrate deploy",
+    "postbuild": "cd backend && npx prisma generate && npx prisma db push",
     "start": "node backend/dist/index.js",
     "dev:frontend": "cd frontend && npm run dev",
     "dev:backend": "cd backend && npm run dev"

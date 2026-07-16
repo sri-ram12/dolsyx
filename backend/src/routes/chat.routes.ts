@@ -8,6 +8,7 @@ import {
   searchUsers,
   deleteConversation,
   clearChatMessages,
+  getCallHistory,
 } from "../controllers/chat.controller.js";
 import { authenticateToken } from "../middleware/auth.middleware.js";
 
@@ -51,6 +52,7 @@ const router = Router();
 router.use(authenticateToken as any);
 
 router.get("/", getChats as any);
+router.get("/calls", getCallHistory as any);
 router.get("/search", searchUsers as any);
 router.get("/:conversationId/messages", getMessages as any);
 router.post("/direct", createOrGetDirectChat as any);

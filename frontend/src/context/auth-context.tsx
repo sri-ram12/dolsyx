@@ -26,8 +26,10 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const API_URL = typeof window !== "undefined" 
-  ? window.location.origin 
+export const API_URL = typeof window !== "undefined"
+  ? (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+      ? (process.env.NEXT_PUBLIC_API_URL || window.location.origin)
+      : window.location.origin)
   : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000");
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -44,11 +46,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
 
+      // Abort after 10 seconds to prevent hanging on slow tunnel connections
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+
       try {
         const res = await fetch(`${API_URL}/api/auth/me`, {
           headers: {
             Authorization: `Bearer ${storedToken}`,
           },
+          signal: controller.signal,
         });
 
         if (res.ok) {
@@ -59,9 +66,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           // Token is invalid/expired
           localStorage.removeItem("dolsyx_token");
         }
-      } catch (err) {
-        console.error("Auth init error:", err);
+      } catch (err: any) {
+        if (err?.name === "AbortError") {
+          console.warn("Auth init timed out – clearing token");
+          localStorage.removeItem("dolsyx_token");
+        } else {
+          console.error("Auth init error:", err);
+        }
       } finally {
+        clearTimeout(timeoutId);
         setIsLoading(false);
       }
     };

@@ -449,3 +449,56 @@ export const clearChatMessages = async (req: AuthRequest, res: Response): Promis
     res.status(500).json({ message: "Internal server error" });
   }
 };
+
+export const getCallHistory = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.id;
+
+    // Find all messages across all conversations the user is part of that are CALL_LOG
+    const callLogs = await prisma.message.findMany({
+      where: {
+        mediaType: "CALL_LOG",
+        conversation: {
+          participants: {
+            some: {
+              userId,
+            }
+          }
+        }
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+      include: {
+        sender: {
+          select: {
+            id: true,
+            username: true,
+            avatarUrl: true,
+          }
+        },
+        conversation: {
+          include: {
+            participants: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    username: true,
+                    avatarUrl: true,
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      take: 50,
+    });
+
+    res.json(callLogs);
+  } catch (error) {
+    console.error("Error fetching call history:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};

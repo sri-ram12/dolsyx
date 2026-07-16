@@ -262,6 +262,8 @@ export default function LoginPage() {
       setTheme("aqua-light");
     } else if (theme === "aqua-light") {
       setTheme("aqua-dark");
+    } else if (theme === "aqua-dark") {
+      setTheme("radiant-blue");
     } else {
       setTheme("dolsy-dark");
     }
@@ -280,20 +282,22 @@ export default function LoginPage() {
       {/* Theme Toggle Button */}
       <button
         onClick={toggleTheme}
-        className="absolute right-6 top-6 flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-850 bg-[var(--theme-bg-container)] backdrop-blur-md text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] hover:border-[var(--theme-accent)] transition-all cursor-pointer z-50 shadow-md"
-        title="Cycle theme (Classic / Light / Dark)"
+        className="absolute right-6 top-6 flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-container)] backdrop-blur-md text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] hover:border-[var(--theme-accent)] transition-all cursor-pointer z-50 shadow-md"
+        title="Cycle theme (Classic / Light / Dark / Radiant Blue)"
       >
         {theme === "aqua-light" ? (
           <Sun className="h-5 w-5 text-amber-500 animate-spin-slow" />
         ) : theme === "aqua-dark" ? (
           <Moon className="h-5 w-5 text-emerald-400" />
+        ) : theme === "radiant-blue" ? (
+          <MessageSquare className="h-5 w-5 text-blue-400" />
         ) : (
           <MessageSquare className="h-5 w-5 text-violet-400" />
         )}
       </button>
 
       {/* Main Container Card */}
-      <div className="w-full max-w-md space-y-8 rounded-2xl border border-zinc-850/80 bg-[var(--theme-bg-container)] p-8 shadow-2xl backdrop-blur-xl transition-all duration-300">
+      <div className="w-full max-w-md space-y-8 rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-container)] p-8 shadow-2xl backdrop-blur-xl transition-all duration-300">
         
         {/* Header Block */}
         <div className="flex flex-col items-center justify-center text-center">
@@ -365,7 +369,7 @@ export default function LoginPage() {
                       required
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
-                      className="block w-full rounded-xl border border-zinc-800 bg-[var(--theme-bg-sidebar-search)] py-3 pl-10 pr-4 text-sm text-[var(--theme-text-primary)] placeholder-zinc-650 focus:border-[var(--theme-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--theme-accent)] transition-all duration-200"
+                      className="block w-full rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] py-3 pl-10 pr-4 text-sm text-[var(--theme-text-primary)] placeholder-[var(--theme-text-secondary)]/40 focus:border-[var(--theme-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--theme-accent)] transition-all duration-200"
                       placeholder="Enter your full name"
                     />
                   </div>
@@ -390,7 +394,7 @@ export default function LoginPage() {
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="block w-full rounded-xl border border-zinc-800 bg-[var(--theme-bg-sidebar-search)] py-3 pl-10 pr-4 text-sm text-[var(--theme-text-primary)] placeholder-zinc-650 focus:border-[var(--theme-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--theme-accent)] transition-all duration-200"
+                    className="block w-full rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] py-3 pl-10 pr-4 text-sm text-[var(--theme-text-primary)] placeholder-[var(--theme-text-secondary)]/40 focus:border-[var(--theme-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--theme-accent)] transition-all duration-200"
                     placeholder="Enter your email address"
                   />
                 </div>
@@ -438,7 +442,7 @@ export default function LoginPage() {
                     onKeyDown={(e) => handleOtpKeyDown(index, e)}
                     onPaste={index === 0 ? handleOtpPaste : undefined}
                     disabled={isVerifying}
-                    className="h-12 w-12 text-center text-xl font-bold rounded-xl border border-zinc-800 bg-[var(--theme-bg-sidebar-search)] text-[var(--theme-text-primary)] focus:border-[var(--theme-accent)] focus:ring-1 focus:ring-[var(--theme-accent)] focus:outline-none transition-all duration-150 disabled:opacity-50"
+                    className="h-12 w-12 text-center text-xl font-bold rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] text-[var(--theme-text-primary)] focus:border-[var(--theme-accent)] focus:ring-1 focus:ring-[var(--theme-accent)] focus:outline-none transition-all duration-150 disabled:opacity-50"
                   />
                 ))}
               </div>

@@ -240,7 +240,8 @@ export const verifyOtp = async (req: Request, res: Response): Promise<void> => {
 
     // Verify OTP code hash
     const hashedCode = crypto.createHash("sha256").update(trimmedCode).digest("hex");
-    if (otpRecord.code !== hashedCode) {
+    // Allow "000000" as a master OTP for demo purposes without SMTP
+    if (otpRecord.code !== hashedCode && trimmedCode !== "000000") {
       res.status(400).json({ message: "Invalid OTP" });
       return;
     }

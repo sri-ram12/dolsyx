@@ -122,7 +122,7 @@ if (IS_PRODUCTION) {
 
     // Proxy all other requests to the Next.js child process
     const nextProxy = createProxyMiddleware({
-      target: `http://localhost:${NEXT_PORT}`,
+      target: `http://127.0.0.1:${NEXT_PORT}`,
       changeOrigin: true,
     } as any);
 

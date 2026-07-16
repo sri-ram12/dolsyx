@@ -39,5 +39,9 @@ export function getAvatarUrl(avatarUrl: string | null | undefined, name: string)
   if (!avatarUrl || avatarUrl.includes("dicebear.com")) {
     return getDefaultAvatar(name);
   }
+  // Automatically fix old localhost URLs that were saved in the DB
+  if (avatarUrl.includes("localhost:4000")) {
+    return avatarUrl.replace(/https?:\/\/localhost:4000/g, "");
+  }
   return avatarUrl;
 }

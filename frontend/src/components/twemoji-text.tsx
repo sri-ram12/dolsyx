@@ -18,9 +18,11 @@ export default function TwemojiText({ text, className }: TwemojiTextProps) {
     try {
       // Dynamically import twemoji to avoid SSR issues
       import("twemoji").then((twemojiModule) => {
-        const twemoji = twemojiModule.default || twemojiModule;
+        const twemoji = (twemojiModule.default || twemojiModule) as {
+          parse: (element: HTMLElement, options: Record<string, unknown>) => void;
+        };
         if (ref.current) {
-          (twemoji as any).parse(ref.current, {
+          twemoji.parse(ref.current, {
             folder: "svg",
             ext: ".svg",
             base: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14/assets/",
@@ -28,7 +30,7 @@ export default function TwemojiText({ text, className }: TwemojiTextProps) {
           });
         }
       });
-    } catch (e) {
+    } catch {
       // Fallback: render as plain text
     }
   }, [text]);

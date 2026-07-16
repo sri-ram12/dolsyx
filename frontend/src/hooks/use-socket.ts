@@ -1,54 +1,53 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { io, Socket } from "socket.io-client";
 import { API_URL } from "@/context/auth-context";
 
 export const useSocket = (token: string | null) => {
-  const socketRef = useRef<Socket | null>(null);
+  const [socket, setSocket] = useState<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
     if (!token) {
-      if (socketRef.current) {
-        socketRef.current.disconnect();
-        socketRef.current = null;
-        setIsConnected(false);
-      }
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSocket(null);
+      setIsConnected(false);
       return;
     }
 
     // Initialize socket connection
-    const socket = io(API_URL, {
+    const newSocket = io(API_URL, {
       auth: { token },
       autoConnect: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
     });
 
-    socketRef.current = socket;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSocket(newSocket);
 
-    socket.on("connect", () => {
+    newSocket.on("connect", () => {
       setIsConnected(true);
       console.log("Socket connected!");
     });
 
-    socket.on("disconnect", () => {
+    newSocket.on("disconnect", () => {
       setIsConnected(false);
       console.log("Socket disconnected");
     });
 
-    socket.on("connect_error", (err) => {
+    newSocket.on("connect_error", (err) => {
       console.error("Socket connection error:", err.message);
       setIsConnected(false);
     });
 
     return () => {
-      socket.disconnect();
-      socketRef.current = null;
+      newSocket.disconnect();
+      setSocket(null);
       setIsConnected(false);
     };
   }, [token]);
 
-  return { socket: socketRef.current, isConnected };
+  return { socket, isConnected };
 };

@@ -21,7 +21,7 @@ class SoundEngineClass {
     if (typeof window === "undefined") return null;
     try {
       if (!this.audioCtx || this.audioCtx.state === "closed") {
-        const Cls = (window as any).AudioContext || (window as any).webkitAudioContext;
+        const Cls = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
         if (!Cls) return null;
         this.audioCtx = new Cls();
       }

@@ -383,17 +383,16 @@ export default function ChatWindow({
 
   // Wallpaper Background Picker
   const [showWallpaperPicker, setShowWallpaperPicker] = useState(false);
-  const [selectedWallpaper, setSelectedWallpaper] = useState(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("dolsyx_chat_wallpaper") || "default";
-    }
-    return "default";
-  });
+  const [selectedWallpaper, setSelectedWallpaper] = useState("default");
   const [customWallpapers, setCustomWallpapers] = useState<{ id: string; name: string; type: "image"; value: string }[]>([]);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
       try {
+        const storedWp = localStorage.getItem("dolsyx_chat_wallpaper");
+        if (storedWp) {
+          setSelectedWallpaper(storedWp);
+        }
         const stored = localStorage.getItem("dolsyx_custom_wallpapers");
         if (stored) {
           setCustomWallpapers(JSON.parse(stored));
@@ -1105,7 +1104,7 @@ export default function ChatWindow({
       {(() => {
         const wp = CHAT_WALLPAPERS.find(w => w.id === selectedWallpaper) || customWallpapers.find(w => w.id === selectedWallpaper);
         if (!wp || wp.id === "default") {
-          return <div className="aqua-wallpaper z-0" />;
+          return <div className="whatsapp-wallpaper z-0" />;
         }
         if (wp.type === "image") {
           return (
@@ -1158,16 +1157,16 @@ export default function ChatWindow({
             </div>
 
             <div className="min-w-0">
-              <h4 className="text-sm font-bold truncate text-[var(--theme-text-primary)]">{chat.name}</h4>
-              <p className="text-[10px] text-[var(--theme-text-secondary)] font-medium flex items-center gap-1">
+              <h4 className="text-[18px] font-semibold truncate text-[var(--theme-text-primary)]">{chat.name}</h4>
+              <p className="text-[13px] text-[var(--theme-text-secondary)] font-normal flex items-center gap-1">
                 {isRecipientTyping ? (
-                  <span className="text-[var(--theme-accent)] font-bold animate-pulse">
+                  <span className="text-[var(--theme-accent)] font-semibold animate-pulse text-[12px]">
                     {chat.isGroup ? `${typingUsername} is typing...` : "typing..."}
                   </span>
                 ) : chat.isGroup ? (
                   <span>{chat.participants?.length || 2} members</span>
                 ) : isOnline ? (
-                  <span className="text-green-400 font-semibold flex items-center gap-1">
+                  <span className="text-green-400 font-normal flex items-center gap-1">
                     Online
                   </span>
                 ) : chat.recipient && chat.recipient.lastSeen ? (
@@ -1310,197 +1309,233 @@ export default function ChatWindow({
             </p>
           </div>
         ) : (
-          messages.map((msg) => {
+          messages.map((msg, index) => {
             const isMe = msg.senderId === user?.id;
             const isMsgDeleted = !!msg.isDeleted;
             const isMsgEdited = !!msg.isEdited;
             const emojiOnly = !msg.mediaUrl && !isMsgDeleted && isOnlyEmojis(msg.content);
 
             const isSelected = selectedMessageIds.has(msg.id);
+
+            // Date separator calculation
+            const msgDate = new Date(msg.createdAt).toDateString();
+            const prevMsg = index > 0 ? messages[index - 1] : null;
+            const prevMsgDate = prevMsg ? new Date(prevMsg.createdAt).toDateString() : null;
+            const showDateSeparator = msgDate !== prevMsgDate;
+
+            const formatDateSeparator = (dateStr: string) => {
+              const d = new Date(dateStr);
+              const today = new Date().toDateString();
+              const yesterday = new Date(Date.now() - 86400000).toDateString();
+              if (d.toDateString() === today) return "Today";
+              if (d.toDateString() === yesterday) return "Yesterday";
+              return d.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
+            };
+
+            // Dynamic margin spacing: 4px between same sender, 12px between different senders
+            const nextMsg = messages[index + 1];
+            const isDifferentSender = nextMsg ? nextMsg.senderId !== msg.senderId : true;
+            const spacingClass = isDifferentSender ? "mb-3.5" : "mb-1";
+
             return (
-              <div
-                key={msg.id}
-                onMouseEnter={() => !isMsgDeleted && setHoveredMessageId(msg.id)}
-                onMouseLeave={() => setHoveredMessageId(null)}
-                onClick={() => isSelectionMode && toggleMessageSelection(msg.id)}
-                className={`group flex items-end gap-3 max-w-[85%] sm:max-w-[70%] relative z-10 transition-all duration-200 ${
-                  isSelectionMode ? "cursor-pointer hover:bg-white/5 p-1 rounded-xl" : ""
-                } ${
-                  isMe ? "ml-auto flex-row-reverse" : "mr-auto"
-                }`}
-              >
-                {isSelectionMode && (
-                  <div className="shrink-0 flex items-center justify-center h-8 w-8">
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      readOnly
-                      className="h-4.5 w-4.5 rounded-md border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] text-[var(--theme-accent)] focus:ring-[var(--theme-accent)] transition-all cursor-pointer"
-                    />
+              <React.Fragment key={msg.id}>
+                {showDateSeparator && (
+                  <div className="flex justify-center my-4 w-full select-none">
+                    <span className="bg-[var(--theme-bg-sidebar-search)]/80 text-[12px] font-medium text-[var(--theme-text-secondary)] px-4 py-1.5 rounded-full border border-[var(--theme-border-color)]/20 shadow-xs uppercase tracking-wider text-center">
+                      {formatDateSeparator(msg.createdAt)}
+                    </span>
                   </div>
                 )}
-                {!isMe && (
-                  <button
-                    onClick={() => setProfileUser(msg.sender)}
-                    className="shrink-0 rounded-full cursor-pointer hover:opacity-80 transition-opacity"
-                    title={`View ${msg.sender.username}'s profile`}
-                  >
-                    <img
-                      src={getAvatarUrl(msg.sender.avatarUrl, msg.sender.username)}
-                      alt={msg.sender.username}
-                      className="h-8 w-8 rounded-full border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)]"
-                    />
-                  </button>
-                )}
-                <div className="flex flex-col relative">
-                  {/* Quoted parent message (replies) */}
-                  {msg.parentMessage && !isMsgDeleted && (
-                    <div className="rounded-lg bg-[var(--theme-bg-sidebar-search)]/80 border-l-2 border-[var(--theme-accent)] px-3 py-1.5 text-[11px] text-[var(--theme-text-secondary)] mb-1 select-none pointer-events-none max-w-sm truncate">
-                      <span className="font-bold text-[var(--theme-accent)] text-[9px] block">
-                        {msg.parentMessage.sender.username}
-                      </span>
-                      {msg.parentMessage.content}
-                    </div>
-                  )}
 
-                  {/* Message bubble depending on mediaType */}
-                  {isMsgDeleted ? (
-                    <div
-                      className={`rounded-2xl px-4 py-2 text-sm italic opacity-60 bg-zinc-900 border border-zinc-800 text-zinc-500 relative`}
-                    >
-                      <TwemojiText text="This message was deleted" />
-                    </div>
-                  ) : msg.mediaType === "STICKER" ? (
-                    <div className="relative py-1 select-none">
-                      <img
-                        src={resolveMediaUrl(msg.mediaUrl) || ""}
-                        alt="Sticker"
-                        className="w-28 h-28 object-contain transition-transform duration-200 hover:scale-110"
+                <div
+                  onMouseEnter={() => !isMsgDeleted && setHoveredMessageId(msg.id)}
+                  onMouseLeave={() => setHoveredMessageId(null)}
+                  onClick={() => isSelectionMode && toggleMessageSelection(msg.id)}
+                  className={`group flex items-end gap-2 max-w-[78%] relative z-10 transition-all duration-200 ${spacingClass} ${
+                    isSelectionMode ? "cursor-pointer hover:bg-white/5 p-1 rounded-xl" : ""
+                  } ${
+                    isMe ? "ml-auto flex-row-reverse" : "mr-auto"
+                  }`}
+                >
+                  {isSelectionMode && (
+                    <div className="shrink-0 flex items-center justify-center h-8 w-8">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        readOnly
+                        className="h-4.5 w-4.5 rounded-md border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] text-[var(--theme-accent)] focus:ring-[var(--theme-accent)] transition-all cursor-pointer"
                       />
                     </div>
-                  ) : msg.mediaType === "CALL_LOG" ? (
-                    <CallLogMessage msg={msg} isMe={isMe} />
-                  ) : msg.mediaType === "IMAGE" ? (
-                    <div className="flex flex-col space-y-1">
-                      <div className="max-w-md rounded-2xl overflow-hidden border border-zinc-800 bg-zinc-900 shadow-md">
+                  )}
+                  {!isMe && (
+                    <button
+                      onClick={() => setProfileUser(msg.sender)}
+                      className="shrink-0 rounded-full cursor-pointer hover:opacity-80 transition-opacity"
+                      title={`View ${msg.sender.username}'s profile`}
+                    >
+                      <img
+                        src={getAvatarUrl(msg.sender.avatarUrl, msg.sender.username)}
+                        alt={msg.sender.username}
+                        className="h-10 w-10 rounded-full border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] object-cover"
+                      />
+                    </button>
+                  )}
+                  <div className="flex flex-col relative">
+                    {/* Group Chat Sender Username: 13sp (13px), Medium (500), Top-left */}
+                    {chat.isGroup && !isMe && !isMsgDeleted && (
+                      <span className="text-[13px] font-[500] text-[var(--theme-accent)] mb-0.5 text-left block pl-1 select-none">
+                        {msg.sender.username}
+                      </span>
+                    )}
+
+                    {/* Quoted parent message (replies) */}
+                    {msg.parentMessage && !isMsgDeleted && (
+                      <div className="rounded-lg bg-[var(--theme-bg-sidebar-search)]/80 border-l-2 border-[var(--theme-accent)] px-3 py-1.5 text-[11px] text-[var(--theme-text-secondary)] mb-1 select-none pointer-events-none max-w-sm truncate">
+                        <span className="font-bold text-[var(--theme-accent)] text-[9px] block">
+                          {msg.parentMessage.sender.username}
+                        </span>
+                        {msg.parentMessage.content}
+                      </div>
+                    )}
+
+                    {/* Message bubble depending on mediaType */}
+                    {isMsgDeleted ? (
+                      <div
+                        className={`rounded-2xl px-4 py-2 text-[16px] italic opacity-60 bg-zinc-900 border border-zinc-800 text-zinc-500 relative`}
+                      >
+                        <TwemojiText text="This message was deleted" />
+                      </div>
+                    ) : msg.mediaType === "STICKER" ? (
+                      <div className="relative py-1 select-none">
                         <img
                           src={resolveMediaUrl(msg.mediaUrl) || ""}
-                          alt={msg.content || "Image attachment"}
-                          className="w-full max-h-96 object-cover cursor-pointer hover:opacity-90 transition-opacity"
-                          onClick={() => window.open(resolveMediaUrl(msg.mediaUrl) || "", "_blank")}
+                          alt="Sticker"
+                          className="w-28 h-28 object-contain transition-transform duration-200 hover:scale-110"
                         />
                       </div>
-                      {msg.content && msg.content !== msg.id && (
-                        <div
-                          className={`rounded-2xl px-4 py-2 text-sm shadow-md ${
-                            isMe
-                              ? "rounded-br-none bg-gradient-to-tr from-violet-600 to-indigo-600 text-white"
-                              : "rounded-bl-none bg-zinc-900 border border-zinc-800/80 text-zinc-100"
-                          }`}
-                        >
-                          {msg.content}
+                    ) : msg.mediaType === "CALL_LOG" ? (
+                      <CallLogMessage msg={msg} isMe={isMe} />
+                    ) : msg.mediaType === "IMAGE" ? (
+                      <div className="flex flex-col space-y-1">
+                        <div className="max-w-md rounded-2xl overflow-hidden border border-zinc-800 bg-zinc-900 shadow-md">
+                          <img
+                            src={resolveMediaUrl(msg.mediaUrl) || ""}
+                            alt={msg.content || "Image attachment"}
+                            className="w-full max-h-96 object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                            onClick={() => window.open(resolveMediaUrl(msg.mediaUrl) || "", "_blank")}
+                          />
                         </div>
-                      )}
-                    </div>
-                  ) : msg.mediaType === "VIDEO" ? (
-                    <div className="flex flex-col space-y-1">
-                      <div className="max-w-xs rounded-2xl overflow-hidden border border-zinc-800 bg-black shadow-md">
-                        <video
-                          src={resolveMediaUrl(msg.mediaUrl) || ""}
-                          controls
-                          preload="metadata"
-                          playsInline
-                          className="w-full max-h-72 object-contain bg-black rounded-2xl"
-                          style={{ display: "block" }}
-                          onError={(e) => {
-                            console.error("Video error:", e);
-                          }}
-                        >
-                          <source src={resolveMediaUrl(msg.mediaUrl) || ""} />
-                          Your browser does not support video playback.
-                        </video>
+                        {msg.content && msg.content !== msg.id && (
+                          <div
+                            className={`rounded-2xl px-4 py-2 text-[16px] shadow-md ${
+                              isMe
+                                ? "rounded-br-none bg-gradient-to-tr from-violet-600 to-indigo-600 text-white"
+                                : "rounded-bl-none bg-zinc-900 border border-zinc-800/80 text-zinc-100"
+                            }`}
+                          >
+                            {msg.content}
+                          </div>
+                        )}
                       </div>
-                      {msg.content && msg.content !== msg.id && (
-                        <div
-                          className={`rounded-2xl px-4 py-2 text-sm shadow-md ${
-                            isMe
-                              ? "rounded-br-none bg-gradient-to-tr from-violet-600 to-indigo-600 text-white"
-                              : "rounded-bl-none bg-zinc-900 border border-zinc-800/80 text-zinc-100"
-                          }`}
-                        >
-                          {msg.content}
+                    ) : msg.mediaType === "VIDEO" ? (
+                      <div className="flex flex-col space-y-1">
+                        <div className="max-w-xs rounded-2xl overflow-hidden border border-zinc-800 bg-black shadow-md">
+                          <video
+                            src={resolveMediaUrl(msg.mediaUrl) || ""}
+                            controls
+                            preload="metadata"
+                            playsInline
+                            className="w-full max-h-72 object-contain bg-black rounded-2xl"
+                            style={{ display: "block" }}
+                            onError={(e) => {
+                              console.error("Video error:", e);
+                            }}
+                          >
+                            <source src={resolveMediaUrl(msg.mediaUrl) || ""} />
+                            Your browser does not support video playback.
+                          </video>
                         </div>
-                      )}
-                    </div>
-                  ) : msg.mediaType === "AUDIO" ? (
-                    <div className={`flex flex-col space-y-1 max-w-xs`}>
-                      <AudioMessage msg={msg} isMe={isMe} theme={theme} />
-                      {msg.content && msg.content !== msg.id && (
-                        <div className={`text-[10px] ${isMe ? "text-right text-white/60" : "text-zinc-500"} truncate`}>
-                          {msg.content}
+                        {msg.content && msg.content !== msg.id && (
+                          <div
+                            className={`rounded-2xl px-4 py-2 text-[16px] shadow-md ${
+                              isMe
+                                ? "rounded-br-none bg-gradient-to-tr from-violet-600 to-indigo-600 text-white"
+                                : "rounded-bl-none bg-zinc-900 border border-zinc-800/80 text-zinc-100"
+                            }`}
+                          >
+                            {msg.content}
+                          </div>
+                        )}
+                      </div>
+                    ) : msg.mediaType === "AUDIO" ? (
+                      <div className={`flex flex-col space-y-1 max-w-xs`}>
+                        <AudioMessage msg={msg} isMe={isMe} theme={theme} />
+                        {msg.content && msg.content !== msg.id && (
+                          <div className={`text-[11px] ${isMe ? "text-right text-white/60" : "text-zinc-500"} truncate`}>
+                            {msg.content}
+                          </div>
+                        )}
+                      </div>
+                    ) : msg.mediaType === "FILE" ? (
+                      <div className="flex items-center gap-3 max-w-xs rounded-2xl border border-zinc-800 bg-zinc-900/60 p-3 shadow-md">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-850 text-violet-400">
+                          <FileIcon className="h-4.5 w-4.5" />
                         </div>
-                      )}
-                    </div>
-                  ) : msg.mediaType === "FILE" ? (
-                    <div className="flex items-center gap-3 max-w-xs rounded-2xl border border-zinc-800 bg-zinc-900/60 p-3 shadow-md">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-850 text-violet-400">
-                        <FileIcon className="h-4.5 w-4.5" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[14px] font-semibold text-white truncate">
+                            {msg.content || "Attachment"}
+                          </p>
+                          <p className="text-[11px] text-zinc-550">File Attachment</p>
+                        </div>
+                        <a
+                          href={resolveMediaUrl(msg.mediaUrl) || ""}
+                          download={msg.content}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                        </a>
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-semibold text-white truncate">
-                          {msg.content || "Attachment"}
-                        </p>
-                        <p className="text-[9px] text-zinc-550">File Attachment</p>
-                      </div>
-                      <a
-                        href={resolveMediaUrl(msg.mediaUrl) || ""}
-                        download={msg.content}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+                    ) : emojiOnly ? (
+                      /* Big emoji-only messages */
+                      <div
+                        className={`select-none leading-none py-1 ${getEmojiAnimationClass(msg.content)}`}
+                        style={{ fontSize: msg.content.trim().length <= 2 ? "2rem" : msg.content.trim().length <= 5 ? "1.6rem" : "1.25rem" }}
                       >
-                        <Download className="h-3.5 w-3.5" />
-                      </a>
-                    </div>
-                  ) : emojiOnly ? (
-                    /* Big emoji-only messages */
-                    <div
-                      className={`select-none leading-none py-1 ${getEmojiAnimationClass(msg.content)}`}
-                      style={{ fontSize: msg.content.trim().length <= 2 ? "2rem" : msg.content.trim().length <= 5 ? "1.6rem" : "1.25rem" }}
-                    >
-                      <TwemojiText text={msg.content} />
-                    </div>
-                  ) : (
-                    <div
-                      className={`rounded-2xl px-4 py-2 text-sm transition-all relative premium-chat-bubble ${
-                        isMe
-                          ? theme.startsWith("aqua")
-                            ? "bubble-tail-me border border-[var(--theme-border-color)]/10"
-                            : "rounded-br-none border border-white/5"
-                          : theme.startsWith("aqua")
-                            ? "bubble-tail-them border border-black/5"
-                            : "rounded-bl-none border border-[var(--theme-border-color)]/60"
-                      }`}
-                      style={{
-                        background: isMe
-                          ? typeof (window as any) !== 'undefined'
-                            ? `var(--theme-bubble-sent)`
-                            : undefined
-                          : `var(--theme-bubble-received)`,
-                        color: isMe ? `var(--theme-bubble-sent-text)` : `var(--theme-bubble-received-text)`,
-                      }}
-                    >
-                      <TwemojiText text={msg.content} />
-                    </div>
-                  )}
+                        <TwemojiText text={msg.content} />
+                      </div>
+                    ) : (
+                      <div
+                        className={`rounded-2xl px-4 py-2 text-[16px] transition-all relative premium-chat-bubble ${
+                          isMe
+                            ? theme.startsWith("aqua")
+                              ? "bubble-tail-me border border-[var(--theme-border-color)]/10"
+                              : "rounded-br-none border border-white/5"
+                            : theme.startsWith("aqua")
+                              ? "bubble-tail-them border border-black/5"
+                              : "rounded-bl-none border border-[var(--theme-border-color)]/60"
+                        }`}
+                        style={{
+                          background: isMe
+                            ? typeof (window as any) !== 'undefined'
+                              ? `var(--theme-bubble-sent)`
+                              : undefined
+                            : `var(--theme-bubble-received)`,
+                          color: isMe ? `var(--theme-bubble-sent-text)` : `var(--theme-bubble-received-text)`,
+                        }}
+                      >
+                        <TwemojiText text={msg.content} />
+                      </div>
+                    )}
 
-                  {/* Footer status text */}
-                  <div
-                    className={`flex items-center gap-1 mt-1 text-[9px] text-[var(--theme-text-secondary)]/70 font-medium ${
-                      isMe ? "justify-end mr-1" : "justify-start ml-1"
-                    }`}
-                  >
-                    <span>{formatMessageTime(msg.createdAt)}</span>
+                    {/* Footer status text - Timestamp: 11sp (11px), Regular */}
+                    <div
+                      className={`flex items-center gap-1 mt-1 text-[11px] text-[var(--theme-text-secondary)]/70 font-normal ${
+                        isMe ? "justify-end mr-1" : "justify-start ml-1"
+                      }`}
+                    >
+                      <span>{formatMessageTime(msg.createdAt)}</span>
                     {isMsgEdited && !isMsgDeleted && <span className="opacity-60">(edited)</span>}
                     {isMe && !isMsgDeleted && (() => {
                       const status = (() => {
@@ -1579,9 +1614,10 @@ export default function ChatWindow({
                   </div>
                 )}
               </div>
-            );
-          })
-        )}
+            </React.Fragment>
+          );
+        })
+      )}
 
         {/* Typing Indicator Bubble */}
         {isRecipientTyping && (
@@ -1595,7 +1631,7 @@ export default function ChatWindow({
             </div>
             <div className="flex flex-col gap-1">
               {chat.isGroup && (
-                <span className="text-[10px] text-[var(--theme-text-secondary)] pl-1 font-semibold">{typingUsername}</span>
+                <span className="text-[12px] text-[var(--theme-text-secondary)] pl-1 font-normal">{typingUsername}</span>
               )}
               <div className="flex items-center gap-1.5 rounded-2xl rounded-bl-sm bg-[var(--theme-bg-sidebar)] border border-[var(--theme-border-color)] px-4 py-3 shadow-sm">
                 <span className="h-2 w-2 rounded-full bg-[var(--theme-accent)] animate-bounce" style={{ animationDelay: "0ms" }} />
@@ -1703,20 +1739,20 @@ export default function ChatWindow({
                 </button>
               </div>
             ) : (
-              <form onSubmit={handleSendMessage} className="p-2 sm:p-4 relative animate-fade-in">
-                <div className="flex items-center gap-2 sm:gap-3">
+              <form onSubmit={handleSendMessage} className="p-2 sm:px-4 sm:py-3 relative animate-fade-in border-t border-[var(--theme-border-color)]/20 bg-[var(--theme-bg-chat-input)]">
+                <div className="flex items-center gap-2 sm:gap-3 h-14 min-h-[56px]">
                   {/* File Upload Button */}
                   <button
                     type="button"
                     disabled={isUploadingFile || isRecording}
                     onClick={() => fileInputRef.current?.click()}
-                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/55 text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-all duration-200 cursor-pointer disabled:opacity-50"
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/55 text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-all duration-200 cursor-pointer disabled:opacity-50"
                     title="Attach File"
                   >
                     {isUploadingFile ? (
-                      <Loader2 className="h-4 w-4 animate-spin text-[var(--theme-accent)]" />
+                      <Loader2 className="h-5 w-5 animate-spin text-[var(--theme-accent)]" />
                     ) : (
-                      <Paperclip className="h-4 w-4" />
+                      <Paperclip className="h-6 w-6" />
                     )}
                   </button>
                   
@@ -1725,10 +1761,10 @@ export default function ChatWindow({
                     type="button"
                     disabled={isRecording}
                     onClick={startCamera}
-                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/55 text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-all duration-200 cursor-pointer disabled:opacity-50"
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/55 text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-all duration-200 cursor-pointer disabled:opacity-50"
                     title="Camera"
                   >
-                    <Camera className="h-4 w-4" />
+                    <Camera className="h-6 w-6" />
                   </button>
 
                   {/* Emoji Picker Button */}
@@ -1737,18 +1773,18 @@ export default function ChatWindow({
                       type="button"
                       disabled={isRecording}
                       onClick={() => setShowEmojiPicker((v) => !v)}
-                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition-all duration-200 cursor-pointer ${
+                      className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border transition-all duration-200 cursor-pointer ${
                         showEmojiPicker
                           ? "border-[var(--theme-accent)] text-[var(--theme-accent)] bg-[var(--theme-accent)]/10"
                           : "border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/55 text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]"
                       }`}
                       title="Emoji"
                     >
-                      <Smile className="h-4 w-4" />
+                      <Smile className="h-6 w-6" />
                     </button>
 
                     {showEmojiPicker && (
-                      <div className="absolute bottom-14 left-0 z-50 shadow-2xl rounded-2xl overflow-hidden animate-fade-in">
+                      <div className="absolute bottom-16 left-0 z-50 shadow-2xl rounded-2xl overflow-hidden animate-fade-in">
                         <EmojiPicker
                           onEmojiClick={(emojiData) => {
                             onEmojiClick(emojiData);
@@ -1764,10 +1800,10 @@ export default function ChatWindow({
                   </div>
 
                   {isRecording ? (
-                    <div className="flex-1 flex items-center justify-between rounded-xl border border-red-500/50 bg-red-500/10 px-4 py-2.5">
+                    <div className="flex-1 flex items-center justify-between rounded-xl border border-red-500/50 bg-red-500/10 px-4 py-2.5 h-11">
                       <div className="flex items-center gap-2 text-red-500 animate-pulse">
-                        <Mic className="h-4 w-4" />
-                        <span className="text-sm font-semibold text-red-400">
+                        <Mic className="h-5 w-5" />
+                        <span className="text-[16px] font-semibold text-red-400">
                           {Math.floor(recordingDuration / 60)}:{(recordingDuration % 60).toString().padStart(2, '0')}
                         </span>
                       </div>
@@ -1785,7 +1821,7 @@ export default function ChatWindow({
                       value={inputValue}
                       onChange={handleInputChange}
                       placeholder={editingMessage ? "Edit your message..." : "Type a message..."}
-                      className="flex-1 min-w-0 rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-chat-input-field)] px-3 sm:px-4 py-2.5 text-sm text-[var(--theme-text-primary)] placeholder-[var(--theme-text-secondary)]/40 focus:border-[var(--theme-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--theme-accent)] transition-all duration-200"
+                      className="flex-1 min-w-0 rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-chat-input-field)] px-4 py-2.5 text-[16px] text-[var(--theme-text-primary)] placeholder-[var(--theme-text-secondary)]/40 focus:border-[var(--theme-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--theme-accent)] transition-all duration-200 h-11"
                     />
                   )}
 
@@ -1793,21 +1829,21 @@ export default function ChatWindow({
                     <button
                       type="button"
                       onClick={startRecording}
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--theme-bg-sidebar-search)] border border-[var(--theme-border-color)] text-[var(--theme-accent)] hover:text-white hover:bg-[var(--theme-accent)] shadow-lg transition-all duration-200 cursor-pointer"
+                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[var(--theme-bg-sidebar-search)] border border-[var(--theme-border-color)] text-[var(--theme-accent)] hover:text-white hover:bg-[var(--theme-accent)] shadow-lg transition-all duration-200 cursor-pointer"
                       title="Hold or Click to Record"
                     >
-                      <Mic className="h-4 w-4" />
+                      <Mic className="h-6 w-6" />
                     </button>
                   ) : (
                     <button
                       type="submit"
                       disabled={isRecording || !inputValue.trim()}
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[var(--theme-accent-text)] shadow-lg hover:opacity-95 transition-all duration-200 cursor-pointer disabled:opacity-50 animate-fade-in"
+                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-[var(--theme-accent-text)] shadow-lg hover:opacity-95 transition-all duration-200 cursor-pointer disabled:opacity-50 animate-fade-in"
                       style={{
                         background: "linear-gradient(to top right, #0097a7, #00d4ff)"
                       }}
                     >
-                      <Send className="h-4 w-4" />
+                      <Send className="h-6 w-6" />
                     </button>
                   )}
                 </div>

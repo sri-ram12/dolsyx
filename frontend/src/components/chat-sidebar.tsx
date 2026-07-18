@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useState, useEffect, useRef } from "react";
 import { useAuth, API_URL, User } from "@/context/auth-context";
@@ -75,9 +75,31 @@ export default function ChatSidebar({
   const [pinnedChats, setPinnedChats] = useState<string[]>([]);
   const [archivedChats, setArchivedChats] = useState<string[]>([]);
   const [favoriteChats, setFavoriteChats] = useState<string[]>([]);
+  const [statusGroups, setStatusGroups] = useState<any[]>([]);
   
   // Long press timer ref
   const pressTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Load active statuses to show status rings
+  useEffect(() => {
+    if (!token) return;
+    const fetchSidebarStatuses = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/status`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setStatusGroups(data);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    };
+    fetchSidebarStatuses();
+    const interval = setInterval(fetchSidebarStatuses, 45000);
+    return () => clearInterval(interval);
+  }, [token]);
 
   // Close menus when clicking outside
   useEffect(() => {
@@ -280,10 +302,13 @@ export default function ChatSidebar({
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
 
-  // Sort chats: Pinned first, then by last message time
+  // Sort chats: Pinned first, then by last message time, archived at the bottom
   const sortedChats = [...chats]
-    .filter(c => !archivedChats.includes(c.id)) // hide archived chats
     .sort((a, b) => {
+      const aArchived = archivedChats.includes(a.id) ? 1 : 0;
+      const bArchived = archivedChats.includes(b.id) ? 1 : 0;
+      if (aArchived !== bArchived) return aArchived - bArchived;
+
       const aPinned = pinnedChats.includes(a.id) ? 1 : 0;
       const bPinned = pinnedChats.includes(b.id) ? 1 : 0;
       if (aPinned !== bPinned) return bPinned - aPinned;
@@ -320,7 +345,11 @@ export default function ChatSidebar({
             <button onClick={togglePin} className="p-2 hover:bg-[var(--theme-bg-sidebar-item-hover)] rounded-xl cursor-pointer" title="Pin / Unpin">
               <Pin className="h-4.5 w-4.5" />
             </button>
-            <button onClick={toggleArchive} className="p-2 hover:bg-[var(--theme-bg-sidebar-item-hover)] rounded-xl cursor-pointer" title="Archive">
+            <button
+              onClick={toggleArchive}
+              className="p-2 hover:bg-[var(--theme-bg-sidebar-item-hover)] rounded-xl cursor-pointer"
+              title={Array.from(selectedChats).some(id => archivedChats.includes(id)) ? "Unarchive" : "Archive"}
+            >
               <Archive className="h-4.5 w-4.5" />
             </button>
             <button onClick={deleteSelectedChats} className="p-2 hover:bg-[var(--theme-bg-sidebar-item-hover)] rounded-xl cursor-pointer text-red-400" title="Delete">
@@ -442,13 +471,16 @@ export default function ChatSidebar({
             <p className="text-sm text-[var(--theme-text-secondary)]">No active conversations</p>
           </div>
         ) : (
-          sortedChats.map((chat) => {
+          sortedChats.map((chat, index) => {
             const isSelected = selectedChatId === chat.id;
             const isOnline = chat.recipient ? onlineUsers.includes(chat.recipient.id) : false;
             const unread = unreadCounts[chat.id] || 0;
             const isPinned = pinnedChats.includes(chat.id);
             const isFavorite = favoriteChats.includes(chat.id);
             const isSelect = selectedChats.has(chat.id);
+            const isArchived = archivedChats.includes(chat.id);
+            
+            const isFirstArchived = isArchived && sortedChats.findIndex(c => archivedChats.includes(c.id)) === index;
 
             return (
               <div
@@ -459,6 +491,12 @@ export default function ChatSidebar({
                 onTouchEnd={endPress}
                 className="relative"
               >
+                {isFirstArchived && (
+                  <div className="flex items-center gap-2 px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest border-t border-[var(--theme-border-color)]/30 mt-3 mb-1">
+                    <Archive className="h-3.5 w-3.5" />
+                    <span>Archived Chats</span>
+                  </div>
+                )}
                 <button
                   onClick={() => handleChatClick(chat)}
                   className={`flex w-full items-center gap-3 rounded-xl px-4 py-3.5 text-left transition-all duration-200 cursor-pointer border-l-4 ${
@@ -470,11 +508,26 @@ export default function ChatSidebar({
                   }`}
                 >
                   <div className="relative shrink-0">
-                    <img
-                      src={getAvatarUrl(chat.avatarUrl, chat.name)}
-                      alt={chat.name}
-                      className="h-10 w-10 rounded-full border border-[var(--theme-border-color)] bg-zinc-800"
-                    />
+                    {(() => {
+                      const recipientId = chat.recipient?.id;
+                      const hasStatus = recipientId ? statusGroups.some(g => g.user.id === recipientId && g.statuses.length > 0) : false;
+                      const hasUnreadStatus = recipientId ? statusGroups.some(g => g.user.id === recipientId && g.hasUnread) : false;
+                      return (
+                        <div className={`rounded-full p-[2px] transition-all ${
+                          hasStatus
+                            ? hasUnreadStatus
+                              ? "ring-2 ring-[var(--theme-accent)] ring-offset-1 ring-offset-[var(--theme-bg-sidebar)] animate-pulse"
+                              : "ring-2 ring-slate-600/70 ring-offset-1 ring-offset-[var(--theme-bg-sidebar)]"
+                            : ""
+                        }`}>
+                          <img
+                            src={getAvatarUrl(chat.avatarUrl, chat.name)}
+                            alt={chat.name}
+                            className="h-10 w-10 rounded-full border border-[var(--theme-border-color)] bg-zinc-800 object-cover"
+                          />
+                        </div>
+                      );
+                    })()}
                     {isOnline && (
                       <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-[var(--theme-bg-container)] bg-green-500" />
                     )}
@@ -483,18 +536,18 @@ export default function ChatSidebar({
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-0.5">
                       <div className="flex items-center gap-1.5 min-w-0">
-                        <p className="font-semibold text-sm truncate text-[var(--theme-text-primary)]">{chat.name}</p>
+                        <p className="font-semibold text-[16px] truncate text-[var(--theme-text-primary)]">{chat.name}</p>
                         {isPinned && <Pin className="h-3 w-3 text-[var(--theme-accent)]" />}
                         {isFavorite && <Star className="h-3 w-3 text-amber-500" fill="currentColor" />}
                       </div>
                       {chat.lastMessage && (
-                        <span className={`text-[10px] ${unread > 0 ? 'text-[var(--theme-accent)] font-bold' : 'text-[var(--theme-text-secondary)]'}`}>
+                        <span className={`text-[12px] font-normal ${unread > 0 ? 'text-[var(--theme-accent)] font-semibold' : 'text-[var(--theme-text-secondary)]'}`}>
                           {formatTime(chat.lastMessage.createdAt)}
                         </span>
                       )}
                     </div>
                     <div className="flex items-center justify-between">
-                      <p className="text-xs text-[var(--theme-text-secondary)] truncate flex-1 min-w-0">
+                      <p className="text-[14px] text-[var(--theme-text-secondary)] truncate flex-1 min-w-0 font-normal">
                         {chat.lastMessage
                           ? (() => {
                               const m = chat.lastMessage;
@@ -517,7 +570,7 @@ export default function ChatSidebar({
                           : "No messages yet"}
                       </p>
                       {unread > 0 && (
-                        <span className="ml-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--theme-accent)] px-1.5 text-[10px] font-bold text-white shrink-0">
+                        <span className="ml-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--theme-accent)] px-1.5 text-[12px] font-bold text-white shrink-0">
                           {unread > 99 ? "99+" : unread}
                         </span>
                       )}

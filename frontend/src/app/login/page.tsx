@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
@@ -94,6 +94,12 @@ export default function LoginPage() {
       if (res.ok) {
         if (data.requiresPassword && !forceOtp) {
           setStep("password");
+          const bioEnabled = localStorage.getItem(`dolsyx_bio_enabled_${email.trim().toLowerCase()}`) === "true";
+          if (bioEnabled) {
+            setTimeout(() => {
+              handleBiometricLogin();
+            }, 150);
+          }
         } else {
           setStep("otp");
           setIsNewUser(data.isNewUser);
@@ -402,13 +408,27 @@ export default function LoginPage() {
               </div>
             </div>
 
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-extrabold text-[var(--theme-accent-text)] bg-[var(--theme-accent)] hover:opacity-95 disabled:opacity-50 transition-all cursor-pointer shadow-lg"
-            >
-              {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <><span>Continue</span><ArrowRight className="h-4 w-4" /></>}
-            </button>
+             <div className="space-y-3">
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-extrabold text-[var(--theme-accent-text)] bg-[var(--theme-accent)] hover:opacity-95 disabled:opacity-50 transition-all cursor-pointer shadow-lg"
+              >
+                {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <><span>Continue</span><ArrowRight className="h-4 w-4" /></>}
+              </button>
+
+              {hasBiometrics && (
+                <button
+                  type="button"
+                  onClick={handleBiometricLogin}
+                  disabled={isLoading}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-extrabold text-[var(--theme-text-primary)] border border-[var(--theme-border-color)] bg-transparent hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-all cursor-pointer"
+                >
+                  <Fingerprint className="h-5 w-5 text-[var(--theme-accent)]" />
+                  <span>Login with Fingerprint</span>
+                </button>
+              )}
+            </div>
           </form>
         )}
 

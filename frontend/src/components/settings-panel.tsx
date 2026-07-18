@@ -50,6 +50,8 @@ export default function SettingsPanel({ onClose, onSelectChat }: SettingsPanelPr
   const [bioEnabled, setBioEnabled] = useState(false);
   const [fontScale, setFontScale] = useState(1.0);
   const [showQr, setShowQr] = useState(false);
+  const [statusPrivacy, setStatusPrivacy] = useState("CONTACTS");
+  const [showFullAvatar, setShowFullAvatar] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -69,6 +71,7 @@ export default function SettingsPanel({ onClose, onSelectChat }: SettingsPanelPr
       setCustomNotifName(localStorage.getItem("dolsyx_custom_notif_name") || "");
       setCustomRingName(localStorage.getItem("dolsyx_custom_ring_name") || "");
       setPinEnabled(!!localStorage.getItem("dolsyx_pin_hash"));
+      setStatusPrivacy(localStorage.getItem("dolsyx_status_privacy") || "CONTACTS");
       const storedScale = parseFloat(localStorage.getItem("dolsyx_font_scale") || "1.0");
       setFontScale(storedScale);
       document.documentElement.style.fontSize = `${storedScale * 16}px`;
@@ -327,6 +330,11 @@ export default function SettingsPanel({ onClose, onSelectChat }: SettingsPanelPr
     }
   };
 
+  const handleStatusPrivacyChange = (val: string) => {
+    setStatusPrivacy(val);
+    localStorage.setItem("dolsyx_status_privacy", val);
+  };
+
   const pinResetAlerts = () => {
     setPinError("");
     setPinSuccess("");
@@ -336,21 +344,39 @@ export default function SettingsPanel({ onClose, onSelectChat }: SettingsPanelPr
     <div className="flex flex-col h-full w-full bg-[var(--theme-bg-sidebar)] border-r border-[var(--theme-border-color)] sm:w-96 shrink-0 z-40 relative transition-all duration-300">
       
       {/* Top Header - Matches Image 2 layout (arrow back + title) */}
-      <div className="flex items-center gap-4 px-5 py-4 border-b border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-header)]">
-        <button onClick={onClose} className="p-1 rounded-lg hover:bg-[var(--theme-bg-sidebar-item-hover)] text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-colors cursor-pointer">
-          <ArrowLeft className="h-5 w-5" />
-        </button>
-        <span className="text-base font-bold text-[var(--theme-text-primary)]">Profile Settings</span>
+      <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-header)]">
+        <div className="flex items-center gap-4">
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-[var(--theme-bg-sidebar-item-hover)] text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-colors cursor-pointer">
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          <span className="text-base font-bold text-[var(--theme-text-primary)]">Profile Settings</span>
+        </div>
+        {activeTab === "profile" && (
+          <button
+            onClick={() => {
+              const event = { preventDefault: () => {} } as React.FormEvent;
+              handleSaveProfile(event);
+            }}
+            disabled={isSavingProfile || isUploadingAvatar}
+            className="text-xs font-black uppercase text-[var(--theme-accent)] hover:opacity-80 transition-opacity cursor-pointer disabled:opacity-50"
+          >
+            {isSavingProfile ? "Saving..." : "Save"}
+          </button>
+        )}
       </div>
 
       <div className="flex border-b border-[var(--theme-border-color)] px-4 py-2 bg-[var(--theme-bg-sidebar-header)] overflow-x-auto gap-2">
-        {["profile", "display", "audio", "privacy", "lock"].map((t) => (
+        {["profile", "display", "audio", "privacy", "chat lock"].map((t) => (
           <button
             key={t}
-            onClick={() => setActiveTab(t as any)}
-            className={`px-3 py-1 text-xs font-bold rounded-lg capitalize transition-all cursor-pointer whitespace-nowrap ${activeTab === t ? "bg-[var(--theme-accent)] text-[var(--theme-accent-text)]" : "text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]"}`}
+            onClick={() => setActiveTab((t === "chat lock" ? "lock" : t) as any)}
+            className={`px-3 py-1 text-xs font-bold rounded-lg capitalize transition-all cursor-pointer whitespace-nowrap ${
+              (activeTab === "lock" && t === "chat lock") || activeTab === t
+                ? "bg-[var(--theme-accent)] text-[var(--theme-accent-text)]"
+                : "text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]"
+            }`}
           >
-            {t}
+            {t === "chat lock" ? "Chat Lock" : t}
           </button>
         ))}
       </div>
@@ -371,7 +397,7 @@ export default function SettingsPanel({ onClose, onSelectChat }: SettingsPanelPr
 
             {/* Overlapping Profile Photo */}
             <div className="px-6 -mt-10 flex flex-col relative mb-4">
-              <div className="relative w-20 h-20 rounded-full border-4 border-[var(--theme-bg-sidebar)] overflow-hidden bg-[var(--theme-bg-sidebar-search)] group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
+              <div className="relative w-20 h-20 rounded-full border-4 border-[var(--theme-bg-sidebar)] overflow-hidden bg-[var(--theme-bg-sidebar-search)] group cursor-pointer" onClick={() => setShowFullAvatar(true)}>
                 <img
                   src={getAvatarUrl(editAvatar, editUsername)}
                   alt="Avatar Preview"
@@ -677,26 +703,28 @@ export default function SettingsPanel({ onClose, onSelectChat }: SettingsPanelPr
               </div>
             </div>
 
-            {/* Font Size Slider */}
+            {/* Font Size Options */}
             <div className="space-y-3 pt-4 border-t border-[var(--theme-border-color)]">
-              <div className="flex items-center justify-between">
-                <h4 className="font-bold text-sm text-[var(--theme-text-primary)]">Font Size</h4>
-                <span className="text-xs font-bold text-[var(--theme-accent)] bg-[var(--theme-accent)]/10 px-2 py-0.5 rounded-lg">
-                  {fontScale === 0.875 ? "Small" : fontScale === 1.0 ? "Normal" : fontScale === 1.125 ? "Large" : "Extra Large"}
-                </span>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="text-[10px] text-[var(--theme-text-secondary)] font-bold shrink-0">A</span>
-                <input
-                  type="range"
-                  min={0.875}
-                  max={1.25}
-                  step={0.125}
-                  value={fontScale}
-                  onChange={(e) => handleFontScaleChange(parseFloat(e.target.value))}
-                  className="flex-1 accent-[var(--theme-accent)] cursor-pointer h-1.5 rounded-full"
-                />
-                <span className="text-sm text-[var(--theme-text-secondary)] font-bold shrink-0">A</span>
+              <h4 className="font-bold text-sm text-[var(--theme-text-primary)]">Font Size</h4>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { label: "Small", value: 0.875 },
+                  { label: "Medium", value: 1.0 },
+                  { label: "Large", value: 1.125 }
+                ].map((opt) => (
+                  <button
+                    key={opt.label}
+                    type="button"
+                    onClick={() => handleFontScaleChange(opt.value)}
+                    className={`py-2 rounded-xl text-center text-xs font-bold border transition-all cursor-pointer ${
+                      fontScale === opt.value
+                        ? "bg-[var(--theme-accent)] text-[var(--theme-accent-text)] border-transparent shadow-md"
+                        : "border-[var(--theme-border-color)] text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
               </div>
               <p className="text-[10px] text-[var(--theme-text-secondary)] leading-relaxed">
                 Changes the text size across the entire app. Takes effect immediately.
@@ -747,6 +775,25 @@ export default function SettingsPanel({ onClose, onSelectChat }: SettingsPanelPr
                   </div>
                 ))
               )}
+            </div>
+
+            <div className="pt-4 border-t border-[var(--theme-border-color)] space-y-2">
+              <div className="flex items-center gap-2 text-[var(--theme-text-primary)]">
+                <Shield className="h-5 w-5 text-[var(--theme-accent)]" />
+                <h4 className="font-bold text-sm">Status Privacy</h4>
+              </div>
+              <p className="text-[10px] text-[var(--theme-text-secondary)] leading-relaxed">
+                Choose who can view your uploaded status stories:
+              </p>
+              <select
+                value={statusPrivacy}
+                onChange={(e) => handleStatusPrivacyChange(e.target.value)}
+                className="w-full rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] px-3 py-2.5 text-xs text-[var(--theme-text-primary)] focus:outline-none focus:border-[var(--theme-accent)]"
+              >
+                <option value="CONTACTS">My Contacts (Default)</option>
+                <option value="SHARE_ONLY">Only Share With Active Chat Contacts</option>
+                <option value="PRIVATE">Private (Only Me)</option>
+              </select>
             </div>
           </div>
         )}
@@ -857,6 +904,44 @@ export default function SettingsPanel({ onClose, onSelectChat }: SettingsPanelPr
         )}
 
       </div>
+
+      {/* Full Screen Avatar Modal */}
+      {showFullAvatar && (
+        <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-black/95 backdrop-blur-md p-4 animate-fade-in">
+          {/* Header */}
+          <div className="absolute top-4 left-4 right-4 flex items-center justify-between z-10">
+            <span className="text-white font-bold text-sm">Profile Photo</span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  setShowFullAvatar(false);
+                  setTimeout(() => fileInputRef.current?.click(), 100);
+                }}
+                className="p-2.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+                title="Change Photo"
+              >
+                <Camera className="h-5 w-5" />
+              </button>
+              <button
+                onClick={() => setShowFullAvatar(false)}
+                className="p-2.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+                title="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Full Screen Image */}
+          <div className="max-w-full max-h-[80vh] flex items-center justify-center">
+            <img
+              src={getAvatarUrl(editAvatar, editUsername)}
+              alt="Avatar Full Screen"
+              className="max-w-full max-h-[80vh] object-contain rounded-2xl shadow-2xl border border-white/10"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

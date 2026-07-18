@@ -99,7 +99,13 @@ export const getStatuses = async (req: AuthRequest, res: Response): Promise<void
           select: { id: true, username: true, avatarUrl: true },
         },
         views: {
-          select: { viewerId: true, viewedAt: true },
+          select: {
+            viewerId: true,
+            viewedAt: true,
+            viewer: {
+              select: { id: true, username: true, avatarUrl: true }
+            }
+          },
         },
       },
       orderBy: { createdAt: "desc" },

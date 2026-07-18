@@ -81,6 +81,7 @@ export default function StatusPanel({ onClose, onNewStatus }: StatusPanelProps) 
   const [mediaPreview, setMediaPreview] = useState<string>("");
   const [isUploading, setIsUploading] = useState(false);
   const [isPosting, setIsPosting] = useState(false);
+  const [showViewsList, setShowViewsList] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Fetch statuses
@@ -129,11 +130,16 @@ export default function StatusPanel({ onClose, onNewStatus }: StatusPanelProps) 
   // Story progress timer
   useEffect(() => {
     if (!viewingGroup) return;
+    if (showViewsList) {
+      if (progressTimer.current) clearInterval(progressTimer.current);
+      return;
+    }
     setStoryProgress(0);
     if (progressTimer.current) clearInterval(progressTimer.current);
 
     const currentStatus = viewingGroup.statuses[viewingIndex];
-    const duration = currentStatus?.mediaType === "VIDEO" ? 15000 : 5000;
+    // Video status can play up to 60 seconds, text/image for 5 seconds
+    const duration = currentStatus?.mediaType === "VIDEO" ? 60000 : 5000;
     const tick = 100;
 
     progressTimer.current = setInterval(() => {
@@ -159,7 +165,7 @@ export default function StatusPanel({ onClose, onNewStatus }: StatusPanelProps) 
       if (progressTimer.current) clearInterval(progressTimer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewingGroup, viewingIndex]);
+  }, [viewingGroup, viewingIndex, showViewsList]);
 
   const openGroup = (group: StatusGroup) => {
     setViewingGroup(group);
@@ -377,9 +383,57 @@ export default function StatusPanel({ onClose, onNewStatus }: StatusPanelProps) 
 
           {/* Views count for own status */}
           {viewingGroup.user.id === user?.id && (
-            <div className="absolute bottom-6 left-6 flex items-center gap-1 text-white/60 text-xs">
-              <Eye className="h-3.5 w-3.5" />
-              <span>{currentStatus.views.length} views</span>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowViewsList(true);
+              }}
+              className="absolute bottom-6 left-6 flex items-center gap-1.5 text-white bg-black/50 hover:bg-black/75 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors z-20 cursor-pointer shadow-md"
+            >
+              <Eye className="h-4 w-4 text-[var(--theme-accent)]" />
+              <span>{currentStatus.views.length} View{currentStatus.views.length !== 1 ? "s" : ""}</span>
+            </button>
+          )}
+
+          {/* Viewer List Drawer */}
+          {showViewsList && (
+            <div className="absolute inset-x-0 bottom-0 max-h-[50%] bg-[var(--theme-bg-sidebar)] border-t border-[var(--theme-border-color)] rounded-t-2xl flex flex-col z-30 animate-slide-up shadow-2xl p-4">
+              <div className="flex items-center justify-between border-b border-[var(--theme-border-color)] pb-3 mb-3">
+                <span className="text-sm font-bold text-[var(--theme-text-primary)]">Views ({currentStatus.views.length})</span>
+                <button
+                  onClick={() => setShowViewsList(false)}
+                  className="p-1 rounded-lg hover:bg-[var(--theme-bg-sidebar-item-hover)] text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] cursor-pointer"
+                >
+                  <X className="h-4.5 w-4.5" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto space-y-3 pr-1 text-left">
+                {currentStatus.views.length === 0 ? (
+                  <div className="text-center py-6 text-xs text-[var(--theme-text-secondary)]">
+                    No views yet
+                  </div>
+                ) : (
+                  currentStatus.views.map((v: any, index: number) => (
+                    <div key={index} className="flex items-center justify-between py-1 border-b border-[var(--theme-border-color)]/20 last:border-0">
+                      <div className="flex items-center gap-3">
+                        <img
+                          src={getAvatarUrl(v.viewer?.avatarUrl, v.viewer?.username || "Viewer")}
+                          alt={v.viewer?.username || "Viewer"}
+                          className="h-8 w-8 rounded-full object-cover border border-[var(--theme-border-color)]"
+                        />
+                        <div>
+                          <p className="text-xs font-bold text-[var(--theme-text-primary)]">
+                            {v.viewer?.username || "Anonymous Viewer"}
+                          </p>
+                          <p className="text-[9px] text-[var(--theme-text-secondary)]">
+                            {new Date(v.viewedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           )}
 

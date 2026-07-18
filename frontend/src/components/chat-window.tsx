@@ -77,36 +77,118 @@ interface ChatWindowProps {
 }
 
 // Chat wallpaper backgrounds — classic & AI-generated
-const CHAT_WALLPAPERS = [
-  { id: "default", name: "Default Aqua", type: "css" as const, value: "" },
+const generateWallpapers = () => {
+  const list = [
+    { id: "default", name: "Default Doodle", type: "css" as const, value: "", category: "doodle" },
+    { id: "light-doodle", name: "Light Doodle", type: "image" as const, value: "/chat-backgrounds/wa-light-doodle.svg", category: "doodle" },
+    { id: "dark-doodle", name: "Dark Doodle", type: "image" as const, value: "/chat-backgrounds/wa-dark-doodle-ai.png", category: "doodle" },
+  ];
 
-  // ── AI-Generated ─────────────────────────────────────────────────────────
-  { id: "wa-dark-doodle-ai", name: "Dark Doodle", type: "image" as const, value: "/chat-backgrounds/wa-dark-doodle-ai.png" },
-  { id: "wa-teal-ai", name: "Teal Classic", type: "image" as const, value: "/chat-backgrounds/wa-teal-ai.png" },
-  { id: "wa-midnight-ai", name: "Midnight Blue", type: "image" as const, value: "/chat-backgrounds/wa-midnight-ai.png" },
-  { id: "wa-geometric-ai", name: "Geometric Dark", type: "image" as const, value: "/chat-backgrounds/wa-geometric-ai.png" },
+  // Gradients (25 variants)
+  const gradientColors = [
+    ["#ff9a9e", "#fecfef"], ["#a1c4fd", "#c2e9fb"], ["#130cb7", "#52e5e7"], ["#30cfd0", "#330867"],
+    ["#16a085", "#f4d03f"], ["#e74c3c", "#9b59b6"], ["#34495e", "#2c3e50"], ["#2980b9", "#2c3e50"],
+    ["#1e3c72", "#2a5298"], ["#00c6ff", "#0072ff"], ["#7028e4", "#e20b8c"], ["#ff0844", "#ffb199"],
+    ["#f12711", "#f5af19"], ["#0575e6", "#00f260"], ["#43c6ac", "#191654"], ["#833ab4", "#fd1d1d"],
+    ["#3a7bd5", "#3a6073"], ["#000000", "#434343"], ["#11998e", "#38ef7d"], ["#3f2b96", "#a8c0ff"],
+    ["#00dbde", "#fc00ff"], ["#1f4037", "#99f2c8"], ["#d53369", "#cbad6d"], ["#ff7e5f", "#feb47b"],
+    ["#2c3e50", "#000000"]
+  ];
+  gradientColors.forEach((colors, i) => {
+    list.push({
+      id: `gradient-${i}`,
+      name: `Gradient ${i + 1}`,
+      type: "css" as const,
+      value: `linear-gradient(135deg, ${colors[0]} 0%, ${colors[1]} 100%)`,
+      category: "gradient"
+    });
+  });
 
-  // ── SVG Pattern Backgrounds ──────────────────────────────────────────────
-  { id: "wa-light-doodle", name: "Light Doodle", type: "image" as const, value: "/chat-backgrounds/wa-light-doodle.svg" },
-  { id: "wa-teal-hex", name: "Teal Hex", type: "image" as const, value: "/chat-backgrounds/wa-teal-hex.svg" },
-  { id: "wa-midnight-grid", name: "Midnight Grid", type: "image" as const, value: "/chat-backgrounds/wa-midnight-grid.svg" },
-  { id: "wa-polka-dots", name: "Polka Dots", type: "image" as const, value: "/chat-backgrounds/wa-polka-dots.svg" },
-  { id: "wa-purple-abstract", name: "Purple Haze", type: "image" as const, value: "/chat-backgrounds/wa-purple-abstract.svg" },
-  { id: "wa-olive", name: "Olive Classic", type: "image" as const, value: "/chat-backgrounds/wa-olive.svg" },
-  { id: "wa-triangles", name: "Dark Triangles", type: "image" as const, value: "/chat-backgrounds/wa-triangles.svg" },
-  { id: "wa-soft-pink", name: "Soft Pink", type: "image" as const, value: "/chat-backgrounds/wa-soft-pink.svg" },
-  { id: "wa-circuit", name: "Circuit Board", type: "image" as const, value: "/chat-backgrounds/wa-circuit.svg" },
-  { id: "wa-dark-teal", name: "Dark Teal", type: "image" as const, value: "/chat-backgrounds/wa-dark-teal.svg" },
-  { id: "wa-rose-gold", name: "Rose Gold", type: "image" as const, value: "/chat-backgrounds/wa-rose-gold.svg" },
+  const idsMap: Record<string, string[]> = {
+    nature: [
+      "1507525428034-b723cf961d3e", "1470071459604-3b5ec3a7fe05", "1447752875215-b2761acb3c5d",
+      "1472214222541-d510753a4907", "1469474968028-56623f02e42e", "1501854140801-50d01698950b",
+      "1441974231531-c6227db76b6e", "1433086966358-54859d0ed716", "1506744038136-46273834b3fb",
+      "1465146344425-f00d5f5c8f07", "1513836279014-a89f7a76ae86", "1475924156734-496f6cac6ec1",
+      "1518173946687-a4c8a383392e", "1446776811953-b23d57bd21aa", "1486515394018-8097d627b054",
+      "1500485035595-cbe6f645feb1", "1509042239860-f550ce710b93", "1532274402911-5a369e4c4bb5",
+      "1434725039720-abb26e22ebe8", "1418065460487-3e41a6c84dc5", "1426604966848-d7adac402bff",
+      "1534447677768-be436bb09401", "1510784722466-f2aa9c52faa6", "1482862549707-f63cb32c5fd9",
+      "1470240731273-7821a6eeb6bd", "1421930866200-c1e1f8a410f1", "1486916856992-e4db22c8df33",
+      "1473448912268-2022ce9509d8", "1464822759023-fed622ff2c3b", "1502082553048-f009c37129b9",
+      "1511497584788-876760111969", "1470813740244-df37b8c1edcb", "1504198453319-5ce911bafcde",
+      "1497436072909-60f360e1d4b1", "1504198266287-1659872e6590", "1502481851512-e9e2529beff9",
+      "1490730141103-6cac27aaab94", "1519681393784-d120267933ba", "1538964173428-2d09137be857",
+      "1546182990-d4afbe10a68d", "1511884642898-ac39277f84fa", "1523712999610-f97f502d4890",
+      "1516026672322-bc02d64a7c21", "1508739773434-c26b3d09e071", "1501785888041-af3ef285b470",
+      "1500530855612-4a0b407bb79e", "1505118380757-91f5f5632de0", "1520201164808-f2b4b25904ac",
+      "1503614472447-f62f1275322b"
+    ],
+    abstract: [
+      "1541701494587-cb58502866ab", "1618005182384-a83a8bd57fbe", "1508898578281-774ac4893c0c",
+      "1557672172-298e090bd0f1", "1604871000636-074fa5117945", "1618005198140-e3a77ad597b9",
+      "1607604276583-eef5d076aa5f", "1574169207511-94412959cc3e", "1579783900882-c0d3dad7b119",
+      "1618005182243-7f7f90c37f43", "1618005150383-a4e797a78377", "1567095761369-048e7523d820",
+      "1608501078906-c8e4f501f7ec", "1617791160536-598ffb415a7b", "1550684841-db53b27b14d8",
+      "1605721911514-ee92ff48855f", "1580136579312-e2d7e30f4007", "1578301978697-f07092b64ab3",
+      "1589330694653-ffdf95034c5b", "1589271303984-7a32933fd430", "1597500508605-7f154ff452bb",
+      "1614850523456-11f8e5f2cf2f", "1608228085671-dc535a60e045"
+    ],
+    minimal: [
+      "1507525428034-b723cf961d3e", "1494253109121-17748443907e", "1518531933037-a8b1d3d24af5",
+      "1475640355171-460d3d57f2e1", "1515256448408-01d51a61a6b0", "1489058535096-73f13f1ee60a",
+      "1528459801416-a9e53bbf4e17", "1531315630201-d71b4b60974b", "1513542789038-f9b4ac666ff2",
+      "1538370965046-dec292478436", "1488190211420-11a910be253a", "1495908389139-64157b4b39b7",
+      "1522048540838-89c0a6b7d23d", "1533035353-8385e50529e8", "1543322139-40b3b9b47e2a",
+      "1468165026-64673b063548"
+    ],
+    texture: [
+      "1518640467496-0f81d114002e", "1533035353-8385e50529e8", "1528459801416-a9e53bbf4e17",
+      "1522048540838-89c0a6b7d23d", "1518156677181-124b6f123456", "1543322139-40b3b9b47e2a",
+      "1468165026-64673b063548", "1531315630201-d71b4b60974b", "1488190211420-11a910be253a"
+    ],
+    geometric: [
+      "1614850523456-11f8e5f2cf2f", "1608228085671-dc535a60e045", "1618005182243-7f7f90c37f43",
+      "1618005150383-a4e797a78377", "1604871000636-074fa5117945", "1567095761369-048e7523d820",
+      "1608501078906-c8e4f501f7ec", "1617791160536-598ffb415a7b"
+    ],
+    dark: [
+      "1507525428034-b723cf961d3e", "1489058535096-73f13f1ee60a", "1528459801416-a9e53bbf4e17",
+      "1533035353-8385e50529e8", "1543322139-40b3b9b47e2a", "1468165026-64673b063548",
+      "1501854140801-50d01698950b", "1531315630201-d71b4b60974b"
+    ],
+    artistic: [
+      "1579783900882-c0d3dad7b119", "1550684841-db53b27b14d8", "1605721911514-ee92ff48855f",
+      "1580136579312-e2d7e30f4007", "1578301978697-f07092b64ab3", "1589330694653-ffdf95034c5b"
+    ]
+  };
 
-  // ── CSS Gradients ─────────────────────────────────────────────────────────
-  { id: "gradient-sunset", name: "Sunset", type: "css" as const, value: "linear-gradient(135deg, #1a0a2e 0%, #3d1a4e 30%, #8b3a62 60%, #d46a3a 85%, #f4a460 100%)" },
-  { id: "gradient-aurora", name: "Aurora", type: "css" as const, value: "linear-gradient(135deg, #0a0a2e 0%, #1a3a5c 30%, #2a5a4a 60%, #1a9a6a 85%, #0aaa8a 100%)" },
-  { id: "gradient-midnight", name: "Midnight", type: "css" as const, value: "linear-gradient(180deg, #0a0a1a 0%, #1a1a3a 50%, #0a0a2a 100%)" },
-  { id: "gradient-rose", name: "Rose Gold", type: "css" as const, value: "linear-gradient(135deg, #1a0a15 0%, #3a1a25 30%, #6a3a4a 60%, #9a6a6a 85%, #c4a080 100%)" },
-  { id: "gradient-ocean", name: "Deep Ocean", type: "css" as const, value: "linear-gradient(180deg, #000a14 0%, #001a2a 30%, #002a3a 60%, #003a4a 85%, #004a5a 100%)" },
-  { id: "gradient-neon", name: "Neon Cyber", type: "css" as const, value: "linear-gradient(135deg, #0a0a1a 0%, #1a0a2a 30%, #0a1a3a 60%, #0a2a3a 100%)" },
-];
+  const addCategoryImages = (cat: string, name: string, count: number) => {
+    const ids = idsMap[cat] || [];
+    for (let i = 0; i < count; i++) {
+      const id = ids[i % ids.length];
+      list.push({
+        id: `${cat}-${i}`,
+        name: `${name} ${i + 1}`,
+        type: "image" as const,
+        value: `https://images.unsplash.com/photo-${id}?w=600&auto=format&fit=crop&q=80`,
+        category: cat
+      });
+    }
+  };
+
+  addCategoryImages("nature", "Nature", 52);
+  addCategoryImages("abstract", "Abstract", 30);
+  addCategoryImages("minimal", "Minimal", 20);
+  addCategoryImages("texture", "Texture", 15);
+  addCategoryImages("geometric", "Geometric", 15);
+  addCategoryImages("dark", "Dark Mode", 20);
+  addCategoryImages("artistic", "Artistic", 20);
+
+  return list;
+};
+
+const CHAT_WALLPAPERS = generateWallpapers();
 
 
 
@@ -355,6 +437,13 @@ export default function ChatWindow({
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [hoveredMessageId, setHoveredMessageId] = useState<string | null>(null);
   const [deleteConfirmMessage, setDeleteConfirmMessage] = useState<Message | null>(null);
+  const [localDeletedMsgIds, setLocalDeletedMsgIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setLocalDeletedMsgIds(JSON.parse(localStorage.getItem("dolsyx_deleted_msgs") || "[]"));
+    }
+  }, []);
 
   // Message Selection State
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -373,6 +462,7 @@ export default function ChatWindow({
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
+  const [cameraFacingMode, setCameraFacingMode] = useState<"user" | "environment">("user");
 
   // Voice Recording State
   const [isRecording, setIsRecording] = useState(false);
@@ -385,6 +475,7 @@ export default function ChatWindow({
   const [showWallpaperPicker, setShowWallpaperPicker] = useState(false);
   const [selectedWallpaper, setSelectedWallpaper] = useState("default");
   const [customWallpapers, setCustomWallpapers] = useState<{ id: string; name: string; type: "image"; value: string }[]>([]);
+  const [activeWallpaperCat, setActiveWallpaperCat] = useState("doodle");
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -826,6 +917,26 @@ export default function ChatWindow({
     setDeleteConfirmMessage(msg);
   };
 
+  const deleteMessageForMe = () => {
+    if (!deleteConfirmMessage) return;
+    const deletedList = JSON.parse(localStorage.getItem("dolsyx_deleted_msgs") || "[]");
+    deletedList.push(deleteConfirmMessage.id);
+    localStorage.setItem("dolsyx_deleted_msgs", JSON.stringify(deletedList));
+    setLocalDeletedMsgIds(prev => [...prev, deleteConfirmMessage.id]);
+    setDeleteConfirmMessage(null);
+    toast("Message deleted locally.", "success");
+  };
+
+  const deleteMessageForEveryone = () => {
+    if (!deleteConfirmMessage || !socket) return;
+    socket.emit("delete_message", {
+      messageId: deleteConfirmMessage.id,
+      deleteType: "everyone"
+    });
+    setDeleteConfirmMessage(null);
+    toast("Message deleted for everyone.", "success");
+  };
+
   const handleToggleBlock = async (targetUserId: string) => {
     if (!token) return;
     const isBlocked = blockedIds.includes(targetUserId);
@@ -953,11 +1064,19 @@ export default function ChatWindow({
   };
 
   // Camera Handlers
-  const startCamera = async () => {
+  const startCamera = async (mode: "user" | "environment" = cameraFacingMode) => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      if (cameraStreamRef.current) {
+        cameraStreamRef.current.getTracks().forEach(track => track.stop());
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: mode, width: { ideal: 1280 }, height: { ideal: 720 } }
+      });
       cameraStreamRef.current = stream;
       setShowCamera(true);
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
     } catch (err) {
       console.error("Camera access denied:", err);
       toast("Could not access camera. Please check permissions.", "error");
@@ -970,6 +1089,12 @@ export default function ChatWindow({
       cameraStreamRef.current = null;
     }
     setShowCamera(false);
+  };
+
+  const toggleCaptureCamera = () => {
+    const nextMode = cameraFacingMode === "user" ? "environment" : "user";
+    setCameraFacingMode(nextMode);
+    startCamera(nextMode);
   };
 
   const capturePhoto = () => {
@@ -1309,7 +1434,20 @@ export default function ChatWindow({
             </p>
           </div>
         ) : (
-          messages.map((msg, index) => {
+          (() => {
+            const visibleMessages = messages.filter(m => !localDeletedMsgIds.includes(m.id));
+            if (visibleMessages.length === 0) {
+              return (
+                <div className="flex flex-col items-center justify-center text-center h-full py-12 px-4 space-y-3 relative z-10">
+                  <Smile className="h-8 w-8 text-[var(--theme-text-secondary)]/50 animate-bounce" />
+                  <p className="text-sm text-[var(--theme-text-primary)]">Say hello!</p>
+                  <p className="text-xs text-[var(--theme-text-secondary)]/60">
+                    Start the conversation by sending a message below.
+                  </p>
+                </div>
+              );
+            }
+            return visibleMessages.map((msg, index) => {
             const isMe = msg.senderId === user?.id;
             const isMsgDeleted = !!msg.isDeleted;
             const isMsgEdited = !!msg.isEdited;
@@ -1595,7 +1733,7 @@ export default function ChatWindow({
                     >
                       <CornerUpLeft className="h-3.5 w-3.5" />
                     </button>
-                    {isMe && !msg.mediaUrl && (
+                    {isMe && !msg.mediaUrl && (new Date().getTime() - new Date(msg.createdAt).getTime() < 30 * 60 * 1000) && (
                       <button
                         onClick={() => handleEditClick(msg)}
                         className="p-1 text-zinc-400 hover:text-white hover:bg-zinc-900 rounded-lg transition-colors cursor-pointer"
@@ -1613,10 +1751,9 @@ export default function ChatWindow({
                     </button>
                   </div>
                 )}
-              </div>
             </React.Fragment>
           );
-        })
+        })()
       )}
 
         {/* Typing Indicator Bubble */}
@@ -1853,32 +1990,51 @@ export default function ChatWindow({
         )}
       </div>
 
-      {/* Camera Modal */}
+      {/* Camera Modal - Full Viewport Layout */}
       {showCamera && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-md p-4 animate-fade-in">
-          <div className="w-full max-w-2xl bg-[#020b16] rounded-2xl border border-[var(--theme-border-color)] overflow-hidden shadow-2xl">
-            <div className="p-4 border-b border-[var(--theme-border-color)] flex justify-between items-center bg-[#001428]">
-              <h3 className="text-white font-semibold flex items-center gap-2">
-                <Camera className="h-5 w-5 text-cyan-400" />
-                Capture Photo
-              </h3>
-              <button onClick={stopCamera} className="text-gray-400 hover:text-white bg-white/10 p-1.5 rounded-lg cursor-pointer">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <div className="relative aspect-video bg-black flex items-center justify-center">
-              <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
-              <canvas ref={canvasRef} className="absolute inset-0 opacity-0 pointer-events-none" />
-            </div>
-            <div className="p-6 flex justify-center bg-[#001428]">
-              <button
-                type="button"
-                onClick={capturePhoto}
-                className="h-16 w-16 rounded-full border-4 border-cyan-500 bg-white hover:bg-gray-200 flex items-center justify-center cursor-pointer transition-transform hover:scale-105 active:scale-95 shadow-[0_0_20px_rgba(0,212,255,0.4)]"
-              >
-                <div className="h-12 w-12 rounded-full border-2 border-black" />
-              </button>
-            </div>
+        <div className="fixed inset-0 z-[100] flex flex-col bg-black animate-fade-in">
+          {/* Header Controls Overlay */}
+          <div className="absolute top-4 left-4 right-4 flex items-center justify-between z-10">
+            <button
+              onClick={stopCamera}
+              className="p-3 rounded-full bg-black/50 hover:bg-black/70 text-white transition-colors cursor-pointer"
+              title="Close"
+            >
+              <X className="h-6 w-6" />
+            </button>
+            <span className="text-white text-xs font-bold tracking-widest bg-black/30 px-3.5 py-1.5 rounded-full select-none uppercase">
+              Camera Viewport
+            </span>
+            <button
+              onClick={toggleCaptureCamera}
+              className="p-3 rounded-full bg-black/50 hover:bg-black/70 text-white transition-colors cursor-pointer"
+              title="Switch Camera"
+            >
+              <RefreshCw className="h-6 w-6 animate-pulse" />
+            </button>
+          </div>
+
+          {/* Full Screen Video Stream */}
+          <div className="flex-1 w-full h-full relative">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              className="w-full h-full object-cover"
+              style={cameraFacingMode === "user" ? { transform: "scaleX(-1)" } : undefined}
+            />
+            <canvas ref={canvasRef} className="absolute inset-0 opacity-0 pointer-events-none" />
+          </div>
+
+          {/* Bottom Capturing Control Area Overlay */}
+          <div className="absolute bottom-10 left-0 right-0 flex justify-center z-10">
+            <button
+              type="button"
+              onClick={capturePhoto}
+              className="h-20 w-20 rounded-full border-4 border-white bg-white/10 hover:bg-white/30 flex items-center justify-center cursor-pointer transition-transform hover:scale-105 active:scale-95 shadow-2xl"
+            >
+              <div className="h-14 w-14 rounded-full bg-white border border-black/10" />
+            </button>
           </div>
         </div>
       )}
@@ -1945,86 +2101,117 @@ export default function ChatWindow({
       {/* Wallpaper Picker Modal */}
       {showWallpaperPicker && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fade-in">
-          <div className="w-full max-w-2xl max-h-[85vh] flex flex-col rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] shadow-2xl overflow-hidden">
+          <div className="w-full max-w-2xl max-h-[85vh] flex flex-col rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] shadow-2xl overflow-hidden animate-scale-up">
             <div className="p-4 border-b border-[var(--theme-border-color)] flex justify-between items-center shrink-0">
               <h3 className="text-[var(--theme-text-primary)] font-bold flex items-center gap-2">
                 <ImageIcon className="h-5 w-5 text-[var(--theme-accent)]" />
-                Chat Wallpaper
+                Chat Wallpaper Customization
               </h3>
               <button onClick={() => setShowWallpaperPicker(false)} className="text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] bg-[var(--theme-bg-sidebar-item-hover)] p-1.5 rounded-lg cursor-pointer">
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
-              {/* My Uploads section */}
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-bold text-[var(--theme-text-secondary)] uppercase tracking-wider">My Uploads</span>
-                  <button
-                    onClick={() => wallpaperUploadRef.current?.click()}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--theme-accent)]/15 border border-[var(--theme-accent)]/40 text-[var(--theme-accent)] text-xs font-semibold hover:bg-[var(--theme-accent)]/25 transition-all cursor-pointer"
-                  >
-                    <ImageIcon className="h-3.5 w-3.5" />
-                    Upload Image
-                  </button>
-                </div>
-                {customWallpapers.length === 0 ? (
-                  <button
-                    onClick={() => wallpaperUploadRef.current?.click()}
-                    className="w-full flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/50 p-8 text-[var(--theme-text-secondary)] hover:text-[var(--theme-accent)] hover:text-[var(--theme-accent)] transition-all cursor-pointer"
-                  >
-                    <ImageIcon className="h-8 w-8 opacity-50" />
-                    <span className="text-xs font-medium">Click to upload your own background</span>
-                    <span className="text-[10px] opacity-60">Supports JPG, PNG, WEBP, GIF</span>
-                  </button>
-                ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                    {customWallpapers.map((wp) => (
-                      <div key={wp.id} className="relative group">
-                        <button
-                          onClick={() => {
-                            setSelectedWallpaper(wp.id);
-                            if (typeof window !== "undefined") {
-                              localStorage.setItem("dolsyx_chat_wallpaper", wp.id);
-                            }
-                          }}
-                          className={`relative flex flex-col items-center gap-2 w-full cursor-pointer transition-all hover:scale-105 ${selectedWallpaper === wp.id ? 'ring-2 ring-[var(--theme-accent)] ring-offset-2 ring-offset-[var(--theme-bg-sidebar)] rounded-xl' : ''}`}
-                        >
-                          <div
-                            className="w-full aspect-[9/16] rounded-xl border border-[var(--theme-border-color)] shadow-md overflow-hidden relative"
-                            style={{
-                              backgroundImage: `url(${wp.value})`,
-                              backgroundSize: 'cover',
-                              backgroundPosition: 'center'
-                            }}
-                          >
-                            {selectedWallpaper === wp.id && (
-                              <div className="absolute top-2 right-2 h-6 w-6 rounded-full bg-[var(--theme-accent)] flex items-center justify-center text-black shadow-lg">
-                                <CheckSquare className="h-4 w-4" />
-                              </div>
-                            )}
-                          </div>
-                          <span className="text-xs font-medium text-[var(--theme-text-primary)] truncate w-full text-center px-1">{wp.name}</span>
-                        </button>
-                        {/* Delete button */}
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleDeleteCustomWallpaper(wp.id); }}
-                          className="absolute top-1 left-1 h-6 w-6 rounded-full bg-red-500/80 hover:bg-red-500 flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity shadow-lg cursor-pointer"
-                          title="Remove"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+            
+            {/* Category Filter Tabs */}
+            <div className="flex gap-2 px-4 py-2.5 border-b border-[var(--theme-border-color)] overflow-x-auto bg-[var(--theme-bg-sidebar-search)]/30 shrink-0 select-none scrollbar-none">
+              {[
+                { id: "doodle", name: "Doodle" },
+                { id: "gradient", name: "Gradients" },
+                { id: "nature", name: "Nature" },
+                { id: "abstract", name: "Abstract" },
+                { id: "minimal", name: "Minimal" },
+                { id: "texture", name: "Textures" },
+                { id: "geometric", name: "Geometric" },
+                { id: "dark", name: "Dark Mode" },
+                { id: "artistic", name: "Artistic" },
+              ].map(cat => (
+                <button
+                  key={cat.id}
+                  onClick={() => setActiveWallpaperCat(cat.id)}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap cursor-pointer ${
+                    activeWallpaperCat === cat.id
+                      ? "bg-[var(--theme-accent)] text-black font-extrabold"
+                      : "text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-sidebar-item-hover)]"
+                  }`}
+                >
+                  {cat.name}
+                </button>
+              ))}
+            </div>
 
-              {/* Built-in Wallpapers section */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
+              {/* My Uploads section only visible on Doodle category */}
+              {activeWallpaperCat === "doodle" && (
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-bold text-[var(--theme-text-secondary)] uppercase tracking-wider">My Uploads</span>
+                    <button
+                      onClick={() => wallpaperUploadRef.current?.click()}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--theme-accent)]/15 border border-[var(--theme-accent)]/40 text-[var(--theme-accent)] text-xs font-semibold hover:bg-[var(--theme-accent)]/25 transition-all cursor-pointer"
+                    >
+                      <ImageIcon className="h-3.5 w-3.5" />
+                      Upload Image
+                    </button>
+                  </div>
+                  {customWallpapers.length === 0 ? (
+                    <button
+                      onClick={() => wallpaperUploadRef.current?.click()}
+                      className="w-full flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/55 p-8 text-[var(--theme-text-secondary)] hover:text-[var(--theme-accent)] transition-all cursor-pointer"
+                    >
+                      <ImageIcon className="h-8 w-8 opacity-50" />
+                      <span className="text-xs font-medium">Click to upload your own background</span>
+                      <span className="text-[10px] opacity-60">Supports JPG, PNG, WEBP, GIF</span>
+                    </button>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                      {customWallpapers.map((wp) => (
+                        <div key={wp.id} className="relative group">
+                          <button
+                            onClick={() => {
+                              setSelectedWallpaper(wp.id);
+                              if (typeof window !== "undefined") {
+                                localStorage.setItem("dolsyx_chat_wallpaper", wp.id);
+                              }
+                            }}
+                            className={`relative flex flex-col items-center gap-2 w-full cursor-pointer transition-all hover:scale-105 ${selectedWallpaper === wp.id ? 'ring-2 ring-[var(--theme-accent)] ring-offset-2 ring-offset-[var(--theme-bg-sidebar)] rounded-xl' : ''}`}
+                          >
+                            <div
+                              className="w-full aspect-[9/16] rounded-xl border border-[var(--theme-border-color)] shadow-md overflow-hidden relative"
+                              style={{
+                                backgroundImage: `url(${wp.value})`,
+                                backgroundSize: 'cover',
+                                backgroundPosition: 'center'
+                              }}
+                            >
+                              {selectedWallpaper === wp.id && (
+                                <div className="absolute top-2 right-2 h-6 w-6 rounded-full bg-[var(--theme-accent)] flex items-center justify-center text-black shadow-lg">
+                                  <CheckSquare className="h-4 w-4" />
+                                </div>
+                              )}
+                            </div>
+                            <span className="text-xs font-medium text-[var(--theme-text-primary)] truncate w-full text-center px-1">{wp.name}</span>
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDeleteCustomWallpaper(wp.id); }}
+                            className="absolute top-1 left-1 h-6 w-6 rounded-full bg-red-500/80 hover:bg-red-500 flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity shadow-lg cursor-pointer"
+                            title="Remove"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Built-in Wallpapers section (filtered by category) */}
               <div>
-                <span className="text-xs font-bold text-[var(--theme-text-secondary)] uppercase tracking-wider block mb-3">Built-in Themes</span>
+                <span className="text-xs font-bold text-[var(--theme-text-secondary)] uppercase tracking-wider block mb-3">
+                  {WALLPAPER_CATEGORIES.find(c => c.id === activeWallpaperCat)?.name || "Wallpapers"}
+                </span>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                  {CHAT_WALLPAPERS.map((wp) => (
+                  {CHAT_WALLPAPERS.filter(wp => wp.category === activeWallpaperCat).map((wp) => (
                     <button
                       key={wp.id}
                       onClick={() => {
@@ -2059,59 +2246,10 @@ export default function ChatWindow({
                 </div>
               </div>
             </div>
+            
             <div className="p-4 border-t border-[var(--theme-border-color)] shrink-0 flex justify-end">
               <button onClick={() => setShowWallpaperPicker(false)} className="px-6 py-2 rounded-xl bg-[var(--theme-accent)] text-black font-bold cursor-pointer">
                 Done
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Confirmation Modal Overlay */}
-      {deleteConfirmMessage && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
-        <div className="w-full max-w-sm rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] p-6 shadow-2xl space-y-4">
-            <h4 className="text-sm font-bold text-[var(--theme-text-primary)]">Delete Message?</h4>
-            <p className="text-xs text-[var(--theme-text-secondary)] leading-relaxed">
-              Would you like to delete this message only for yourself, or delete it for everyone in the conversation?
-            </p>
-            <div className="flex flex-col gap-2 pt-2">
-              {deleteConfirmMessage.senderId === user?.id && (
-                <button
-                  onClick={() => {
-                    if (socket) {
-                      socket.emit("delete_message", {
-                        messageId: deleteConfirmMessage.id,
-                        deleteType: "everyone",
-                      });
-                    }
-                    setDeleteConfirmMessage(null);
-                  }}
-                  className="w-full rounded-xl bg-red-500 hover:bg-red-600 py-2.5 text-xs font-bold text-white transition-all cursor-pointer"
-                >
-                  Delete for Everyone
-                </button>
-              )}
-              <button
-                onClick={() => {
-                  if (socket) {
-                    socket.emit("delete_message", {
-                      messageId: deleteConfirmMessage.id,
-                      deleteType: "me",
-                    });
-                  }
-                  setDeleteConfirmMessage(null);
-                }}
-                className="w-full rounded-xl bg-[var(--theme-bg-sidebar-search)] hover:bg-[var(--theme-bg-sidebar-item-hover)] py-2.5 text-xs font-bold text-[var(--theme-text-primary)] border border-[var(--theme-border-color)] transition-all cursor-pointer"
-              >
-                Delete for Me
-              </button>
-              <button
-                onClick={() => setDeleteConfirmMessage(null)}
-                className="w-full py-2 text-xs text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-all cursor-pointer"
-              >
-                Cancel
               </button>
             </div>
           </div>
@@ -2290,6 +2428,48 @@ export default function ChatWindow({
                 ) : (
                   <><Trash2 className="h-4 w-4" />Delete Chat</>
                 )}
+              </button>
+            </div>
+        </div>
+      )}
+
+      {/* ── Single Message Deletion Modal ─────────────────────────────── */}
+      {deleteConfirmMessage && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-sm rounded-2xl border border-red-500/20 bg-[var(--theme-bg-sidebar)] shadow-2xl shadow-red-900/20 overflow-hidden">
+            {/* Icon header */}
+            <div className="flex flex-col items-center gap-3 px-6 pt-8 pb-4">
+              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-red-500/10 border border-red-500/20">
+                <Trash2 className="h-7 w-7 text-red-400" />
+              </div>
+              <h3 className="text-base font-bold text-[var(--theme-text-primary)] text-center">Delete Message?</h3>
+              <p className="text-xs text-[var(--theme-text-secondary)] text-center leading-relaxed">
+                Choose how you want to delete this message.
+              </p>
+            </div>
+            {/* Divider */}
+            <div className="h-px bg-[var(--theme-border-color)] mx-6" />
+            {/* Actions */}
+            <div className="flex flex-col gap-2 p-5">
+              <button
+                onClick={deleteMessageForMe}
+                className="w-full rounded-xl bg-red-500/10 hover:bg-red-500/20 border border-red-500/25 py-2.5 text-sm font-semibold text-red-400 transition-all cursor-pointer text-center"
+              >
+                Delete for Me
+              </button>
+              {deleteConfirmMessage.senderId === user?.id && (
+                <button
+                  onClick={deleteMessageForEveryone}
+                  className="w-full rounded-xl bg-red-500 hover:bg-red-600 py-2.5 text-sm font-bold text-white transition-all cursor-pointer text-center"
+                >
+                  Delete for Everyone
+                </button>
+              )}
+              <button
+                onClick={() => setDeleteConfirmMessage(null)}
+                className="w-full rounded-xl border border-[var(--theme-border-color)] py-2.5 text-sm font-semibold text-[var(--theme-text-secondary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] hover:text-[var(--theme-text-primary)] transition-all cursor-pointer text-center"
+              >
+                Cancel
               </button>
             </div>
           </div>

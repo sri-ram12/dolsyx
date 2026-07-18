@@ -273,7 +273,10 @@ export default function StatusPanel({ onClose, onNewStatus }: StatusPanelProps) 
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (res.ok) fetchStatuses();
+      if (res.ok) {
+        setViewingGroup(null);
+        fetchStatuses();
+      }
     } catch (e) {
       console.error("Delete status error:", e);
     }

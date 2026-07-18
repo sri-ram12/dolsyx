@@ -105,13 +105,7 @@ export default function LoginPage() {
           setIsNewUser(data.isNewUser);
           setCountdown(300);
           setInfo(data.message || `Verification code sent to ${email.trim().toLowerCase()}.`);
-          
-          if (data.otpCode) {
-            setOtpDigits(data.otpCode.split(""));
-            verifyCode(data.otpCode);
-          } else {
-            setTimeout(() => inputRefs[0].current?.focus(), 100);
-          }
+          setTimeout(() => inputRefs[0].current?.focus(), 100);
         }
       } else {
         setError(data.message || "Failed to initiate login.");
@@ -170,11 +164,18 @@ export default function LoginPage() {
       const challenge = new Uint8Array(32);
       window.crypto.getRandomValues(challenge);
       
+      const storedCredId = localStorage.getItem(`dolsyx_bio_cred_id_${email.trim().toLowerCase()}`);
+      const allowCredentials = storedCredId ? [{
+        type: "public-key" as const,
+        id: new Uint8Array(atob(storedCredId).split("").map(c => c.charCodeAt(0)))
+      }] : [];
+
       const credential = await navigator.credentials.get({
         publicKey: {
           challenge,
           timeout: 60000,
-          userVerification: "required"
+          userVerification: "required",
+          allowCredentials
         }
       });
 
@@ -191,11 +192,7 @@ export default function LoginPage() {
         });
 
         const data = await res.json();
-        if (res.ok && data.otpCode) {
-          // Auto log in for demo/development convenience
-          verifyCode(data.otpCode);
-        } else if (res.ok) {
-          // If in production, send OTP to mail, verify via normal OTP screen automatically
+        if (res.ok) {
           setStep("otp");
           setCountdown(300);
           setInfo("Biometrics verified. Please enter the OTP sent to your email to log in.");

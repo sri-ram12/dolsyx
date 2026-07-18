@@ -133,6 +133,7 @@ export default function ChatPage() {
     toggleMute,
     toggleCamera,
     toggleSpeaker,
+    switchCallCamera,
   } = useWebRTC({
     onIceCandidate: (candidate) => {
       if (socket && callStateRef.current.peerId) {
@@ -701,6 +702,7 @@ export default function ChatPage() {
         onToggleMute={toggleMute}
         onToggleCamera={toggleCamera}
         onToggleSpeaker={toggleSpeaker}
+        onSwitchCamera={switchCallCamera}
         duration={callDuration}
       />
 

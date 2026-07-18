@@ -1,7 +1,7 @@
-﻿"use client";
+"use client";
 
 import React, { useEffect, useRef } from "react";
-import { Phone, Video, PhoneOff, Mic, MicOff, VideoOff, Volume2, VolumeX, Camera, User } from "lucide-react";
+import { Phone, Video, PhoneOff, Mic, MicOff, VideoOff, Volume2, VolumeX, Camera, User, RefreshCw } from "lucide-react";
 import { getAvatarUrl } from "@/utils/avatar";
 import { SoundEngine } from "@/utils/sound";
 
@@ -22,21 +22,32 @@ interface CallModalProps {
   onToggleMute: () => void;
   onToggleCamera: () => void;
   onToggleSpeaker: () => void;
+  onSwitchCamera: () => void;
   duration: number;
 }
 
 function VideoPlayer({ stream, muted, mirror, className }: { stream: MediaStream | null; muted?: boolean; mirror?: boolean; className?: string; }) {
   const ref = useRef<HTMLVideoElement>(null);
-  useEffect(() => { if (ref.current) ref.current.srcObject = stream; }, [stream]);
+  useEffect(() => {
+    if (ref.current) ref.current.srcObject = stream;
+  }, [stream]);
   if (!stream) return null;
   return <video ref={ref} autoPlay playsInline muted={muted} className={className} style={mirror ? { transform: "scaleX(-1)" } : undefined} />;
 }
 
+// Keep this permanently rendered in DOM with stable ref to bypass dynamic autoplay blocks
 function RemoteAudio({ stream, muted }: { stream: MediaStream | null; muted: boolean }) {
   const ref = useRef<HTMLAudioElement>(null);
-  useEffect(() => { if (ref.current) ref.current.srcObject = stream; }, [stream]);
-  useEffect(() => { if (ref.current) ref.current.muted = muted; }, [muted]);
-  if (!stream) return null;
+  useEffect(() => {
+    if (ref.current) {
+      ref.current.srcObject = stream;
+    }
+  }, [stream]);
+  useEffect(() => {
+    if (ref.current) {
+      ref.current.muted = muted;
+    }
+  }, [muted]);
   return <audio ref={ref} autoPlay playsInline style={{ display: "none" }} />;
 }
 
@@ -51,7 +62,26 @@ function CtrlBtn({ onClick, active, title, children }: { onClick: () => void; ac
   );
 }
 
-export default function CallModal({ isOpen, callType, status, callerName, callerAvatar, localStream, remoteStream, isMuted, isCameraOff, isSpeakerOff, onAccept, onDecline, onHangup, onToggleMute, onToggleCamera, onToggleSpeaker, duration }: CallModalProps) {
+export default function CallModal({
+  isOpen,
+  callType,
+  status,
+  callerName,
+  callerAvatar,
+  localStream,
+  remoteStream,
+  isMuted,
+  isCameraOff,
+  isSpeakerOff,
+  onAccept,
+  onDecline,
+  onHangup,
+  onToggleMute,
+  onToggleCamera,
+  onToggleSpeaker,
+  onSwitchCamera,
+  duration
+}: CallModalProps) {
   useEffect(() => {
     if (status === "incoming" && isOpen) SoundEngine.playRingtone();
     else SoundEngine.stopRingtone();
@@ -94,6 +124,9 @@ export default function CallModal({ isOpen, callType, status, callerName, caller
             <div className="flex items-end justify-center gap-7 mb-6">
               <CtrlBtn onClick={onToggleMute} active={isMuted} title={isMuted ? "Unmute" : "Mute"}>{isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}</CtrlBtn>
               <CtrlBtn onClick={onToggleCamera} active={isCameraOff} title={isCameraOff ? "Cam On" : "Cam Off"}>{isCameraOff ? <VideoOff className="w-5 h-5" /> : <Camera className="w-5 h-5" />}</CtrlBtn>
+              <CtrlBtn onClick={onSwitchCamera} title="Switch Cam">
+                <RefreshCw className="w-5 h-5" />
+              </CtrlBtn>
               <CtrlBtn onClick={onToggleSpeaker} active={isSpeakerOff} title={isSpeakerOff ? "Speaker On" : "Speaker"}>{isSpeakerOff ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}</CtrlBtn>
             </div>
             <div className="flex justify-center">

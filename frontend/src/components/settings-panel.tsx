@@ -318,8 +318,10 @@ export default function SettingsPanel({ onClose, onSelectChat }: SettingsPanelPr
         timeout: 60000,
         attestation: "none"
       };
-      const credential = await navigator.credentials.create({ publicKey: options });
+      const credential = await navigator.credentials.create({ publicKey: options }) as PublicKeyCredential | null;
       if (credential) {
+        const credId = btoa(String.fromCharCode(...new Uint8Array(credential.rawId)));
+        localStorage.setItem(`dolsyx_bio_cred_id_${user.email.toLowerCase()}`, credId);
         localStorage.setItem(`dolsyx_bio_enabled_${user.email.toLowerCase()}`, "true");
         setBioEnabled(true);
         setPinSuccess("Biometric lock enabled successfully!");

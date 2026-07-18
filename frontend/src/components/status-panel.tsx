@@ -440,9 +440,9 @@ export default function StatusPanel({ onClose, onNewStatus }: StatusPanelProps) 
             </div>
           )}
 
-          {/* Tap areas */}
-          <button onClick={goPrevStory} className="absolute left-0 top-0 w-1/3 h-full z-10" />
-          <button onClick={goNextStory} className="absolute right-0 top-0 w-1/3 h-full z-10" />
+          {/* Tap areas - adjusted to not cover top header actions */}
+          <button onClick={goPrevStory} className="absolute left-0 top-24 w-1/3 h-[calc(100%-120px)] z-10 cursor-pointer" />
+          <button onClick={goNextStory} className="absolute right-0 top-24 w-1/3 h-[calc(100%-120px)] z-10 cursor-pointer" />
         </div>
       )}
 

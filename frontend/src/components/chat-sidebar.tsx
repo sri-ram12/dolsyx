@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useAuth, API_URL, User } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
+import { useToast } from "@/context/toast-context";
 import { Search, LogOut, MessageSquare, Circle, Users, Camera, Loader2, X, Settings, Radio, MoreVertical, Pin, Trash2, Archive, Star, CheckSquare } from "lucide-react";
 import GroupDialog from "./group-dialog";
 import SettingsPanel from "./settings-panel";
@@ -52,6 +53,7 @@ export default function ChatSidebar({
 }: ChatSidebarProps) {
   const { user, token, logout, updateUser } = useAuth();
   const { theme, setTheme } = useTheme();
+  const { toast } = useToast();
   
   // Search & Navigation
   const [searchQuery, setSearchQuery] = useState("");
@@ -87,6 +89,9 @@ export default function ChatSidebar({
   const [showLockAuthModal, setShowLockAuthModal] = useState(false);
   const [authSecretKeyInput, setAuthSecretKeyInput] = useState("");
   const [authenticatingChat, setAuthenticatingChat] = useState<Chat | null>(null);
+
+  const [showStarredModal, setShowStarredModal] = useState(false);
+  const [starredMessagesList, setStarredMessagesList] = useState<any[]>([]);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -475,22 +480,27 @@ export default function ChatSidebar({
                   onClick={() => {
                     const firstSelected = Array.from(selectedChats)[0];
                     if (firstSelected) {
-                      setLockingChatId(firstSelected);
                       const existing = lockedChats[firstSelected];
                       if (existing) {
-                        setLockSecretKey(existing.secretKey || "");
-                        setLockFingerprint(existing.useFingerprint || false);
+                        const newLocked = { ...lockedChats };
+                        delete newLocked[firstSelected];
+                        localStorage.setItem("dolsyx_locked_chats", JSON.stringify(newLocked));
+                        setLockedChats(newLocked);
+                        toast("Chat unlocked.", "success");
+                        setSelectedChats(new Set());
+                        setIsSelectionMode(false);
                       } else {
+                        setLockingChatId(firstSelected);
                         setLockSecretKey("");
                         setLockFingerprint(false);
+                        setShowLockConfigModal(true);
                       }
-                      setShowLockConfigModal(true);
                     }
                     setShowSelectionMenu(false);
                   }}
                   className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs hover:bg-[var(--theme-bg-sidebar-item-hover)] cursor-pointer text-cyan-400 font-bold"
                 >
-                  <CheckSquare className="h-3.5 w-3.5" /> Lock / Unlock
+                  <CheckSquare className="h-3.5 w-3.5" /> {Array.from(selectedChats)[0] && lockedChats[Array.from(selectedChats)[0]] ? "Unlock Chat" : "Lock Chat"}
                 </button>
               </div>
             )}
@@ -511,7 +521,15 @@ export default function ChatSidebar({
                 <button onClick={() => { setShowGroupDialog(true); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs hover:bg-[var(--theme-bg-sidebar-item-hover)] cursor-pointer text-[var(--theme-text-primary)]">
                   <Users className="h-3.5 w-3.5 text-[var(--theme-accent)]" /> New Group
                 </button>
-                <button onClick={() => { /* Not implemented - simple placeholder */ setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs hover:bg-[var(--theme-bg-sidebar-item-hover)] cursor-pointer text-[var(--theme-text-primary)]">
+                <button
+                  onClick={() => {
+                    const list = JSON.parse(localStorage.getItem("dolsyx_starred_messages_list") || "[]");
+                    setStarredMessagesList(list);
+                    setShowStarredModal(true);
+                    setShowHeaderMenu(false);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs hover:bg-[var(--theme-bg-sidebar-item-hover)] cursor-pointer text-[var(--theme-text-primary)]"
+                >
                   <Star className="h-3.5 w-3.5 text-amber-500" /> Starred Chats & Media
                 </button>
                 <button onClick={() => { setShowSettings(true); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs hover:bg-[var(--theme-bg-sidebar-item-hover)] cursor-pointer text-[var(--theme-text-primary)]">
@@ -585,7 +603,12 @@ export default function ChatSidebar({
 
       {/* Chat List */}
       <div className="flex-1 overflow-y-auto px-2 py-1 space-y-1">
-        {sortedChats.length === 0 ? (
+        {searchQuery.trim().length >= 2 ? (
+          <div className="flex flex-col items-center justify-center text-center py-16 px-4 space-y-3">
+            <Search className="h-8 w-8 text-[var(--theme-text-secondary)]/20 animate-pulse" />
+            <p className="text-xs text-[var(--theme-text-secondary)]/60">Searching for users...</p>
+          </div>
+        ) : sortedChats.length === 0 ? (
           <div className="flex flex-col items-center justify-center text-center py-12 px-4 space-y-3">
             <MessageSquare className="h-8 w-8 text-[var(--theme-text-secondary)]/30 animate-pulse" />
             <p className="text-sm text-[var(--theme-text-secondary)]">No active conversations</p>
@@ -806,6 +829,50 @@ export default function ChatSidebar({
               >
                 Unlock
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ── Starred Chats & Media Modal ─────────────────────────────── */}
+      {showStarredModal && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-md rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
+            <div className="px-6 pt-6 pb-4 flex items-center justify-between border-b border-[var(--theme-border-color)]">
+              <div className="flex items-center gap-2">
+                <Star className="h-5 w-5 text-amber-500 fill-amber-500" />
+                <h3 className="text-base font-bold text-[var(--theme-text-primary)]">Starred Messages</h3>
+              </div>
+              <button
+                onClick={() => setShowStarredModal(false)}
+                className="p-1.5 rounded-lg hover:bg-[var(--theme-bg-sidebar-item-hover)] text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-all cursor-pointer"
+              >
+                <X className="h-4.5 w-4.5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {starredMessagesList.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center text-xs text-[var(--theme-text-secondary)]/50">
+                  <Star className="h-8 w-8 text-zinc-600 mb-2" />
+                  <p>No starred messages yet</p>
+                  <p className="mt-1">Long press a message bubble and select Star to save here.</p>
+                </div>
+              ) : (
+                starredMessagesList.map((m: any) => (
+                  <div key={m.id} className="p-3 rounded-xl border border-[var(--theme-border-color)]/60 bg-[var(--theme-bg-sidebar-search)]/50 space-y-1.5 text-left">
+                    <div className="flex items-center justify-between text-[10px] text-[var(--theme-text-secondary)]">
+                      <span className="font-semibold text-[var(--theme-accent)]">{m.sender?.username || "Sender"}</span>
+                      <span>{new Date(m.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                    </div>
+                    <p className="text-xs text-[var(--theme-text-primary)] whitespace-pre-wrap">{m.content}</p>
+                    {m.mediaUrl && (
+                      <span className="inline-block text-[9px] bg-[var(--theme-bg-sidebar-item-hover)] px-2 py-0.5 rounded text-[var(--theme-text-secondary)]">
+                        {m.mediaType || "Attachment"}
+                      </span>
+                    )}
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>

@@ -33,6 +33,8 @@ import {
   Image as ImageIcon,
   Ban,
   RefreshCw,
+  Star,
+  Share2,
 } from "lucide-react";
 import { Socket } from "socket.io-client";
 import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
@@ -95,6 +97,11 @@ const generateWallpapers = () => {
     { id: "default", name: "Default Doodle", type: "css" as const, value: "", category: "doodle" },
     { id: "light-doodle", name: "Light Doodle", type: "image" as const, value: "/chat-backgrounds/wa-light-doodle.svg", category: "doodle" },
     { id: "dark-doodle", name: "Dark Doodle", type: "image" as const, value: "/chat-backgrounds/wa-dark-doodle-ai.png", category: "doodle" },
+    { id: "doodle-black", name: "Black Doodle", type: "image" as const, value: "/chat-backgrounds/wa-custom-doodle-black.png", category: "doodle" },
+    { id: "doodle-blue", name: "Blue Doodle", type: "image" as const, value: "/chat-backgrounds/wa-custom-doodle-blue.png", category: "doodle" },
+    { id: "doodle-neon", name: "Neon Doodle", type: "image" as const, value: "/chat-backgrounds/wa-custom-doodle-neon.png", category: "doodle" },
+    { id: "doodle-green", name: "Green Doodle", type: "image" as const, value: "/chat-backgrounds/wa-custom-doodle-green.jpg", category: "doodle" },
+    { id: "doodle-purple", name: "Purple Doodle", type: "image" as const, value: "/chat-backgrounds/wa-custom-doodle-purple.jpg", category: "doodle" },
   ];
 
   // Gradients (25 variants)
@@ -453,11 +460,84 @@ export default function ChatWindow({
   const [localDeletedMsgIds, setLocalDeletedMsgIds] = useState<string[]>([]);
   const visibleMessages = messages.filter(m => !localDeletedMsgIds.includes(m.id));
 
+  // Star & Forward States
+  const [starredMessageIds, setStarredMessageIds] = useState<Set<string>>(new Set());
+  const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
+  const [availableChatsForForwarding, setAvailableChatsForForwarding] = useState<any[]>([]);
+  const [showForwardModal, setShowForwardModal] = useState(false);
+
   useEffect(() => {
     if (typeof window !== "undefined") {
       setLocalDeletedMsgIds(JSON.parse(localStorage.getItem("dolsyx_deleted_msgs") || "[]"));
+      setStarredMessageIds(new Set(JSON.parse(localStorage.getItem("dolsyx_starred_messages") || "[]")));
     }
   }, []);
+
+  const toggleStarMessage = (msgId: string) => {
+    if (!chat) return;
+    const newStarred = new Set(starredMessageIds);
+    const list = JSON.parse(localStorage.getItem("dolsyx_starred_messages_list") || "[]");
+    if (newStarred.has(msgId)) {
+      newStarred.delete(msgId);
+      const index = list.findIndex((item: any) => item.id === msgId);
+      if (index > -1) list.splice(index, 1);
+      toast("Message unstarred.", "success");
+    } else {
+      newStarred.add(msgId);
+      const msgObj = messages.find(m => m.id === msgId);
+      if (msgObj && !list.some((item: any) => item.id === msgId)) {
+        list.push({
+          id: msgObj.id,
+          content: msgObj.content,
+          createdAt: msgObj.createdAt,
+          mediaUrl: msgObj.mediaUrl,
+          mediaType: msgObj.mediaType,
+          sender: msgObj.sender,
+          chatId: chat.id
+        });
+      }
+      toast("Message starred.", "success");
+    }
+    setStarredMessageIds(newStarred);
+    localStorage.setItem("dolsyx_starred_messages", JSON.stringify(Array.from(newStarred)));
+    localStorage.setItem("dolsyx_starred_messages_list", JSON.stringify(list));
+  };
+
+  const openForwardModal = async (msg: Message) => {
+    setForwardingMessage(msg);
+    setShowForwardModal(true);
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_URL}/api/conversations`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAvailableChatsForForwarding(data);
+      }
+    } catch (e) {
+      console.error("Failed to load conversations for forward", e);
+    }
+  };
+
+  const handleForwardMessage = async (chatId: string) => {
+    if (!forwardingMessage || !token || !socket) return;
+    try {
+      socket.emit("send_message", {
+        conversationId: chatId,
+        content: forwardingMessage.content,
+        mediaUrl: forwardingMessage.mediaUrl,
+        mediaType: forwardingMessage.mediaType,
+        parentMessageId: null
+      });
+      toast("Message forwarded.", "success");
+      setShowForwardModal(false);
+      setForwardingMessage(null);
+    } catch (e) {
+      console.error("Forward error:", e);
+      toast("Failed to forward message.", "error");
+    }
+  };
 
   // Message Selection State
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -1675,6 +1755,9 @@ export default function ChatWindow({
                       }`}
                     >
                       <span>{formatMessageTime(msg.createdAt)}</span>
+                      {starredMessageIds.has(msg.id) && (
+                        <Star className="h-3 w-3 text-amber-400 fill-amber-400 ml-1 shrink-0" />
+                      )}
                     {isMsgEdited && !isMsgDeleted && <span className="opacity-60">(edited)</span>}
                     {isMe && !isMsgDeleted && (() => {
                       const status = (() => {
@@ -1743,6 +1826,20 @@ export default function ChatWindow({
                         <Edit3 className="h-3.5 w-3.5" />
                       </button>
                     )}
+                    <button
+                      onClick={() => toggleStarMessage(msg.id)}
+                      className="p-1 text-zinc-400 hover:text-amber-400 hover:bg-zinc-900 rounded-lg transition-colors cursor-pointer"
+                      title={starredMessageIds.has(msg.id) ? "Unstar" : "Star"}
+                    >
+                      <Star className={`h-3.5 w-3.5 ${starredMessageIds.has(msg.id) ? "text-amber-400 fill-amber-400" : ""}`} />
+                    </button>
+                    <button
+                      onClick={() => openForwardModal(msg)}
+                      className="p-1 text-zinc-400 hover:text-white hover:bg-zinc-900 rounded-lg transition-colors cursor-pointer"
+                      title="Forward"
+                    >
+                      <Share2 className="h-3.5 w-3.5" />
+                    </button>
                     <button
                       onClick={() => handleDeleteClick(msg)}
                       className="p-1 text-zinc-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer"
@@ -2474,6 +2571,56 @@ export default function ChatWindow({
               >
                 Cancel
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ── Forward Message Modal ─────────────────────────────── */}
+      {showForwardModal && forwardingMessage && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-sm rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
+            <div className="px-6 pt-6 pb-4 flex items-center justify-between border-b border-[var(--theme-border-color)]">
+              <h3 className="text-base font-bold text-[var(--theme-text-primary)]">Forward Message</h3>
+              <button
+                onClick={() => { setShowForwardModal(false); setForwardingMessage(null); }}
+                className="p-1.5 rounded-lg hover:bg-[var(--theme-bg-sidebar-item-hover)] text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-all cursor-pointer"
+              >
+                <X className="h-4.5 w-4.5" />
+              </button>
+            </div>
+            
+            {/* Preview of forwarding content */}
+            <div className="px-6 py-3 bg-[var(--theme-bg-sidebar-search)] border-b border-[var(--theme-border-color)] text-xs text-[var(--theme-text-secondary)] italic truncate">
+              {forwardingMessage.content || "[Media Attachment]"}
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-2">
+              <p className="text-[10px] font-bold text-[var(--theme-text-secondary)] uppercase tracking-wider mb-2">Select conversation</p>
+              {availableChatsForForwarding.length === 0 ? (
+                <p className="text-xs text-[var(--theme-text-secondary)] text-center py-6">No conversations available</p>
+              ) : (
+                availableChatsForForwarding.map((c: any) => {
+                  const targetName = c.isGroup ? c.name : c.recipient?.username || "Unknown";
+                  return (
+                    <div key={c.id} className="flex items-center justify-between p-2 rounded-xl hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-colors">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <img
+                          src={getAvatarUrl(c.isGroup ? null : c.recipient?.avatarUrl, targetName)}
+                          alt={targetName}
+                          className="h-8 w-8 rounded-full object-cover border border-[var(--theme-border-color)] bg-zinc-800"
+                        />
+                        <span className="text-xs font-bold text-[var(--theme-text-primary)] truncate">{targetName}</span>
+                      </div>
+                      <button
+                        onClick={() => handleForwardMessage(c.id)}
+                        className="px-3 py-1 bg-[var(--theme-accent)] text-black rounded-lg text-[10px] font-bold hover:opacity-90 transition-opacity cursor-pointer"
+                      >
+                        Send
+                      </button>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
         </div>

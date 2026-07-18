@@ -32,6 +32,7 @@ import {
   Square,
   Image as ImageIcon,
   Ban,
+  RefreshCw,
 } from "lucide-react";
 import { Socket } from "socket.io-client";
 import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
@@ -77,6 +78,18 @@ interface ChatWindowProps {
 }
 
 // Chat wallpaper backgrounds — classic & AI-generated
+const WALLPAPER_CATEGORIES = [
+  { id: "doodle", name: "Doodles" },
+  { id: "gradient", name: "Gradients" },
+  { id: "nature", name: "Nature" },
+  { id: "abstract", name: "Abstract" },
+  { id: "minimal", name: "Minimal" },
+  { id: "texture", name: "Textures" },
+  { id: "geometric", name: "Geometric" },
+  { id: "dark", name: "Dark Mode" },
+  { id: "artistic", name: "Artistic" }
+];
+
 const generateWallpapers = () => {
   const list = [
     { id: "default", name: "Default Doodle", type: "css" as const, value: "", category: "doodle" },
@@ -438,6 +451,7 @@ export default function ChatWindow({
   const [hoveredMessageId, setHoveredMessageId] = useState<string | null>(null);
   const [deleteConfirmMessage, setDeleteConfirmMessage] = useState<Message | null>(null);
   const [localDeletedMsgIds, setLocalDeletedMsgIds] = useState<string[]>([]);
+  const visibleMessages = messages.filter(m => !localDeletedMsgIds.includes(m.id));
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -1425,7 +1439,7 @@ export default function ChatWindow({
 
       {/* Messages Scroll Area */}
       <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 relative z-10">
-        {messages.length === 0 ? (
+        {visibleMessages.length === 0 ? (
           <div className="flex flex-col items-center justify-center text-center h-full py-12 px-4 space-y-3 relative z-10">
             <Smile className="h-8 w-8 text-[var(--theme-text-secondary)]/50 animate-bounce" />
             <p className="text-sm text-[var(--theme-text-primary)]">Say hello!</p>
@@ -1434,20 +1448,7 @@ export default function ChatWindow({
             </p>
           </div>
         ) : (
-          (() => {
-            const visibleMessages = messages.filter(m => !localDeletedMsgIds.includes(m.id));
-            if (visibleMessages.length === 0) {
-              return (
-                <div className="flex flex-col items-center justify-center text-center h-full py-12 px-4 space-y-3 relative z-10">
-                  <Smile className="h-8 w-8 text-[var(--theme-text-secondary)]/50 animate-bounce" />
-                  <p className="text-sm text-[var(--theme-text-primary)]">Say hello!</p>
-                  <p className="text-xs text-[var(--theme-text-secondary)]/60">
-                    Start the conversation by sending a message below.
-                  </p>
-                </div>
-              );
-            }
-            return visibleMessages.map((msg, index) => {
+          visibleMessages.map((msg, index) => {
             const isMe = msg.senderId === user?.id;
             const isMsgDeleted = !!msg.isDeleted;
             const isMsgEdited = !!msg.isEdited;
@@ -1751,10 +1752,10 @@ export default function ChatWindow({
                     </button>
                   </div>
                 )}
+              </div>
             </React.Fragment>
           );
         })
-      })()
       )}
 
         {/* Typing Indicator Bubble */}
@@ -1898,7 +1899,7 @@ export default function ChatWindow({
                   <button
                     type="button"
                     disabled={isRecording}
-                    onClick={startCamera}
+                    onClick={() => startCamera()}
                     className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/55 text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-all duration-200 cursor-pointer disabled:opacity-50"
                     title="Camera"
                   >
@@ -2431,6 +2432,7 @@ export default function ChatWindow({
                 )}
               </button>
             </div>
+          </div>
         </div>
       )}
 

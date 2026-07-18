@@ -61,7 +61,7 @@ export const sendOtp = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const trimmedName = existingUser ? existingUser.username : (fullName ? fullName.trim() : "User");
+    const trimmedName = fullName ? (fullName as string).trim() : "User";
 
     // Generate cryptographically secure 6-digit random OTP
     const code = crypto.randomInt(100000, 1000000).toString();

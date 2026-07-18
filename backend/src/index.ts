@@ -9,6 +9,7 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import { spawn } from "child_process";
+import net from "net";
 import { createProxyMiddleware } from "http-proxy-middleware";
 import authRoutes from "./routes/auth.routes.js";
 import chatRoutes from "./routes/chat.routes.js";
@@ -136,7 +137,6 @@ let nextJsReady = false;
 
 // Poll until the Next.js port is open, then mark ready
 const waitForNextJs = () => {
-  const net = require("net");
   const check = () => {
     const sock = new net.Socket();
     sock.setTimeout(500);

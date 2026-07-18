@@ -1753,7 +1753,8 @@ export default function ChatWindow({
                 )}
             </React.Fragment>
           );
-        })()
+        })
+      })()
       )}
 
         {/* Typing Indicator Bubble */}

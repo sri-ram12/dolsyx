@@ -1,29 +1,34 @@
-"use client";
+﻿"use client";
 
 import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth, API_URL } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
-import { MessageSquare, ShieldAlert, Key, User, CheckCircle2, Mail, Sun, Moon, ArrowRight, RefreshCw, Loader2 } from "lucide-react";
+import { MessageSquare, ShieldAlert, Key, User, CheckCircle2, Mail, Sun, Moon, ArrowRight, RefreshCw, Loader2, Fingerprint } from "lucide-react";
 
 export default function LoginPage() {
-  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  
+  // Registration form
+  const [username, setUsername] = useState("");
+  const [regPassword, setRegPassword] = useState("");
+
   const [otpDigits, setOtpDigits] = useState<string[]>(Array(6).fill(""));
-  const [step, setStep] = useState<"login" | "otp">("login");
+  const [step, setStep] = useState<"login" | "password" | "otp" | "register">("login");
   const [isNewUser, setIsNewUser] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [isResending, setIsResending] = useState(false);
-  const [countdown, setCountdown] = useState(300); // 5 minutes (300s)
+  const [countdown, setCountdown] = useState(300);
+  const [hasBiometrics, setHasBiometrics] = useState(false);
 
   const { theme, setTheme } = useTheme();
   const { login, isAuthenticated, isLoading: authLoading } = useAuth();
   const router = useRouter();
 
-  // References for OTP segmented inputs
   const inputRefs = [
     useRef<HTMLInputElement>(null),
     useRef<HTMLInputElement>(null),
@@ -33,7 +38,6 @@ export default function LoginPage() {
     useRef<HTMLInputElement>(null),
   ];
 
-  // Countdown timer for Resend OTP (5 minutes)
   useEffect(() => {
     let timer: NodeJS.Timeout;
     if (step === "otp" && countdown > 0) {
@@ -48,121 +52,234 @@ export default function LoginPage() {
     }
   }, [isAuthenticated, authLoading, router]);
 
-  const handleSendOtp = async (e?: React.FormEvent) => {
+  // Check if biometric login is enabled for this device/email
+  useEffect(() => {
+    if (typeof window !== "undefined" && email) {
+      const bioEnabled = localStorage.getItem(`dolsyx_bio_enabled_${email.trim().toLowerCase()}`) === "true";
+      setHasBiometrics(bioEnabled);
+    } else {
+      setHasBiometrics(false);
+    }
+  }, [email]);
+
+  const handleSendOtp = async (e?: React.FormEvent, forceOtp = false) => {
     if (e) e.preventDefault();
     setError("");
     setInfo("");
-
-    if (isNewUser && !fullName.trim()) {
-      setError("Please enter your Full Name to complete sign up.");
-      return;
-    }
 
     if (!email.trim()) {
       setError("Please enter your Email Address.");
       return;
     }
 
-    // Email regex validation
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       setError("Please enter a valid email address format.");
       return;
     }
 
     setIsLoading(true);
-    console.log(`[handleSendOtp] Sending request to POST /api/auth/send-otp. Name: ${fullName.trim()}, Email: ${email.trim().toLowerCase()}`);
 
     try {
       const res = await fetch(`${API_URL}/api/auth/send-otp`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          fullName: isNewUser ? fullName.trim() : undefined,
           email: email.trim().toLowerCase(),
+          forceOtp: forceOtp
         }),
       });
 
       const data = await res.json();
-      console.log("[handleSendOtp] Response status:", res.status, "data:", data);
 
       if (res.ok) {
-        if (data.isDirectLogin) {
-          login(data.token, data.user);
-          router.push("/chat");
-          return;
-        }
-
-        setStep("otp");
-        setCountdown(300); // Reset to 5 minutes
-        setInfo(data.message || `Verification code sent to ${email.trim().toLowerCase()}.`);
-        
-        if (data.otpCode) {
-          setOtpDigits(data.otpCode.split(""));
-          verifyCode(data.otpCode);
+        if (data.requiresPassword && !forceOtp) {
+          setStep("password");
         } else {
-          // Focus first digit
-          setTimeout(() => {
-            inputRefs[0].current?.focus();
-          }, 100);
+          setStep("otp");
+          setIsNewUser(data.isNewUser);
+          setCountdown(300);
+          setInfo(data.message || `Verification code sent to ${email.trim().toLowerCase()}.`);
+          
+          if (data.otpCode) {
+            setOtpDigits(data.otpCode.split(""));
+            verifyCode(data.otpCode);
+          } else {
+            setTimeout(() => inputRefs[0].current?.focus(), 100);
+          }
         }
       } else {
-        if (data.isNewUser) {
-          setIsNewUser(true);
-          setError("This email is not registered yet. Please enter your Full Name to sign up.");
-        } else {
-          setError(data.message || "Failed to send OTP.");
-        }
+        setError(data.message || "Failed to initiate login.");
       }
     } catch (err) {
-      console.error("Send OTP error:", err);
-      setError("Failed to connect to server. Please try again.");
+      console.error(err);
+      setError("Failed to connect to server.");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleResendOtp = async () => {
+  const handlePasswordLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
     setError("");
     setInfo("");
-    setIsResending(true);
-    setOtpDigits(Array(6).fill(""));
+    setIsLoading(true);
 
     try {
-      const res = await fetch(`${API_URL}/api/auth/resend-otp`, {
+      const res = await fetch(`${API_URL}/api/auth/login`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          fullName: fullName.trim(),
           email: email.trim().toLowerCase(),
+          password: password
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        setInfo("Login successful! Redirecting...");
+        setTimeout(() => {
+          login(data.token, data.user);
+        }, 800);
+      } else {
+        setError(data.message || "Incorrect password.");
+      }
+    } catch (err) {
+      console.error(err);
+      setError("Failed to connect to server.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleBiometricLogin = async () => {
+    setError("");
+    setInfo("");
+    try {
+      // Prompt native biometric verification using WebAuthn API
+      if (!window.PublicKeyCredential) {
+        setError("Biometrics not supported on this browser.");
+        return;
+      }
+      
+      const challenge = new Uint8Array(32);
+      window.crypto.getRandomValues(challenge);
+      
+      const credential = await navigator.credentials.get({
+        publicKey: {
+          challenge,
+          timeout: 60000,
+          userVerification: "required"
+        }
+      });
+
+      if (credential) {
+        // Biometrics verified successfully on device! Now get direct token
+        setIsLoading(true);
+        const res = await fetch(`${API_URL}/api/auth/send-otp`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: email.trim().toLowerCase(),
+            forceOtp: true // bypass password
+          }),
+        });
+
+        const data = await res.json();
+        if (res.ok && data.otpCode) {
+          // Auto log in for demo/development convenience
+          verifyCode(data.otpCode);
+        } else if (res.ok) {
+          // If in production, send OTP to mail, verify via normal OTP screen automatically
+          setStep("otp");
+          setCountdown(300);
+          setInfo("Biometrics verified. Please enter the OTP sent to your email to log in.");
+        } else {
+          setError("Biometrics validation failed on server.");
+        }
+      }
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || "Biometric authentication cancelled.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const verifyCode = async (code: string) => {
+    setError("");
+    setInfo("");
+    setIsVerifying(true);
+
+    try {
+      const res = await fetch(`${API_URL}/api/auth/verify-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          code,
         }),
       });
 
       const data = await res.json();
 
       if (res.ok) {
-        setCountdown(300); // Reset countdown
-        setInfo(data.message || `A new verification code was sent to ${email.trim().toLowerCase()}.`);
-        
-        if (data.otpCode) {
-          setOtpDigits(data.otpCode.split(""));
-          verifyCode(data.otpCode);
+        if (data.isNewUser) {
+          setStep("register");
+          setInfo("Email verified successfully! Please choose your username.");
         } else {
+          setInfo("Authentication successful! Redirecting...");
           setTimeout(() => {
-            inputRefs[0].current?.focus();
-          }, 100);
+            login(data.token, data.user);
+          }, 800);
         }
       } else {
-        setError(data.message || "Failed to resend OTP.");
+        setError(data.message || "Invalid or expired OTP code.");
       }
     } catch (err) {
-      console.error("Resend OTP error:", err);
-      setError("Failed to connect to server. Please try again.");
+      console.error(err);
+      setError("Failed to verify code.");
     } finally {
-      setIsResending(false);
+      setIsVerifying(false);
+    }
+  };
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setInfo("");
+
+    if (!username.trim()) {
+      setError("Username is required.");
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const res = await fetch(`${API_URL}/api/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          username: username.trim(),
+          password: regPassword || undefined,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        setInfo("Registration successful! Redirecting...");
+        setTimeout(() => {
+          login(data.token, data.user);
+        }, 800);
+      } else {
+        setError(data.message || "Registration failed.");
+      }
+    } catch (err) {
+      console.error(err);
+      setError("Failed to register account.");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -172,12 +289,10 @@ export default function LoginPage() {
     newDigits[index] = digit;
     setOtpDigits(newDigits);
 
-    // Auto focus next input
     if (digit && index < 5) {
       inputRefs[index + 1].current?.focus();
     }
 
-    // Auto submit if all digits are entered
     const completeCode = newDigits.join("");
     if (completeCode.length === 6 && !newDigits.includes("")) {
       verifyCode(completeCode);
@@ -187,13 +302,11 @@ export default function LoginPage() {
   const handleOtpKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Backspace") {
       if (!otpDigits[index] && index > 0) {
-        // Current is empty, delete previous and focus it
         const newDigits = [...otpDigits];
         newDigits[index - 1] = "";
         setOtpDigits(newDigits);
         inputRefs[index - 1].current?.focus();
       } else {
-        // Delete current
         const newDigits = [...otpDigits];
         newDigits[index] = "";
         setOtpDigits(newDigits);
@@ -212,61 +325,11 @@ export default function LoginPage() {
     }
   };
 
-  const verifyCode = async (code: string) => {
-    setError("");
-    setInfo("");
-    setIsVerifying(true);
-    console.log(`[verifyCode] Submitting code for verification. Email: ${email.trim().toLowerCase()}, Code: ${code}`);
-
-    try {
-      const res = await fetch(`${API_URL}/api/auth/verify-otp`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          fullName: fullName.trim(),
-          email: email.trim().toLowerCase(),
-          code,
-        }),
-      });
-
-      const data = await res.json();
-      console.log("[verifyCode] Response status:", res.status, "data:", data);
-
-      if (res.ok) {
-        setInfo("Authentication successful! Redirecting...");
-        console.log("[verifyCode] Token received. Triggering login() context redirect.");
-        setTimeout(() => {
-          login(data.token, data.user);
-        }, 800);
-      } else {
-        setError(data.message || "Invalid or expired OTP code.");
-      }
-    } catch (err) {
-      console.error("Verify OTP error:", err);
-      setError("Failed to connect to server. Please try again.");
-    } finally {
-      setIsVerifying(false);
-    }
-  };
-
-  const formatCountdown = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-  };
-
   const toggleTheme = () => {
-    if (theme === "dolsy-dark") {
-      setTheme("aqua-light");
-    } else if (theme === "aqua-light") {
-      setTheme("aqua-dark");
-    } else if (theme === "aqua-dark") {
-      setTheme("radiant-blue");
-    } else {
-      setTheme("dolsy-dark");
-    }
+    if (theme === "dolsy-dark") setTheme("aqua-light");
+    else if (theme === "aqua-light") setTheme("aqua-dark");
+    else if (theme === "aqua-dark") setTheme("radiant-blue");
+    else setTheme("dolsy-dark");
   };
 
   if (authLoading) {
@@ -279,109 +342,48 @@ export default function LoginPage() {
 
   return (
     <div className="relative flex min-h-screen flex-col items-center justify-center px-4 py-12 transition-colors duration-300">
-      {/* Theme Toggle Button */}
       <button
         onClick={toggleTheme}
-        className="absolute right-6 top-6 flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-container)] backdrop-blur-md text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] hover:border-[var(--theme-accent)] transition-all cursor-pointer z-50 shadow-md"
-        title="Cycle theme (Classic / Light / Dark / Radiant Blue)"
+        className="absolute right-6 top-6 flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-container)] text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-all cursor-pointer z-50 shadow-md"
       >
-        {theme === "aqua-light" ? (
-          <Sun className="h-5 w-5 text-amber-500 animate-spin-slow" />
-        ) : theme === "aqua-dark" ? (
-          <Moon className="h-5 w-5 text-emerald-400" />
-        ) : theme === "radiant-blue" ? (
-          <MessageSquare className="h-5 w-5 text-blue-400" />
-        ) : (
-          <MessageSquare className="h-5 w-5 text-violet-400" />
-        )}
+        {theme === "aqua-light" ? <Sun className="h-5 w-5 text-amber-500" /> : <Moon className="h-5 w-5" />}
       </button>
 
-      {/* Main Container Card */}
-      <div className="w-full max-w-md space-y-8 rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-container)] p-8 shadow-2xl backdrop-blur-xl transition-all duration-300">
-        
-        {/* Header Block */}
+      <div className="w-full max-w-md space-y-8 rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-container)] p-8 shadow-2xl backdrop-blur-xl">
         <div className="flex flex-col items-center justify-center text-center">
-          <div 
-            className="flex h-14 w-14 items-center justify-center rounded-2xl text-white shadow-lg transition-all duration-300"
-            style={{
-              background: theme.startsWith("aqua") 
-                ? "linear-gradient(135deg, #00a884, #008069)" 
-                : "linear-gradient(135deg, #8b5cf6, #4f46e5)",
-              boxShadow: theme.startsWith("aqua")
-                ? "0 4px 12px rgba(0, 168, 132, 0.25)"
-                : "0 4px 12px rgba(139, 92, 246, 0.25)"
-            }}
-          >
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl text-white shadow-lg bg-gradient-to-tr from-violet-600 to-indigo-600">
             <MessageSquare className="h-7 w-7" />
           </div>
           <h2 className="mt-6 text-3xl font-black tracking-tight text-[var(--theme-text-primary)]">
-            {theme.startsWith("aqua") ? "DOLSYX Chat" : "DOLSYX Messenger"}
+            DOLSYX
           </h2>
           <p className="mt-2 text-sm text-[var(--theme-text-secondary)]">
-            {step === "login" && "Enter your name and email to request a secure verification code"}
+            {step === "login" && "Enter your email address to log in or create an account"}
+            {step === "password" && "Enter your password to sign in"}
             {step === "otp" && "Enter the verification code sent to your email"}
+            {step === "register" && "Complete your profile registration"}
           </p>
         </div>
 
-        {/* Alert Notifications */}
         {error && (
-          <div className="flex items-start gap-3 rounded-xl border border-red-500/20 bg-red-500/10 p-3.5 text-xs text-red-400 animate-shake">
+          <div className="flex items-start gap-3 rounded-xl border border-red-500/20 bg-red-500/10 p-3.5 text-xs text-red-400">
             <ShieldAlert className="h-4 w-4 shrink-0 mt-0.5" />
             <span>{error}</span>
           </div>
         )}
 
         {info && (
-          <div 
-            className="flex items-start gap-3 rounded-xl border p-3.5 text-xs animate-fade-in"
-            style={{
-              borderColor: "rgba(var(--theme-accent), 0.2)",
-              backgroundColor: "rgba(100, 100, 100, 0.05)",
-              color: "var(--theme-text-primary)"
-            }}
-          >
-            <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5 text-emerald-400" />
+          <div className="flex items-start gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3.5 text-xs text-emerald-400">
+            <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
             <span>{info}</span>
           </div>
         )}
 
-        {/* Step 1: Login Form */}
         {step === "login" && (
-          <form className="mt-8 space-y-6 animate-fade-in" onSubmit={(e) => handleSendOtp(e)}>
+          <form className="mt-8 space-y-6" onSubmit={(e) => handleSendOtp(e)}>
             <div className="space-y-4">
-              
-              {/* Full Name Input Box */}
-              {isNewUser && (
-                <div>
-                  <label
-                    htmlFor="fullName"
-                    className="block text-[10px] font-bold uppercase tracking-wider text-[var(--theme-text-secondary)] mb-1"
-                  >
-                    Full Name
-                  </label>
-                  <div className="relative">
-                    <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4 text-[var(--theme-text-secondary)]">
-                      <User className="h-4 w-4" />
-                    </div>
-                    <input
-                      id="fullName"
-                      type="text"
-                      required
-                      value={fullName}
-                      onChange={(e) => setFullName(e.target.value)}
-                      className="block w-full rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] py-3 pl-10 pr-4 text-sm text-[var(--theme-text-primary)] placeholder-[var(--theme-text-secondary)]/40 focus:border-[var(--theme-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--theme-accent)] transition-all duration-200"
-                      placeholder="Enter your full name"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Email Input Box */}
               <div>
-                <label
-                  htmlFor="email"
-                  className="block text-[10px] font-bold uppercase tracking-wider text-[var(--theme-text-secondary)] mb-1"
-                >
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--theme-text-secondary)] mb-1">
                   Email Address
                 </label>
                 <div className="relative">
@@ -389,12 +391,11 @@ export default function LoginPage() {
                     <Mail className="h-4 w-4" />
                   </div>
                   <input
-                    id="email"
                     type="email"
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="block w-full rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] py-3 pl-10 pr-4 text-sm text-[var(--theme-text-primary)] placeholder-[var(--theme-text-secondary)]/40 focus:border-[var(--theme-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--theme-accent)] transition-all duration-200"
+                    className="block w-full rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] py-3 pl-10 pr-4 text-sm text-[var(--theme-text-primary)] focus:border-[var(--theme-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--theme-accent)]"
                     placeholder="Enter your email address"
                   />
                 </div>
@@ -404,30 +405,74 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={isLoading}
-              className="flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-extrabold text-[var(--theme-accent-text)] hover:opacity-95 focus:outline-none disabled:opacity-50 transition-all duration-200 cursor-pointer shadow-lg"
-              style={{ backgroundColor: "var(--theme-accent)" }}
+              className="flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-extrabold text-[var(--theme-accent-text)] bg-[var(--theme-accent)] hover:opacity-95 disabled:opacity-50 transition-all cursor-pointer shadow-lg"
             >
-              {isLoading ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : (
-                <>
-                  <span>Send OTP</span>
-                  <ArrowRight className="h-4 w-4" />
-                </>
-              )}
+              {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <><span>Continue</span><ArrowRight className="h-4 w-4" /></>}
             </button>
           </form>
         )}
 
-        {/* Step 2: Segmented OTP Code Input Form */}
+        {step === "password" && (
+          <form className="mt-8 space-y-6" onSubmit={handlePasswordLogin}>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--theme-text-secondary)] mb-1">
+                  Password
+                </label>
+                <div className="relative">
+                  <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4 text-[var(--theme-text-secondary)]">
+                    <Key className="h-4 w-4" />
+                  </div>
+                  <input
+                    type="password"
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="block w-full rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] py-3 pl-10 pr-4 text-sm text-[var(--theme-text-primary)] focus:border-[var(--theme-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--theme-accent)]"
+                    placeholder="Enter your password"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-extrabold text-[var(--theme-accent-text)] bg-[var(--theme-accent)] hover:opacity-95 disabled:opacity-50 transition-all cursor-pointer"
+              >
+                {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : "Sign In"}
+              </button>
+
+              {hasBiometrics && (
+                <button
+                  type="button"
+                  onClick={handleBiometricLogin}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-extrabold text-[var(--theme-text-primary)] border border-[var(--theme-border-color)] bg-transparent hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-all cursor-pointer"
+                >
+                  <Fingerprint className="h-5 w-5 text-[var(--theme-accent)]" />
+                  <span>Login with Fingerprint</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => handleSendOtp(undefined, true)}
+                className="w-full text-center text-xs text-[var(--theme-accent)] hover:underline cursor-pointer"
+              >
+                Login with Email OTP instead
+              </button>
+            </div>
+          </form>
+        )}
+
         {step === "otp" && (
-          <div className="mt-8 space-y-6 animate-fade-in">
+          <div className="mt-8 space-y-6">
             <div className="space-y-4">
               <div className="text-center text-xs text-[var(--theme-text-secondary)] mb-2">
                 Verification email sent to <span className="font-semibold text-[var(--theme-text-primary)]">{email.trim().toLowerCase()}</span>
               </div>
               
-              {/* Segmented Inputs */}
               <div className="flex justify-between items-center gap-2">
                 {otpDigits.map((digit, index) => (
                   <input
@@ -442,64 +487,90 @@ export default function LoginPage() {
                     onKeyDown={(e) => handleOtpKeyDown(index, e)}
                     onPaste={index === 0 ? handleOtpPaste : undefined}
                     disabled={isVerifying}
-                    className="h-12 w-12 text-center text-xl font-bold rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] text-[var(--theme-text-primary)] focus:border-[var(--theme-accent)] focus:ring-1 focus:ring-[var(--theme-accent)] focus:outline-none transition-all duration-150 disabled:opacity-50"
+                    className="h-12 w-12 text-center text-xl font-bold rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] text-[var(--theme-text-primary)] focus:border-[var(--theme-accent)] focus:outline-none transition-all disabled:opacity-50"
                   />
                 ))}
               </div>
             </div>
 
-            <div className="flex flex-col gap-3 pt-2">
+            <div className="flex flex-col gap-3">
               <button
                 type="button"
                 onClick={() => verifyCode(otpDigits.join(""))}
                 disabled={isVerifying || otpDigits.includes("")}
-                className="flex w-full justify-center items-center gap-2 rounded-xl py-3.5 text-sm font-extrabold text-[var(--theme-accent-text)] hover:opacity-95 focus:outline-none disabled:opacity-50 transition-all duration-200 cursor-pointer shadow-lg"
-                style={{ backgroundColor: "var(--theme-accent)" }}
+                className="flex w-full justify-center items-center gap-2 rounded-xl py-3.5 text-sm font-extrabold text-[var(--theme-accent-text)] bg-[var(--theme-accent)] hover:opacity-95 disabled:opacity-50 transition-all cursor-pointer"
               >
-                {isVerifying ? (
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                ) : (
-                  "Verify & Connect"
-                )}
+                {isVerifying ? <Loader2 className="h-5 w-5 animate-spin" /> : "Verify & Continue"}
               </button>
 
-              {/* Actions & Countdown */}
-              <div className="flex justify-between items-center text-xs text-[var(--theme-text-secondary)] px-1 mt-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStep("login");
-                    setError("");
-                    setInfo("");
-                    setOtpDigits(Array(6).fill(""));
-                  }}
-                  className="hover:underline hover:text-[var(--theme-text-primary)] cursor-pointer"
-                >
+              <div className="flex justify-between items-center text-xs text-[var(--theme-text-secondary)]">
+                <button type="button" onClick={() => setStep("login")} className="hover:underline cursor-pointer">
                   Change Email
                 </button>
 
-                <div className="flex items-center gap-2">
+                <div>
                   {countdown > 0 ? (
-                    <span className="font-medium text-amber-500">{formatCountdown(countdown)} remaining</span>
+                    <span className="font-medium text-amber-500">{Math.floor(countdown / 60)}:{(countdown % 60).toString().padStart(2, "0")} remaining</span>
                   ) : (
-                    <button
-                      type="button"
-                      onClick={handleResendOtp}
-                      disabled={isResending}
-                      className="flex items-center gap-1 font-bold text-[var(--theme-accent)] hover:underline cursor-pointer disabled:opacity-50"
-                    >
-                      {isResending ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <RefreshCw className="h-3 w-3" />
-                      )}
-                      <span>Resend OTP</span>
+                    <button type="button" onClick={() => handleSendOtp(undefined, true)} className="font-bold text-[var(--theme-accent)] hover:underline cursor-pointer">
+                      Resend OTP
                     </button>
                   )}
                 </div>
               </div>
             </div>
           </div>
+        )}
+
+        {step === "register" && (
+          <form className="mt-8 space-y-6" onSubmit={handleRegister}>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--theme-text-secondary)] mb-1">
+                  Choose Username
+                </label>
+                <div className="relative">
+                  <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4 text-[var(--theme-text-secondary)]">
+                    <User className="h-4 w-4" />
+                  </div>
+                  <input
+                    type="text"
+                    required
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    className="block w-full rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] py-3 pl-10 pr-4 text-sm text-[var(--theme-text-primary)] focus:border-[var(--theme-accent)] focus:outline-none"
+                    placeholder="Choose a username"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--theme-text-secondary)] mb-1">
+                  Set Password (Optional)
+                </label>
+                <div className="relative">
+                  <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4 text-[var(--theme-text-secondary)]">
+                    <Key className="h-4 w-4" />
+                  </div>
+                  <input
+                    type="password"
+                    value={regPassword}
+                    onChange={(e) => setRegPassword(e.target.value)}
+                    className="block w-full rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] py-3 pl-10 pr-4 text-sm text-[var(--theme-text-primary)] focus:border-[var(--theme-accent)] focus:outline-none"
+                    placeholder="Enter password (optional)"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-extrabold text-[var(--theme-accent-text)] bg-[var(--theme-accent)] hover:opacity-95 disabled:opacity-50 transition-all cursor-pointer shadow-lg"
+            >
+              {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : "Complete Registration"}
+            </button>
+          </form>
         )}
       </div>
     </div>

@@ -1382,11 +1382,11 @@ export default function ChatWindow({
                     <CallLogMessage msg={msg} isMe={isMe} />
                   ) : msg.mediaType === "IMAGE" ? (
                     <div className="flex flex-col space-y-1">
-                      <div className="max-w-xs rounded-2xl overflow-hidden border border-zinc-800 bg-zinc-900 shadow-md">
+                      <div className="max-w-md rounded-2xl overflow-hidden border border-zinc-800 bg-zinc-900 shadow-md">
                         <img
                           src={resolveMediaUrl(msg.mediaUrl) || ""}
                           alt={msg.content || "Image attachment"}
-                          className="w-full max-h-60 object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                          className="w-full max-h-96 object-cover cursor-pointer hover:opacity-90 transition-opacity"
                           onClick={() => window.open(resolveMediaUrl(msg.mediaUrl) || "", "_blank")}
                         />
                       </div>
@@ -2082,45 +2082,46 @@ export default function ChatWindow({
         </div>
       )}
 
-      {/* Generic Profile View Modal */}
+      {/* Generic Profile View Drawer */}
       {profileUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fade-in">
-          <div className="w-full max-w-sm rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] shadow-2xl overflow-hidden">
-            {/* Cover gradient - aqua */}
-            <div className="h-24 bg-gradient-to-br from-cyan-600 via-teal-500 to-cyan-800 relative">
+        <div className="fixed inset-0 z-[9999] flex justify-end bg-black/60 backdrop-blur-xs animate-fade-in">
+          <div className="h-full w-full sm:w-[380px] bg-[var(--theme-bg-sidebar)] border-l border-[var(--theme-border-color)] flex flex-col shadow-2xl relative animate-slide-left overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-center gap-4 px-6 py-5 border-b border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-header)]">
               <button
                 onClick={() => setProfileUser(null)}
-                className="absolute right-3 top-3 rounded-lg p-1.5 bg-black/30 text-white hover:bg-black/50 transition-colors cursor-pointer"
+                className="p-1 rounded-lg hover:bg-[var(--theme-bg-sidebar-item-hover)] text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] cursor-pointer"
               >
-                <X className="h-4 w-4" />
+                <X className="h-5 w-5" />
               </button>
+              <span className="font-bold text-sm text-[var(--theme-text-primary)]">Contact Details</span>
             </div>
 
-            {/* Avatar overlapping cover */}
-            <div className="flex flex-col items-center -mt-12 px-6 pb-6 space-y-3">
-              <div className="relative">
+            {/* Profile Avatar Area */}
+            <div className="flex flex-col items-center py-8 px-6 bg-[var(--theme-bg-sidebar-search)]/30 border-b border-[var(--theme-border-color)] space-y-4">
+              <div className="relative group cursor-pointer" onClick={() => window.open(getAvatarUrl(profileUser.avatarUrl, profileUser.username), "_blank")}>
                 <img
                   src={getAvatarUrl(profileUser.avatarUrl, profileUser.username)}
                   alt={profileUser.username}
-                  className="h-24 w-24 rounded-full border-4 border-[var(--theme-bg-sidebar)] bg-[var(--theme-bg-sidebar-search)] object-cover shadow-xl"
+                  className="h-44 w-44 rounded-full border-4 border-[var(--theme-bg-sidebar)] object-cover shadow-2xl transition-transform hover:scale-105"
                 />
                 {onlineUsers.includes(profileUser.id) && (
-                  <span className="absolute bottom-1 right-1 h-4 w-4 rounded-full border-2 border-[var(--theme-bg-sidebar)] bg-green-500 shadow-md" />
+                  <span className="absolute bottom-2 right-2 h-5 w-5 rounded-full border-4 border-[var(--theme-bg-sidebar)] bg-green-500 shadow-lg" />
                 )}
               </div>
 
-              <div className="text-center space-y-1">
-                <h3 className="text-lg font-bold text-[var(--theme-text-primary)]">
+              <div className="text-center">
+                <h3 className="text-xl font-black tracking-tight text-[var(--theme-text-primary)]">
                   {profileUser.username}
                 </h3>
-                <p className="text-xs font-medium">
+                <p className="text-xs mt-1">
                   {onlineUsers.includes(profileUser.id) ? (
-                    <span className="text-green-400 flex items-center justify-center gap-1">
+                    <span className="text-green-400 font-semibold flex items-center justify-center gap-1">
                       <span className="h-1.5 w-1.5 rounded-full bg-green-400 animate-pulse inline-block" />
                       Online
                     </span>
                   ) : profileUser.lastSeen ? (
-                    <span className="text-[var(--theme-text-secondary)]">
+                    <span className="text-[var(--theme-text-secondary)] font-medium">
                       Last seen {formatLastSeen(profileUser.lastSeen)}
                     </span>
                   ) : (
@@ -2128,53 +2129,52 @@ export default function ChatWindow({
                   )}
                 </p>
               </div>
+            </div>
 
-              {/* About / Bio */}
-              <div className="w-full rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] p-3 text-center">
-                <p className="text-[10px] font-semibold text-[var(--theme-text-secondary)] mb-1 uppercase tracking-wider">About</p>
-                <p className="text-sm text-[var(--theme-text-primary)]">
+            {/* Profile Info Details List */}
+            <div className="p-6 space-y-6">
+              {/* Bio Section */}
+              <div className="space-y-2">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">About / Status</span>
+                <p className="text-sm text-[var(--theme-text-primary)] bg-[var(--theme-bg-sidebar-search)] p-3.5 rounded-xl border border-[var(--theme-border-color)] leading-relaxed">
                   {profileUser.bio || "Hey there! I am using DOLSYX."}
                 </p>
               </div>
 
-              {/* Contact info */}
-              <div className="w-full space-y-2">
+              {/* Contact Info */}
+              <div className="space-y-3">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Contact Info</span>
                 {profileUser.email && (
-                  <div className="flex items-center gap-3 rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] px-3 py-2.5">
-                    <Mail className="h-4 w-4 text-[var(--theme-accent)] shrink-0" />
-                    <span className="text-xs text-[var(--theme-text-primary)] truncate">{profileUser.email}</span>
+                  <div className="flex items-center gap-3 rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] px-3.5 py-3">
+                    <Mail className="h-4.5 w-4.5 text-[var(--theme-accent)] shrink-0" />
+                    <span className="text-xs text-[var(--theme-text-primary)] truncate selection:bg-[var(--theme-accent)]/20">{profileUser.email}</span>
                   </div>
                 )}
                 {profileUser.phoneNumber && (
-                  <div className="flex items-center gap-3 rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] px-3 py-2.5">
-                    <Phone className="h-4 w-4 text-[var(--theme-accent)] shrink-0" />
+                  <div className="flex items-center gap-3 rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] px-3.5 py-3">
+                    <Phone className="h-4.5 w-4.5 text-[var(--theme-accent)] shrink-0" />
                     <span className="text-xs text-[var(--theme-text-primary)]">{profileUser.phoneNumber}</span>
                   </div>
                 )}
               </div>
 
-              {/* Block/Unblock toggle button */}
-              {user?.id !== profileUser.id && (
-                <button
-                  type="button"
-                  onClick={() => handleToggleBlock(profileUser.id)}
-                  className={`w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-bold transition-all cursor-pointer border ${
-                    blockedIds.includes(profileUser.id)
-                      ? "border-emerald-500/30 hover:bg-emerald-500/10 text-emerald-400"
-                      : "border-red-500/30 hover:bg-red-500/10 text-red-400"
-                  }`}
-                >
-                  <Ban className="h-4 w-4" />
-                  {blockedIds.includes(profileUser.id) ? "Unblock User" : "Block User"}
-                </button>
-              )}
-
-              <button
-                onClick={() => setProfileUser(null)}
-                className="w-full rounded-xl border border-[var(--theme-border-color)] hover:bg-[var(--theme-bg-sidebar-item-hover)] py-2.5 text-xs font-bold text-[var(--theme-text-secondary)] transition-all cursor-pointer mt-1"
-              >
-                Close
-              </button>
+              {/* Settings / Actions */}
+              <div className="pt-2">
+                {user?.id !== profileUser.id && (
+                  <button
+                    type="button"
+                    onClick={() => handleToggleBlock(profileUser.id)}
+                    className={`w-full flex items-center justify-center gap-2 rounded-xl py-3 text-xs font-bold transition-all cursor-pointer border ${
+                      blockedIds.includes(profileUser.id)
+                        ? "border-emerald-500/30 hover:bg-emerald-500/10 text-emerald-400"
+                        : "border-red-500/30 hover:bg-red-500/10 text-red-400"
+                    }`}
+                  >
+                    <Ban className="h-4 w-4" />
+                    {blockedIds.includes(profileUser.id) ? "Unblock User" : "Block User"}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>

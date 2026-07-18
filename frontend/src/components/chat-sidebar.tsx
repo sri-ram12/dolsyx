@@ -1,9 +1,9 @@
-"use client";
+﻿"use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useAuth, API_URL, User } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
-import { Search, LogOut, MessageSquare, Circle, Users, Camera, Loader2, X, Settings, Radio } from "lucide-react";
+import { Search, LogOut, MessageSquare, Circle, Users, Camera, Loader2, X, Settings, Radio, MoreVertical, Pin, Trash2, Archive, Star, CheckSquare } from "lucide-react";
 import GroupDialog from "./group-dialog";
 import SettingsPanel from "./settings-panel";
 import { getDefaultAvatar, getAvatarUrl } from "@/utils/avatar";
@@ -52,6 +52,8 @@ export default function ChatSidebar({
 }: ChatSidebarProps) {
   const { user, token, logout, updateUser } = useAuth();
   const { theme, setTheme } = useTheme();
+  
+  // Search & Navigation
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<User[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -59,93 +61,50 @@ export default function ChatSidebar({
   const [showGroupDialog, setShowGroupDialog] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
-  // Profile modal state
-  const [showProfileModal, setShowProfileModal] = useState(false);
-  const [editUsername, setEditUsername] = useState(user?.username || "");
-  const [editBio, setEditBio] = useState(user?.bio || "");
-  const [editAvatar, setEditAvatar] = useState(user?.avatarUrl || "");
-  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
-  const [isSavingProfile, setIsSavingProfile] = useState(false);
-  const [profileError, setProfileError] = useState("");
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  // Top header 3-dots menu
+  const [showHeaderMenu, setShowHeaderMenu] = useState(false);
+  const headerMenuRef = useRef<HTMLDivElement>(null);
 
-  // Sync profile editing status with user changes
+  // Long press & Multi-select states
+  const [selectedChats, setSelectedChats] = useState<Set<string>>(new Set());
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [showSelectionMenu, setShowSelectionMenu] = useState(false);
+  const selectionMenuRef = useRef<HTMLDivElement>(null);
+
+  // Local storage lists for Pin, Archive, Favorite
+  const [pinnedChats, setPinnedChats] = useState<string[]>([]);
+  const [archivedChats, setArchivedChats] = useState<string[]>([]);
+  const [favoriteChats, setFavoriteChats] = useState<string[]>([]);
+  
+  // Long press timer ref
+  const pressTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Close menus when clicking outside
   useEffect(() => {
-    if (user) {
-      setEditUsername(user.username);
-      setEditBio(user.bio || "");
-      setEditAvatar(user.avatarUrl || "");
-    }
-  }, [user, showProfileModal]);
-
-  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !token) return;
-
-    setIsUploadingAvatar(true);
-    setProfileError("");
-
-    const formData = new FormData();
-    formData.append("file", file);
-
-    try {
-      const res = await fetch(`${API_URL}/api/chats/upload`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        body: formData,
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        setEditAvatar(data.fileUrl);
-      } else {
-        setProfileError("Failed to upload avatar");
+    const clickOutside = (e: MouseEvent) => {
+      if (headerMenuRef.current && !headerMenuRef.current.contains(e.target as Node)) {
+        setShowHeaderMenu(false);
       }
-    } catch (err) {
-      console.error(err);
-      setProfileError("Error uploading avatar");
-    } finally {
-      setIsUploadingAvatar(false);
-    }
-  };
-
-  const handleSaveProfile = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!token || !editUsername.trim()) return;
-
-    setIsSavingProfile(true);
-    setProfileError("");
-
-    try {
-      const res = await fetch(`${API_URL}/api/auth/profile`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          username: editUsername.trim(),
-          bio: editBio.trim(),
-          avatarUrl: editAvatar,
-        }),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        updateUser(data.user);
-        setShowProfileModal(false);
-      } else {
-        const data = await res.json();
-        setProfileError(data.message || "Failed to update profile");
+      if (selectionMenuRef.current && !selectionMenuRef.current.contains(e.target as Node)) {
+        setShowSelectionMenu(false);
       }
-    } catch (err) {
-      console.error(err);
-      setProfileError("Error saving profile");
-    } finally {
-      setIsSavingProfile(false);
+    };
+    document.addEventListener("mousedown", clickOutside);
+    return () => document.removeEventListener("mousedown", clickOutside);
+  }, []);
+
+  // Load pinned/archived/favorite lists
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setPinnedChats(JSON.parse(localStorage.getItem("dolsyx_pinned_chats") || "[]"));
+      setArchivedChats(JSON.parse(localStorage.getItem("dolsyx_archived_chats") || "[]"));
+      setFavoriteChats(JSON.parse(localStorage.getItem("dolsyx_favorite_chats") || "[]"));
     }
+  }, []);
+
+  const saveList = (key: string, list: string[], setter: Function) => {
+    localStorage.setItem(key, JSON.stringify(list));
+    setter(list);
   };
 
   // Search users API query
@@ -156,20 +115,13 @@ export default function ChatSidebar({
         setIsSearching(false);
         return;
       }
-
       setIsSearching(true);
       setSearchError("");
-
       try {
         const res = await fetch(
           `${API_URL}/api/chats/search?query=${encodeURIComponent(searchQuery)}`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
+          { headers: { Authorization: `Bearer ${token}` } }
         );
-
         if (res.ok) {
           const data = await res.json();
           setSearchResults(data);
@@ -177,7 +129,7 @@ export default function ChatSidebar({
           setSearchError("Failed to fetch users");
         }
       } catch (err) {
-        console.error("Search error:", err);
+        console.error(err);
         setSearchError("Network error");
       } finally {
         setIsSearching(false);
@@ -190,7 +142,6 @@ export default function ChatSidebar({
   const handleStartChat = async (targetUser: User) => {
     setSearchQuery("");
     setSearchResults([]);
-
     try {
       const res = await fetch(`${API_URL}/api/chats/direct`, {
         method: "POST",
@@ -200,21 +151,147 @@ export default function ChatSidebar({
         },
         body: JSON.stringify({ targetUserId: targetUser.id }),
       });
-
       if (res.ok) {
         const chatData = await res.json();
         onChatCreated(chatData);
         onSelectChat(chatData);
       }
     } catch (err) {
-      console.error("Error creating chat:", err);
+      console.error(err);
     }
+  };
+
+  // Long press events handler
+  const startPress = (chatId: string) => {
+    if (isSelectionMode) return;
+    pressTimerRef.current = setTimeout(() => {
+      setIsSelectionMode(true);
+      setSelectedChats(new Set([chatId]));
+    }, 600); // 600ms long press threshold
+  };
+
+  const endPress = () => {
+    if (pressTimerRef.current) clearTimeout(pressTimerRef.current);
+  };
+
+  const handleChatClick = (chat: Chat) => {
+    if (isSelectionMode) {
+      const newSelected = new Set(selectedChats);
+      if (newSelected.has(chat.id)) {
+        newSelected.delete(chat.id);
+        if (newSelected.size === 0) {
+          setIsSelectionMode(false);
+        }
+      } else {
+        newSelected.add(chat.id);
+      }
+      setSelectedChats(newSelected);
+    } else {
+      onSelectChat(chat);
+    }
+  };
+
+  // Action: Pin / Unpin
+  const togglePin = () => {
+    let newPinned = [...pinnedChats];
+    selectedChats.forEach(id => {
+      if (newPinned.includes(id)) {
+        newPinned = newPinned.filter(x => x !== id);
+      } else {
+        newPinned.push(id);
+      }
+    });
+    saveList("dolsyx_pinned_chats", newPinned, setPinnedChats);
+    exitSelectionMode();
+  };
+
+  // Action: Archive / Unarchive
+  const toggleArchive = () => {
+    let newArchived = [...archivedChats];
+    selectedChats.forEach(id => {
+      if (newArchived.includes(id)) {
+        newArchived = newArchived.filter(x => x !== id);
+      } else {
+        newArchived.push(id);
+      }
+    });
+    saveList("dolsyx_archived_chats", newArchived, setArchivedChats);
+    exitSelectionMode();
+  };
+
+  // Action: Add/Remove Favorites
+  const toggleFavorite = () => {
+    let newFav = [...favoriteChats];
+    selectedChats.forEach(id => {
+      if (newFav.includes(id)) {
+        newFav = newFav.filter(x => x !== id);
+      } else {
+        newFav.push(id);
+      }
+    });
+    saveList("dolsyx_favorite_chats", newFav, setFavoriteChats);
+    exitSelectionMode();
+  };
+
+  // Action: Delete Selected Chats
+  const deleteSelectedChats = async () => {
+    if (!token) return;
+    try {
+      for (const id of selectedChats) {
+        await fetch(`${API_URL}/api/chats/${id}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` }
+        });
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    exitSelectionMode();
+    window.location.reload();
+  };
+
+  // Action: Block Selected Users
+  const blockSelectedUsers = async () => {
+    if (!token) return;
+    try {
+      for (const id of selectedChats) {
+        const chat = chats.find(c => c.id === id);
+        if (chat && chat.recipient) {
+          await fetch(`${API_URL}/api/auth/block/${chat.recipient.id}`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` }
+          });
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    exitSelectionMode();
+  };
+
+  const exitSelectionMode = () => {
+    setIsSelectionMode(false);
+    setSelectedChats(new Set());
+    setShowSelectionMenu(false);
   };
 
   const formatTime = (dateString: string) => {
     const date = new Date(dateString);
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
+
+  // Sort chats: Pinned first, then by last message time
+  const sortedChats = [...chats]
+    .filter(c => !archivedChats.includes(c.id)) // hide archived chats
+    .sort((a, b) => {
+      const aPinned = pinnedChats.includes(a.id) ? 1 : 0;
+      const bPinned = pinnedChats.includes(b.id) ? 1 : 0;
+      if (aPinned !== bPinned) return bPinned - aPinned;
+      
+      const aTime = a.lastMessage ? new Date(a.lastMessage.createdAt).getTime() : 0;
+      const bTime = b.lastMessage ? new Date(b.lastMessage.createdAt).getTime() : 0;
+      return bTime - aTime;
+    });
 
   if (showSettings) {
     return (
@@ -227,15 +304,78 @@ export default function ChatSidebar({
 
   return (
     <div className="flex h-full w-full flex-col border-r border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] backdrop-blur-md sm:w-80 shrink-0 transition-all duration-300">
-      {/* Brand Header */}
-      <div className="flex items-center justify-between border-b border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-header)] px-6 py-5 transition-colors duration-300">
-        <span className={`text-xl font-black tracking-wider transition-all duration-300 text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-teal-400`}>
-          DOLSYX
-        </span>
-        <div className="flex items-center gap-2">
-          {/* Action buttons removed per request */}
+      
+      {/* ── HEADER BLOCK ────────────────────────────────────────── */}
+      {isSelectionMode ? (
+        // Selection Mode Header
+        <div className="flex items-center justify-between border-b border-[var(--theme-border-color)] bg-[var(--theme-accent)]/10 px-4 py-4 text-[var(--theme-text-primary)]">
+          <div className="flex items-center gap-3">
+            <button onClick={exitSelectionMode} className="p-1 hover:bg-[var(--theme-bg-sidebar-item-hover)] rounded-xl cursor-pointer">
+              <X className="h-5 w-5" />
+            </button>
+            <span className="font-bold text-sm">{selectedChats.size} selected</span>
+          </div>
+
+          <div className="flex items-center gap-2 relative">
+            <button onClick={togglePin} className="p-2 hover:bg-[var(--theme-bg-sidebar-item-hover)] rounded-xl cursor-pointer" title="Pin / Unpin">
+              <Pin className="h-4.5 w-4.5" />
+            </button>
+            <button onClick={toggleArchive} className="p-2 hover:bg-[var(--theme-bg-sidebar-item-hover)] rounded-xl cursor-pointer" title="Archive">
+              <Archive className="h-4.5 w-4.5" />
+            </button>
+            <button onClick={deleteSelectedChats} className="p-2 hover:bg-[var(--theme-bg-sidebar-item-hover)] rounded-xl cursor-pointer text-red-400" title="Delete">
+              <Trash2 className="h-4.5 w-4.5" />
+            </button>
+            
+            {/* Selection Options Dropdown */}
+            <button onClick={() => setShowSelectionMenu(!showSelectionMenu)} className="p-2 hover:bg-[var(--theme-bg-sidebar-item-hover)] rounded-xl cursor-pointer">
+              <MoreVertical className="h-4.5 w-4.5" />
+            </button>
+
+            {showSelectionMenu && (
+              <div ref={selectionMenuRef} className="absolute right-0 top-12 z-50 w-44 rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-container)] p-1 shadow-2xl text-left">
+                <button onClick={deleteSelectedChats} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 cursor-pointer">
+                  <Trash2 className="h-3.5 w-3.5" /> Delete Chat
+                </button>
+                <button onClick={blockSelectedUsers} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs hover:bg-[var(--theme-bg-sidebar-item-hover)] cursor-pointer">
+                  <X className="h-3.5 w-3.5 text-slate-400" /> Block User
+                </button>
+                <button onClick={toggleFavorite} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs hover:bg-[var(--theme-bg-sidebar-item-hover)] cursor-pointer">
+                  <Star className="h-3.5 w-3.5 text-amber-400" fill="currentColor" /> Favorite
+                </button>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      ) : (
+        // Normal Mode Header
+        <div className="flex items-center justify-between border-b border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-header)] px-6 py-5">
+          <span className="text-xl font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-teal-400">
+            DOLSYX
+          </span>
+          <div className="relative">
+            <button onClick={() => setShowHeaderMenu(!showHeaderMenu)} className="p-1.5 hover:bg-[var(--theme-bg-sidebar-item-hover)] rounded-xl text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-colors cursor-pointer">
+              <MoreVertical className="h-5 w-5" />
+            </button>
+            {showHeaderMenu && (
+              <div ref={headerMenuRef} className="absolute right-0 top-10 z-50 w-48 rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-container)] p-1 shadow-2xl text-left">
+                <button onClick={() => { setShowGroupDialog(true); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs hover:bg-[var(--theme-bg-sidebar-item-hover)] cursor-pointer text-[var(--theme-text-primary)]">
+                  <Users className="h-3.5 w-3.5 text-[var(--theme-accent)]" /> New Group
+                </button>
+                <button onClick={() => { /* Not implemented - simple placeholder */ setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs hover:bg-[var(--theme-bg-sidebar-item-hover)] cursor-pointer text-[var(--theme-text-primary)]">
+                  <Star className="h-3.5 w-3.5 text-amber-500" /> Starred Chats & Media
+                </button>
+                <button onClick={() => { setShowSettings(true); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs hover:bg-[var(--theme-bg-sidebar-item-hover)] cursor-pointer text-[var(--theme-text-primary)]">
+                  <Settings className="h-3.5 w-3.5 text-slate-400" /> Settings
+                </button>
+                <button onClick={() => { logout(); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs hover:bg-[var(--theme-bg-sidebar-item-hover)] cursor-pointer text-red-400">
+                  <LogOut className="h-3.5 w-3.5" /> Switch Account
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Search Section */}
       <div className="p-4 relative flex items-center gap-2">
@@ -246,18 +386,18 @@ export default function ChatSidebar({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search users..."
-            className="w-full rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] px-9 py-2.5 text-sm text-[var(--theme-text-primary)] placeholder-[var(--theme-text-secondary)]/40 focus:border-[var(--theme-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--theme-accent)] transition-all duration-200"
+            className="w-full rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] px-9 py-2.5 text-sm text-[var(--theme-text-primary)] placeholder-[var(--theme-text-secondary)]/40 focus:border-[var(--theme-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--theme-accent)]"
           />
         </div>
         <button
           onClick={() => setShowGroupDialog(true)}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/50 hover:bg-[var(--theme-accent)]/10 text-[var(--theme-text-secondary)] hover:text-[var(--theme-accent)] transition-all duration-200 cursor-pointer"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/50 hover:bg-[var(--theme-accent)]/10 text-[var(--theme-text-secondary)] hover:text-[var(--theme-accent)] transition-all cursor-pointer"
           title="Create Group space"
         >
           <Users className="h-4.5 w-4.5" />
         </button>
 
-        {/* Search Dropdown Dialog */}
+        {/* Search Results Dropdown */}
         {searchQuery.trim().length >= 2 && (
           <div className="absolute left-4 right-4 top-16 z-50 rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] p-2 shadow-2xl transition-colors duration-300">
             {isSearching ? (
@@ -275,12 +415,12 @@ export default function ChatSidebar({
                   <button
                     key={userResult.id}
                     onClick={() => handleStartChat(userResult)}
-                    className="flex w-full items-center gap-4 rounded-xl px-3 py-3 text-left hover:bg-[var(--theme-bg-sidebar-item-hover)] hover:shadow-sm transition-all cursor-pointer border border-transparent hover:border-[var(--theme-border-color)]/30"
+                    className="flex w-full items-center gap-4 rounded-xl px-3 py-3 text-left hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-all cursor-pointer border border-transparent hover:border-[var(--theme-border-color)]/30"
                   >
                     <img
                       src={getAvatarUrl(userResult.avatarUrl, userResult.username)}
                       alt={userResult.username}
-                      className="h-10 w-10 shrink-0 rounded-full border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] object-cover shadow-sm"
+                      className="h-10 w-10 shrink-0 rounded-full border border-[var(--theme-border-color)] object-cover shadow-sm bg-zinc-800"
                     />
                     <div className="flex-1 min-w-0 flex flex-col justify-center">
                       <p className="text-sm font-bold truncate text-[var(--theme-text-primary)] leading-tight mb-0.5">{userResult.username}</p>
@@ -294,104 +434,108 @@ export default function ChatSidebar({
         )}
       </div>
 
-  {/* Chat List */ }
-  < div className = "flex-1 overflow-y-auto px-2 py-1 space-y-1" >
-  {
-    chats.length === 0 ? (
-      <div className="flex flex-col items-center justify-center text-center py-12 px-4 space-y-3">
-        <MessageSquare className="h-8 w-8 text-[var(--theme-text-secondary)]/30 animate-pulse" />
-        <p className="text-sm text-[var(--theme-text-secondary)]">No active conversations</p>
-        <p className="text-xs text-[var(--theme-text-secondary)]/60">Search users above to start a chat</p>
+      {/* Chat List */}
+      <div className="flex-1 overflow-y-auto px-2 py-1 space-y-1">
+        {sortedChats.length === 0 ? (
+          <div className="flex flex-col items-center justify-center text-center py-12 px-4 space-y-3">
+            <MessageSquare className="h-8 w-8 text-[var(--theme-text-secondary)]/30 animate-pulse" />
+            <p className="text-sm text-[var(--theme-text-secondary)]">No active conversations</p>
+          </div>
+        ) : (
+          sortedChats.map((chat) => {
+            const isSelected = selectedChatId === chat.id;
+            const isOnline = chat.recipient ? onlineUsers.includes(chat.recipient.id) : false;
+            const unread = unreadCounts[chat.id] || 0;
+            const isPinned = pinnedChats.includes(chat.id);
+            const isFavorite = favoriteChats.includes(chat.id);
+            const isSelect = selectedChats.has(chat.id);
+
+            return (
+              <div
+                key={chat.id}
+                onMouseDown={() => startPress(chat.id)}
+                onMouseUp={endPress}
+                onTouchStart={() => startPress(chat.id)}
+                onTouchEnd={endPress}
+                className="relative"
+              >
+                <button
+                  onClick={() => handleChatClick(chat)}
+                  className={`flex w-full items-center gap-3 rounded-xl px-4 py-3.5 text-left transition-all duration-200 cursor-pointer border-l-4 ${
+                    isSelect
+                      ? "bg-[var(--theme-accent)]/10 border-[var(--theme-accent)]"
+                      : isSelected
+                      ? "bg-[var(--theme-bg-sidebar-item-active)] border-[var(--theme-accent)]"
+                      : "hover:bg-[var(--theme-bg-sidebar-item-hover)] border-transparent"
+                  }`}
+                >
+                  <div className="relative shrink-0">
+                    <img
+                      src={getAvatarUrl(chat.avatarUrl, chat.name)}
+                      alt={chat.name}
+                      className="h-10 w-10 rounded-full border border-[var(--theme-border-color)] bg-zinc-800"
+                    />
+                    {isOnline && (
+                      <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-[var(--theme-bg-container)] bg-green-500" />
+                    )}
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-0.5">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <p className="font-semibold text-sm truncate text-[var(--theme-text-primary)]">{chat.name}</p>
+                        {isPinned && <Pin className="h-3 w-3 text-[var(--theme-accent)]" />}
+                        {isFavorite && <Star className="h-3 w-3 text-amber-500" fill="currentColor" />}
+                      </div>
+                      {chat.lastMessage && (
+                        <span className={`text-[10px] ${unread > 0 ? 'text-[var(--theme-accent)] font-bold' : 'text-[var(--theme-text-secondary)]'}`}>
+                          {formatTime(chat.lastMessage.createdAt)}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-[var(--theme-text-secondary)] truncate flex-1 min-w-0">
+                        {chat.lastMessage
+                          ? (() => {
+                              const m = chat.lastMessage;
+                              const isMe = m.senderId === user?.id;
+                              const senderLabel = isMe ? "You" : (chat.isGroup ? (m.sender?.username || "") : "");
+                              const prefix = senderLabel ? `${senderLabel}: ` : "";
+                              if (m.mediaType === "CALL_LOG") {
+                                const isVideo = m.mediaUrl === "video";
+                                const icon = isVideo ? "📹" : "📞";
+                                if (m.content === "missed") return `${prefix}${icon} Missed Call`;
+                                if (m.content === "declined") return `${prefix}${icon} Declined Call`;
+                                return `${prefix}${icon} Call`;
+                              }
+                              if (m.mediaType === "IMAGE") return `${prefix}📷 Image`;
+                              if (m.mediaType === "VIDEO") return `${prefix}🎬 Video`;
+                              if (m.mediaType === "AUDIO") return `${prefix}🎵 Voice message`;
+                              if (m.mediaType === "FILE") return `${prefix}📎 File`;
+                              return prefix + m.content;
+                            })()
+                          : "No messages yet"}
+                      </p>
+                      {unread > 0 && (
+                        <span className="ml-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--theme-accent)] px-1.5 text-[10px] font-bold text-white shrink-0">
+                          {unread > 99 ? "99+" : unread}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </button>
+              </div>
+            );
+          })
+        )}
       </div>
-    ) : (
-      chats.map((chat) => {
-        const isSelected = selectedChatId === chat.id;
-        const isOnline = chat.recipient ? onlineUsers.includes(chat.recipient.id) : false;
-        const unread = unreadCounts[chat.id] || 0;
 
-        return (
-          <button
-            key={chat.id}
-            onClick={() => onSelectChat(chat)}
-            className={`flex w-full items-center gap-3 rounded-xl px-4 py-3.5 text-left transition-all duration-200 cursor-pointer border-l-4 ${isSelected
-                ? "bg-[var(--theme-bg-sidebar-item-active)] border-[var(--theme-accent)]"
-                : "hover:bg-[var(--theme-bg-sidebar-item-hover)] border-transparent"
-              }`}
-          >
-            <div className="relative shrink-0">
-              <img
-                src={getAvatarUrl(chat.avatarUrl, chat.name)}
-                alt={chat.name}
-                className="h-10 w-10 rounded-full border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)]"
-              />
-              {isOnline && (
-                <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-[var(--theme-bg-container)] bg-green-500 shadow-md shadow-green-500/50" />
-              )}
-            </div>
-
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between mb-0.5">
-                <p className="font-semibold text-sm truncate text-[var(--theme-text-primary)]">{chat.name}</p>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {chat.lastMessage && (
-                    <span className={`text-[10px] ${unread > 0 ? 'text-[var(--theme-accent)] font-bold' : 'text-[var(--theme-text-secondary)]'}`}>
-                      {formatTime(chat.lastMessage.createdAt)}
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-center justify-between">
-                <p className="text-xs text-[var(--theme-text-secondary)] truncate flex-1 min-w-0">
-                  {chat.lastMessage
-                    ? (() => {
-                      const m = chat.lastMessage;
-                      const isMe = m.senderId === user?.id;
-                      // For group chats, show sender's real name; for 1-on-1, show "You"
-                      const senderLabel = isMe
-                        ? "You"
-                        : (chat.isGroup ? (m.sender?.username || "") : "");
-                      const prefix = senderLabel ? `${senderLabel}: ` : "";
-                      if (m.mediaType === "CALL_LOG") {
-                        const isVideo = m.mediaUrl === "video";
-                        const icon = isVideo ? "📹" : "📞";
-                        if (m.content === "missed") return `${prefix}${icon} Missed Call`;
-                        if (m.content === "declined") return `${prefix}${icon} Declined Call`;
-                        if (m.content?.startsWith("connected:")) return `${prefix}${icon} Call`;
-                        return `${prefix}${icon} Call`;
-                      }
-                      if (m.mediaType === "IMAGE") return `${prefix}📷 Image`;
-                      if (m.mediaType === "VIDEO") return `${prefix}🎬 Video`;
-                      if (m.mediaType === "AUDIO") return `${prefix}🎵 Voice message`;
-                      if (m.mediaType === "FILE") return `${prefix}📎 File`;
-                      return prefix + m.content;
-                    })()
-                    : "No messages yet"}
-                </p>
-                {unread > 0 && (
-                  <span className="ml-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--theme-accent)] px-1.5 text-[10px] font-bold text-white shrink-0">
-                    {unread > 99 ? "99+" : unread}
-                  </span>
-                )}
-              </div>
-            </div>
-          </button>
-        );
-      })
-    )
-  }
-      </div >
-
-  {/* Footer Profile Section removed - moved to navigation rail */}
-{
-  showGroupDialog && (
-    <GroupDialog
-      onClose={() => setShowGroupDialog(false)}
-      onGroupCreated={onChatCreated}
-    />
-  )
-}
-
-
-    </div >
+      {showGroupDialog && (
+        <GroupDialog
+          onClose={() => setShowGroupDialog(false)}
+          onGroupCreated={onChatCreated}
+        />
+      )}
+    </div>
   );
 }

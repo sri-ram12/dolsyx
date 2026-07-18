@@ -430,3 +430,17 @@ textarea {
 .pt-safe {
   padding-top: env(safe-area-inset-top);
 }
+
+/* Slide-left (from right side — for profile drawer) */
+@keyframes slide-left {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+.animate-slide-left {
+  animation: slide-left 0.22s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Slightly larger base for improved readability & premium feel */
+:root {
+  font-size: 15.5px;
+}

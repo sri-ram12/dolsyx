@@ -15,11 +15,13 @@ import { SoundEngine } from "@/utils/sound";
 import { MessageSquare, Phone, Circle, Settings as SettingsIcon } from "lucide-react";
 import SettingsPanel from "@/components/settings-panel";
 import CallsSidebar from "@/components/calls-sidebar";
+import { usePushNotifications } from "@/hooks/use-push-notifications";
 
 export default function ChatPage() {
   const { user, token, isAuthenticated, isLoading: authLoading } = useAuth();
   const router = useRouter();
   const { socket } = useSocket(token);
+  usePushNotifications();
 
   const [chats, setChats] = useState<Chat[]>([]);
   const [selectedChat, setSelectedChat] = useState<Chat | null>(null);

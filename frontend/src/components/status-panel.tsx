@@ -176,11 +176,28 @@ export default function StatusPanel({ onClose, onNewStatus }: StatusPanelProps) 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setMediaFile(file);
-    const url = URL.createObjectURL(file);
-    setMediaPreview(url);
-    if (file.type.startsWith("video/")) setCreateType("VIDEO");
-    else setCreateType("IMAGE");
+
+    if (file.type.startsWith("video/")) {
+      const video = document.createElement("video");
+      video.preload = "metadata";
+      video.src = URL.createObjectURL(file);
+      video.onloadedmetadata = () => {
+        URL.revokeObjectURL(video.src);
+        if (video.duration > 60) {
+          toast("Video status must be under 60 seconds.", "error");
+          e.target.value = "";
+          return;
+        }
+        setMediaFile(file);
+        setMediaPreview(video.src);
+        setCreateType("VIDEO");
+      };
+    } else {
+      setMediaFile(file);
+      const url = URL.createObjectURL(file);
+      setMediaPreview(url);
+      setCreateType("IMAGE");
+    }
   };
 
   const handlePostStatus = async () => {

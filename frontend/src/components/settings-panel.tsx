@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { X, Camera, Volume2, Music, Lock, Shield, Eye, EyeOff, Trash2, LogOut, Check, ArrowLeft, RefreshCw, Loader2, Ban, User } from "lucide-react";
+import { X, Camera, Volume2, Music, Lock, Shield, Eye, EyeOff, Trash2, LogOut, Check, ArrowLeft, RefreshCw, Loader2, Ban, User, Palette, QrCode } from "lucide-react";
 import { useAuth, API_URL } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
 import { SoundEngine } from "@/utils/sound";
@@ -15,7 +15,7 @@ interface SettingsPanelProps {
 export default function SettingsPanel({ onClose, onSelectChat }: SettingsPanelProps) {
   const { user, token, logout, updateUser } = useAuth();
   const { theme, setTheme } = useTheme();
-  const [activeTab, setActiveTab] = useState<"profile" | "audio" | "privacy" | "lock">("profile");
+  const [activeTab, setActiveTab] = useState<"profile" | "display" | "audio" | "privacy" | "lock">("profile");
 
   // Profile Form States
   const [editUsername, setEditUsername] = useState(user?.username || "");
@@ -47,6 +47,9 @@ export default function SettingsPanel({ onClose, onSelectChat }: SettingsPanelPr
   const [confirmPinInput, setConfirmPinInput] = useState("");
   const [pinError, setPinError] = useState("");
   const [pinSuccess, setPinSuccess] = useState("");
+  const [bioEnabled, setBioEnabled] = useState(false);
+  const [fontScale, setFontScale] = useState(1.0);
+  const [showQr, setShowQr] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -54,10 +57,11 @@ export default function SettingsPanel({ onClose, onSelectChat }: SettingsPanelPr
       setEditBio(user.bio || "");
       setEditAvatar(user.avatarUrl || "");
       setEditAvatarPrivacy((user as any)?.avatarPrivacy || "PUBLIC");
+      setBioEnabled(user.email ? localStorage.getItem(`dolsyx_bio_enabled_${user.email.toLowerCase()}`) === "true" : false);
     }
   }, [user]);
 
-  // Load sound configurations
+  // Load sound configurations + font scale
   useEffect(() => {
     if (typeof window !== "undefined") {
       setNotifSound(localStorage.getItem("dolsyx_notif_sound") || "0");
@@ -65,8 +69,17 @@ export default function SettingsPanel({ onClose, onSelectChat }: SettingsPanelPr
       setCustomNotifName(localStorage.getItem("dolsyx_custom_notif_name") || "");
       setCustomRingName(localStorage.getItem("dolsyx_custom_ring_name") || "");
       setPinEnabled(!!localStorage.getItem("dolsyx_pin_hash"));
+      const storedScale = parseFloat(localStorage.getItem("dolsyx_font_scale") || "1.0");
+      setFontScale(storedScale);
+      document.documentElement.style.fontSize = `${storedScale * 16}px`;
     }
   }, []);
+
+  const handleFontScaleChange = (val: number) => {
+    setFontScale(val);
+    localStorage.setItem("dolsyx_font_scale", val.toString());
+    document.documentElement.style.fontSize = `${val * 16}px`;
+  };
 
   // Load Blocked Users list
   useEffect(() => {
@@ -272,6 +285,48 @@ export default function SettingsPanel({ onClose, onSelectChat }: SettingsPanelPr
     setCurrentPinInput("");
   };
 
+  const handleToggleBiometrics = async () => {
+    if (!user?.email) return;
+    pinResetAlerts();
+
+    if (bioEnabled) {
+      localStorage.removeItem(`dolsyx_bio_enabled_${user.email.toLowerCase()}`);
+      setBioEnabled(false);
+      setPinSuccess("Biometric lock disabled!");
+      return;
+    }
+
+    try {
+      if (!window.PublicKeyCredential) {
+        setPinError("Biometrics not supported on this browser.");
+        return;
+      }
+      const challenge = new Uint8Array(32);
+      window.crypto.getRandomValues(challenge);
+      const options: PublicKeyCredentialCreationOptions = {
+        challenge,
+        rp: { name: "DOLSYX" },
+        user: {
+          id: new Uint8Array(16),
+          name: user.email,
+          displayName: user.username,
+        },
+        pubKeyCredParams: [{ type: "public-key", alg: -7 }],
+        timeout: 60000,
+        attestation: "none"
+      };
+      const credential = await navigator.credentials.create({ publicKey: options });
+      if (credential) {
+        localStorage.setItem(`dolsyx_bio_enabled_${user.email.toLowerCase()}`, "true");
+        setBioEnabled(true);
+        setPinSuccess("Biometric lock enabled successfully!");
+      }
+    } catch (err: any) {
+      console.error(err);
+      setPinError(err.message || "Failed to set up biometrics.");
+    }
+  };
+
   const pinResetAlerts = () => {
     setPinError("");
     setPinSuccess("");
@@ -289,11 +344,11 @@ export default function SettingsPanel({ onClose, onSelectChat }: SettingsPanelPr
       </div>
 
       <div className="flex border-b border-[var(--theme-border-color)] px-4 py-2 bg-[var(--theme-bg-sidebar-header)] overflow-x-auto gap-2">
-        {["profile", "audio", "privacy", "lock"].map((t) => (
+        {["profile", "display", "audio", "privacy", "lock"].map((t) => (
           <button
             key={t}
             onClick={() => setActiveTab(t as any)}
-            className={`px-3 py-1 text-xs font-bold rounded-lg capitalize transition-all cursor-pointer ${activeTab === t ? "bg-[var(--theme-accent)] text-[var(--theme-accent-text)]" : "text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]"}`}
+            className={`px-3 py-1 text-xs font-bold rounded-lg capitalize transition-all cursor-pointer whitespace-nowrap ${activeTab === t ? "bg-[var(--theme-accent)] text-[var(--theme-accent-text)]" : "text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]"}`}
           >
             {t}
           </button>
@@ -446,8 +501,43 @@ export default function SettingsPanel({ onClose, onSelectChat }: SettingsPanelPr
 
               </div>
             </form>
+
+            {/* QR Code Profile Sharing */}
+            <div className="px-6 pb-6 pt-2 space-y-3 border-t border-[var(--theme-border-color)]">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <QrCode className="h-5 w-5 text-[var(--theme-accent)]" />
+                  <h4 className="font-bold text-sm text-[var(--theme-text-primary)]">My QR Code</h4>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowQr((v) => !v)}
+                  className="text-[10px] font-bold text-[var(--theme-accent)] hover:opacity-70 cursor-pointer transition-opacity"
+                >
+                  {showQr ? "Hide" : "Show"}
+                </button>
+              </div>
+              <p className="text-[10px] text-[var(--theme-text-secondary)] leading-relaxed">
+                Share your QR code so others can add you on DOLSYX instantly by scanning it.
+              </p>
+              {showQr && user?.email && (
+                <div className="flex flex-col items-center gap-3 py-4">
+                  <div className="p-3 bg-white rounded-2xl shadow-xl border border-[var(--theme-border-color)]">
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(`dolsyx://add?email=${user.email}&username=${user.username}`)}&margin=2&color=000000&bgcolor=ffffff`}
+                      alt="Profile QR Code"
+                      className="h-40 w-40 rounded-lg object-contain"
+                    />
+                  </div>
+                  <p className="text-[10px] text-[var(--theme-text-secondary)] text-center">
+                    Point a camera at this code to connect with <span className="font-bold text-[var(--theme-text-primary)]">@{user.username}</span>
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         )}
+
 
         {/* SOUND TAB */}
         {activeTab === "audio" && (
@@ -538,6 +628,87 @@ export default function SettingsPanel({ onClose, onSelectChat }: SettingsPanelPr
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* DISPLAY TAB */}
+        {activeTab === "display" && (
+          <div className="space-y-6 p-6 animate-fade-in text-left">
+
+            {/* Theme Selection */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-[var(--theme-text-primary)]">
+                <Palette className="h-5 w-5 text-[var(--theme-accent)]" />
+                <h4 className="font-bold text-sm">Theme</h4>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                {([
+                  { id: "dolsy-dark", label: "Dolsyx Dark", bg: "#0d1117", accent: "#10b981" },
+                  { id: "aqua-dark",  label: "Aqua Dark",  bg: "#0a1628", accent: "#22d3ee" },
+                  { id: "aqua-light", label: "Aqua Light", bg: "#f0f4f8", accent: "#0ea5e9" },
+                  { id: "radiant-blue", label: "Radiant Blue", bg: "#0f172a", accent: "#6366f1" },
+                ] as { id: any; label: string; bg: string; accent: string }[]).map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setTheme(t.id)}
+                    className={`relative rounded-xl overflow-hidden border-2 transition-all cursor-pointer ${
+                      theme === t.id ? "border-[var(--theme-accent)] scale-105 shadow-lg" : "border-[var(--theme-border-color)] hover:border-slate-500"
+                    }`}
+                    style={{ background: t.bg }}
+                  >
+                    <div className="flex flex-col items-start p-3 gap-1.5">
+                      <div className="flex gap-1">
+                        <div className="h-2 w-2 rounded-full" style={{ background: t.accent }} />
+                        <div className="h-2 w-6 rounded-full opacity-40" style={{ background: t.accent }} />
+                      </div>
+                      <div className="h-1.5 w-10 rounded-full opacity-30 bg-white" />
+                      <div className="h-1.5 w-8 rounded-full opacity-20 bg-white" />
+                    </div>
+                    <p className="text-[10px] font-bold px-3 pb-2" style={{ color: t.accent }}>{t.label}</p>
+                    {theme === t.id && (
+                      <div className="absolute top-1.5 right-1.5 h-4 w-4 rounded-full flex items-center justify-center" style={{ background: t.accent }}>
+                        <Check className="h-2.5 w-2.5 text-black" />
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Font Size Slider */}
+            <div className="space-y-3 pt-4 border-t border-[var(--theme-border-color)]">
+              <div className="flex items-center justify-between">
+                <h4 className="font-bold text-sm text-[var(--theme-text-primary)]">Font Size</h4>
+                <span className="text-xs font-bold text-[var(--theme-accent)] bg-[var(--theme-accent)]/10 px-2 py-0.5 rounded-lg">
+                  {fontScale === 0.875 ? "Small" : fontScale === 1.0 ? "Normal" : fontScale === 1.125 ? "Large" : "Extra Large"}
+                </span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-[10px] text-[var(--theme-text-secondary)] font-bold shrink-0">A</span>
+                <input
+                  type="range"
+                  min={0.875}
+                  max={1.25}
+                  step={0.125}
+                  value={fontScale}
+                  onChange={(e) => handleFontScaleChange(parseFloat(e.target.value))}
+                  className="flex-1 accent-[var(--theme-accent)] cursor-pointer h-1.5 rounded-full"
+                />
+                <span className="text-sm text-[var(--theme-text-secondary)] font-bold shrink-0">A</span>
+              </div>
+              <p className="text-[10px] text-[var(--theme-text-secondary)] leading-relaxed">
+                Changes the text size across the entire app. Takes effect immediately.
+              </p>
+            </div>
+
+            {/* Chat Wallpaper hint */}
+            <div className="pt-4 border-t border-[var(--theme-border-color)] rounded-xl bg-[var(--theme-bg-sidebar-search)] p-3.5 border border-[var(--theme-border-color)]">
+              <p className="text-xs font-bold text-[var(--theme-text-primary)] mb-1">Chat Wallpaper</p>
+              <p className="text-[10px] text-[var(--theme-text-secondary)] leading-relaxed">
+                You can set a custom chat background from inside any chat window — tap the 3-dot menu → Wallpaper.
+              </p>
             </div>
           </div>
         )}
@@ -662,6 +833,26 @@ export default function SettingsPanel({ onClose, onSelectChat }: SettingsPanelPr
                 </button>
               </form>
             )}
+
+            <div className="pt-6 border-t border-[var(--theme-border-color)]">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-xs font-bold text-[var(--theme-text-primary)]">Biometric Fingerprint Lock</p>
+                  <p className="text-[10px] text-[var(--theme-text-secondary)]">Use fingerprint or Face ID to verify login</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleToggleBiometrics}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    bioEnabled ? "bg-[var(--theme-accent)]" : "bg-slate-700"
+                  }`}
+                >
+                  <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-lg transition-transform duration-200 ease-in-out ${
+                    bioEnabled ? "translate-x-5" : "translate-x-0"
+                  }`} />
+                </button>
+              </div>
+            </div>
           </div>
         )}
 

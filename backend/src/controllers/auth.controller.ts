@@ -52,43 +52,18 @@ export const sendOtp = async (req: Request, res: Response): Promise<void> => {
       where: { email: trimmedEmail }
     });
 
-    if (!existingUser && !fullName) {
-      res.status(400).json({ isNewUser: true, message: "Full name is required to create a new account." });
-      return;
-    }
+    const forceOtp = req.body.forceOtp === true;
 
-    if (existingUser) {
-      // Direct login for existing users
-      const token = jwt.sign(
-        { id: existingUser.id, email: existingUser.email },
-        JWT_SECRET,
-        { expiresIn: "30d" }
-      );
-
-      // Update last seen
-      await prisma.user.update({
-        where: { id: existingUser.id },
-        data: { lastSeen: new Date() },
-      });
-
+    if (existingUser && existingUser.password && !forceOtp) {
       res.status(200).json({
-        isDirectLogin: true,
-        message: "Logged in successfully",
-        token,
-        user: {
-          id: existingUser.id,
-          email: existingUser.email,
-          username: existingUser.username,
-          avatarUrl: existingUser.avatarUrl,
-          bio: existingUser.bio,
-          lastSeen: new Date(),
-          phoneNumber: existingUser.phoneNumber,
-        },
+        requiresPassword: true,
+        isNewUser: false,
+        message: "Password verification required.",
       });
       return;
     }
 
-    const trimmedName = fullName.trim();
+    const trimmedName = existingUser ? existingUser.username : (fullName ? fullName.trim() : "User");
 
     // Generate cryptographically secure 6-digit random OTP
     const code = crypto.randomInt(100000, 1000000).toString();
@@ -164,17 +139,24 @@ export const sendOtp = async (req: Request, res: Response): Promise<void> => {
       otp: code,
     });
 
+    // Check if user exists to return isNewUser flag
+    const existing = await prisma.user.findUnique({
+      where: { email: trimmedEmail }
+    });
+
     if (!emailSent) {
       console.warn(`[OTP] Failed to deliver email to ${trimmedEmail}, fallback to console display.`);
       res.status(200).json({
         message: `OTP email delivery failed. For demo purposes, use code: ${code}`,
         otpCode: code,
+        isNewUser: !existing,
       });
       return;
     }
 
     res.status(200).json({
       message: "OTP sent successfully. Please check your inbox.",
+      isNewUser: !existing,
     });
   } catch (error) {
     console.error("SendOtp error:", error);
@@ -252,37 +234,31 @@ export const verifyOtp = async (req: Request, res: Response): Promise<void> => {
       where: { email: trimmedEmail },
     });
 
-    // Retrieve or create User
+    // Retrieve User
     let user = await prisma.user.findUnique({
       where: { email: trimmedEmail },
     });
 
     if (!user) {
-      // Create user automatically
-      const name = fullName ? fullName.trim() : "User";
-      const uniqueUsername = await generateUniqueUsername(name);
-      user = await prisma.user.create({
-        data: {
-          username: uniqueUsername,
-          email: trimmedEmail,
-          avatarUrl: null,
-          emailVerified: true,
-          isOnline: true,
-          lastLogin: new Date(),
-          lastSeen: new Date(),
-        },
+      // Return verified status so frontend can complete registration
+      res.status(200).json({
+        message: "OTP verified. Please complete registration.",
+        verified: true,
+        isNewUser: true,
+        email: trimmedEmail,
       });
-    } else {
-      // Update existing user login timestamps & online status
-      user = await prisma.user.update({
-        where: { id: user.id },
-        data: {
-          isOnline: true,
-          lastLogin: new Date(),
-          lastSeen: new Date(),
-        },
-      });
+      return;
     }
+
+    // Update existing user login timestamps & online status
+    user = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        isOnline: true,
+        lastLogin: new Date(),
+        lastSeen: new Date(),
+      },
+    });
 
     // Generate JWT token
     const token = jwt.sign(
@@ -403,13 +379,136 @@ export const updateProfile = async (req: AuthRequest, res: Response): Promise<vo
   }
 };
 
-// Placeholders for compatibility if old client routes are hit
-export const login = async (req: Request, res: Response): Promise<void> => {
-  res.status(400).json({ message: "Password authentication is disabled. Please login using Email OTP." });
+import bcrypt from "bcryptjs";
+
+// Register new user after OTP verification
+export const register = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email, username, password } = req.body;
+    if (!email || !username) {
+      res.status(400).json({ message: "Email and username are required" });
+      return;
+    }
+
+    const trimmedEmail = email.trim().toLowerCase();
+    const trimmedUsername = username.trim();
+
+    // Check if user already exists
+    const existing = await prisma.user.findUnique({
+      where: { email: trimmedEmail }
+    });
+    if (existing) {
+      res.status(400).json({ message: "Account already exists with this email" });
+      return;
+    }
+
+    // Check if username is taken
+    const existingUsername = await prisma.user.findUnique({
+      where: { username: trimmedUsername }
+    });
+    if (existingUsername) {
+      res.status(400).json({ message: "Username is already taken" });
+      return;
+    }
+
+    // Hash password if provided
+    let hashedPassword = null;
+    if (password) {
+      hashedPassword = await bcrypt.hash(password, 10);
+    }
+
+    const newUser = await prisma.user.create({
+      data: {
+        username: trimmedUsername,
+        email: trimmedEmail,
+        password: hashedPassword,
+        emailVerified: true,
+        isOnline: true,
+        lastLogin: new Date(),
+        lastSeen: new Date(),
+      }
+    });
+
+    const token = jwt.sign(
+      { id: newUser.id, username: newUser.username, email: newUser.email },
+      JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    res.status(201).json({
+      message: "Account created successfully",
+      token,
+      user: {
+        id: newUser.id,
+        username: newUser.username,
+        email: newUser.email,
+        avatarUrl: newUser.avatarUrl,
+        bio: newUser.bio,
+        createdAt: newUser.createdAt,
+      }
+    });
+  } catch (error) {
+    console.error("Register error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
 };
 
-export const register = async (req: Request, res: Response): Promise<void> => {
-  res.status(400).json({ message: "Password registration is disabled. Please login using Email OTP." });
+// Login with password
+export const login = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      res.status(400).json({ message: "Email and password are required" });
+      return;
+    }
+
+    const trimmedEmail = email.trim().toLowerCase();
+    const user = await prisma.user.findUnique({
+      where: { email: trimmedEmail }
+    });
+
+    if (!user || !user.password) {
+      res.status(400).json({ message: "Invalid email or password" });
+      return;
+    }
+
+    const passwordMatch = await bcrypt.compare(password, user.password);
+    if (!passwordMatch) {
+      res.status(400).json({ message: "Invalid email or password" });
+      return;
+    }
+
+    const token = jwt.sign(
+      { id: user.id, username: user.username, email: user.email },
+      JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    const updatedUser = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        isOnline: true,
+        lastLogin: new Date(),
+        lastSeen: new Date(),
+      }
+    });
+
+    res.status(200).json({
+      message: "Login successful",
+      token,
+      user: {
+        id: updatedUser.id,
+        username: updatedUser.username,
+        email: updatedUser.email,
+        avatarUrl: updatedUser.avatarUrl,
+        bio: updatedUser.bio,
+        createdAt: updatedUser.createdAt,
+      }
+    });
+  } catch (error) {
+    console.error("Login error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
 };
 
 // Block a user

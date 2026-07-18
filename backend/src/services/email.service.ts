@@ -1,4 +1,10 @@
 import nodemailer from "nodemailer";
+import dns from "dns";
+
+// Prefer IPv4 to resolve SMTP ENETUNREACH errors on cloud container platforms
+if (typeof dns.setDefaultResultOrder === "function") {
+  dns.setDefaultResultOrder("ipv4first");
+}
 
 export interface EmailOptions {
   to: string;

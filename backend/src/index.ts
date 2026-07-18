@@ -131,13 +131,42 @@ if (IS_PRODUCTION) {
   }
 }
 
+// Track whether Next.js is ready to accept connections
+let nextJsReady = false;
+
+// Poll until the Next.js port is open, then mark ready
+const waitForNextJs = () => {
+  const net = require("net");
+  const check = () => {
+    const sock = new net.Socket();
+    sock.setTimeout(500);
+    sock
+      .on("connect", () => {
+        sock.destroy();
+        if (!nextJsReady) {
+          nextJsReady = true;
+          console.log(`[Monolith] Next.js is ready on port ${NEXT_PORT}`);
+        }
+      })
+      .on("error", () => { sock.destroy(); setTimeout(check, 500); })
+      .on("timeout", () => { sock.destroy(); setTimeout(check, 500); })
+      .connect(NEXT_PORT, "127.0.0.1");
+  };
+  check();
+};
+
+if (IS_PRODUCTION) waitForNextJs();
+else nextJsReady = true; // In dev the Next.js dev server manages itself
+
 const nextProxy = createProxyMiddleware({
   target: `http://127.0.0.1:${NEXT_PORT}`,
   changeOrigin: true,
   ws: true, // MUST be true for Next.js Hot Reloading (HMR) to work via /_next/webpack-hmr
   on: {
     error: (err: Error, req: any, res: any) => {
-      console.error("[Monolith Proxy] Error forwarding request:", err.message);
+      // Suppress noisy ECONNREFUSED logs during startup window
+      if (!nextJsReady) return;
+      console.error("[Monolith Proxy] Error forwarding request:", (err as any).message);
       // res may be a Socket for WS errors - only call writeHead on real HTTP responses
       if (res && typeof res.writeHead === "function" && !res.headersSent) {
         res.writeHead(502, { "Content-Type": "text/plain" });
@@ -159,6 +188,12 @@ app.use((req, res, next) => {
     p.startsWith("/uploads")
   ) {
     return next();
+  }
+  // If Next.js isn't up yet, return 503 with retry header instead of logging an error
+  if (!nextJsReady) {
+    res.setHeader("Retry-After", "3");
+    res.status(503).send("Server is starting up. Please refresh in a moment.");
+    return;
   }
   return (nextProxy as any)(req, res, next);
 });

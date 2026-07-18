@@ -1,11 +1,12 @@
 import { Router } from "express";
-import { register, login, getMe, sendOtp, verifyOtp, resendOtp, logout, updateProfile, blockUser, unblockUser, getBlockedUsers } from "../controllers/auth.controller.js";
+import { register, login, getMe, sendOtp, verifyOtp, resendOtp, logout, updateProfile, blockUser, unblockUser, getBlockedUsers, loginWithoutOtp } from "../controllers/auth.controller.js";
 import { authenticateToken } from "../middleware/auth.middleware.js";
 
 const router = Router();
 
 router.post("/register", register);
 router.post("/login", login);
+router.post("/login-without-otp", loginWithoutOtp);
 router.post("/send-otp", sendOtp as any);
 router.post("/verify-otp", verifyOtp as any);
 router.post("/resend-otp", resendOtp as any);

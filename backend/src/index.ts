@@ -1,5 +1,7 @@
 import express from "express";
 import http from "http";
+import dns from "dns";
+dns.setDefaultResultOrder("ipv4first");
 import { Server } from "socket.io";
 import cors from "cors";
 import dotenv from "dotenv";

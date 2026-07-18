@@ -1163,17 +1163,28 @@ export default function ChatWindow({
       if (cameraStreamRef.current) {
         cameraStreamRef.current.getTracks().forEach(track => track.stop());
       }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: mode, width: { ideal: 1280 }, height: { ideal: 720 } }
-      });
+      let stream: MediaStream | null = null;
+      try {
+        // Try with preferred facing mode first
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: mode }, width: { ideal: 1280 }, height: { ideal: 720 } }
+        });
+      } catch {
+        // Fallback: request any available camera without facing constraint
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      }
       cameraStreamRef.current = stream;
       setShowCamera(true);
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Camera access denied:", err);
-      toast("Could not access camera. Please check permissions.", "error");
+      if (err?.name === "NotAllowedError") {
+        toast("Camera permission denied. Please allow camera access in your browser settings.", "error");
+      } else {
+        toast("Could not access camera. Please check permissions.", "error");
+      }
     }
   };
 
@@ -2355,100 +2366,116 @@ export default function ChatWindow({
         </div>
       )}
 
-      {/* Generic Profile View Drawer */}
+      {/* Generic Profile View – Full Screen */}
       {profileUser && (
-        <div className="fixed inset-0 z-[9999] flex justify-end bg-black/60 backdrop-blur-xs animate-fade-in">
-          <div className="h-full w-full sm:w-[380px] bg-[var(--theme-bg-sidebar)] border-l border-[var(--theme-border-color)] flex flex-col shadow-2xl relative animate-slide-left overflow-y-auto">
-            {/* Header */}
-            <div className="flex items-center gap-4 px-6 py-5 border-b border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-header)]">
-              <button
-                onClick={() => setProfileUser(null)}
-                className="p-1 rounded-lg hover:bg-[var(--theme-bg-sidebar-item-hover)] text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] cursor-pointer"
-              >
-                <X className="h-5 w-5" />
-              </button>
-              <span className="font-bold text-sm text-[var(--theme-text-primary)]">Contact Details</span>
-            </div>
+        <div className="fixed inset-0 z-[9999] flex flex-col bg-[var(--theme-bg-app)] animate-fade-in overflow-y-auto">
+          {/* Top bar */}
+          <div className="flex items-center justify-between px-4 py-4 shrink-0 bg-[var(--theme-bg-sidebar)]/80 backdrop-blur-md border-b border-[var(--theme-border-color)]">
+            <button
+              onClick={() => setProfileUser(null)}
+              className="flex items-center gap-2 text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-colors cursor-pointer"
+            >
+              <ArrowLeft className="h-5 w-5" />
+              <span className="text-sm font-semibold">Back</span>
+            </button>
+            <span className="text-sm font-bold text-[var(--theme-text-primary)]">Contact Info</span>
+            <div className="w-16" />
+          </div>
 
-            {/* Profile Avatar Area */}
-            <div className="flex flex-col items-center py-8 px-6 bg-[var(--theme-bg-sidebar-search)]/30 border-b border-[var(--theme-border-color)] space-y-4">
-              <div className="relative group cursor-pointer" onClick={() => window.open(getAvatarUrl(profileUser.avatarUrl, profileUser.username), "_blank")}>
-                <img
-                  src={getAvatarUrl(profileUser.avatarUrl, profileUser.username)}
-                  alt={profileUser.username}
-                  className="h-44 w-44 rounded-full border-4 border-[var(--theme-bg-sidebar)] object-cover shadow-2xl transition-transform hover:scale-105"
-                />
-                {onlineUsers.includes(profileUser.id) && (
-                  <span className="absolute bottom-2 right-2 h-5 w-5 rounded-full border-4 border-[var(--theme-bg-sidebar)] bg-green-500 shadow-lg" />
-                )}
-              </div>
-
+          {/* Hero avatar section */}
+          <div
+            className="relative flex flex-col items-center justify-center py-16 px-6 cursor-pointer"
+            onClick={() => window.open(getAvatarUrl(profileUser.avatarUrl, profileUser.username), "_blank")}
+          >
+            {/* Blurred background avatar */}
+            <div
+              className="absolute inset-0 overflow-hidden"
+              style={{
+                backgroundImage: `url(${getAvatarUrl(profileUser.avatarUrl, profileUser.username)})`,
+                backgroundSize: "cover",
+                backgroundPosition: "center",
+                filter: "blur(40px) saturate(1.3)",
+                opacity: 0.3,
+              }}
+            />
+            <div className="relative z-10 flex flex-col items-center gap-4">
+              <img
+                src={getAvatarUrl(profileUser.avatarUrl, profileUser.username)}
+                alt={profileUser.username}
+                className="h-48 w-48 rounded-full border-4 border-white/20 object-cover shadow-2xl"
+              />
+              {onlineUsers.includes(profileUser.id) && (
+                <span className="absolute bottom-4 right-0 h-6 w-6 rounded-full border-4 border-[var(--theme-bg-app)] bg-green-500 shadow-lg" />
+              )}
               <div className="text-center">
-                <h3 className="text-xl font-black tracking-tight text-[var(--theme-text-primary)]">
-                  {profileUser.username}
-                </h3>
-                <p className="text-xs mt-1">
+                <h2 className="text-2xl font-black text-[var(--theme-text-primary)]">{profileUser.username}</h2>
+                <p className="text-sm mt-1">
                   {onlineUsers.includes(profileUser.id) ? (
                     <span className="text-green-400 font-semibold flex items-center justify-center gap-1">
-                      <span className="h-1.5 w-1.5 rounded-full bg-green-400 animate-pulse inline-block" />
-                      Online
+                      <span className="h-2 w-2 rounded-full bg-green-400 animate-pulse inline-block" /> Online
                     </span>
                   ) : profileUser.lastSeen ? (
-                    <span className="text-[var(--theme-text-secondary)] font-medium">
-                      Last seen {formatLastSeen(profileUser.lastSeen)}
-                    </span>
+                    <span className="text-[var(--theme-text-secondary)]">Last seen {formatLastSeen(profileUser.lastSeen)}</span>
                   ) : (
                     <span className="text-[var(--theme-text-secondary)]">Offline</span>
                   )}
                 </p>
               </div>
             </div>
+          </div>
 
-            {/* Profile Info Details List */}
-            <div className="p-6 space-y-6">
-              {/* Bio Section */}
-              <div className="space-y-2">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">About / Status</span>
-                <p className="text-sm text-[var(--theme-text-primary)] bg-[var(--theme-bg-sidebar-search)] p-3.5 rounded-xl border border-[var(--theme-border-color)] leading-relaxed">
+          {/* Info Cards */}
+          <div className="flex flex-col gap-4 px-4 pb-10 max-w-lg w-full mx-auto">
+            {/* About */}
+            <div className="rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] overflow-hidden">
+              <div className="px-4 py-3 border-b border-[var(--theme-border-color)]">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--theme-text-secondary)]">About</span>
+              </div>
+              <div className="px-4 py-4">
+                <p className="text-sm text-[var(--theme-text-primary)] leading-relaxed">
                   {profileUser.bio || "Hey there! I am using DOLSYX."}
                 </p>
               </div>
-
-              {/* Contact Info */}
-              <div className="space-y-3">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Contact Info</span>
-                {profileUser.email && (
-                  <div className="flex items-center gap-3 rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] px-3.5 py-3">
-                    <Mail className="h-4.5 w-4.5 text-[var(--theme-accent)] shrink-0" />
-                    <span className="text-xs text-[var(--theme-text-primary)] truncate selection:bg-[var(--theme-accent)]/20">{profileUser.email}</span>
-                  </div>
-                )}
-                {profileUser.phoneNumber && (
-                  <div className="flex items-center gap-3 rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] px-3.5 py-3">
-                    <Phone className="h-4.5 w-4.5 text-[var(--theme-accent)] shrink-0" />
-                    <span className="text-xs text-[var(--theme-text-primary)]">{profileUser.phoneNumber}</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Settings / Actions */}
-              <div className="pt-2">
-                {user?.id !== profileUser.id && (
-                  <button
-                    type="button"
-                    onClick={() => handleToggleBlock(profileUser.id)}
-                    className={`w-full flex items-center justify-center gap-2 rounded-xl py-3 text-xs font-bold transition-all cursor-pointer border ${
-                      blockedIds.includes(profileUser.id)
-                        ? "border-emerald-500/30 hover:bg-emerald-500/10 text-emerald-400"
-                        : "border-red-500/30 hover:bg-red-500/10 text-red-400"
-                    }`}
-                  >
-                    <Ban className="h-4 w-4" />
-                    {blockedIds.includes(profileUser.id) ? "Unblock User" : "Block User"}
-                  </button>
-                )}
-              </div>
             </div>
+
+            {/* Contact Info */}
+            {(profileUser.email || profileUser.phoneNumber) && (
+              <div className="rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] overflow-hidden">
+                <div className="px-4 py-3 border-b border-[var(--theme-border-color)]">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--theme-text-secondary)]">Contact</span>
+                </div>
+                <div className="px-4 py-4 space-y-3">
+                  {profileUser.email && (
+                    <div className="flex items-center gap-3">
+                      <Mail className="h-4 w-4 text-[var(--theme-accent)] shrink-0" />
+                      <span className="text-sm text-[var(--theme-text-primary)] truncate">{profileUser.email}</span>
+                    </div>
+                  )}
+                  {profileUser.phoneNumber && (
+                    <div className="flex items-center gap-3">
+                      <Phone className="h-4 w-4 text-[var(--theme-accent)] shrink-0" />
+                      <span className="text-sm text-[var(--theme-text-primary)]">{profileUser.phoneNumber}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Actions */}
+            {user?.id !== profileUser.id && (
+              <button
+                type="button"
+                onClick={() => handleToggleBlock(profileUser.id)}
+                className={`w-full flex items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-bold transition-all cursor-pointer border ${
+                  blockedIds.includes(profileUser.id)
+                    ? "border-emerald-500/30 hover:bg-emerald-500/10 text-emerald-400"
+                    : "border-red-500/30 hover:bg-red-500/10 text-red-400"
+                }`}
+              >
+                <Ban className="h-4 w-4" />
+                {blockedIds.includes(profileUser.id) ? "Unblock User" : "Block User"}
+              </button>
+            )}
           </div>
         </div>
       )}

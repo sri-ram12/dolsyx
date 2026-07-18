@@ -52,13 +52,11 @@ export const sendOtp = async (req: Request, res: Response): Promise<void> => {
       where: { email: trimmedEmail }
     });
 
-    const forceOtp = req.body.forceOtp === true;
-
-    if (existingUser && existingUser.password && !forceOtp) {
+    if (existingUser) {
       res.status(200).json({
-        requiresPassword: true,
+        requiresLocalAuth: true,
         isNewUser: false,
-        message: "Password verification required.",
+        message: "Biometric or PIN authentication required.",
       });
       return;
     }
@@ -582,6 +580,52 @@ export const getBlockedUsers = async (req: AuthRequest, res: Response): Promise<
     res.status(200).json({ blockedIds: blocks.map((b: any) => b.blockedId) });
   } catch (error) {
     console.error("GetBlockedUsers error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+export const loginWithoutOtp = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      res.status(400).json({ message: "Email is required" });
+      return;
+    }
+    const trimmedEmail = email.trim().toLowerCase();
+    const user = await prisma.user.findUnique({
+      where: { email: trimmedEmail }
+    });
+    if (!user) {
+      res.status(400).json({ message: "User not found" });
+      return;
+    }
+    const token = jwt.sign(
+      { id: user.id, username: user.username, email: user.email },
+      JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+    const updatedUser = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        isOnline: true,
+        lastLogin: new Date(),
+        lastSeen: new Date(),
+      }
+    });
+    res.status(200).json({
+      message: "Login successful",
+      token,
+      user: {
+        id: updatedUser.id,
+        username: updatedUser.username,
+        email: updatedUser.email,
+        avatarUrl: updatedUser.avatarUrl,
+        bio: updatedUser.bio,
+        createdAt: updatedUser.createdAt,
+      }
+    });
+  } catch (error) {
+    console.error("LoginWithoutOtp error:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 };

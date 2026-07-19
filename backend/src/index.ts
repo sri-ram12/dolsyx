@@ -42,6 +42,10 @@ const corsOriginFn = (
 ) => {
   if (!origin) return callback(null, true); // Allow non-browser requests
   if (IS_PRODUCTION) return callback(null, true); // Same-origin in production
+  
+  // Allow all origins in development (for local LAN testing on mobile, etc.)
+  if (!IS_PRODUCTION) return callback(null, true);
+
   if (FRONTEND_URLS.includes(origin) || FRONTEND_URLS.includes("*")) {
     return callback(null, true);
   }

@@ -435,14 +435,19 @@ export default function ChatPage() {
 
         // Fire browser notification
         const senderName = data.message.sender?.username || "Someone";
-        const chatName = chats.find((c) => c.id === data.conversationId)?.name || senderName;
-        let body = data.message.content || "";
-        if (data.message.mediaType === "IMAGE") body = "📷 Image";
-        if (data.message.mediaType === "VIDEO") body = "🎬 Video";
-        if (data.message.mediaType === "AUDIO") body = "🎵 Audio";
-        if (data.message.mediaType === "FILE") body = "📎 File";
-
-        fireNotification(chatName, `${senderName}: ${body}`, data.message.sender?.avatarUrl, data.conversationId);
+        
+        // Use a function to safely get chat name from current state
+        setChats(currentChats => {
+          const chatName = currentChats.find((c) => c.id === data.conversationId)?.name || senderName;
+          let body = data.message.content || "";
+          if (data.message.mediaType === "IMAGE") body = "📷 Image";
+          if (data.message.mediaType === "VIDEO") body = "🎬 Video";
+          if (data.message.mediaType === "AUDIO") body = "🎵 Audio";
+          if (data.message.mediaType === "FILE") body = "📎 File";
+          
+          fireNotification(chatName, `${senderName}: ${body}`, data.message.sender?.avatarUrl, data.conversationId);
+          return currentChats; // Don't actually change chats here
+        });
       }
     });
 
@@ -511,7 +516,7 @@ export default function ChatPage() {
       socket.off("call_ended");
       socket.off("ice_candidate");
     };
-  }, [socket, user, fetchChats, fireNotification, chats]);
+  }, [socket, user, fetchChats, fireNotification]);
 
   const handleChatCreated = (newChat: Chat) => {
     setChats((prev) => {

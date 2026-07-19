@@ -1520,7 +1520,7 @@ export default function ChatWindow({
                       setProfileUser(chat.recipient);
                       setShowHeaderMenu(false);
                     }}
-                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-colors cursor-pointer"
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-slate-200 hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-colors cursor-pointer"
                   >
                     <User className="h-3.5 w-3.5" />
                     View Profile
@@ -1536,7 +1536,7 @@ export default function ChatWindow({
                   className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold transition-colors cursor-pointer ${
                     isProductivityOpen
                       ? "text-[var(--theme-accent)] bg-[var(--theme-accent)]/10"
-                      : "text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-sidebar-item-hover)]"
+                      : "text-slate-200 hover:bg-[var(--theme-bg-sidebar-item-hover)]"
                   }`}
                 >
                   <CheckSquare className="h-3.5 w-3.5" />
@@ -1549,7 +1549,7 @@ export default function ChatWindow({
                     setSelectedMessageIds(new Set());
                     setShowHeaderMenu(false);
                   }}
-                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-colors cursor-pointer"
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-slate-200 hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-colors cursor-pointer"
                 >
                   <CheckSquare className="h-3.5 w-3.5" />
                   Select Messages
@@ -1560,7 +1560,7 @@ export default function ChatWindow({
                     setShowWallpaperPicker(true);
                     setShowHeaderMenu(false);
                   }}
-                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-colors cursor-pointer"
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-slate-200 hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-colors cursor-pointer"
                 >
                   <ImageIcon className="h-3.5 w-3.5" />
                   Chat Wallpaper

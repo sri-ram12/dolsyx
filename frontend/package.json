@@ -12,10 +12,12 @@
     "@tailwindcss/postcss": "^4",
     "@types/twemoji": "^13.1.1",
     "emoji-picker-react": "^4.19.1",
+    "html5-qrcode": "^2.3.8",
     "lucide-react": "^1.18.0",
     "next": "16.2.9",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "react-qr-code": "^2.2.0",
     "socket.io-client": "^4.8.3",
     "tailwindcss": "^4",
     "twemoji": "^14.0.2"

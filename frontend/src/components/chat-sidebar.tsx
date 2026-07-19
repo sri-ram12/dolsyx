@@ -529,7 +529,7 @@ export default function ChatSidebar({
               title="View Profile Status"
             >
               <img
-                src={getAvatarUrl(user?.avatarUrl, user?.username)}
+                src={getAvatarUrl(user?.avatarUrl, user?.username || "")}
                 alt={user?.username || "Profile"}
                 className="h-8 w-8 rounded-full border border-black object-cover"
               />

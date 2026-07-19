@@ -346,7 +346,6 @@ export default function ChatSidebar({
       console.error(e);
     }
     exitSelectionMode();
-    window.location.reload();
   };
 
   // Action: Block Selected Users

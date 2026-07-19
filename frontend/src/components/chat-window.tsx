@@ -1217,7 +1217,17 @@ export default function ChatWindow({
       canvas.height = video.videoHeight;
       const ctx = canvas.getContext("2d");
       if (ctx) {
+        if (cameraFacingMode === "user") {
+          ctx.translate(canvas.width, 0);
+          ctx.scale(-1, 1);
+        }
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        // Reset transform if needed before extracting data, though not strictly required
+        if (cameraFacingMode === "user") {
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+        }
+
         canvas.toBlob((blob) => {
           if (blob) {
             setCapturedBlob(blob);

@@ -49,9 +49,9 @@ class EmailService {
       // Use explicit host/port config with family:4 to force IPv4
       // (Render cloud containers may resolve smtp.gmail.com to an IPv6 address that is unreachable)
       const transportConfig: any = {
-        host: "smtp.gmail.com",
-        port: 587,
-        secure: false,          // STARTTLS on port 587
+        host: host,
+        port: port,
+        secure: port === 465,   // True for 465, false for other ports
         family: 4,              // Force IPv4 connections only
         auth: { user, pass },
         connectionTimeout: 10000,

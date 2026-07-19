@@ -22,7 +22,6 @@ export const useSocket = (token: string | null) => {
       autoConnect: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
-      transports: process.env.NODE_ENV === "development" ? ["polling"] : ["polling", "websocket"],
     });
     setSocket(newSocket);
 

@@ -31,6 +31,7 @@ import {
   Mic,
   Square,
   Image as ImageIcon,
+  Forward,
   Ban,
   RefreshCw,
   Star,
@@ -1427,6 +1428,16 @@ export default function ChatWindow({
               >
                 <Video className="h-4 w-4" />
               </button>
+              <button
+                onClick={() => {
+                  setIsSelectionMode(true);
+                  setSelectedMessageIds(new Set());
+                }}
+                className="flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/55 text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-all cursor-pointer"
+                title="Forward Messages"
+              >
+                <Forward className="h-4 w-4" />
+              </button>
             </>
           )}
           
@@ -2384,20 +2395,9 @@ export default function ChatWindow({
 
           {/* Hero avatar section */}
           <div
-            className="relative flex flex-col items-center justify-center py-16 px-6 cursor-pointer"
+            className="relative flex flex-col items-center justify-center py-12 px-6 cursor-pointer bg-[var(--theme-bg-sidebar)]"
             onClick={() => window.open(getAvatarUrl(profileUser.avatarUrl, profileUser.username), "_blank")}
           >
-            {/* Blurred background avatar */}
-            <div
-              className="absolute inset-0 overflow-hidden"
-              style={{
-                backgroundImage: `url(${getAvatarUrl(profileUser.avatarUrl, profileUser.username)})`,
-                backgroundSize: "cover",
-                backgroundPosition: "center",
-                filter: "blur(40px) saturate(1.3)",
-                opacity: 0.3,
-              }}
-            />
             <div className="relative z-10 flex flex-col items-center gap-4">
               <img
                 src={getAvatarUrl(profileUser.avatarUrl, profileUser.username)}

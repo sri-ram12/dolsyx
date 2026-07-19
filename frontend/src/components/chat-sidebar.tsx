@@ -93,9 +93,18 @@ export default function ChatSidebar({
   const [showStarredModal, setShowStarredModal] = useState(false);
   const [starredMessagesList, setStarredMessagesList] = useState<any[]>([]);
 
+  const [globalUnlockedKey, setGlobalUnlockedKey] = useState<string>("");
+
   useEffect(() => {
     if (typeof window !== "undefined") {
       setLockedChats(JSON.parse(localStorage.getItem("dolsyx_locked_chats") || "{}"));
+      setGlobalUnlockedKey(localStorage.getItem("dolsyx_locked_chat_key") || "");
+
+      const handleKeyUpdate = () => {
+        setGlobalUnlockedKey(localStorage.getItem("dolsyx_locked_chat_key") || "");
+      };
+      window.addEventListener("dolsyx_locked_chat_key_updated", handleKeyUpdate);
+      return () => window.removeEventListener("dolsyx_locked_chat_key_updated", handleKeyUpdate);
     }
   }, []);
   
@@ -397,12 +406,14 @@ export default function ChatSidebar({
   };
 
   // Sort & Filter chats: hide locked chats unless the search query matches the secret key
+  // OR the global secret key has been entered in Settings.
   const sortedChats = [...chats]
     .filter(chat => {
       const lock = lockedChats[chat.id];
       if (lock) {
-        if (lock.secretKey && searchQuery.trim().toLowerCase() === lock.secretKey.toLowerCase()) {
-          return true;
+        if (lock.secretKey) {
+          if (searchQuery.trim().toLowerCase() === lock.secretKey.toLowerCase()) return true;
+          if (globalUnlockedKey === lock.secretKey) return true;
         }
         return false;
       }

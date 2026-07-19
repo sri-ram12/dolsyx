@@ -884,23 +884,38 @@ export default function SettingsPanel({ onClose, onSelectChat }: SettingsPanelPr
             )}
 
             <div className="pt-6 border-t border-[var(--theme-border-color)]">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <p className="text-xs font-bold text-[var(--theme-text-primary)]">Biometric Fingerprint Lock</p>
-                  <p className="text-[10px] text-[var(--theme-text-secondary)]">Use fingerprint or Face ID to verify login</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleToggleBiometrics}
-                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                    bioEnabled ? "bg-[var(--theme-accent)]" : "bg-slate-700"
-                  }`}
-                >
-                  <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-lg transition-transform duration-200 ease-in-out ${
-                    bioEnabled ? "translate-x-5" : "translate-x-0"
-                  }`} />
-                </button>
+              <div className="flex items-center gap-2 text-[var(--theme-text-primary)]">
+                <Lock className="h-5 w-5 text-[var(--theme-accent)]" />
+                <h4 className="font-bold text-sm">View Locked Chats</h4>
               </div>
+              <p className="text-[10px] text-[var(--theme-text-secondary)] leading-relaxed mt-1 mb-3">
+                Enter your secret key to reveal locked chats in the sidebar.
+              </p>
+              <form onSubmit={(e) => {
+                e.preventDefault();
+                const key = (e.currentTarget.elements.namedItem('secretKey') as HTMLInputElement).value;
+                if (key) {
+                  localStorage.setItem("dolsyx_locked_chat_key", key);
+                  // Dispatch a custom event so the sidebar updates immediately
+                  window.dispatchEvent(new Event("dolsyx_locked_chat_key_updated"));
+                  setPinSuccess("Locked chats are now visible in the sidebar.");
+                  setTimeout(() => setPinSuccess(""), 3000);
+                  (e.currentTarget as HTMLFormElement).reset();
+                }
+              }} className="space-y-3">
+                <input
+                  name="secretKey"
+                  type="password"
+                  placeholder="Enter Secret Key"
+                  className="w-full rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] px-4 py-2.5 text-sm text-[var(--theme-text-primary)] focus:outline-none focus:border-[var(--theme-accent)]"
+                />
+                <button
+                  type="submit"
+                  className="w-full rounded-xl bg-[var(--theme-accent)] text-black hover:opacity-90 py-3 text-xs font-bold cursor-pointer"
+                >
+                  Reveal Chats
+                </button>
+              </form>
             </div>
           </div>
         )}

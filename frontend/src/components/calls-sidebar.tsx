@@ -1,10 +1,9 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useAuth, API_URL } from "@/context/auth-context";
 import { getAvatarUrl } from "@/utils/avatar";
-import { Phone, Video, PhoneIncoming, PhoneOutgoing, PhoneMissed } from "lucide-react";
-
+import { Phone, Video, PhoneIncoming, PhoneOutgoing, PhoneMissed, Trash2, X, MoreVertical, CheckSquare, MessageSquare } from "lucide-react";
 interface CallLog {
   id: string;
   createdAt: string;
@@ -32,6 +31,17 @@ export default function CallsSidebar({ onStartCall }: { onStartCall?: (chatId: s
   const { token, user } = useAuth();
   const [calls, setCalls] = useState<CallLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedCalls, setSelectedCalls] = useState<Set<string>>(new Set());
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [localDeletedMsgIds, setLocalDeletedMsgIds] = useState<string[]>([]);
+  const [showMenu, setShowMenu] = useState(false);
+  const pressTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setLocalDeletedMsgIds(JSON.parse(localStorage.getItem("dolsyx_deleted_msgs") || "[]"));
+    }
+  }, []);
 
   useEffect(() => {
     const fetchCalls = async () => {
@@ -53,6 +63,55 @@ export default function CallsSidebar({ onStartCall }: { onStartCall?: (chatId: s
     fetchCalls();
   }, [token]);
 
+  const startPress = (callId: string) => {
+    if (isSelectionMode) return;
+    pressTimerRef.current = setTimeout(() => {
+      setIsSelectionMode(true);
+      setSelectedCalls(new Set([callId]));
+    }, 600);
+  };
+
+  const endPress = () => {
+    if (pressTimerRef.current) clearTimeout(pressTimerRef.current);
+  };
+
+  const handleCallClick = (callId: string, e: React.MouseEvent) => {
+    if (isSelectionMode) {
+      e.stopPropagation();
+      const newSelected = new Set(selectedCalls);
+      if (newSelected.has(callId)) {
+        newSelected.delete(callId);
+        if (newSelected.size === 0) setIsSelectionMode(false);
+      } else {
+        newSelected.add(callId);
+      }
+      setSelectedCalls(newSelected);
+    }
+  };
+
+  const exitSelectionMode = () => {
+    setIsSelectionMode(false);
+    setSelectedCalls(new Set());
+  };
+
+  const deleteSelectedCalls = () => {
+    const deletedList = JSON.parse(localStorage.getItem("dolsyx_deleted_msgs") || "[]");
+    const newDeleted = [...deletedList, ...Array.from(selectedCalls)];
+    localStorage.setItem("dolsyx_deleted_msgs", JSON.stringify(newDeleted));
+    setLocalDeletedMsgIds(newDeleted);
+    exitSelectionMode();
+  };
+
+  const clearAllCalls = () => {
+    const deletedList = JSON.parse(localStorage.getItem("dolsyx_deleted_msgs") || "[]");
+    const newDeleted = [...deletedList, ...calls.map(c => c.id)];
+    localStorage.setItem("dolsyx_deleted_msgs", JSON.stringify(newDeleted));
+    setLocalDeletedMsgIds(newDeleted);
+    setShowMenu(false);
+  };
+
+  const visibleCalls = calls.filter(c => !localDeletedMsgIds.includes(c.id));
+
   const formatTimeAgo = (dateStr: string) => {
     const d = new Date(dateStr);
     const now = new Date();
@@ -69,12 +128,44 @@ export default function CallsSidebar({ onStartCall }: { onStartCall?: (chatId: s
   };
 
   return (
-    <div className="flex flex-col h-full w-full sm:w-80 border-r border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] backdrop-blur-md">
-      <div className="flex items-center justify-between border-b border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-header)] px-6 py-5">
-        <span className="text-xl font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-teal-400">
-          Calls
-        </span>
-      </div>
+    <div className="flex flex-col h-full w-full sm:w-80 border-r border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] backdrop-blur-md relative">
+      {isSelectionMode ? (
+        <div className="flex items-center justify-between border-b border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-header)] px-4 py-3 shadow-md z-10">
+          <div className="flex items-center gap-4">
+            <button onClick={exitSelectionMode} className="hover:bg-white/10 p-1.5 rounded-full cursor-pointer text-white">
+              <X className="h-5 w-5" />
+            </button>
+            <span className="font-semibold text-white">{selectedCalls.size}</span>
+          </div>
+          <button onClick={deleteSelectedCalls} className="p-2 text-white hover:bg-white/10 rounded-full cursor-pointer" title="Delete">
+            <Trash2 className="h-5 w-5" />
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between border-b border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-header)] px-6 py-5">
+          <span className="text-xl font-black tracking-wider text-[var(--theme-text-primary)]">
+            Calls
+          </span>
+          <div className="flex items-center gap-2 relative">
+            <button className="p-2 text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] rounded-full transition-colors cursor-pointer" title="New Call">
+              <MessageSquare className="h-5 w-5" />
+            </button>
+            <button onClick={() => setShowMenu(!showMenu)} className="p-2 text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] rounded-full transition-colors cursor-pointer">
+              <MoreVertical className="h-5 w-5" />
+            </button>
+            {showMenu && (
+              <div className="absolute right-0 top-10 z-50 w-48 rounded-lg border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] py-1 shadow-xl animate-fade-in text-left">
+                <button
+                  onClick={clearAllCalls}
+                  className="w-full text-left px-4 py-2 text-sm text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] cursor-pointer"
+                >
+                  Clear call log
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar">
         {isLoading ? (
           <div className="flex flex-col gap-3 p-4">
@@ -88,7 +179,7 @@ export default function CallsSidebar({ onStartCall }: { onStartCall?: (chatId: s
               </div>
             ))}
           </div>
-        ) : calls.length === 0 ? (
+        ) : visibleCalls.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center p-6 text-center mt-20">
             <div className="h-16 w-16 rounded-full bg-[var(--theme-accent)]/10 flex items-center justify-center mb-4 text-[var(--theme-accent)]">
               <Phone className="h-8 w-8" />
@@ -98,7 +189,7 @@ export default function CallsSidebar({ onStartCall }: { onStartCall?: (chatId: s
           </div>
         ) : (
           <div className="p-2 space-y-1">
-            {calls.map((call) => {
+            {visibleCalls.map((call) => {
               const isOutgoing = call.sender.id === user?.id;
               
               // Find the peer user
@@ -121,12 +212,32 @@ export default function CallsSidebar({ onStartCall }: { onStartCall?: (chatId: s
               }
               
               return (
-                <div key={call.id} className="flex items-center gap-3 w-full rounded-xl px-3 py-2.5 hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-colors text-left cursor-default">
+                <div 
+                  key={call.id} 
+                  className={`flex items-center gap-3 w-full rounded-xl px-3 py-2.5 transition-colors text-left cursor-pointer ${
+                    selectedCalls.has(call.id) ? "bg-[var(--theme-bg-sidebar-item-hover)]" : "hover:bg-[var(--theme-bg-sidebar-item-hover)]"
+                  }`}
+                  onMouseDown={() => startPress(call.id)}
+                  onMouseUp={endPress}
+                  onMouseLeave={endPress}
+                  onTouchStart={() => startPress(call.id)}
+                  onTouchEnd={endPress}
+                  onClick={(e) => handleCallClick(call.id, e)}
+                >
                   <div className="relative shrink-0">
+                    {isSelectionMode && (
+                      <div className="absolute -bottom-1 -right-1 z-10 rounded-full bg-white shadow-md">
+                        {selectedCalls.has(call.id) ? (
+                          <CheckSquare className="h-5 w-5 text-[#00a884]" fill="currentColor" stroke="white" />
+                        ) : (
+                          <div className="h-4 w-4 rounded border-2 border-gray-400 bg-white" />
+                        )}
+                      </div>
+                    )}
                     <img
                       src={getAvatarUrl(peerAvatar, peerName)}
                       alt={peerName}
-                      className="h-12 w-12 rounded-full object-cover border border-[var(--theme-border-color)]"
+                      className="h-12 w-12 rounded-full object-cover border border-[var(--theme-border-color)] bg-zinc-800"
                     />
                   </div>
                   <div className="flex-1 min-w-0">

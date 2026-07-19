@@ -36,6 +36,7 @@ import {
   RefreshCw,
   Star,
   Share2,
+  Lock,
 } from "lucide-react";
 import { Socket } from "socket.io-client";
 import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";

@@ -8,6 +8,10 @@ import { Search, LogOut, MessageSquare, Circle, Users, Camera, Loader2, X, Setti
 import GroupDialog from "./group-dialog";
 import SettingsPanel from "./settings-panel";
 import { getDefaultAvatar, getAvatarUrl } from "@/utils/avatar";
+import QRCode from "react-qr-code";
+import dynamic from "next/dynamic";
+
+const QRScanner = dynamic(() => import("./qr-scanner"), { ssr: false });
 
 export interface Chat {
   id: string;
@@ -61,6 +65,8 @@ export default function ChatSidebar({
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
   const [showGroupDialog, setShowGroupDialog] = useState(false);
+  const [showMyQrModal, setShowMyQrModal] = useState(false);
+  const [showScanQrModal, setShowScanQrModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState<"profile"|"display"|"audio"|"privacy"|"lock">("profile");
 
@@ -212,6 +218,38 @@ export default function ChatSidebar({
       }
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleScanSuccess = async (decodedText: string) => {
+    try {
+      if (decodedText.startsWith("dolsyx://user/")) {
+        const scannedUsername = decodedText.split("dolsyx://user/")[1];
+        if (scannedUsername === user?.username) {
+          toast("You cannot chat with yourself.", "error");
+          return;
+        }
+        
+        // Let's search for this user by username
+        const res = await fetch(`${API_URL}/api/chats/search?query=${encodeURIComponent(scannedUsername)}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const targetUser = data.find((u: User) => u.username === scannedUsername);
+          if (targetUser) {
+            setShowScanQrModal(false);
+            await handleStartChat(targetUser);
+          } else {
+            toast("User not found.", "error");
+          }
+        }
+      } else {
+        toast("Invalid QR Code.", "error");
+      }
+    } catch (err) {
+      console.error(err);
+      toast("Error processing QR.", "error");
     }
   };
 
@@ -527,14 +565,14 @@ export default function ChatSidebar({
           </span>
           <div className="flex items-center gap-2 relative">
             <button
-              onClick={() => toast("QR Scanner coming soon!", "info")}
+              onClick={() => setShowScanQrModal(true)}
               className="p-1.5 hover:bg-[var(--theme-bg-sidebar-item-hover)] rounded-xl text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-colors cursor-pointer"
               title="Scan QR"
             >
               <ScanLine className="h-5 w-5" />
             </button>
             <button
-              onClick={() => toast("My QR coming soon!", "info")}
+              onClick={() => setShowMyQrModal(true)}
               className="p-1.5 hover:bg-[var(--theme-bg-sidebar-item-hover)] rounded-xl text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-colors cursor-pointer"
               title="My QR"
             >
@@ -916,6 +954,39 @@ export default function ChatSidebar({
           </div>
         </div>
       )}
+
+      {/* My QR Modal */}
+      {showMyQrModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="w-full max-w-sm rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-primary)] p-6 shadow-2xl text-center relative">
+            <button onClick={() => setShowMyQrModal(false)} className="absolute right-4 top-4 text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-colors cursor-pointer">
+              <X className="h-5 w-5" />
+            </button>
+            <h3 className="mb-6 text-xl font-bold text-[var(--theme-text-primary)]">My QR Code</h3>
+            <div className="flex justify-center bg-white p-4 rounded-xl mx-auto mb-4 w-fit">
+              <QRCode value={`dolsyx://user/${user?.username}`} size={200} />
+            </div>
+            <p className="text-sm text-[var(--theme-text-secondary)]">Scan to start a chat with {user?.username}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Scan QR Modal */}
+      {showScanQrModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="w-full max-w-sm rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-primary)] p-6 shadow-2xl text-center relative">
+            <button onClick={() => setShowScanQrModal(false)} className="absolute right-4 top-4 text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-colors cursor-pointer">
+              <X className="h-5 w-5" />
+            </button>
+            <h3 className="mb-4 text-xl font-bold text-[var(--theme-text-primary)]">Scan QR Code</h3>
+            <div className="bg-black/20 rounded-xl overflow-hidden mb-4">
+              <QRScanner onScanSuccess={handleScanSuccess} />
+            </div>
+            <p className="text-sm text-[var(--theme-text-secondary)]">Point your camera at a DOLSYX QR code.</p>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

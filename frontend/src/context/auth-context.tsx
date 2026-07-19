@@ -27,10 +27,9 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const API_URL = typeof window !== "undefined"
-  ? (process.env.NEXT_PUBLIC_API_URL || 
-      (process.env.NODE_ENV === "development" 
-        ? `${window.location.protocol}//${window.location.hostname}:4000` 
-        : window.location.origin))
+  ? (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+      ? (process.env.NEXT_PUBLIC_API_URL || window.location.origin)
+      : window.location.origin)
   : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000");
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {

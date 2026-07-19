@@ -1329,8 +1329,42 @@ export default function ChatWindow({
 
   const isOnline = chat.recipient ? onlineUsers.includes(chat.recipient.id) : false;
 
+
+  const handleEditSelected = () => {
+    if (selectedMessageIds.size !== 1) return;
+    const msg = messages.find(m => m.id === Array.from(selectedMessageIds)[0]);
+    if (msg && msg.senderId === user?.id) {
+      setEditingMessage(msg);
+      setInputValue(msg.content);
+      setIsSelectionMode(false);
+      setSelectedMessageIds(new Set());
+    }
+  };
+
+  const handleForwardSelected = () => {
+    if (selectedMessageIds.size === 0) return;
+    const msg = messages.find(m => m.id === Array.from(selectedMessageIds)[0]);
+    if (msg) {
+      openForwardModal(msg);
+      setIsSelectionMode(false);
+      setSelectedMessageIds(new Set());
+    }
+  };
+
+  const handleStarSelected = () => {
+    selectedMessageIds.forEach(id => toggleStarMessage(id));
+    setIsSelectionMode(false);
+    setSelectedMessageIds(new Set());
+  };
+
+  const handleShareSelected = () => {
+    toast("Share is not supported on this device yet.", "info");
+    setIsSelectionMode(false);
+    setSelectedMessageIds(new Set());
+  };
+
   return (
-    <div className="flex h-full flex-col bg-[var(--theme-bg-app)] relative w-full overflow-hidden">
+    <div className="flex h-full flex-col bg-[#0b141a] relative w-full overflow-hidden">
       {/* Wallpaper rendering logic */}
       {(() => {
         const wp = CHAT_WALLPAPERS.find(w => w.id === selectedWallpaper) || customWallpapers.find(w => w.id === selectedWallpaper);
@@ -1340,13 +1374,8 @@ export default function ChatWindow({
         if (wp.type === "image") {
           return (
             <div 
-              className="absolute inset-0 pointer-events-none opacity-50 z-0"
-              style={{ 
-                backgroundImage: `url(${wp.value})`, 
-                backgroundSize: "cover",
-                backgroundPosition: "center",
-                backgroundAttachment: "fixed" 
-              }} 
+              className="absolute inset-0 pointer-events-none opacity-40 z-0 bg-cover bg-center"
+              style={{ backgroundImage: `url(${wp.value})` }}
             />
           );
         }
@@ -1361,7 +1390,44 @@ export default function ChatWindow({
       })()}
 
       {/* Header */}
-      <div className="flex h-[72px] shrink-0 items-center justify-between border-b border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)]/80 backdrop-blur-md px-4 sm:px-6 relative z-30">
+      {isSelectionMode ? (
+        <div className="flex h-[72px] shrink-0 items-center justify-between border-b border-[var(--theme-border-color)] bg-[var(--theme-accent)]/10 px-4 sm:px-6 relative z-30">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                setIsSelectionMode(false);
+                setSelectedMessageIds(new Set());
+              }}
+              className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-[var(--theme-bg-sidebar-item-hover)] text-[var(--theme-text-primary)] transition-all cursor-pointer"
+            >
+              <X className="h-5 w-5" />
+            </button>
+            <span className="font-bold text-sm text-[var(--theme-text-primary)]">
+              {selectedMessageIds.size} selected
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={handleDeleteSelected} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-[var(--theme-bg-sidebar-item-hover)] text-red-400 cursor-pointer" title="Delete">
+              <Trash2 className="h-4.5 w-4.5" />
+            </button>
+            <button onClick={handleForwardSelected} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-[var(--theme-bg-sidebar-item-hover)] text-[var(--theme-text-primary)] cursor-pointer" title="Forward">
+              <Forward className="h-4.5 w-4.5" />
+            </button>
+            {selectedMessageIds.size === 1 && (
+              <button onClick={handleEditSelected} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-[var(--theme-bg-sidebar-item-hover)] text-[var(--theme-text-primary)] cursor-pointer" title="Edit">
+                <Edit3 className="h-4.5 w-4.5" />
+              </button>
+            )}
+            <button onClick={handleStarSelected} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-[var(--theme-bg-sidebar-item-hover)] text-[var(--theme-text-primary)] cursor-pointer" title="Star">
+              <Star className="h-4.5 w-4.5" />
+            </button>
+            <button onClick={handleShareSelected} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-[var(--theme-bg-sidebar-item-hover)] text-[var(--theme-text-primary)] cursor-pointer" title="Share">
+              <Share2 className="h-4.5 w-4.5" />
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex h-[72px] shrink-0 items-center justify-between border-b border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)]/80 backdrop-blur-md px-4 sm:px-6 relative z-30">
         <div className="flex items-center gap-4 min-w-0">
           <button
             onClick={onBack}
@@ -1428,16 +1494,6 @@ export default function ChatWindow({
               >
                 <Video className="h-4 w-4" />
               </button>
-              <button
-                onClick={() => {
-                  setIsSelectionMode(true);
-                  setSelectedMessageIds(new Set());
-                }}
-                className="flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/55 text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-all cursor-pointer"
-                title="Forward Messages"
-              >
-                <Forward className="h-4 w-4" />
-              </button>
             </>
           )}
           
@@ -1456,7 +1512,7 @@ export default function ChatWindow({
             </button>
 
             {showHeaderMenu && (
-              <div className="absolute right-0 top-11 z-50 w-52 rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] p-1.5 shadow-2xl animate-fade-in text-left">
+              <div className="absolute right-0 top-11 z-50 w-52 rounded-xl border border-[var(--theme-border-color)] bg-[#111b21] p-1.5 shadow-2xl animate-fade-in text-left">
                 {!chat.isGroup && (
                   <button
                     onMouseDown={(e) => {
@@ -1537,7 +1593,8 @@ export default function ChatWindow({
             )}
           </div>
         </div>
-      </div>
+        </div>
+      )}
 
       {/* Messages Scroll Area */}
       <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 relative z-10">
@@ -1592,6 +1649,13 @@ export default function ChatWindow({
                   onMouseEnter={() => !isMsgDeleted && setHoveredMessageId(msg.id)}
                   onMouseLeave={() => setHoveredMessageId(null)}
                   onClick={() => isSelectionMode && toggleMessageSelection(msg.id)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    if (!isSelectionMode && !isMsgDeleted) {
+                      setIsSelectionMode(true);
+                      setSelectedMessageIds(new Set([msg.id]));
+                    }
+                  }}
                   className={`group flex items-end gap-2 max-w-[78%] relative z-10 transition-all duration-200 ${spacingClass} ${
                     isSelectionMode ? "cursor-pointer hover:bg-white/5 p-1 rounded-xl" : ""
                   } ${
@@ -2379,7 +2443,7 @@ export default function ChatWindow({
 
       {/* Generic Profile View – Full Screen */}
       {profileUser && (
-        <div className="fixed inset-0 z-[9999] flex flex-col bg-[var(--theme-bg-app)] animate-fade-in overflow-y-auto">
+        <div className="fixed inset-0 z-[9999] flex flex-col bg-black animate-fade-in overflow-y-auto">
           {/* Top bar */}
           <div className="flex items-center justify-between px-4 py-4 shrink-0 bg-[var(--theme-bg-sidebar)]/80 backdrop-blur-md border-b border-[var(--theme-border-color)]">
             <button

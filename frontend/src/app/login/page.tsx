@@ -96,11 +96,19 @@ export default function LoginPage() {
       const data = await res.json();
       if (res.ok) {
         if (data.requiresLocalAuth) {
-          // Existing user → PIN / biometric
-          setStep("local-auth");
+          // Existing user
+          const hasPin = localStorage.getItem(`dolsyx_pin_${email.trim().toLowerCase()}`);
           const bioEnabled = localStorage.getItem(`dolsyx_bio_enabled_${email.trim().toLowerCase()}`) === "true";
-          setHasBiometrics(bioEnabled);
-          if (bioEnabled) setTimeout(() => triggerBiometric(), 300);
+          
+          if (hasPin || bioEnabled) {
+            // Has PIN or Bio enabled locally, prompt for it
+            setStep("local-auth");
+            setHasBiometrics(bioEnabled);
+            if (bioEnabled) setTimeout(() => triggerBiometric(), 300);
+          } else {
+            // New device / No PIN set -> Direct Access without OTP!
+            await doLoginWithoutOtp();
+          }
         } else {
           // New user → OTP flow
           setStep("otp");

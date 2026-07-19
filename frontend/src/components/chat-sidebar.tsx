@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useAuth, API_URL, User } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
 import { useToast } from "@/context/toast-context";
-import { Search, LogOut, MessageSquare, Circle, Users, Camera, Loader2, X, Settings, Radio, MoreVertical, Pin, Trash2, Archive, Star, CheckSquare } from "lucide-react";
+import { Search, LogOut, MessageSquare, Circle, Users, Camera, Loader2, X, Settings, Radio, MoreVertical, Pin, Trash2, Archive, Star, CheckSquare, User as UserIcon } from "lucide-react";
 import GroupDialog from "./group-dialog";
 import SettingsPanel from "./settings-panel";
 import { getDefaultAvatar, getAvatarUrl } from "@/utils/avatar";
@@ -62,6 +62,7 @@ export default function ChatSidebar({
   const [searchError, setSearchError] = useState("");
   const [showGroupDialog, setShowGroupDialog] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<"profile"|"display"|"audio"|"privacy"|"lock">("profile");
 
   // Top header 3-dots menu
   const [showHeaderMenu, setShowHeaderMenu] = useState(false);
@@ -438,6 +439,7 @@ export default function ChatSidebar({
       <SettingsPanel
         onClose={() => setShowSettings(false)}
         onSelectChat={onSelectChat as any}
+        initialTab={settingsTab}
       />
     );
   }
@@ -477,7 +479,7 @@ export default function ChatSidebar({
             </button>
 
             {showSelectionMenu && (
-              <div ref={selectionMenuRef} className="absolute right-0 top-12 z-50 w-44 rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-container)] p-1 shadow-2xl text-left">
+              <div ref={selectionMenuRef} className="absolute right-0 top-12 z-50 w-44 rounded-xl border border-[var(--theme-border-color)] bg-[#111b21] p-1 shadow-2xl text-left">
                 <button onClick={deleteSelectedChats} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 cursor-pointer">
                   <Trash2 className="h-3.5 w-3.5" /> Delete Chat
                 </button>
@@ -520,15 +522,28 @@ export default function ChatSidebar({
       ) : (
         // Normal Mode Header
         <div className="flex items-center justify-between border-b border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-header)] px-6 py-5">
-          <span className="text-xl font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-teal-400">
-            DOLSYX
-          </span>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => { setSettingsTab("profile"); setShowSettings(true); }}
+              className="relative rounded-full p-0.5 border-2 border-emerald-500 transition-transform hover:scale-105 cursor-pointer flex items-center justify-center"
+              title="View Profile Status"
+            >
+              <img
+                src={getAvatarUrl(user?.avatarUrl, user?.username)}
+                alt={user?.username || "Profile"}
+                className="h-8 w-8 rounded-full border border-black object-cover"
+              />
+            </button>
+            <span className="text-xl font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-teal-400">
+              DOLSYX
+            </span>
+          </div>
           <div className="relative">
             <button onClick={() => setShowHeaderMenu(!showHeaderMenu)} className="p-1.5 hover:bg-[var(--theme-bg-sidebar-item-hover)] rounded-xl text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-colors cursor-pointer">
               <MoreVertical className="h-5 w-5" />
             </button>
             {showHeaderMenu && (
-              <div ref={headerMenuRef} className="absolute right-0 top-10 z-50 w-48 rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-container)] p-1 shadow-2xl text-left">
+              <div ref={headerMenuRef} className="absolute right-0 top-10 z-50 w-48 rounded-xl border border-[var(--theme-border-color)] bg-[#111b21] p-1 shadow-2xl text-left">
                 <button onClick={() => { setShowGroupDialog(true); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs hover:bg-[var(--theme-bg-sidebar-item-hover)] cursor-pointer text-[var(--theme-text-primary)]">
                   <Users className="h-3.5 w-3.5 text-[var(--theme-accent)]" /> New Group
                 </button>
@@ -543,8 +558,20 @@ export default function ChatSidebar({
                 >
                   <Star className="h-3.5 w-3.5 text-amber-500" /> Starred Chats & Media
                 </button>
-                <button onClick={() => { setShowSettings(true); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs hover:bg-[var(--theme-bg-sidebar-item-hover)] cursor-pointer text-[var(--theme-text-primary)]">
-                  <Settings className="h-3.5 w-3.5 text-slate-400" /> Settings
+                <button onClick={() => { setSettingsTab("profile"); setShowSettings(true); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs hover:bg-[var(--theme-bg-sidebar-item-hover)] cursor-pointer text-[var(--theme-text-primary)]">
+                  <UserIcon className="h-3.5 w-3.5 text-slate-400" /> Profile Settings
+                </button>
+                <button onClick={() => { setSettingsTab("display"); setShowSettings(true); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs hover:bg-[var(--theme-bg-sidebar-item-hover)] cursor-pointer text-[var(--theme-text-primary)]">
+                  <Settings className="h-3.5 w-3.5 text-slate-400" /> Display Settings
+                </button>
+                <button onClick={() => { setSettingsTab("privacy"); setShowSettings(true); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs hover:bg-[var(--theme-bg-sidebar-item-hover)] cursor-pointer text-[var(--theme-text-primary)]">
+                  <Settings className="h-3.5 w-3.5 text-slate-400" /> Privacy Settings
+                </button>
+                <button onClick={() => { setSettingsTab("audio"); setShowSettings(true); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs hover:bg-[var(--theme-bg-sidebar-item-hover)] cursor-pointer text-[var(--theme-text-primary)]">
+                  <Settings className="h-3.5 w-3.5 text-slate-400" /> Audio Settings
+                </button>
+                <button onClick={() => { setSettingsTab("lock"); setShowSettings(true); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs hover:bg-[var(--theme-bg-sidebar-item-hover)] cursor-pointer text-[var(--theme-text-primary)]">
+                  <Settings className="h-3.5 w-3.5 text-slate-400" /> App Lock Settings
                 </button>
                 <button onClick={() => { logout(); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs hover:bg-[var(--theme-bg-sidebar-item-hover)] cursor-pointer text-red-400">
                   <LogOut className="h-3.5 w-3.5" /> Switch Account

@@ -10,12 +10,13 @@ import { getAvatarUrl } from "@/utils/avatar";
 interface SettingsPanelProps {
   onClose: () => void;
   onSelectChat: (chat: null) => void;
+  initialTab?: "profile" | "display" | "audio" | "privacy" | "lock";
 }
 
-export default function SettingsPanel({ onClose, onSelectChat }: SettingsPanelProps) {
+export default function SettingsPanel({ onClose, onSelectChat, initialTab = "profile" }: SettingsPanelProps) {
   const { user, token, logout, updateUser } = useAuth();
   const { theme, setTheme } = useTheme();
-  const [activeTab, setActiveTab] = useState<"profile" | "display" | "audio" | "privacy" | "lock">("profile");
+  const [activeTab, setActiveTab] = useState<"profile" | "display" | "audio" | "privacy" | "lock">(initialTab);
 
   // Profile Form States
   const [editUsername, setEditUsername] = useState(user?.username || "");
@@ -882,6 +883,26 @@ export default function SettingsPanel({ onClose, onSelectChat }: SettingsPanelPr
                 </button>
               </form>
             )}
+
+            <div className="pt-6 border-t border-[var(--theme-border-color)] mb-6">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-xs font-bold text-[var(--theme-text-primary)]">Biometric Fingerprint Lock</p>
+                  <p className="text-[10px] text-[var(--theme-text-secondary)]">Use fingerprint or Face ID to verify login</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleToggleBiometrics}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    bioEnabled ? "bg-[var(--theme-accent)]" : "bg-slate-700"
+                  }`}
+                >
+                  <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-lg transition-transform duration-200 ease-in-out ${
+                    bioEnabled ? "translate-x-5" : "translate-x-0"
+                  }`} />
+                </button>
+              </div>
+            </div>
 
             <div className="pt-6 border-t border-[var(--theme-border-color)]">
               <div className="flex items-center gap-2 text-[var(--theme-text-primary)]">

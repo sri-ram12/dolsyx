@@ -102,16 +102,45 @@ export default function ChatSidebar({
 
   const [globalUnlockedKey, setGlobalUnlockedKey] = useState<string>("");
 
+  // Initialize locked chats and global unlock key
   useEffect(() => {
     if (typeof window !== "undefined") {
       setLockedChats(JSON.parse(localStorage.getItem("dolsyx_locked_chats") || "{}"));
       setGlobalUnlockedKey(localStorage.getItem("dolsyx_locked_chat_key") || "");
-
+      
       const handleKeyUpdate = () => {
         setGlobalUnlockedKey(localStorage.getItem("dolsyx_locked_chat_key") || "");
       };
+      
+      const handleOpenLockModal = (e: any) => {
+        setLockingChatId(e.detail.chatId);
+        setLockSecretKey("");
+        setLockFingerprint(false);
+        setShowLockConfigModal(true);
+      };
+
+      const handleUnlockChat = (e: any) => {
+        const chatId = e.detail.chatId;
+        const currentLocked = JSON.parse(localStorage.getItem("dolsyx_locked_chats") || "{}");
+        if (currentLocked[chatId]) {
+          const newLocked = { ...currentLocked };
+          delete newLocked[chatId];
+          localStorage.setItem("dolsyx_locked_chats", JSON.stringify(newLocked));
+          setLockedChats(newLocked);
+          window.dispatchEvent(new Event("dolsyx_locked_chats_updated"));
+          toast("Chat unlocked.", "success");
+        }
+      };
+
       window.addEventListener("dolsyx_locked_chat_key_updated", handleKeyUpdate);
-      return () => window.removeEventListener("dolsyx_locked_chat_key_updated", handleKeyUpdate);
+      window.addEventListener("dolsyx_open_lock_modal", handleOpenLockModal);
+      window.addEventListener("dolsyx_unlock_chat", handleUnlockChat);
+      
+      return () => {
+        window.removeEventListener("dolsyx_locked_chat_key_updated", handleKeyUpdate);
+        window.removeEventListener("dolsyx_open_lock_modal", handleOpenLockModal);
+        window.removeEventListener("dolsyx_unlock_chat", handleUnlockChat);
+      };
     }
   }, []);
   
@@ -386,9 +415,10 @@ export default function ChatSidebar({
     }
     localStorage.setItem("dolsyx_locked_chats", JSON.stringify(newLocked));
     setLockedChats(newLocked);
+    window.dispatchEvent(new Event("dolsyx_locked_chats_updated"));
     setShowLockConfigModal(false);
     setLockingChatId(null);
-    exitSelectionMode();
+    toast("Lock settings saved.", "success");
   };
 
   const handleRemoveLock = () => {
@@ -397,8 +427,10 @@ export default function ChatSidebar({
     delete newLocked[lockingChatId];
     localStorage.setItem("dolsyx_locked_chats", JSON.stringify(newLocked));
     setLockedChats(newLocked);
+    window.dispatchEvent(new Event("dolsyx_locked_chats_updated"));
     setShowLockConfigModal(false);
     setLockingChatId(null);
+    toast("Lock removed.", "success");
     exitSelectionMode();
   };
 
@@ -536,6 +568,7 @@ export default function ChatSidebar({
                         delete newLocked[firstSelected];
                         localStorage.setItem("dolsyx_locked_chats", JSON.stringify(newLocked));
                         setLockedChats(newLocked);
+                        window.dispatchEvent(new Event("dolsyx_locked_chats_updated"));
                         toast("Chat unlocked.", "success");
                         setSelectedChats(new Set());
                         setIsSelectionMode(false);

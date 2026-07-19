@@ -547,7 +547,25 @@ export default function ChatWindow({
   // Header options dropdown & deletion
   const [showHeaderMenu, setShowHeaderMenu] = useState(false);
   const [isDeletingChat, setIsDeletingChat] = useState(false);
+  const [isLocked, setIsLocked] = useState(false);
   const headerMenuRef = useRef<HTMLDivElement>(null);
+
+  // Check if chat is locked
+  useEffect(() => {
+    if (typeof window !== "undefined" && chat) {
+      const checkLocked = () => {
+        const lockedChats = JSON.parse(localStorage.getItem("dolsyx_locked_chats") || "{}");
+        setIsLocked(!!lockedChats[chat.id]);
+      };
+      
+      checkLocked();
+      
+      window.addEventListener("dolsyx_locked_chats_updated", checkLocked);
+      return () => {
+        window.removeEventListener("dolsyx_locked_chats_updated", checkLocked);
+      };
+    }
+  }, [chat]);
 
   // Profile View Modal
   const [profileUser, setProfileUser] = useState<any | null>(null);
@@ -1574,6 +1592,21 @@ export default function ChatWindow({
                 >
                   <ImageIcon className="h-3.5 w-3.5" />
                   Chat Wallpaper
+                </button>
+                <button
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    setShowHeaderMenu(false);
+                    if (isLocked) {
+                      window.dispatchEvent(new CustomEvent("dolsyx_unlock_chat", { detail: { chatId: chat.id } }));
+                    } else {
+                      window.dispatchEvent(new CustomEvent("dolsyx_open_lock_modal", { detail: { chatId: chat.id } }));
+                    }
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-cyan-400 hover:bg-cyan-400/10 transition-colors cursor-pointer"
+                >
+                  <Lock className="h-3.5 w-3.5" />
+                  {isLocked ? "Unlock Chat" : "Lock Chat"}
                 </button>
                 <button
                   onMouseDown={(e) => {

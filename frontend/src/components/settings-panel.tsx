@@ -43,6 +43,7 @@ export default function SettingsPanel({ onClose, onSelectChat, initialTab = "pro
 
   // App Lock
   const [pinEnabled, setPinEnabled] = useState(false);
+  const [lockTimeout, setLockTimeout] = useState("immediately");
   const [currentPinInput, setCurrentPinInput] = useState("");
   const [newPinInput, setNewPinInput] = useState("");
   const [confirmPinInput, setConfirmPinInput] = useState("");
@@ -71,6 +72,7 @@ export default function SettingsPanel({ onClose, onSelectChat, initialTab = "pro
       setCustomNotifName(localStorage.getItem("dolsyx_custom_notif_name") || "");
       setCustomRingName(localStorage.getItem("dolsyx_custom_ring_name") || "");
       setPinEnabled(!!localStorage.getItem("dolsyx_pin_hash"));
+      setLockTimeout(localStorage.getItem("dolsyx_lock_timeout") || "immediately");
       setStatusPrivacy(localStorage.getItem("dolsyx_status_privacy") || "CONTACTS");
     }
   }, []);
@@ -873,6 +875,26 @@ export default function SettingsPanel({ onClose, onSelectChat, initialTab = "pro
                 </button>
               </form>
             )}
+
+            <div className="pt-6 border-t border-[var(--theme-border-color)]">
+              <label className="text-xs font-bold text-[var(--theme-text-primary)]">App Lock Timeout</label>
+              <select
+                value={lockTimeout}
+                onChange={(e) => {
+                  setLockTimeout(e.target.value);
+                  localStorage.setItem("dolsyx_lock_timeout", e.target.value);
+                }}
+                className="mt-2 w-full rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] px-4 py-2.5 text-sm text-[var(--theme-text-primary)] focus:outline-none focus:border-[var(--theme-accent)]"
+              >
+                <option value="immediately">Immediately</option>
+                <option value="5">After 5 minutes</option>
+                <option value="30">After 30 minutes</option>
+                <option value="off">Off</option>
+              </select>
+              <p className="text-[10px] text-[var(--theme-text-secondary)] mt-1.5 mb-6">
+                If enabled, the app will require your PIN/fingerprint after being idle for this duration.
+              </p>
+            </div>
 
             <div className="pt-6 border-t border-[var(--theme-border-color)] mb-6">
               <div className="flex items-center justify-between gap-4">

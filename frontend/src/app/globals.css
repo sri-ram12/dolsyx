@@ -450,3 +450,18 @@ html.font-scale-small { font-size: 15px; }
 html.font-scale-medium { font-size: 17px; }
 html.font-scale-large { font-size: 19px; }
 html { font-size: 17px; }
+
+/* Multi-color shifting animation */
+@keyframes color-shift {
+  0% { color: #facc15; }
+  14% { color: #ef4444; }
+  28% { color: #ec4899; }
+  42% { color: #8b5cf6; }
+  57% { color: #3b82f6; }
+  71% { color: #06b6d4; }
+  85% { color: #10b981; }
+  100% { color: #facc15; }
+}
+.animate-color-shift {
+  animation: color-shift 15s infinite;
+}

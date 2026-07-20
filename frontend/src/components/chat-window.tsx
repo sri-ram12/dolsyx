@@ -2190,7 +2190,7 @@ export default function ChatWindow({
                         <button
                           type="button"
                           disabled={isRecording}
-                          className="flex h-8 w-8 sm:h-10 sm:w-10 items-center justify-center rounded-full text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-all duration-200 cursor-pointer disabled:opacity-50"
+                          className="hidden sm:flex h-8 w-8 sm:h-10 sm:w-10 items-center justify-center rounded-full text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-all duration-200 cursor-pointer disabled:opacity-50"
                           title="Payment"
                         >
                           <div className="h-5 w-5 rounded-full border-[1.5px] border-current flex items-center justify-center">
@@ -2202,7 +2202,7 @@ export default function ChatWindow({
                           type="button"
                           disabled={isRecording}
                           onClick={() => startCamera()}
-                          className="flex h-8 w-8 sm:h-10 sm:w-10 items-center justify-center rounded-full text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-all duration-200 cursor-pointer disabled:opacity-50"
+                          className="hidden sm:flex h-8 w-8 sm:h-10 sm:w-10 items-center justify-center rounded-full text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-all duration-200 cursor-pointer disabled:opacity-50"
                           title="Camera"
                         >
                           <Camera className="h-5 w-5" />
@@ -2216,16 +2216,16 @@ export default function ChatWindow({
                     <button
                       type="button"
                       onClick={startRecording}
-                      className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#111b21] hover:bg-[#202c33] border border-[var(--theme-border-color)] text-white shadow-lg transition-all duration-200 cursor-pointer"
+                      className="flex h-10 w-10 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-full bg-[#111b21] hover:bg-[#202c33] border border-[var(--theme-border-color)] text-white shadow-lg transition-all duration-200 cursor-pointer"
                       title="Hold or Click to Record"
                     >
-                      <Mic className="h-6 w-6" />
+                      <Mic className="h-5 w-5 sm:h-6 sm:w-6" />
                     </button>
                   ) : (
                     <button
                       type="submit"
                       disabled={isRecording || !inputValue.trim()}
-                      className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-white shadow-lg hover:opacity-95 transition-all duration-200 cursor-pointer disabled:opacity-50 animate-fade-in"
+                      className="flex h-10 w-10 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-full text-white shadow-lg hover:opacity-95 transition-all duration-200 cursor-pointer disabled:opacity-50 animate-fade-in"
                       style={{
                         background: "linear-gradient(to top right, #0097a7, #00d4ff)"
                       }}

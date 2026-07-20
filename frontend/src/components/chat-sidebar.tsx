@@ -592,7 +592,7 @@ export default function ChatSidebar({
       ) : (
         // Normal Mode Header
         <div className="flex items-center justify-between border-b border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-header)] px-6 py-5">
-          <span className="text-3xl font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-teal-400">
+          <span className="text-3xl font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-teal-400 animate-color-shift transition-colors duration-1000">
             DOLSYX
           </span>
           <div className="flex items-center gap-2 relative">

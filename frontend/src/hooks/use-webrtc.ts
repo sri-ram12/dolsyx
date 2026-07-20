@@ -194,11 +194,21 @@ export const useWebRTC = ({ onIceCandidate }: UseWebRTCOptions) => {
     const newMode = facingMode === "user" ? "environment" : "user";
     setFacingMode(newMode);
     try {
-      const constraints = {
-        video: { facingMode: { ideal: newMode }, width: { ideal: 640 }, height: { ideal: 480 } },
+      let constraints: any = {
+        video: { facingMode: { exact: newMode }, width: { ideal: 640 }, height: { ideal: 480 } },
         audio: false,
       };
-      const newStream = await navigator.mediaDevices.getUserMedia(constraints);
+      let newStream;
+      try {
+        newStream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (err: any) {
+        if (err.name === 'OverconstrainedError' || err.name === 'ConstraintNotSatisfiedError') {
+          constraints.video.facingMode = { ideal: newMode };
+          newStream = await navigator.mediaDevices.getUserMedia(constraints);
+        } else {
+          throw err;
+        }
+      }
       const newVideoTrack = newStream.getVideoTracks()[0];
       if (!newVideoTrack) return;
 

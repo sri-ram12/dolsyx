@@ -41,6 +41,67 @@ export default function ChatPage() {
     }
   }, []);
 
+  // ── Lock Timeout Logic ───────────────────────────────────────────────────
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    let inactivityTimer: NodeJS.Timeout;
+    
+    const lockApp = () => {
+      sessionStorage.removeItem("dolsyx_unlocked");
+      setIsLocked(true);
+    };
+
+    const resetTimer = () => {
+      const timeoutSetting = localStorage.getItem("dolsyx_lock_timeout") || "immediately";
+      const hasPin = !!localStorage.getItem("dolsyx_pin_hash");
+      const unlocked = sessionStorage.getItem("dolsyx_unlocked") === "true";
+      
+      clearTimeout(inactivityTimer);
+      
+      if (!hasPin || timeoutSetting === "off" || !unlocked) {
+        return;
+      }
+      
+      if (timeoutSetting === "immediately") {
+        return;
+      }
+
+      const mins = parseInt(timeoutSetting, 10);
+      if (!isNaN(mins) && mins > 0) {
+        inactivityTimer = setTimeout(lockApp, mins * 60 * 1000);
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      const hasPin = !!localStorage.getItem("dolsyx_pin_hash");
+      const timeoutSetting = localStorage.getItem("dolsyx_lock_timeout") || "immediately";
+      const unlocked = sessionStorage.getItem("dolsyx_unlocked") === "true";
+      
+      if (!hasPin || timeoutSetting === "off" || !unlocked) return;
+
+      if (document.hidden) {
+        if (timeoutSetting === "immediately") {
+          lockApp();
+        }
+      } else {
+        resetTimer();
+      }
+    };
+
+    const activityEvents = ["mousedown", "keypress", "scroll", "touchstart"];
+    activityEvents.forEach(e => document.addEventListener(e, resetTimer));
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    resetTimer();
+
+    return () => {
+      clearTimeout(inactivityTimer);
+      activityEvents.forEach(e => document.removeEventListener(e, resetTimer));
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
   // ── Audio unlock on first user interaction ────────────────────────────────
   useEffect(() => {
     const unlock = () => { SoundEngine.unlock(); };
@@ -529,15 +590,10 @@ export default function ChatPage() {
 
   if (authLoading || isChatsLoading) {
     return (
-      <div className="flex h-screen w-full items-center justify-center bg-black overflow-hidden relative">
-        <video
-          src="/intro.mp4"
-          autoPlay
-          muted
-          loop
-          playsInline
-          className="w-full h-full object-contain"
-        />
+      <div className="flex h-screen w-full items-center justify-center bg-black">
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-10 w-10 border-4 border-cyan-500/30 border-t-cyan-500 rounded-full animate-spin"></div>
+        </div>
       </div>
     );
   }

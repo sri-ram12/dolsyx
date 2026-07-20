@@ -195,7 +195,7 @@ export const useWebRTC = ({ onIceCandidate }: UseWebRTCOptions) => {
     setFacingMode(newMode);
     try {
       const constraints = {
-        video: { facingMode: newMode, width: { ideal: 640 }, height: { ideal: 480 } },
+        video: { facingMode: { ideal: newMode }, width: { ideal: 640 }, height: { ideal: 480 } },
         audio: false,
       };
       const newStream = await navigator.mediaDevices.getUserMedia(constraints);

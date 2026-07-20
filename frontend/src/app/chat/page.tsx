@@ -529,15 +529,15 @@ export default function ChatPage() {
 
   if (authLoading || isChatsLoading) {
     return (
-      <div className="flex h-screen w-full items-center justify-center" style={{ background: "radial-gradient(ellipse at top, #0a1628, #050d1a, #000814)" }}>
-        <div className="flex flex-col items-center gap-4">
-          <div className="text-4xl font-extrabold tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 via-teal-400 to-cyan-500 animate-pulse">
-            DOLSYX
-          </div>
-          <div className="h-1 w-20 overflow-hidden rounded-full bg-cyan-900/40">
-            <div className="h-full w-full origin-left animate-[pulse_1.5s_infinite_ease-in-out] bg-gradient-to-r from-cyan-400 to-teal-400" />
-          </div>
-        </div>
+      <div className="flex h-screen w-full items-center justify-center bg-black overflow-hidden relative">
+        <video
+          src="/intro.mp4"
+          autoPlay
+          muted
+          loop
+          playsInline
+          className="w-full h-full object-contain"
+        />
       </div>
     );
   }

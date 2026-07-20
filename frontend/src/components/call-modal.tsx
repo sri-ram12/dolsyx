@@ -217,7 +217,9 @@ export default function CallModal({
                   <span className="text-slate-400 text-xs">Decline</span>
                 </div>
                 <div className="flex flex-col items-center gap-2">
-                  <button onClick={onAccept} className="flex items-center justify-center w-16 h-16 rounded-full bg-emerald-600 hover:bg-emerald-500 active:scale-95 transition-all shadow-xl cursor-pointer animate-bounce"><Phone className="w-7 h-7 text-white" /></button>
+                  <button onClick={onAccept} className={`flex items-center justify-center w-16 h-16 rounded-full active:scale-95 transition-all shadow-xl cursor-pointer animate-bounce ${callType === "video" ? "bg-cyan-600 hover:bg-cyan-500" : "bg-emerald-600 hover:bg-emerald-500"}`}>
+                    {callType === "video" ? <Video className="w-7 h-7 text-white" /> : <Phone className="w-7 h-7 text-white" />}
+                  </button>
                   <span className="text-slate-400 text-xs">Accept</span>
                 </div>
               </div>

@@ -2107,9 +2107,9 @@ export default function ChatWindow({
               </div>
             ) : (
               <form onSubmit={handleSendMessage} className="p-2 sm:px-4 sm:py-3 relative animate-fade-in border-t border-[var(--theme-border-color)]/20 bg-[var(--theme-bg-chat-input)]">
-                <div className="flex items-center gap-2 sm:gap-3 h-14 min-h-[56px]">
+                <div className="flex items-center gap-2 sm:gap-3 py-1">
                   {/* Cylinder wrapper */}
-                  <div className="flex-1 flex items-center bg-[var(--theme-bg-sidebar-search)] rounded-full border border-[var(--theme-border-color)] px-1 h-12 relative focus-within:border-[var(--theme-accent)] focus-within:ring-1 focus-within:ring-[var(--theme-accent)] transition-all">
+                  <div className="flex-1 flex items-center bg-[var(--theme-bg-sidebar-search)] rounded-full border border-[var(--theme-border-color)] px-1 py-1 relative focus-within:border-[var(--theme-accent)] focus-within:ring-1 focus-within:ring-[var(--theme-accent)] transition-all min-h-[48px]">
                     
                     {/* Emoji Picker Button inside cylinder */}
                     <div className="relative hidden sm:block shrink-0" ref={emojiPickerRef}>
@@ -2177,7 +2177,7 @@ export default function ChatWindow({
                           type="button"
                           disabled={isUploadingFile}
                           onClick={() => fileInputRef.current?.click()}
-                          className="flex h-10 w-10 items-center justify-center rounded-full text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-all duration-200 cursor-pointer disabled:opacity-50"
+                          className="flex h-8 w-8 sm:h-10 sm:w-10 items-center justify-center rounded-full text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-all duration-200 cursor-pointer disabled:opacity-50"
                           title="Attach File"
                         >
                           {isUploadingFile ? (
@@ -2190,7 +2190,7 @@ export default function ChatWindow({
                         <button
                           type="button"
                           disabled={isRecording}
-                          className="flex h-10 w-10 items-center justify-center rounded-full text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-all duration-200 cursor-pointer disabled:opacity-50"
+                          className="flex h-8 w-8 sm:h-10 sm:w-10 items-center justify-center rounded-full text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-all duration-200 cursor-pointer disabled:opacity-50"
                           title="Payment"
                         >
                           <div className="h-5 w-5 rounded-full border-[1.5px] border-current flex items-center justify-center">
@@ -2202,7 +2202,7 @@ export default function ChatWindow({
                           type="button"
                           disabled={isRecording}
                           onClick={() => startCamera()}
-                          className="flex h-10 w-10 items-center justify-center rounded-full text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-all duration-200 cursor-pointer disabled:opacity-50"
+                          className="flex h-8 w-8 sm:h-10 sm:w-10 items-center justify-center rounded-full text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-all duration-200 cursor-pointer disabled:opacity-50"
                           title="Camera"
                         >
                           <Camera className="h-5 w-5" />

@@ -27,7 +27,7 @@ export default function AppLock({ onUnlock }: AppLockProps) {
   const [pinLength, setPinLength] = useState(4);
 
   useEffect(() => {
-    if (user && typeof window !== "undefined") {
+    if (user && user.email && typeof window !== "undefined") {
       const bioEnabled = localStorage.getItem(`dolsyx_bio_enabled_${user.email.toLowerCase()}`);
       if (bioEnabled === "true") {
         setBioAvailable(true);
@@ -36,7 +36,7 @@ export default function AppLock({ onUnlock }: AppLockProps) {
   }, [user]);
 
   const handleBioUnlock = async () => {
-    if (!user) return;
+    if (!user || !user.email) return;
     try {
       const credIdBase64 = localStorage.getItem(`dolsyx_bio_cred_id_${user.email.toLowerCase()}`);
       if (!credIdBase64) throw new Error("No credentials found");

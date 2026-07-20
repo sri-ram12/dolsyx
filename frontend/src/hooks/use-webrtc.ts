@@ -194,29 +194,43 @@ export const useWebRTC = ({ onIceCandidate }: UseWebRTCOptions) => {
     const newMode = facingMode === "user" ? "environment" : "user";
     setFacingMode(newMode);
     try {
-      let constraints: any = {
-        video: { facingMode: { exact: newMode }, width: { ideal: 640 }, height: { ideal: 480 } },
-        audio: false,
-      };
-      let newStream;
-      try {
-        newStream = await navigator.mediaDevices.getUserMedia(constraints);
-      } catch (err: any) {
-        if (err.name === 'OverconstrainedError' || err.name === 'ConstraintNotSatisfiedError') {
-          constraints.video.facingMode = { ideal: newMode };
-          newStream = await navigator.mediaDevices.getUserMedia(constraints);
-        } else {
-          throw err;
-        }
+      const oldVideoTrack = localStreamRef.current.getVideoTracks()[0];
+      if (oldVideoTrack) {
+        oldVideoTrack.stop();
+        localStreamRef.current.removeTrack(oldVideoTrack);
       }
+
+      let newStream: MediaStream | null = null;
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(d => d.kind === 'videoinput');
+        
+        let targetDevice = null;
+        if (newMode === 'environment') {
+          targetDevice = videoDevices.find(d => d.label.toLowerCase().includes('back') || d.label.toLowerCase().includes('environment'));
+        } else {
+          targetDevice = videoDevices.find(d => d.label.toLowerCase().includes('front') || d.label.toLowerCase().includes('user'));
+        }
+
+        let constraints: any = {
+          video: targetDevice ? { deviceId: { exact: targetDevice.deviceId } } : { facingMode: { exact: newMode } },
+          audio: false,
+        };
+
+        try {
+          newStream = await navigator.mediaDevices.getUserMedia(constraints);
+        } catch (err: any) {
+          constraints.video = { facingMode: { ideal: newMode } };
+          newStream = await navigator.mediaDevices.getUserMedia(constraints);
+        }
+      } catch (err: any) {
+        newStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      }
+      
+      if (!newStream) return;
       const newVideoTrack = newStream.getVideoTracks()[0];
       if (!newVideoTrack) return;
 
-      const videoTrack = localStreamRef.current.getVideoTracks()[0];
-      if (videoTrack) {
-        videoTrack.stop();
-        localStreamRef.current.removeTrack(videoTrack);
-      }
       localStreamRef.current.addTrack(newVideoTrack);
       setLocalStream(new MediaStream(localStreamRef.current.getTracks()));
 

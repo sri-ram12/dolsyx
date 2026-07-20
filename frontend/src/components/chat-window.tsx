@@ -2112,7 +2112,7 @@ export default function ChatWindow({
                   <div className="flex-1 flex items-center bg-[var(--theme-bg-sidebar-search)] rounded-full border border-[var(--theme-border-color)] px-1 py-1 relative focus-within:border-[var(--theme-accent)] focus-within:ring-1 focus-within:ring-[var(--theme-accent)] transition-all min-h-[48px]">
                     
                     {/* Emoji Picker Button inside cylinder */}
-                    <div className="relative hidden sm:block shrink-0" ref={emojiPickerRef}>
+                    <div className="relative shrink-0" ref={emojiPickerRef}>
                       <button
                         type="button"
                         disabled={isRecording}
@@ -2202,7 +2202,7 @@ export default function ChatWindow({
                           type="button"
                           disabled={isRecording}
                           onClick={() => startCamera()}
-                          className="hidden sm:flex h-8 w-8 sm:h-10 sm:w-10 items-center justify-center rounded-full text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-all duration-200 cursor-pointer disabled:opacity-50"
+                          className="flex h-8 w-8 sm:h-10 sm:w-10 items-center justify-center rounded-full text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-all duration-200 cursor-pointer disabled:opacity-50"
                           title="Camera"
                         >
                           <Camera className="h-5 w-5" />

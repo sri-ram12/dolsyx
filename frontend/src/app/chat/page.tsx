@@ -588,15 +588,7 @@ export default function ChatPage() {
     setSelectedChat(newChat);
   };
 
-  if (authLoading || isChatsLoading) {
-    return (
-      <div className="flex h-screen w-full items-center justify-center bg-black">
-        <div className="flex flex-col items-center gap-4">
-          <div className="h-10 w-10 border-4 border-cyan-500/30 border-t-cyan-500 rounded-full animate-spin"></div>
-        </div>
-      </div>
-    );
-  }
+
 
   return (
     <div className="flex h-screen w-screen overflow-hidden" style={{ background: "var(--theme-bg-app)" }}>

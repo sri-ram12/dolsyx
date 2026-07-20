@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { Lock, ArrowRight, ShieldAlert } from "lucide-react";
+import { Lock, ArrowRight, ShieldAlert, Fingerprint } from "lucide-react";
 import { useTheme } from "@/context/theme-context";
+import { useAuth } from "@/context/auth-context";
 
 interface AppLockProps {
   onUnlock: () => void;
@@ -12,16 +13,54 @@ export default function AppLock({ onUnlock }: AppLockProps) {
   const [pinDigits, setPinDigits] = useState<string[]>(Array(4).fill(""));
   const [error, setError] = useState("");
   const { theme } = useTheme();
+  const { user } = useAuth();
+  const [bioAvailable, setBioAvailable] = useState(false);
   const inputRefs = [
     useRef<HTMLInputElement>(null),
     useRef<HTMLInputElement>(null),
     useRef<HTMLInputElement>(null),
     useRef<HTMLInputElement>(null),
     useRef<HTMLInputElement>(null),
-    useRef<HTMLInputElement>(null), // Supports up to 6 digits dynamically
+    useRef<HTMLInputElement>(null),
   ];
 
   const [pinLength, setPinLength] = useState(4);
+
+  useEffect(() => {
+    if (user && typeof window !== "undefined") {
+      const bioEnabled = localStorage.getItem(`dolsyx_bio_enabled_${user.email.toLowerCase()}`);
+      if (bioEnabled === "true") {
+        setBioAvailable(true);
+      }
+    }
+  }, [user]);
+
+  const handleBioUnlock = async () => {
+    if (!user) return;
+    try {
+      const credIdBase64 = localStorage.getItem(`dolsyx_bio_cred_id_${user.email.toLowerCase()}`);
+      if (!credIdBase64) throw new Error("No credentials found");
+      const credId = new Uint8Array(atob(credIdBase64).split("").map(c => c.charCodeAt(0)));
+      
+      const challenge = new Uint8Array(32);
+      window.crypto.getRandomValues(challenge);
+      
+      const credential = await navigator.credentials.get({
+        publicKey: {
+          challenge,
+          allowCredentials: [{ type: "public-key", id: credId }],
+          userVerification: "required"
+        }
+      });
+      if (credential) {
+        sessionStorage.setItem("dolsyx_unlocked", "true");
+        onUnlock();
+      }
+    } catch (err: any) {
+      console.error(err);
+      setError("Biometric verification failed.");
+    }
+  };
 
   useEffect(() => {
     // Detect PIN configuration length from local storage hash target
@@ -142,6 +181,19 @@ export default function AppLock({ onUnlock }: AppLockProps) {
             Switch to {pinLength === 4 ? "6" : "4"}-digit PIN entry
           </button>
         </div>
+
+        {/* Biometric Unlock Button */}
+        {bioAvailable && (
+          <div className="pt-4 mt-4 border-t border-zinc-800">
+            <button
+              onClick={handleBioUnlock}
+              className="flex items-center justify-center gap-2 w-full py-3 rounded-xl bg-[var(--theme-accent)]/10 text-[var(--theme-accent)] hover:bg-[var(--theme-accent)]/20 transition-all font-bold text-sm cursor-pointer"
+            >
+              <Fingerprint className="h-5 w-5" />
+              Unlock with Fingerprint
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

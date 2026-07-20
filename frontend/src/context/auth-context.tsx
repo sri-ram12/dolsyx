@@ -105,6 +105,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
     localStorage.removeItem("dolsyx_token");
+    localStorage.removeItem("dolsyx_pin_hash");
+    localStorage.removeItem("dolsyx_bio_enabled");
+    sessionStorage.removeItem("dolsyx_unlocked");
     setToken(null);
     setUser(null);
     router.push("/login");

@@ -84,6 +84,70 @@ export default function StatusPanel({ onClose, onNewStatus }: StatusPanelProps) 
   const [showViewsList, setShowViewsList] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Camera State
+  const [showCamera, setShowCamera] = useState(false);
+  const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  const startCamera = async (mode: "user" | "environment" = facingMode) => {
+    try {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(t => t.stop());
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: mode }
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+      setShowCamera(true);
+      setFacingMode(mode);
+    } catch (e) {
+      toast("Camera access denied or unavailable", "error");
+    }
+  };
+
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+    }
+    setShowCamera(false);
+  };
+
+  const capturePhoto = () => {
+    if (videoRef.current) {
+      const canvas = document.createElement("canvas");
+      canvas.width = videoRef.current.videoWidth;
+      canvas.height = videoRef.current.videoHeight;
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.drawImage(videoRef.current, 0, 0);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+        fetch(dataUrl)
+          .then(res => res.blob())
+          .then(blob => {
+            const file = new File([blob], `capture_${Date.now()}.jpg`, { type: "image/jpeg" });
+            setMediaFile(file);
+            setMediaPreview(dataUrl);
+            setCreateType("IMAGE");
+            stopCamera();
+          });
+      }
+    }
+  };
+
+  const toggleCamera = () => {
+    startCamera(facingMode === "user" ? "environment" : "user");
+  };
+
+  // Cleanup camera on unmount
+  useEffect(() => {
+    return () => stopCamera();
+  }, []);
+
   // Fetch statuses
   const fetchStatuses = async () => {
     if (!token) return;
@@ -578,18 +642,14 @@ export default function StatusPanel({ onClose, onNewStatus }: StatusPanelProps) 
             {/* Type selector */}
             <div className="flex gap-2 px-5 pt-4">
               {[
-                { type: "TEXT" as const, icon: Type, label: "Text" },
-                { type: "IMAGE" as const, icon: ImageIcon, label: "Image" },
-                { type: "VIDEO" as const, icon: Video, label: "Video" },
-              ].map(({ type, icon: Icon, label }) => (
+                { type: "TEXT" as const, icon: Type, label: "Text", action: () => setCreateType("TEXT") },
+                { type: "IMAGE" as const, icon: ImageIcon, label: "Image", action: () => { setCreateType("IMAGE"); fileInputRef.current?.click(); } },
+                { type: "VIDEO" as const, icon: Video, label: "Video", action: () => { setCreateType("VIDEO"); fileInputRef.current?.click(); } },
+                { type: "CAMERA" as const, icon: Camera, label: "Camera", action: () => startCamera("user") },
+              ].map(({ type, icon: Icon, label, action }) => (
                 <button
-                  key={type}
-                  onClick={() => {
-                    setCreateType(type);
-                    if (type === "IMAGE" || type === "VIDEO") {
-                      fileInputRef.current?.click();
-                    }
-                  }}
+                  key={label}
+                  onClick={action}
                   className={`flex-1 flex flex-col items-center gap-1 rounded-xl py-2.5 border transition-all cursor-pointer text-xs font-semibold ${
                     createType === type
                       ? "border-[var(--theme-accent)] bg-[var(--theme-accent)]/10 text-[var(--theme-accent)]"
@@ -684,6 +744,43 @@ export default function StatusPanel({ onClose, onNewStatus }: StatusPanelProps) 
                 {isUploading ? "Uploading..." : isPosting ? "Posting..." : "Post Status"}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Camera Modal */}
+      {showCamera && (
+        <div className="fixed inset-0 z-[10000] flex flex-col bg-black animate-fade-in">
+          <div className="absolute top-4 left-4 right-4 flex items-center justify-between z-10">
+            <button
+              onClick={stopCamera}
+              className="p-3 rounded-full bg-black/50 hover:bg-black/70 text-white transition-colors cursor-pointer"
+            >
+              <X className="h-6 w-6" />
+            </button>
+            <button
+              onClick={toggleCamera}
+              className="p-3 rounded-full bg-black/50 hover:bg-black/70 text-white transition-colors cursor-pointer"
+            >
+              <Camera className="h-6 w-6" />
+            </button>
+          </div>
+          
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            className="flex-1 object-cover w-full h-full"
+          />
+
+          <div className="absolute bottom-12 left-0 right-0 flex justify-center z-10">
+            <button
+              onClick={capturePhoto}
+              className="h-20 w-20 rounded-full border-4 border-white/50 bg-white/20 hover:bg-white/40 transition-colors flex items-center justify-center cursor-pointer"
+            >
+              <div className="h-16 w-16 rounded-full bg-white shadow-lg" />
+            </button>
           </div>
         </div>
       )}

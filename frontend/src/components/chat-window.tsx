@@ -570,6 +570,7 @@ export default function ChatWindow({
   }, [chat]);
 
   // Profile View Modal
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [profileUser, setProfileUser] = useState<any | null>(null);
 
   // Camera Capture State
@@ -934,20 +935,25 @@ export default function ChatWindow({
     });
   };
 
-  const handleDeleteSelected = async () => {
+  const executeDelete = async (deleteType: "me" | "everyone") => {
     if (!socket || !chat || selectedMessageIds.size === 0) return;
     
-    // We will delete for me for all selected messages
     for (const msgId of selectedMessageIds) {
       socket.emit("delete_message", {
         messageId: msgId,
-        deleteType: "me",
+        deleteType,
       });
     }
 
+    setShowDeleteModal(false);
     setIsSelectionMode(false);
     setSelectedMessageIds(new Set());
-    toast("Selected messages deleted.", "success");
+    toast(`Selected messages deleted.`, "success");
+  };
+
+  const handleDeleteSelected = () => {
+    if (selectedMessageIds.size === 0) return;
+    setShowDeleteModal(true);
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1512,17 +1518,17 @@ export default function ChatWindow({
             <>
               <button
                 onClick={() => onStartCall("audio")}
-                className="flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/55 text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-all cursor-pointer"
+                className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-[var(--theme-bg-sidebar-item-hover)] text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-all cursor-pointer"
                 title="Voice Call"
               >
-                <Phone className="h-4 w-4" />
+                <Phone className="h-5 w-5" />
               </button>
               <button
                 onClick={() => onStartCall("video")}
-                className="flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/55 text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-all cursor-pointer"
+                className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-[var(--theme-bg-sidebar-item-hover)] text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-all cursor-pointer"
                 title="Video Call"
               >
-                <Video className="h-4 w-4" />
+                <Video className="h-5 w-5" />
               </button>
             </>
           )}
@@ -2109,38 +2115,23 @@ export default function ChatWindow({
               <form onSubmit={handleSendMessage} className="p-2 sm:px-4 sm:py-3 relative animate-fade-in border-t border-[var(--theme-border-color)]/20 bg-[var(--theme-bg-chat-input)]">
                 <div className="flex items-center gap-2 sm:gap-3 py-1">
                   {/* Cylinder wrapper */}
-                  <div className="flex-1 flex items-center bg-[var(--theme-bg-sidebar-search)] rounded-full border border-[var(--theme-border-color)] px-1 py-1 relative focus-within:border-[var(--theme-accent)] focus-within:ring-1 focus-within:ring-[var(--theme-accent)] transition-all min-h-[48px]">
+                  <div className="flex-1 min-w-0 flex items-center bg-[var(--theme-bg-sidebar-search)] rounded-3xl border border-[var(--theme-border-color)] px-0.5 sm:px-1 py-0.5 sm:py-1 relative focus-within:border-[var(--theme-accent)] focus-within:ring-1 focus-within:ring-[var(--theme-accent)] transition-all min-h-[44px] sm:min-h-[48px]">
                     
-                    {/* Emoji Picker Button inside cylinder */}
+                    {/* Emoji Button inside cylinder */}
                     <div className="relative shrink-0" ref={emojiPickerRef}>
                       <button
                         type="button"
                         disabled={isRecording}
                         onClick={() => setShowEmojiPicker((v) => !v)}
-                        className={`flex h-10 w-10 items-center justify-center rounded-full transition-all duration-200 cursor-pointer ${
+                        className={`flex h-8 w-8 sm:h-10 sm:w-10 items-center justify-center rounded-full transition-all duration-200 cursor-pointer ${
                           showEmojiPicker
                             ? "text-[var(--theme-accent)] bg-[var(--theme-accent)]/10"
                             : "text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-sidebar-item-hover)]"
                         }`}
                         title="Emoji"
                       >
-                        <Smile className="h-6 w-6" />
+                        <Smile className="h-5 w-5 sm:h-6 sm:w-6" />
                       </button>
-
-                      {showEmojiPicker && (
-                        <div className="absolute bottom-16 left-0 z-50 shadow-2xl rounded-2xl overflow-hidden animate-fade-in">
-                          <EmojiPicker
-                            onEmojiClick={(emojiData) => {
-                              onEmojiClick(emojiData);
-                            }}
-                            theme={(theme === "aqua-light" ? "light" : "dark") as Theme}
-                            width={320}
-                            height={420}
-                            searchPlaceholder="Search emoji..."
-                            previewConfig={{ showPreview: false }}
-                          />
-                        </div>
-                      )}
                     </div>
 
                     {/* Input Field or Recording State */}
@@ -2172,7 +2163,7 @@ export default function ChatWindow({
 
                     {/* Right-side Icons inside cylinder */}
                     {!isRecording && (
-                      <div className="flex items-center gap-0.5 pr-1 shrink-0">
+                      <div className="flex items-center gap-0.5 sm:gap-1 pr-0.5 sm:pr-1 shrink-0 overflow-x-auto no-scrollbar max-w-[50%] sm:max-w-none">
                         <button
                           type="button"
                           disabled={isUploadingFile}
@@ -2235,6 +2226,22 @@ export default function ChatWindow({
                   )}
                 </div>
               </form>
+            )}
+
+            {/* Docked Emoji Picker beneath input bar */}
+            {showEmojiPicker && (
+              <div className="w-full bg-[var(--theme-bg-chat-input)] border-t border-[var(--theme-border-color)]/20 animate-fade-in flex justify-center pb-2">
+                <EmojiPicker
+                  onEmojiClick={(emojiData) => {
+                    onEmojiClick(emojiData);
+                  }}
+                  theme={(theme === "aqua-light" ? "light" : "dark") as Theme}
+                  width="100%"
+                  height={300}
+                  searchPlaceholder="Search emoji..."
+                  previewConfig={{ showPreview: false }}
+                />
+              </div>
             )}
           </>
         )}
@@ -2553,6 +2560,36 @@ export default function ChatWindow({
             </div>
           </div>
 
+          {/* Call Actions */}
+          {onStartCall && profileUser.id !== user?.id && (
+            <div className="flex justify-center gap-6 pb-6 px-4">
+              <button
+                onClick={() => {
+                  setProfileUser(null);
+                  onStartCall("audio");
+                }}
+                className="flex flex-col items-center gap-2 group cursor-pointer"
+              >
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--theme-accent)]/10 text-[var(--theme-accent)] group-hover:bg-[var(--theme-accent)]/20 transition-colors">
+                  <Phone className="h-5 w-5" />
+                </div>
+                <span className="text-xs font-bold text-[var(--theme-text-secondary)] group-hover:text-[var(--theme-accent)] transition-colors">Voice</span>
+              </button>
+              <button
+                onClick={() => {
+                  setProfileUser(null);
+                  onStartCall("video");
+                }}
+                className="flex flex-col items-center gap-2 group cursor-pointer"
+              >
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--theme-accent)]/10 text-[var(--theme-accent)] group-hover:bg-[var(--theme-accent)]/20 transition-colors">
+                  <Video className="h-5 w-5" />
+                </div>
+                <span className="text-xs font-bold text-[var(--theme-text-secondary)] group-hover:text-[var(--theme-accent)] transition-colors">Video</span>
+              </button>
+            </div>
+          )}
+
           {/* Info Cards */}
           <div className="flex flex-col gap-4 px-4 pb-10 max-w-lg w-full mx-auto">
             {/* About */}
@@ -2777,6 +2814,43 @@ export default function ChatWindow({
                   );
                 })
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 px-4 animate-fade-in backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl bg-[var(--theme-bg-sidebar)] p-6 shadow-2xl border border-[var(--theme-border-color)]">
+            <h3 className="text-lg font-bold text-[var(--theme-text-primary)] mb-2">Delete message?</h3>
+            <p className="text-sm text-[var(--theme-text-secondary)] mb-6">
+              This action cannot be undone.
+            </p>
+            <div className="flex flex-col gap-3">
+              {Array.from(selectedMessageIds).every((id) => {
+                const msg = messages.find((m) => m.id === id);
+                return msg && msg.senderId === user?.id;
+              }) && (
+                <button
+                  onClick={() => executeDelete("everyone")}
+                  className="w-full py-3 rounded-xl bg-red-500/10 text-red-500 font-bold hover:bg-red-500/20 transition-all cursor-pointer border border-red-500/20"
+                >
+                  Delete for everyone
+                </button>
+              )}
+              <button
+                onClick={() => executeDelete("me")}
+                className="w-full py-3 rounded-xl bg-[var(--theme-bg-sidebar-search)] text-[var(--theme-text-primary)] font-bold hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-all cursor-pointer border border-[var(--theme-border-color)]"
+              >
+                Delete for me
+              </button>
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                className="w-full py-3 rounded-xl font-bold text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-all cursor-pointer mt-1"
+              >
+                Cancel
+              </button>
             </div>
           </div>
         </div>

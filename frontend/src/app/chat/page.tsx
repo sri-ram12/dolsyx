@@ -314,6 +314,25 @@ export default function ChatPage() {
   // Fetch conversations list
   const fetchChats = useCallback(async () => {
     if (!token) return;
+
+    // Load offline chats immediately if available
+    try {
+      const cached = localStorage.getItem("dolsyx_offline_chats");
+      if (cached) {
+        const data = JSON.parse(cached);
+        setChats(data);
+        const initialUnreads: Record<string, number> = {};
+        data.forEach((c: any) => {
+          if (c.unreadCount > 0) {
+            initialUnreads[c.id] = c.unreadCount;
+          }
+        });
+        setUnreadCounts(initialUnreads);
+      }
+    } catch (e) {
+      console.warn("Could not load offline chats", e);
+    }
+
     // Safety timeout – if the request hangs for >10s, release the loading spinner
     const timeoutId = setTimeout(() => setIsChatsLoading(false), 10000);
     try {
@@ -327,6 +346,9 @@ export default function ChatPage() {
         const data = await res.json();
         setChats(data);
 
+        // Cache for offline
+        localStorage.setItem("dolsyx_offline_chats", JSON.stringify(data));
+
         // Populate initial unread counts from persistent database state
         const initialUnreads: Record<string, number> = {};
         data.forEach((c: any) => {
@@ -338,6 +360,7 @@ export default function ChatPage() {
       }
     } catch (err) {
       console.error("Error fetching chats:", err);
+      // If network fails and we have no cached chats, we still stop loading
     } finally {
       clearTimeout(timeoutId);
       setIsChatsLoading(false);

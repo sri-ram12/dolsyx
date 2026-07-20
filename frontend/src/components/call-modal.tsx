@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Phone, Video, PhoneOff, Mic, MicOff, VideoOff, Volume2, VolumeX, Camera, User, RefreshCw } from "lucide-react";
 import { getAvatarUrl } from "@/utils/avatar";
 import { SoundEngine } from "@/utils/sound";
@@ -82,6 +82,31 @@ export default function CallModal({
   onSwitchCamera,
   duration
 }: CallModalProps) {
+  const [localVideoPosition, setLocalVideoPosition] = useState({ x: 16, y: 96 });
+  const [isDraggingLocal, setIsDraggingLocal] = useState(false);
+  const [isLocalFullScreen, setIsLocalFullScreen] = useState(false);
+  const dragStartRef = useRef<{ x: number, y: number, startPosX: number, startPosY: number } | null>(null);
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    dragStartRef.current = { x: e.clientX, y: e.clientY, startPosX: localVideoPosition.x, startPosY: localVideoPosition.y };
+    setIsDraggingLocal(true);
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDraggingLocal || !dragStartRef.current) return;
+    const dx = e.clientX - dragStartRef.current.x;
+    const dy = e.clientY - dragStartRef.current.y;
+    setLocalVideoPosition({
+      x: dragStartRef.current.startPosX - dx,
+      y: dragStartRef.current.startPosY + dy
+    });
+  };
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    setIsDraggingLocal(false);
+    dragStartRef.current = null;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+  };
+
   useEffect(() => {
     if (status === "incoming" && isOpen) SoundEngine.playRingtone();
     else SoundEngine.stopRingtone();
@@ -100,7 +125,9 @@ export default function CallModal({
 
       {isVideoConnected ? (
         <div className="relative flex-1 bg-black overflow-hidden">
-          {remoteStream ? (
+          {isLocalFullScreen ? (
+            <VideoPlayer stream={localStream} muted mirror className="absolute inset-0 w-full h-full object-cover" />
+          ) : remoteStream ? (
             <VideoPlayer stream={remoteStream} className="absolute inset-0 w-full h-full object-cover" />
           ) : (
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950">
@@ -111,13 +138,39 @@ export default function CallModal({
               <p className="text-slate-400 text-sm mt-1">Connecting video...</p>
             </div>
           )}
-          <div className="absolute top-0 left-0 right-0 z-20 px-4 pt-12 pb-8 bg-gradient-to-b from-black/70 to-transparent">
+          
+          <div className="absolute top-0 left-0 right-0 z-20 px-4 pt-12 pb-8 bg-gradient-to-b from-black/70 to-transparent pointer-events-none">
             <p className="text-white text-center font-bold text-xl tracking-wide">{callerName}</p>
             <p className="text-slate-300 text-center text-sm">{statusText}</p>
           </div>
-          {!isCameraOff && localStream && (
-            <div className="absolute top-24 right-4 w-28 h-44 rounded-2xl overflow-hidden border-2 border-white/25 shadow-2xl z-20 bg-slate-900">
-              <VideoPlayer stream={localStream} muted mirror className="w-full h-full object-cover" />
+
+          {!isLocalFullScreen && !isCameraOff && localStream && (
+            <div 
+              className="absolute w-28 h-44 rounded-2xl overflow-hidden border-2 border-white/25 shadow-2xl z-30 bg-slate-900 cursor-move"
+              style={{ top: `${localVideoPosition.y}px`, right: `${localVideoPosition.x}px`, touchAction: 'none' }}
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerCancel={handlePointerUp}
+              onDoubleClick={() => setIsLocalFullScreen(true)}
+              title="Double click to maximize"
+            >
+              <VideoPlayer stream={localStream} muted mirror className="w-full h-full object-cover pointer-events-none" />
+            </div>
+          )}
+
+          {isLocalFullScreen && remoteStream && (
+            <div 
+              className="absolute w-28 h-44 rounded-2xl overflow-hidden border-2 border-white/25 shadow-2xl z-30 bg-slate-900 cursor-move"
+              style={{ top: `${localVideoPosition.y}px`, right: `${localVideoPosition.x}px`, touchAction: 'none' }}
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerCancel={handlePointerUp}
+              onDoubleClick={() => setIsLocalFullScreen(false)}
+              title="Double click to maximize"
+            >
+              <VideoPlayer stream={remoteStream} className="w-full h-full object-cover pointer-events-none" />
             </div>
           )}
           <div className="absolute bottom-0 left-0 right-0 z-20 pb-12 pt-6 px-8 bg-gradient-to-t from-black/75 to-transparent">

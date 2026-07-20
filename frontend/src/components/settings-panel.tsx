@@ -15,7 +15,7 @@ interface SettingsPanelProps {
 
 export default function SettingsPanel({ onClose, onSelectChat, initialTab = "profile" }: SettingsPanelProps) {
   const { user, token, logout, updateUser } = useAuth();
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, fontSize, setFontSize } = useTheme();
   const [activeTab, setActiveTab] = useState<"profile" | "display" | "audio" | "privacy" | "lock">(initialTab);
 
   // Profile Form States
@@ -49,7 +49,6 @@ export default function SettingsPanel({ onClose, onSelectChat, initialTab = "pro
   const [pinError, setPinError] = useState("");
   const [pinSuccess, setPinSuccess] = useState("");
   const [bioEnabled, setBioEnabled] = useState(false);
-  const [fontScale, setFontScale] = useState(1.0);
   const [showQr, setShowQr] = useState(false);
   const [statusPrivacy, setStatusPrivacy] = useState("CONTACTS");
   const [showFullAvatar, setShowFullAvatar] = useState(false);
@@ -73,17 +72,8 @@ export default function SettingsPanel({ onClose, onSelectChat, initialTab = "pro
       setCustomRingName(localStorage.getItem("dolsyx_custom_ring_name") || "");
       setPinEnabled(!!localStorage.getItem("dolsyx_pin_hash"));
       setStatusPrivacy(localStorage.getItem("dolsyx_status_privacy") || "CONTACTS");
-      const storedScale = parseFloat(localStorage.getItem("dolsyx_font_scale") || "1.0");
-      setFontScale(storedScale);
-      document.documentElement.style.fontSize = `${storedScale * 16}px`;
     }
   }, []);
-
-  const handleFontScaleChange = (val: number) => {
-    setFontScale(val);
-    localStorage.setItem("dolsyx_font_scale", val.toString());
-    document.documentElement.style.fontSize = `${val * 16}px`;
-  };
 
   // Load Blocked Users list
   useEffect(() => {
@@ -711,16 +701,16 @@ export default function SettingsPanel({ onClose, onSelectChat, initialTab = "pro
               <h4 className="font-bold text-sm text-[var(--theme-text-primary)]">Font Size</h4>
               <div className="grid grid-cols-3 gap-2">
                 {[
-                  { label: "Small", value: 0.875 },
-                  { label: "Medium", value: 1.0 },
-                  { label: "Large", value: 1.125 }
+                  { label: "Small", value: "small" },
+                  { label: "Medium", value: "medium" },
+                  { label: "Large", value: "large" }
                 ].map((opt) => (
                   <button
                     key={opt.label}
                     type="button"
-                    onClick={() => handleFontScaleChange(opt.value)}
+                    onClick={() => setFontSize(opt.value as any)}
                     className={`py-2 rounded-xl text-center text-xs font-bold border transition-all cursor-pointer ${
-                      fontScale === opt.value
+                      fontSize === opt.value
                         ? "bg-[var(--theme-accent)] text-[var(--theme-accent-text)] border-transparent shadow-md"
                         : "border-[var(--theme-border-color)] text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]"
                     }`}

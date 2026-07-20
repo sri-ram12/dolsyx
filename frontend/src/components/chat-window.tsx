@@ -37,6 +37,7 @@ import {
   Star,
   Share2,
   Lock,
+  IndianRupee,
 } from "lucide-react";
 import { Socket } from "socket.io-client";
 import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
@@ -2107,95 +2108,115 @@ export default function ChatWindow({
             ) : (
               <form onSubmit={handleSendMessage} className="p-2 sm:px-4 sm:py-3 relative animate-fade-in border-t border-[var(--theme-border-color)]/20 bg-[var(--theme-bg-chat-input)]">
                 <div className="flex items-center gap-2 sm:gap-3 h-14 min-h-[56px]">
-                  {/* File Upload Button */}
-                  <button
-                    type="button"
-                    disabled={isUploadingFile || isRecording}
-                    onClick={() => fileInputRef.current?.click()}
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/55 text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-all duration-200 cursor-pointer disabled:opacity-50"
-                    title="Attach File"
-                  >
-                    {isUploadingFile ? (
-                      <Loader2 className="h-5 w-5 animate-spin text-[var(--theme-accent)]" />
+                  {/* Cylinder wrapper */}
+                  <div className="flex-1 flex items-center bg-[var(--theme-bg-sidebar-search)] rounded-full border border-[var(--theme-border-color)] px-1 h-12 relative focus-within:border-[var(--theme-accent)] focus-within:ring-1 focus-within:ring-[var(--theme-accent)] transition-all">
+                    
+                    {/* Emoji Picker Button inside cylinder */}
+                    <div className="relative hidden sm:block shrink-0" ref={emojiPickerRef}>
+                      <button
+                        type="button"
+                        disabled={isRecording}
+                        onClick={() => setShowEmojiPicker((v) => !v)}
+                        className={`flex h-10 w-10 items-center justify-center rounded-full transition-all duration-200 cursor-pointer ${
+                          showEmojiPicker
+                            ? "text-[var(--theme-accent)] bg-[var(--theme-accent)]/10"
+                            : "text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-sidebar-item-hover)]"
+                        }`}
+                        title="Emoji"
+                      >
+                        <Smile className="h-6 w-6" />
+                      </button>
+
+                      {showEmojiPicker && (
+                        <div className="absolute bottom-16 left-0 z-50 shadow-2xl rounded-2xl overflow-hidden animate-fade-in">
+                          <EmojiPicker
+                            onEmojiClick={(emojiData) => {
+                              onEmojiClick(emojiData);
+                            }}
+                            theme={(theme === "aqua-light" ? "light" : "dark") as Theme}
+                            width={320}
+                            height={420}
+                            searchPlaceholder="Search emoji..."
+                            previewConfig={{ showPreview: false }}
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Input Field or Recording State */}
+                    {isRecording ? (
+                      <div className="flex-1 flex items-center justify-between px-3 h-full">
+                        <div className="flex items-center gap-2 text-red-500 animate-pulse">
+                          <Mic className="h-5 w-5" />
+                          <span className="text-[16px] font-semibold text-red-400">
+                            {Math.floor(recordingDuration / 60)}:{(recordingDuration % 60).toString().padStart(2, '0')}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={stopRecording}
+                          className="rounded-full bg-red-500 p-1.5 text-white hover:bg-red-600 cursor-pointer transition-colors"
+                        >
+                          <Square className="h-4 w-4" fill="currentColor" />
+                        </button>
+                      </div>
                     ) : (
-                      <Paperclip className="h-6 w-6" />
+                      <input
+                        type="text"
+                        value={inputValue}
+                        onChange={handleInputChange}
+                        placeholder={editingMessage ? "Edit your message..." : "Message"}
+                        className="flex-1 min-w-0 bg-transparent px-3 py-2 text-[16px] text-[var(--theme-text-primary)] placeholder-[var(--theme-text-secondary)] focus:outline-none transition-all duration-200 h-full"
+                      />
                     )}
-                  </button>
-                  
-                  {/* Camera Button */}
-                  <button
-                    type="button"
-                    disabled={isRecording}
-                    onClick={() => startCamera()}
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/55 text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-all duration-200 cursor-pointer disabled:opacity-50"
-                    title="Camera"
-                  >
-                    <Camera className="h-6 w-6" />
-                  </button>
 
-                  {/* Emoji Picker Button */}
-                  <div className="relative hidden sm:block" ref={emojiPickerRef}>
-                    <button
-                      type="button"
-                      disabled={isRecording}
-                      onClick={() => setShowEmojiPicker((v) => !v)}
-                      className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border transition-all duration-200 cursor-pointer ${
-                        showEmojiPicker
-                          ? "border-[var(--theme-accent)] text-[var(--theme-accent)] bg-[var(--theme-accent)]/10"
-                          : "border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/55 text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]"
-                      }`}
-                      title="Emoji"
-                    >
-                      <Smile className="h-6 w-6" />
-                    </button>
+                    {/* Right-side Icons inside cylinder */}
+                    {!isRecording && (
+                      <div className="flex items-center gap-0.5 pr-1 shrink-0">
+                        <button
+                          type="button"
+                          disabled={isUploadingFile}
+                          onClick={() => fileInputRef.current?.click()}
+                          className="flex h-10 w-10 items-center justify-center rounded-full text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-all duration-200 cursor-pointer disabled:opacity-50"
+                          title="Attach File"
+                        >
+                          {isUploadingFile ? (
+                            <Loader2 className="h-5 w-5 animate-spin text-[var(--theme-accent)]" />
+                          ) : (
+                            <Paperclip className="h-5 w-5 -rotate-45" />
+                          )}
+                        </button>
+                        
+                        <button
+                          type="button"
+                          disabled={isRecording}
+                          className="flex h-10 w-10 items-center justify-center rounded-full text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-all duration-200 cursor-pointer disabled:opacity-50"
+                          title="Payment"
+                        >
+                          <div className="h-5 w-5 rounded-full border-[1.5px] border-current flex items-center justify-center">
+                            <IndianRupee className="h-3 w-3" />
+                          </div>
+                        </button>
 
-                    {showEmojiPicker && (
-                      <div className="absolute bottom-16 left-0 z-50 shadow-2xl rounded-2xl overflow-hidden animate-fade-in">
-                        <EmojiPicker
-                          onEmojiClick={(emojiData) => {
-                            onEmojiClick(emojiData);
-                          }}
-                          theme={(theme === "aqua-light" ? "light" : "dark") as Theme}
-                          width={320}
-                          height={420}
-                          searchPlaceholder="Search emoji..."
-                          previewConfig={{ showPreview: false }}
-                        />
+                        <button
+                          type="button"
+                          disabled={isRecording}
+                          onClick={() => startCamera()}
+                          className="flex h-10 w-10 items-center justify-center rounded-full text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-all duration-200 cursor-pointer disabled:opacity-50"
+                          title="Camera"
+                        >
+                          <Camera className="h-5 w-5" />
+                        </button>
                       </div>
                     )}
                   </div>
 
-                  {isRecording ? (
-                    <div className="flex-1 flex items-center justify-between rounded-xl border border-red-500/50 bg-red-500/10 px-4 py-2.5 h-11">
-                      <div className="flex items-center gap-2 text-red-500 animate-pulse">
-                        <Mic className="h-5 w-5" />
-                        <span className="text-[16px] font-semibold text-red-400">
-                          {Math.floor(recordingDuration / 60)}:{(recordingDuration % 60).toString().padStart(2, '0')}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={stopRecording}
-                        className="rounded-lg bg-red-500 p-1 text-white hover:bg-red-650 cursor-pointer"
-                      >
-                        <Square className="h-4 w-4" fill="currentColor" />
-                      </button>
-                    </div>
-                  ) : (
-                    <input
-                      type="text"
-                      value={inputValue}
-                      onChange={handleInputChange}
-                      placeholder={editingMessage ? "Edit your message..." : "Type a message..."}
-                      className="flex-1 min-w-0 rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-chat-input-field)] px-4 py-2.5 text-[16px] text-[var(--theme-text-primary)] placeholder-[var(--theme-text-secondary)]/40 focus:border-[var(--theme-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--theme-accent)] transition-all duration-200 h-11"
-                    />
-                  )}
-
+                  {/* Mic / Send Button (Outside) */}
                   {!inputValue.trim() && !isRecording ? (
                     <button
                       type="button"
                       onClick={startRecording}
-                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[var(--theme-bg-sidebar-search)] border border-[var(--theme-border-color)] text-[var(--theme-accent)] hover:text-white hover:bg-[var(--theme-accent)] shadow-lg transition-all duration-200 cursor-pointer"
+                      className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#111b21] hover:bg-[#202c33] border border-[var(--theme-border-color)] text-white shadow-lg transition-all duration-200 cursor-pointer"
                       title="Hold or Click to Record"
                     >
                       <Mic className="h-6 w-6" />
@@ -2204,12 +2225,12 @@ export default function ChatWindow({
                     <button
                       type="submit"
                       disabled={isRecording || !inputValue.trim()}
-                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-[var(--theme-accent-text)] shadow-lg hover:opacity-95 transition-all duration-200 cursor-pointer disabled:opacity-50 animate-fade-in"
+                      className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-white shadow-lg hover:opacity-95 transition-all duration-200 cursor-pointer disabled:opacity-50 animate-fade-in"
                       style={{
                         background: "linear-gradient(to top right, #0097a7, #00d4ff)"
                       }}
                     >
-                      <Send className="h-6 w-6" />
+                      <Send className="h-5 w-5 ml-1" />
                     </button>
                   )}
                 </div>

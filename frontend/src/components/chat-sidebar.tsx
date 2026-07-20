@@ -592,7 +592,7 @@ export default function ChatSidebar({
       ) : (
         // Normal Mode Header
         <div className="flex items-center justify-between border-b border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-header)] px-6 py-5">
-          <span className="text-xl font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-teal-400">
+          <span className="text-3xl font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-teal-400">
             DOLSYX
           </span>
           <div className="flex items-center gap-2 relative">
@@ -662,16 +662,9 @@ export default function ChatSidebar({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search users..."
-            className="w-full rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] px-9 py-2.5 text-sm text-[var(--theme-text-primary)] placeholder-[var(--theme-text-secondary)]/40 focus:border-[var(--theme-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--theme-accent)]"
+            className="w-full rounded-full border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] px-9 py-2.5 text-sm text-[var(--theme-text-primary)] placeholder-[var(--theme-text-secondary)]/40 focus:border-[var(--theme-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--theme-accent)]"
           />
         </div>
-        <button
-          onClick={() => setShowGroupDialog(true)}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/50 hover:bg-[var(--theme-accent)]/10 text-[var(--theme-text-secondary)] hover:text-[var(--theme-accent)] transition-all cursor-pointer"
-          title="Create Group space"
-        >
-          <Users className="h-4.5 w-4.5" />
-        </button>
 
         {/* Search Results Dropdown */}
         {searchQuery.trim().length >= 2 && (

@@ -444,3 +444,9 @@ textarea {
 :root {
   font-size: 15.5px;
 }
+
+/* Global Font Scaling */
+html.font-scale-small { font-size: 15px; }
+html.font-scale-medium { font-size: 17px; }
+html.font-scale-large { font-size: 19px; }
+html { font-size: 17px; }

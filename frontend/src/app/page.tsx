@@ -8,26 +8,26 @@ export default function Home() {
   const { isAuthenticated, isLoading } = useAuth();
   const router = useRouter();
 
-  useEffect(() => {
-    if (!isLoading) {
-      if (isAuthenticated) {
-        router.push("/chat");
-      } else {
-        router.push("/login");
-      }
-    }
-  }, [isAuthenticated, isLoading, router]);
+  // We rely on the video onEnded event to navigate now
+  // but if it fails to load or user wants to skip we could add a skip button, 
+  // for now we'll just wait for the video to end.
 
   return (
-    <div className="flex h-screen w-full items-center justify-center bg-zinc-950">
-      <div className="flex flex-col items-center gap-4">
-        <div className="text-4xl font-extrabold tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-fuchsia-500 to-indigo-400 animate-pulse">
-          DOLSYX
-        </div>
-        <div className="h-1 w-20 overflow-hidden rounded-full bg-zinc-800">
-          <div className="h-full w-full origin-left animate-[pulse_1.5s_infinite_ease-in-out] bg-gradient-to-r from-violet-500 to-fuchsia-500" />
-        </div>
-      </div>
+    <div className="flex h-screen w-full items-center justify-center bg-black overflow-hidden relative">
+      <video
+        src="/intro.mp4"
+        autoPlay
+        muted
+        playsInline
+        className="w-full h-full object-cover"
+        onEnded={() => {
+          if (isAuthenticated) {
+            router.push("/chat");
+          } else {
+            router.push("/login");
+          }
+        }}
+      />
     </div>
   );
 }

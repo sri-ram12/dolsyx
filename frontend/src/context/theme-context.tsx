@@ -3,10 +3,13 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 
 export type ThemeType = "dolsy-dark" | "aqua-light" | "aqua-dark" | "radiant-blue";
+export type FontSizeType = "small" | "medium" | "large";
 
 interface ThemeContextType {
   theme: ThemeType;
   setTheme: (theme: ThemeType) => void;
+  fontSize: FontSizeType;
+  setFontSize: (size: FontSizeType) => void;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
@@ -23,6 +26,7 @@ const ALL_THEME_CLASSES = Object.values(THEME_CLASS_MAP).filter(Boolean);
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [theme, setThemeState] = useState<ThemeType>("dolsy-dark");
+  const [fontSize, setFontSizeState] = useState<FontSizeType>("medium");
 
   const applyTheme = (newTheme: ThemeType) => {
     if (typeof window === "undefined") return;
@@ -36,13 +40,26 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     root.style.colorScheme = newTheme === "aqua-light" ? "light" : "dark";
   };
 
+  const applyFontSize = (size: FontSizeType) => {
+    if (typeof window === "undefined") return;
+    const root = window.document.documentElement;
+    root.classList.remove("font-scale-small", "font-scale-medium", "font-scale-large");
+    root.classList.add(`font-scale-${size}`);
+  };
+
   useEffect(() => {
     const storedTheme = localStorage.getItem("dolsyx_theme") as ThemeType;
-    const valid: ThemeType[] = ["dolsy-dark", "aqua-light", "aqua-dark"];
-    const initial = valid.includes(storedTheme) ? storedTheme : "dolsy-dark";
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setThemeState(initial);
-    applyTheme(initial);
+    const validThemes: ThemeType[] = ["dolsy-dark", "aqua-light", "aqua-dark", "radiant-blue"];
+    const initialTheme = validThemes.includes(storedTheme) ? storedTheme : "dolsy-dark";
+    
+    const storedFontSize = localStorage.getItem("dolsyx_fontsize") as FontSizeType;
+    const validFonts: FontSizeType[] = ["small", "medium", "large"];
+    const initialFont = validFonts.includes(storedFontSize) ? storedFontSize : "medium";
+
+    setThemeState(initialTheme);
+    applyTheme(initialTheme);
+    setFontSizeState(initialFont);
+    applyFontSize(initialFont);
   }, []);
 
   const setTheme = (newTheme: ThemeType) => {
@@ -51,8 +68,14 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     applyTheme(newTheme);
   };
 
+  const setFontSize = (size: FontSizeType) => {
+    setFontSizeState(size);
+    localStorage.setItem("dolsyx_fontsize", size);
+    applyFontSize(size);
+  };
+
   return (
-    <ThemeContext.Provider value={{ theme, setTheme }}>
+    <ThemeContext.Provider value={{ theme, setTheme, fontSize, setFontSize }}>
       {children}
     </ThemeContext.Provider>
   );

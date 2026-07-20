@@ -132,12 +132,12 @@ export default function CallsSidebar({ onStartCall }: { onStartCall?: (chatId: s
       {isSelectionMode ? (
         <div className="flex items-center justify-between border-b border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-header)] px-4 py-3 shadow-md z-10">
           <div className="flex items-center gap-4">
-            <button onClick={exitSelectionMode} className="hover:bg-white/10 p-1.5 rounded-full cursor-pointer text-white">
+            <button onClick={exitSelectionMode} className="hover:bg-[var(--theme-bg-sidebar-item-hover)] p-1.5 rounded-full cursor-pointer text-[var(--theme-text-primary)] transition-colors">
               <X className="h-5 w-5" />
             </button>
-            <span className="font-semibold text-white">{selectedCalls.size}</span>
+            <span className="font-semibold text-[var(--theme-text-primary)]">{selectedCalls.size}</span>
           </div>
-          <button onClick={deleteSelectedCalls} className="p-2 text-white hover:bg-white/10 rounded-full cursor-pointer" title="Delete">
+          <button onClick={deleteSelectedCalls} className="p-2 text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] hover:text-red-500 rounded-full cursor-pointer transition-colors" title="Delete">
             <Trash2 className="h-5 w-5" />
           </button>
         </div>

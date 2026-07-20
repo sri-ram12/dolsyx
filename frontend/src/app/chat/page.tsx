@@ -395,17 +395,30 @@ export default function ChatPage() {
 
     if ("Notification" in window && Notification.permission === "granted") {
       try {
-        const notif = new Notification(title, {
-          body,
-          icon: iconUrl || "/favicon.ico",
-          silent: false,
-        });
-        notif.onclick = () => {
-          window.focus();
-          notif.close();
-        };
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.ready.then((registration) => {
+            registration.showNotification(title, {
+              body,
+              icon: iconUrl || "/dolsyx-logo.png",
+              badge: "/dolsyx-logo.png",
+              tag: conversationId || "new-message",
+              data: { url: "/chat" },
+              vibrate: [200, 100, 200]
+            });
+          }).catch(e => console.error("SW notification error", e));
+        } else {
+          const notif = new Notification(title, {
+            body,
+            icon: iconUrl || "/dolsyx-logo.png",
+            silent: false,
+          });
+          notif.onclick = () => {
+            window.focus();
+            notif.close();
+          };
+        }
       } catch (e) {
-        // Some browsers don't support Notification constructor
+        console.error("Failed to show notification:", e);
       }
     }
   }, []);

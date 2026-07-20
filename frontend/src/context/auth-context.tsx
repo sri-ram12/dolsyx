@@ -40,6 +40,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const router = useRouter();
 
   useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch((err) => {
+        console.error('Service Worker registration failed:', err);
+      });
+    }
+  }, []);
+
+  useEffect(() => {
     const initializeAuth = async () => {
       const storedToken = localStorage.getItem("dolsyx_token");
       if (!storedToken) {

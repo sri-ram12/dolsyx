@@ -428,14 +428,14 @@ export default function LoginPage() {
                 <input
                   type="email" required value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="block w-full rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] py-3 pl-10 pr-4 text-sm text-[var(--theme-text-primary)] focus:border-[var(--theme-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--theme-accent)]"
+                  className="block w-full rounded-full border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] py-3 pl-10 pr-4 text-sm text-[var(--theme-text-primary)] focus:border-[var(--theme-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--theme-accent)]"
                   placeholder="Enter your email address"
                 />
               </div>
             </div>
             <button
               type="submit" disabled={isLoading}
-              className="flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-extrabold text-[var(--theme-accent-text)] bg-[var(--theme-accent)] hover:opacity-95 disabled:opacity-50 transition-all cursor-pointer shadow-lg"
+              className="flex w-full items-center justify-center gap-2 rounded-full py-3.5 text-sm font-extrabold text-[var(--theme-accent-text)] bg-[var(--theme-accent)] hover:opacity-95 disabled:opacity-50 transition-all cursor-pointer shadow-lg"
             >
               {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <><span>Continue</span><ArrowRight className="h-4 w-4" /></>}
             </button>
@@ -479,7 +479,7 @@ export default function LoginPage() {
                 type="button"
                 onClick={handlePinLogin}
                 disabled={isLoading || pinDigits.includes("")}
-                className="flex w-full justify-center items-center gap-2 rounded-xl py-3.5 text-sm font-extrabold text-[var(--theme-accent-text)] bg-[var(--theme-accent)] hover:opacity-95 disabled:opacity-50 transition-all cursor-pointer"
+                className="flex w-full justify-center items-center gap-2 rounded-full py-3.5 text-sm font-extrabold text-[var(--theme-accent-text)] bg-[var(--theme-accent)] hover:opacity-95 disabled:opacity-50 transition-all cursor-pointer"
               >
                 {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <><Lock className="h-4 w-4" /><span>Unlock</span></>}
               </button>
@@ -487,7 +487,7 @@ export default function LoginPage() {
               {hasBiometrics && (
                 <button
                   type="button" onClick={triggerBiometric} disabled={isLoading}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-extrabold text-[var(--theme-text-primary)] border border-[var(--theme-border-color)] bg-transparent hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-all cursor-pointer"
+                  className="flex w-full items-center justify-center gap-2 rounded-full py-3.5 text-sm font-extrabold text-[var(--theme-text-primary)] border border-[var(--theme-border-color)] bg-transparent hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-all cursor-pointer"
                 >
                   <Fingerprint className="h-5 w-5 text-[var(--theme-accent)]" />
                   <span>Use Fingerprint</span>
@@ -528,7 +528,7 @@ export default function LoginPage() {
                 type="button"
                 onClick={() => verifyOtp(otpDigits.join(""))}
                 disabled={isVerifying || otpDigits.includes("")}
-                className="flex w-full justify-center items-center gap-2 rounded-xl py-3.5 text-sm font-extrabold text-[var(--theme-accent-text)] bg-[var(--theme-accent)] hover:opacity-95 disabled:opacity-50 transition-all cursor-pointer"
+                className="flex w-full justify-center items-center gap-2 rounded-full py-3.5 text-sm font-extrabold text-[var(--theme-accent-text)] bg-[var(--theme-accent)] hover:opacity-95 disabled:opacity-50 transition-all cursor-pointer"
               >
                 {isVerifying ? <Loader2 className="h-5 w-5 animate-spin" /> : "Verify & Continue"}
               </button>

@@ -19,6 +19,7 @@ import {
   ChevronRight,
   Loader2,
   Upload,
+  SwitchCamera
 } from "lucide-react";
 
 interface StatusItem {
@@ -95,12 +96,29 @@ export default function StatusPanel({ onClose, onNewStatus }: StatusPanelProps) 
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(t => t.stop());
       }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: mode }
-      });
+      
+      const constraints: MediaStreamConstraints = {
+        video: mode === "environment" 
+          ? { facingMode: { exact: "environment" } } 
+          : { facingMode: "user" }
+      };
+
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (err) {
+        // Fallback if exact environment is not supported
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: mode }
+        });
+      }
+
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        videoRef.current.onloadedmetadata = () => {
+          videoRef.current?.play().catch(console.error);
+        };
       }
       setShowCamera(true);
       setFacingMode(mode);
@@ -119,12 +137,22 @@ export default function StatusPanel({ onClose, onNewStatus }: StatusPanelProps) 
 
   const capturePhoto = () => {
     if (videoRef.current) {
+      const video = videoRef.current;
+      if (video.videoWidth === 0 || video.videoHeight === 0) {
+        toast("Camera not ready yet", "error");
+        return;
+      }
       const canvas = document.createElement("canvas");
-      canvas.width = videoRef.current.videoWidth;
-      canvas.height = videoRef.current.videoHeight;
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
       const ctx = canvas.getContext("2d");
       if (ctx) {
-        ctx.drawImage(videoRef.current, 0, 0);
+        // Handle mirroring for front camera
+        if (facingMode === "user") {
+          ctx.translate(canvas.width, 0);
+          ctx.scale(-1, 1);
+        }
+        ctx.drawImage(video, 0, 0);
         const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
         fetch(dataUrl)
           .then(res => res.blob())
@@ -761,8 +789,9 @@ export default function StatusPanel({ onClose, onNewStatus }: StatusPanelProps) 
             <button
               onClick={toggleCamera}
               className="p-3 rounded-full bg-black/50 hover:bg-black/70 text-white transition-colors cursor-pointer"
+              title="Switch Camera"
             >
-              <Camera className="h-6 w-6" />
+              <SwitchCamera className="h-6 w-6" />
             </button>
           </div>
           
@@ -771,7 +800,7 @@ export default function StatusPanel({ onClose, onNewStatus }: StatusPanelProps) 
             autoPlay
             playsInline
             muted
-            className="flex-1 object-cover w-full h-full"
+            className={`flex-1 object-cover w-full h-full ${facingMode === "user" ? "scale-x-[-1]" : ""}`}
           />
 
           <div className="absolute bottom-12 left-0 right-0 flex justify-center z-10">

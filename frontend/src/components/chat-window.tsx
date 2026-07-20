@@ -444,7 +444,9 @@ export default function ChatWindow({
   const [inputValue, setInputValue] = useState("");
   const [isRecipientTyping, setIsRecipientTyping] = useState(false);
   const [typingUsername, setTypingUsername] = useState("");
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showWallpaperPicker, setShowWallpaperPicker] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // File Upload State
@@ -1463,7 +1465,7 @@ export default function ChatWindow({
           </div>
         </div>
       ) : (
-        <div className="flex h-[72px] shrink-0 items-center justify-between border-b border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)]/80 backdrop-blur-md px-4 sm:px-6 relative z-30">
+        <div className="flex h-[72px] shrink-0 items-center justify-between border-b border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)]/80 backdrop-blur-md px-4 sm:px-6 relative z-30 select-none">
         <div className="flex items-center gap-4 min-w-0">
           <button
             onClick={onBack}
@@ -1489,9 +1491,9 @@ export default function ChatWindow({
               )}
             </div>
 
-            <div className="min-w-0">
-              <h4 className="text-[18px] font-semibold truncate text-[var(--theme-text-primary)]">{chat.name}</h4>
-              <p className="text-[13px] text-[var(--theme-text-secondary)] font-normal flex items-center gap-1">
+            <div className="flex flex-col justify-center min-w-0">
+              <span className="text-[16px] font-semibold truncate text-[var(--theme-text-primary)] leading-tight">{chat.name}</span>
+              <span className="text-[12px] text-[var(--theme-text-secondary)] font-normal leading-tight mt-0.5 truncate flex items-center gap-1">
                 {isRecipientTyping ? (
                   <span className="text-[var(--theme-accent)] font-semibold animate-pulse text-[12px]">
                     {chat.isGroup ? `${typingUsername} is typing...` : "typing..."}
@@ -1507,7 +1509,7 @@ export default function ChatWindow({
                 ) : (
                   <span>Offline</span>
                 )}
-              </p>
+              </span>
             </div>
           </button>
         </div>
@@ -1537,10 +1539,10 @@ export default function ChatWindow({
           <div className="relative" ref={headerMenuRef}>
             <button
               onClick={() => setShowHeaderMenu((v) => !v)}
-              className={`flex h-9 w-9 items-center justify-center rounded-xl border transition-all cursor-pointer ${
+              className={`flex h-9 w-9 items-center justify-center rounded-xl transition-all cursor-pointer ${
                 showHeaderMenu
-                  ? "border-[var(--theme-accent)] bg-[var(--theme-accent)]/10 text-[var(--theme-accent)]"
-                  : "border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/55 text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]"
+                  ? "bg-[var(--theme-bg-sidebar-item-hover)] text-[var(--theme-text-primary)]"
+                  : "text-[var(--theme-text-secondary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] hover:text-[var(--theme-text-primary)]"
               }`}
               title="More Options"
             >
@@ -2112,17 +2114,25 @@ export default function ChatWindow({
                 </button>
               </div>
             ) : (
-              <form onSubmit={handleSendMessage} className="p-2 sm:px-4 sm:py-3 relative animate-fade-in border-t border-[var(--theme-border-color)]/20 bg-[var(--theme-bg-chat-input)]">
+              <form onSubmit={handleSendMessage} className="p-2 sm:px-4 sm:py-3 relative animate-fade-in bg-transparent">
                 <div className="flex items-center gap-2 sm:gap-3 py-1">
                   {/* Cylinder wrapper */}
-                  <div className="flex-1 min-w-0 flex items-center bg-[var(--theme-bg-sidebar-search)] rounded-3xl border border-[var(--theme-border-color)] px-0.5 sm:px-1 py-0.5 sm:py-1 relative focus-within:border-[var(--theme-accent)] focus-within:ring-1 focus-within:ring-[var(--theme-accent)] transition-all min-h-[44px] sm:min-h-[48px]">
+                  <div className="flex-1 min-w-0 flex items-center px-0.5 sm:px-1 py-0.5 sm:py-1 relative transition-all min-h-[44px] sm:min-h-[48px]">
                     
                     {/* Emoji Button inside cylinder */}
                     <div className="relative shrink-0" ref={emojiPickerRef}>
                       <button
                         type="button"
                         disabled={isRecording}
-                        onClick={() => setShowEmojiPicker((v) => !v)}
+                        onClick={() => {
+                          if (showEmojiPicker) {
+                            setShowEmojiPicker(false);
+                            inputRef.current?.focus();
+                          } else {
+                            setShowEmojiPicker(true);
+                            inputRef.current?.blur();
+                          }
+                        }}
                         className={`flex h-8 w-8 sm:h-10 sm:w-10 items-center justify-center rounded-full transition-all duration-200 cursor-pointer ${
                           showEmojiPicker
                             ? "text-[var(--theme-accent)] bg-[var(--theme-accent)]/10"
@@ -2130,7 +2140,7 @@ export default function ChatWindow({
                         }`}
                         title="Emoji"
                       >
-                        <Smile className="h-5 w-5 sm:h-6 sm:w-6" />
+                        {showEmojiPicker ? <span className="text-xl leading-none font-bold">⌨️</span> : <Smile className="h-5 w-5 sm:h-6 sm:w-6" />}
                       </button>
                     </div>
 
@@ -2154,8 +2164,10 @@ export default function ChatWindow({
                     ) : (
                       <input
                         type="text"
+                        ref={inputRef}
                         value={inputValue}
                         onChange={handleInputChange}
+                        onFocus={() => setShowEmojiPicker(false)}
                         placeholder={editingMessage ? "Edit your message..." : "Message"}
                         className="flex-1 min-w-0 bg-transparent px-3 py-2 text-[16px] text-[var(--theme-text-primary)] placeholder-[var(--theme-text-secondary)] focus:outline-none transition-all duration-200 h-full"
                       />

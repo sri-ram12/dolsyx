@@ -6,6 +6,8 @@ import { useAuth, API_URL } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
 import { SoundEngine } from "@/utils/sound";
 import { getAvatarUrl } from "@/utils/avatar";
+import Cropper from "react-easy-crop";
+import getCroppedImg from "@/utils/cropImage";
 
 interface SettingsPanelProps {
   onClose: () => void;
@@ -28,6 +30,12 @@ export default function SettingsPanel({ onClose, onSelectChat, initialTab = "pro
   const [profileError, setProfileError] = useState("");
   const [profileSuccess, setProfileSuccess] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Cropper State
+  const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
+  const [crop, setCrop] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState<any>(null);
 
   // Sound settings
   const [notifSound, setNotifSound] = useState("0");
@@ -103,15 +111,26 @@ export default function SettingsPanel({ onClose, onSelectChat, initialTab = "pro
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !token) return;
+    if (!file) return;
 
+    const reader = new FileReader();
+    reader.addEventListener("load", () => setCropImageSrc(reader.result?.toString() || null));
+    reader.readAsDataURL(file);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleCropConfirm = async () => {
+    if (!cropImageSrc || !croppedAreaPixels || !token) return;
+    
     setIsUploadingAvatar(true);
     setProfileError("");
-
-    const formData = new FormData();
-    formData.append("file", file);
-
     try {
+      const croppedImage = await getCroppedImg(cropImageSrc, croppedAreaPixels);
+      if (!croppedImage) throw new Error("Failed to crop image");
+
+      const formData = new FormData();
+      formData.append("file", croppedImage, "avatar.jpg");
+
       const res = await fetch(`${API_URL}/api/chats/upload`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
@@ -121,6 +140,7 @@ export default function SettingsPanel({ onClose, onSelectChat, initialTab = "pro
       if (res.ok) {
         const data = await res.json();
         setEditAvatar(data.fileUrl);
+        setCropImageSrc(null);
       } else {
         setProfileError("Failed to upload avatar");
       }
@@ -988,6 +1008,41 @@ export default function SettingsPanel({ onClose, onSelectChat, initialTab = "pro
               src={getAvatarUrl(editAvatar, editUsername)}
               alt="Avatar Full Screen"
               className="max-w-full max-h-[80vh] object-contain rounded-2xl shadow-2xl border border-white/10"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Crop Modal */}
+      {cropImageSrc && (
+        <div className="fixed inset-0 z-[10000] flex flex-col bg-black/90 animate-fade-in backdrop-blur-md">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-white/10 bg-black">
+            <button
+              onClick={() => setCropImageSrc(null)}
+              className="text-white hover:text-red-400 transition-colors cursor-pointer"
+            >
+              <X className="h-6 w-6" />
+            </button>
+            <span className="text-white font-bold">Crop Photo</span>
+            <button
+              onClick={handleCropConfirm}
+              disabled={isUploadingAvatar}
+              className="text-[var(--theme-accent)] font-bold text-sm uppercase cursor-pointer disabled:opacity-50"
+            >
+              {isUploadingAvatar ? "Saving..." : "Save"}
+            </button>
+          </div>
+          <div className="relative flex-1">
+            <Cropper
+              image={cropImageSrc}
+              crop={crop}
+              zoom={zoom}
+              aspect={1}
+              cropShape="round"
+              showGrid={false}
+              onCropChange={setCrop}
+              onCropComplete={(croppedArea, croppedAreaPixels) => setCroppedAreaPixels(croppedAreaPixels)}
+              onZoomChange={setZoom}
             />
           </div>
         </div>

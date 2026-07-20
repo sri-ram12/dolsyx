@@ -188,7 +188,7 @@ export default function CallModal({
           </div>
         </div>
       ) : (
-        <div className="flex-1 flex flex-col bg-gradient-to-b from-[#0d0d1a] via-[#12103a] to-[#0a0a12]">
+        <div className="flex-1 flex flex-col bg-black">
           <div className="flex flex-col items-center pt-24 pb-6 px-6 text-white">
             <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold tracking-widest uppercase mb-5 ${callType === "video" ? "bg-cyan-500/15 border border-cyan-500/30 text-cyan-300" : "bg-emerald-500/15 border border-emerald-500/30 text-emerald-300"}`}>
               {callType === "video" ? <><Video className="h-3 w-3" /> Video Call</> : <><Phone className="h-3 w-3" /> Voice Call</>}

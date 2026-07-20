@@ -444,8 +444,6 @@ export default function ChatWindow({
   const [inputValue, setInputValue] = useState("");
   const [isRecipientTyping, setIsRecipientTyping] = useState(false);
   const [typingUsername, setTypingUsername] = useState("");
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [showWallpaperPicker, setShowWallpaperPicker] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 

@@ -403,8 +403,8 @@ export default function ChatPage() {
               badge: "/dolsyx-logo.png",
               tag: conversationId || "new-message",
               data: { url: "/chat" },
-              vibrate: [200, 100, 200] as any
-            });
+              vibrate: [200, 100, 200]
+            } as any);
           }).catch(e => console.error("SW notification error", e));
         } else {
           const notif = new Notification(title, {

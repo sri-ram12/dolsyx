@@ -445,6 +445,7 @@ export default function ChatWindow({
   const [isRecipientTyping, setIsRecipientTyping] = useState(false);
   const [typingUsername, setTypingUsername] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // File Upload State

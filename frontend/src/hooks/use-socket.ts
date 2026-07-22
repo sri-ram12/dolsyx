@@ -27,12 +27,12 @@ export const useSocket = (token: string | null) => {
 
     newSocket.on("connect", () => {
       setIsConnected(true);
-      console.log("Socket connected!");
+      // Socket connected
     });
 
     newSocket.on("disconnect", () => {
       setIsConnected(false);
-      console.log("Socket disconnected");
+      // Socket disconnected
     });
 
     newSocket.on("connect_error", (err) => {

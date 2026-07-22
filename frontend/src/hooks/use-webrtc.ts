@@ -66,7 +66,7 @@ export const useWebRTC = ({ onIceCandidate }: UseWebRTCOptions) => {
     };
 
     pc.ontrack = (event) => {
-      console.log("[WebRTC] ontrack track type:", event.track.kind);
+      // Track added
       if (event.streams && event.streams[0]) {
         setRemoteStream(event.streams[0]);
       } else {
@@ -83,7 +83,7 @@ export const useWebRTC = ({ onIceCandidate }: UseWebRTCOptions) => {
     };
 
     pc.onconnectionstatechange = () => {
-      console.log("[WebRTC] Connection state:", pc.connectionState);
+      // Connection state changed
     };
 
     pcRef.current = pc;
@@ -151,7 +151,7 @@ export const useWebRTC = ({ onIceCandidate }: UseWebRTCOptions) => {
     try {
       await pc.addIceCandidate(new RTCIceCandidate(candidate));
     } catch (e) {
-      console.warn("[WebRTC] ICE error:", e);
+      // ICE error suppressed
     }
   }, []);
 
@@ -219,11 +219,12 @@ export const useWebRTC = ({ onIceCandidate }: UseWebRTCOptions) => {
 
         try {
           newStream = await navigator.mediaDevices.getUserMedia(constraints);
-        } catch (err: any) {
+        } catch {
+        // Fallback or handle failure
           constraints.video = { facingMode: { ideal: newMode } };
           newStream = await navigator.mediaDevices.getUserMedia(constraints);
         }
-      } catch (err: any) {
+      } catch {
         newStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
       }
       

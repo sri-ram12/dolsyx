@@ -12,7 +12,7 @@ export function usePushNotifications() {
     navigator.serviceWorker
       .register("/sw.js")
       .then((reg) => {
-        console.log("[SW] Registered:", reg.scope);
+        // SW Registered
       })
       .catch((err) => {
         console.warn("[SW] Registration failed:", err);
@@ -21,7 +21,7 @@ export function usePushNotifications() {
     // Request notification permission if not already granted
     if (Notification.permission === "default") {
       Notification.requestPermission().then((perm) => {
-        console.log("[Notif] Permission:", perm);
+        // Permission status
       });
     }
   }, []);

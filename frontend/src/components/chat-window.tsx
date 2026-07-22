@@ -6,6 +6,7 @@ import { useAuth, API_URL } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
 import { useToast } from "@/context/toast-context";
 import { Chat } from "./chat-sidebar";
+import GroupProfileModal from "./group-profile-modal";
 import {
   Send,
   Smile,
@@ -399,6 +400,9 @@ export default function ChatWindow({
 
   // Clear Chat status
   const [isClearingChat, setIsClearingChat] = useState(false);
+
+  // Group Profile state
+  const [showGroupProfile, setShowGroupProfile] = useState(false);
 
   // Custom confirm modals (replaces native browser confirm())
   const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -1475,9 +1479,15 @@ export default function ChatWindow({
 
           {/* Clickable avatar + name → opens profile */}
           <button
-            onClick={() => !chat.isGroup && setProfileUser(chat.recipient)}
-            className={`flex items-center gap-3 min-w-0 text-left ${!chat.isGroup ? "cursor-pointer hover:opacity-80 transition-opacity" : "cursor-default"}`}
-            title={chat.isGroup ? undefined : "View profile"}
+            onClick={() => {
+              if (chat.isGroup) {
+                setShowGroupProfile(true);
+              } else {
+                setProfileUser(chat.recipient);
+              }
+            }}
+            className={`flex items-center gap-3 min-w-0 text-left cursor-pointer hover:opacity-80 transition-opacity`}
+            title={chat.isGroup ? "Group Info" : "View profile"}
           >
             <div className="relative shrink-0">
             <img
@@ -1561,6 +1571,19 @@ export default function ChatWindow({
                   >
                     <User className="h-3.5 w-3.5" />
                     View Profile
+                  </button>
+                )}
+                {chat.isGroup && (
+                  <button
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      setShowGroupProfile(true);
+                      setShowHeaderMenu(false);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-slate-200 hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-colors cursor-pointer"
+                  >
+                    <Users className="h-3.5 w-3.5" />
+                    Group Info
                   </button>
                 )}
                 {/* Productivity toggle */}
@@ -2658,7 +2681,14 @@ export default function ChatWindow({
         </div>
       )}
 
-      {/* ── Clear Chat Confirmation Modal ──────────────────────────────── */}
+      {/* Group Profile Modal */}
+      {showGroupProfile && (
+        <GroupProfileModal
+          chat={chat}
+          onClose={() => setShowGroupProfile(false)}
+          onlineUsers={onlineUsers}
+        />
+      )}
       {showClearConfirm && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
           <div className="w-full max-w-sm rounded-2xl border border-amber-500/20 bg-[var(--theme-bg-sidebar)] shadow-2xl shadow-amber-900/20 overflow-hidden">

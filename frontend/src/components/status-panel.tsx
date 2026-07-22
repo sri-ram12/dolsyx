@@ -671,13 +671,22 @@ export default function StatusPanel({ onClose, onNewStatus }: StatusPanelProps) 
             <div className="flex gap-2 px-5 pt-4">
               {[
                 { type: "TEXT" as const, icon: Type, label: "Text", action: () => setCreateType("TEXT") },
-                { type: "IMAGE" as const, icon: ImageIcon, label: "Image", action: () => { setCreateType("IMAGE"); fileInputRef.current?.click(); } },
-                { type: "VIDEO" as const, icon: Video, label: "Video", action: () => { setCreateType("VIDEO"); fileInputRef.current?.click(); } },
-                { type: "CAMERA" as const, icon: Camera, label: "Camera", action: () => startCamera("user") },
+                { type: "IMAGE" as const, icon: ImageIcon, label: "Image", action: "IMAGE" },
+                { type: "VIDEO" as const, icon: Video, label: "Video", action: "VIDEO" },
+                { type: "CAMERA" as const, icon: Camera, label: "Camera", action: "CAMERA" },
               ].map(({ type, icon: Icon, label, action }) => (
                 <button
                   key={label}
-                  onClick={action}
+                  onClick={() => {
+                    if (typeof action === 'function') {
+                      action();
+                    } else if (action === "IMAGE" || action === "VIDEO") {
+                      setCreateType(action);
+                      fileInputRef.current?.click();
+                    } else if (action === "CAMERA") {
+                      startCamera("user");
+                    }
+                  }}
                   className={`flex-1 flex flex-col items-center gap-1 rounded-xl py-2.5 border transition-all cursor-pointer text-xs font-semibold ${
                     createType === type
                       ? "border-[var(--theme-accent)] bg-[var(--theme-accent)]/10 text-[var(--theme-accent)]"

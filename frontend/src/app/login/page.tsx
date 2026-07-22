@@ -16,7 +16,7 @@ type Step =
   | "register"     // New user: choose username
   | "set-pin";     // After first login: set PIN
 
-const PIN_LENGTH = 6;
+const PIN_LENGTH = 4;
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -28,8 +28,8 @@ export default function LoginPage() {
   const [countdown, setCountdown] = useState(300);
 
   // OTP digits (new user email verification)
-  const [otpDigits, setOtpDigits] = useState<string[]>(Array(6).fill(""));
-  const otpRefs = Array.from({ length: 6 }, () => useRef<HTMLInputElement>(null));
+  const [otpDigits, setOtpDigits] = useState<string[]>(Array(4).fill(""));
+  const otpRefs = Array.from({ length: 4 }, () => useRef<HTMLInputElement>(null));
 
   // PIN entry (existing user local auth)
   const [pinDigits, setPinDigits] = useState<string[]>(Array(PIN_LENGTH).fill(""));
@@ -131,7 +131,7 @@ export default function LoginPage() {
   // ──────────────────────────────────────────────────────────────────────
   const handlePinLogin = async () => {
     const pin = pinDigits.join("");
-    if (pin.length < PIN_LENGTH) { setError("Please enter all 6 PIN digits."); return; }
+    if (pin.length < PIN_LENGTH) { setError("Please enter all 4 PIN digits."); return; }
     const storedPin = localStorage.getItem(`dolsyx_pin_${email.trim().toLowerCase()}`);
     if (!storedPin) {
       setError("No PIN set for this account. Please contact support or use a different device.");
@@ -286,9 +286,9 @@ export default function LoginPage() {
   const handleOtpChange = (index: number, value: string) => {
     const digit = value.replace(/[^0-9]/g, "").slice(-1);
     const nd = [...otpDigits]; nd[index] = digit; setOtpDigits(nd);
-    if (digit && index < 5) otpRefs[index + 1].current?.focus();
+    if (digit && index < 3) otpRefs[index + 1].current?.focus();
     const complete = nd.join("");
-    if (complete.length === 6 && !nd.includes("")) verifyOtp(complete);
+    if (complete.length === 4 && !nd.includes("")) verifyOtp(complete);
   };
   const handleOtpKeyDown = (index: number, e: React.KeyboardEvent) => {
     if (e.key === "Backspace") {
@@ -302,9 +302,9 @@ export default function LoginPage() {
   };
   const handleOtpPaste = (e: React.ClipboardEvent) => {
     e.preventDefault();
-    const paste = e.clipboardData.getData("text").replace(/[^0-9]/g, "").slice(0, 6);
-    if (paste.length === 6) {
-      setOtpDigits(paste.split("")); otpRefs[5].current?.focus(); verifyOtp(paste);
+    const paste = e.clipboardData.getData("text").replace(/[^0-9]/g, "").slice(0, 4);
+    if (paste.length === 4) {
+      setOtpDigits(paste.split("")); otpRefs[3].current?.focus(); verifyOtp(paste);
     }
   };
 
@@ -571,7 +571,7 @@ export default function LoginPage() {
         {step === "set-pin" && (
           <div className="mt-8 space-y-6">
             <div className="text-center text-xs text-[var(--theme-text-secondary)]">
-              Set a 6-digit PIN to quickly unlock the app next time you log in.
+              Set a 4-digit PIN to quickly unlock the app next time you log in.
             </div>
 
             {/* New PIN */}

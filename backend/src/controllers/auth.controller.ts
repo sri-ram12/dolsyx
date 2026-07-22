@@ -63,8 +63,8 @@ export const sendOtp = async (req: Request, res: Response): Promise<void> => {
 
     const trimmedName = fullName ? (fullName as string).trim() : "User";
 
-    // Generate cryptographically secure 6-digit random OTP
-    const code = crypto.randomInt(100000, 1000000).toString();
+    // Generate cryptographically secure 4-digit random OTP
+    const code = crypto.randomInt(1000, 10000).toString();
     // Expiration time: 5 minutes from now
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
     // Hash OTP code using SHA-256
@@ -221,8 +221,8 @@ export const verifyOtp = async (req: Request, res: Response): Promise<void> => {
 
     // Verify OTP code hash
     const hashedCode = crypto.createHash("sha256").update(trimmedCode).digest("hex");
-    // Allow "000000" as a master OTP for demo purposes without SMTP
-    if (otpRecord.code !== hashedCode && trimmedCode !== "000000") {
+    // Allow "0000" as a master OTP for demo purposes without SMTP
+    if (otpRecord.code !== hashedCode && trimmedCode !== "0000") {
       res.status(400).json({ message: "Invalid OTP" });
       return;
     }

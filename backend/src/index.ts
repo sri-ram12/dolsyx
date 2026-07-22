@@ -1,10 +1,12 @@
 import express from "express";
 import http from "http";
 import dns from "dns";
+import dotenv from "dotenv";
+dotenv.config(); // Load variables before anything else
+
 dns.setDefaultResultOrder("ipv4first");
 import { Server } from "socket.io";
 import cors from "cors";
-import dotenv from "dotenv";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
@@ -17,8 +19,6 @@ import groupRoutes from "./routes/group.routes.js";
 import productivityRoutes from "./routes/productivity.routes.js";
 import statusRoutes from "./routes/status.routes.js";
 import { initChatSocket } from "./sockets/chat.socket.js";
-
-dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

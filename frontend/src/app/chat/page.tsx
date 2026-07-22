@@ -486,8 +486,20 @@ export default function ChatPage() {
     // Listen for new conversations (like newly created groups)
     socket.on("new_conversation", (data: { chat: Chat }) => {
       setChats((prevChats) => {
-        const exists = prevChats.some((c) => c.id === data.chat.id);
-        if (exists) return prevChats;
+        const exactExists = prevChats.some((c) => c.id === data.chat.id);
+        if (exactExists) return prevChats;
+
+        if (!data.chat.isGroup && data.chat.recipient) {
+          const existingDirectIndex = prevChats.findIndex(
+            (c) => !c.isGroup && c.recipient && c.recipient.id === data.chat.recipient!.id
+          );
+          if (existingDirectIndex !== -1) {
+            const updated = [...prevChats];
+            updated[existingDirectIndex] = data.chat;
+            return updated;
+          }
+        }
+
         return [data.chat, ...prevChats];
       });
     });
@@ -617,8 +629,23 @@ export default function ChatPage() {
 
   const handleChatCreated = (newChat: Chat) => {
     setChats((prev) => {
-      const exists = prev.some((c) => c.id === newChat.id);
-      if (exists) return prev;
+      // Avoid duplication by exact chat ID
+      const exactExists = prev.some((c) => c.id === newChat.id);
+      if (exactExists) return prev;
+
+      // Avoid duplication by recipient ID for direct chats
+      if (!newChat.isGroup && newChat.recipient) {
+        const existingDirectIndex = prev.findIndex(
+          (c) => !c.isGroup && c.recipient && c.recipient.id === newChat.recipient!.id
+        );
+        if (existingDirectIndex !== -1) {
+          // If we found an older version of this direct chat, replace it instead of duplicating
+          const updated = [...prev];
+          updated[existingDirectIndex] = newChat;
+          return updated;
+        }
+      }
+
       return [newChat, ...prev];
     });
     setSelectedChat(newChat);

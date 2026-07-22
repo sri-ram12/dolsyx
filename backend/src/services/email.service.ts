@@ -48,15 +48,22 @@ class EmailService {
       console.log(`[EmailService] Initializing SMTP transporter with host=${host}, user=${user}`);
       // Use explicit host/port config with family:4 to force IPv4
       // (Render cloud containers may resolve smtp.gmail.com to an IPv6 address that is unreachable)
-      const transportConfig: any = {
+      const isGmail = host === "smtp.gmail.com";
+      const transportConfig: any = isGmail ? {
+        service: "gmail",
+        auth: { user, pass },
+        connectionTimeout: 20000,
+        greetingTimeout: 20000,
+        socketTimeout: 20000,
+      } : {
         host: host,
         port: port,
         secure: port === 465,   // True for 465, false for other ports
         family: 4,              // Force IPv4 connections only
         auth: { user, pass },
-        connectionTimeout: 10000,
-        greetingTimeout: 10000,
-        socketTimeout: 10000,
+        connectionTimeout: 20000,
+        greetingTimeout: 20000,
+        socketTimeout: 20000,
         tls: { rejectUnauthorized: false },
       };
       this.transporter = nodemailer.createTransport(transportConfig);

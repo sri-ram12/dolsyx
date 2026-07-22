@@ -39,6 +39,7 @@ import {
   Share2,
   Lock,
   IndianRupee,
+  Users,
 } from "lucide-react";
 import { Socket } from "socket.io-client";
 import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";

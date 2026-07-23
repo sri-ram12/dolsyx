@@ -45,6 +45,8 @@ class _CallScreenState extends State<CallScreen> {
       await Permission.camera.request();
     }
 
+    if (!mounted) return;
+
     await _localRenderer.initialize();
     await _remoteRenderer.initialize();
     
@@ -84,6 +86,8 @@ class _CallScreenState extends State<CallScreen> {
 
   @override
   void dispose() {
+    _localRenderer.srcObject = null;
+    _remoteRenderer.srcObject = null;
     _callService?.endCall();
     _localRenderer.dispose();
     _remoteRenderer.dispose();

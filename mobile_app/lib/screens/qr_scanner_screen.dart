@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../services/chat_service.dart';
-import 'chat_room_screen.dart';
 import '../theme/app_theme.dart';
+import 'package:provider/provider.dart';
+import '../providers/auth_provider.dart';
+import 'chat_room_screen.dart';
 
 class QrScannerScreen extends StatefulWidget {
   const QrScannerScreen({super.key});
@@ -26,15 +28,28 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
       try {
         final chat = await _chatService.createDirectChat(scannedUserId);
         if (mounted && chat != null) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (_) => ChatRoomScreen(
-                conversationId: chat.id,
-                chatName: 'Scanned User', // Ideally fetch user name from backend
+          String chatName = 'Scanned User';
+          if (chat.participants != null && chat.participants!.isNotEmpty) {
+            final currentUserId = Provider.of<AuthProvider>(context, listen: false).user?['id'] ?? Provider.of<AuthProvider>(context, listen: false).user?['_id'];
+            final otherParticipant = chat.participants!.firstWhere(
+              (p) => p['user'] != null && (p['user']['id'] != currentUserId && p['user']['_id'] != currentUserId),
+              orElse: () => null,
+            );
+            if (otherParticipant != null && otherParticipant['user']['username'] != null) {
+              chatName = otherParticipant['user']['username'];
+            }
+          }
+          
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (_) => ChatRoomScreen(
+                  conversationId: chat.id,
+                  chatName: chatName,
+                  remoteUserId: scannedUserId,
+                ),
               ),
-            ),
-          );
+            );
         } else {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to open chat with this QR code')));

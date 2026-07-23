@@ -59,7 +59,17 @@ class _CallScreenState extends State<CallScreen> {
     if (widget.isIncoming) {
       // In a real app we'd pass the offer through to answerCall, but simplifying here
     } else {
-      await _callService!.startCall(widget.remoteUserId, widget.remoteUserId, widget.isVideo);
+      final currentUser = Provider.of<AuthProvider>(context, listen: false).user;
+      final callerName = currentUser?['username'] ?? 'Unknown User';
+      final callerAvatar = currentUser?['avatarUrl'];
+      
+      await _callService!.startCall(
+        widget.remoteUserId, 
+        widget.remoteUserId, // using remoteUserId as conversationId placeholder for simplicity if needed
+        widget.isVideo,
+        callerName,
+        callerAvatar,
+      );
     }
   }
 

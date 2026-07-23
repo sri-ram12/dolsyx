@@ -16,12 +16,14 @@ class ChatRoomScreen extends StatefulWidget {
   final String conversationId;
   final String chatName;
   final String? avatarUrl;
+  final String? remoteUserId;
 
   const ChatRoomScreen({
     super.key,
     required this.conversationId,
     required this.chatName,
     this.avatarUrl,
+    this.remoteUserId,
   });
 
   @override
@@ -227,36 +229,38 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           ],
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.call),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => CallScreen(
-                    remoteUserId: widget.conversationId, // Using conv ID as proxy for now
-                    remoteUserName: widget.chatName,
-                    isVideo: false,
+          if (widget.remoteUserId != null) ...[
+            IconButton(
+              icon: const Icon(Icons.call),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => CallScreen(
+                      remoteUserId: widget.remoteUserId!,
+                      remoteUserName: widget.chatName,
+                      isVideo: false,
+                    ),
                   ),
-                ),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.videocam),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => CallScreen(
-                    remoteUserId: widget.conversationId,
-                    remoteUserName: widget.chatName,
-                    isVideo: true,
+                );
+              },
+            ),
+            IconButton(
+              icon: const Icon(Icons.videocam),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => CallScreen(
+                      remoteUserId: widget.remoteUserId!,
+                      remoteUserName: widget.chatName,
+                      isVideo: true,
+                    ),
                   ),
-                ),
-              );
-            },
-          ),
+                );
+              },
+            ),
+          ]
         ],
       ),
       body: Column(
@@ -288,6 +292,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 IconButton(
                   icon: const Icon(Icons.attach_file, color: AppTheme.primaryColor),
                   onPressed: _showAttachmentOptions,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.camera_alt, color: AppTheme.primaryColor),
+                  onPressed: () => _pickImage(ImageSource.camera),
                 ),
                 Expanded(
                   child: TextField(

@@ -1,18 +1,41 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../theme/app_theme.dart';
+import '../services/api_service.dart';
 
-class OtherUserProfileScreen extends StatelessWidget {
+class OtherUserProfileScreen extends StatefulWidget {
   final Map<String, dynamic> user;
 
   const OtherUserProfileScreen({super.key, required this.user});
 
   @override
+  State<OtherUserProfileScreen> createState() => _OtherUserProfileScreenState();
+}
+
+class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
+  final ApiService _apiService = ApiService();
+  bool _isProcessing = false;
+
+  void _blockUser() async {
+    setState(() => _isProcessing = true);
+    final userId = widget.user['id'] ?? widget.user['_id'];
+    if (userId != null) {
+      final success = await _apiService.blockUser(userId);
+      if (mounted) {
+        setState(() => _isProcessing = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(success ? 'User blocked successfully' : 'Failed to block user')),
+        );
+        if (success) Navigator.pop(context); // Close profile after blocking
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final avatarUrl = user['avatarUrl'];
-    final username = user['username'] ?? 'User';
-    final email = user['email'] ?? '';
-    final bio = user['bio'] ?? 'No bio provided';
+    final avatarUrl = widget.user['avatarUrl'];
+    final username = widget.user['username'] ?? 'User';
+    final email = widget.user['email'] ?? '';
+    final bio = widget.user['bio'] ?? 'No bio provided';
 
     return Scaffold(
       appBar: AppBar(
@@ -57,6 +80,26 @@ class OtherUserProfileScreen extends StatelessWidget {
                   const SizedBox(height: 8),
                   Text(bio, style: const TextStyle(color: AppTheme.textPrimary, fontSize: 16)),
                 ],
+              ),
+            ),
+            const SizedBox(height: 32),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _isProcessing ? null : _blockUser,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.redAccent.withOpacity(0.1),
+                  foregroundColor: Colors.redAccent,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: const BorderSide(color: Colors.redAccent),
+                  ),
+                ),
+                icon: _isProcessing 
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.redAccent))
+                  : const Icon(Icons.block),
+                label: Text(_isProcessing ? 'Blocking...' : 'Block User'),
               ),
             ),
           ],

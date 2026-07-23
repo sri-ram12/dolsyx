@@ -34,7 +34,7 @@ class CallService {
     });
   }
 
-  Future<void> startCall(String targetUserId, String conversationId, bool isVideo) async {
+  Future<void> startCall(String targetUserId, String conversationId, bool isVideo, String callerName, String? callerAvatar) async {
     _remoteUserId = targetUserId;
     _conversationId = conversationId;
     _callType = isVideo ? 'video' : 'audio';
@@ -48,6 +48,8 @@ class CallService {
       'targetUserId': targetUserId,
       'conversationId': conversationId,
       'callType': _callType,
+      'callerName': callerName,
+      'callerAvatar': callerAvatar,
       'offer': {
         'type': offer.type,
         'sdp': offer.sdp,

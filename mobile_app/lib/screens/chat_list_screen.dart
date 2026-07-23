@@ -42,9 +42,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
   String _getChatName(Chat chat) {
     if (chat.isGroup && chat.name != null) return chat.name!;
     if (chat.participants != null && chat.participants!.isNotEmpty) {
-      // Find the other user's username
+      final currentUserId = Provider.of<AuthProvider>(context, listen: false).user?['id'] ?? Provider.of<AuthProvider>(context, listen: false).user?['_id'];
       final otherParticipant = chat.participants!.firstWhere(
-        (p) => p['user'] != null,
+        (p) => p['user'] != null && (p['user']['id'] != currentUserId && p['user']['_id'] != currentUserId),
         orElse: () => null,
       );
       if (otherParticipant != null && otherParticipant['user']['username'] != null) {
@@ -121,8 +121,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
                       leading: GestureDetector(
                         onTap: () {
                           if (!chat.isGroup && chat.participants != null && chat.participants!.isNotEmpty) {
+                            final currentUserId = Provider.of<AuthProvider>(context, listen: false).user?['id'] ?? Provider.of<AuthProvider>(context, listen: false).user?['_id'];
                             final otherParticipant = chat.participants!.firstWhere(
-                              (p) => p['user'] != null,
+                              (p) => p['user'] != null && (p['user']['id'] != currentUserId && p['user']['_id'] != currentUserId),
                               orElse: () => null,
                             );
                             if (otherParticipant != null) {
@@ -163,6 +164,18 @@ class _ChatListScreenState extends State<ChatListScreen> {
                         style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
                       ),
                       onTap: () {
+                        String? remoteId;
+                        if (!chat.isGroup && chat.participants != null) {
+                          final currentUserId = Provider.of<AuthProvider>(context, listen: false).user?['id'] ?? Provider.of<AuthProvider>(context, listen: false).user?['_id'];
+                          final otherParticipant = chat.participants!.firstWhere(
+                            (p) => p['user'] != null && (p['user']['id'] != currentUserId && p['user']['_id'] != currentUserId),
+                            orElse: () => null,
+                          );
+                          if (otherParticipant != null) {
+                            remoteId = otherParticipant['user']['id'] ?? otherParticipant['user']['_id'];
+                          }
+                        }
+
                         Navigator.push(
                           context,
                           MaterialPageRoute(
@@ -170,6 +183,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                               conversationId: chat.id,
                               chatName: _getChatName(chat),
                               avatarUrl: chat.avatarUrl,
+                              remoteUserId: remoteId,
                             ),
                           ),
                         );

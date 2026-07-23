@@ -1,0 +1,141 @@
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+
+class ApiService {
+  // Replace with your computer's local Wi-Fi IP address
+  static const String baseUrl = 'https://dolsyx-app.onrender.com/api';
+
+  Future<Map<String, dynamic>> login(String email, String password) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/auth/login-without-otp'), // Changed to support passwordless OTP accounts
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'email': email}), // Only send email
+      );
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200) {
+        // Save the token securely
+        final prefs = await SharedPreferences.getInstance();
+        if (data['token'] != null) {
+          await prefs.setString('jwt_token', data['token']);
+        }
+        return {'success': true, 'data': data};
+      } else {
+        return {'success': false, 'message': data['message'] ?? 'Login failed'};
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Network error: Could not connect to server.'};
+    }
+  }
+
+  Future<void> logout() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('jwt_token');
+  }
+
+  Future<String?> getToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('jwt_token');
+  }
+
+  Future<Map<String, dynamic>?> uploadMedia(String filePath) async {
+    try {
+      final token = await getToken();
+      if (token == null) return null;
+
+      final request = http.MultipartRequest('POST', Uri.parse('$baseUrl/chats/upload'));
+      request.headers['Authorization'] = 'Bearer $token';
+      request.files.add(await http.MultipartFile.fromPath('file', filePath));
+
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return jsonDecode(response.body);
+      } else {
+        print('Upload failed: ${response.body}');
+      }
+    } catch (e) {
+      print('Upload error: $e');
+    }
+    return null;
+  }
+
+  Future<bool> updateProfile(String? bio, String? avatarUrl) async {
+    try {
+      final token = await getToken();
+      if (token == null) return false;
+
+      final response = await http.put(
+        Uri.parse('$baseUrl/auth/profile'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'bio': bio,
+          'avatarUrl': avatarUrl,
+        }),
+      );
+
+      return response.statusCode == 200;
+    } catch (e) {
+      print('Update profile error: $e');
+      return false;
+    }
+  }
+
+  Future<List<dynamic>> getBlockedUsers() async {
+    try {
+      final token = await getToken();
+      if (token == null) return [];
+
+      final response = await http.get(
+        Uri.parse('$baseUrl/auth/blocks'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+    } catch (e) {
+      print('Get blocked users error: $e');
+    }
+    return [];
+  }
+
+  Future<bool> blockUser(String targetUserId) async {
+    try {
+      final token = await getToken();
+      if (token == null) return false;
+
+      final response = await http.post(
+        Uri.parse('$baseUrl/auth/block/$targetUserId'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      return response.statusCode == 200 || response.statusCode == 201;
+    } catch (e) {
+      print('Block error: $e');
+      return false;
+    }
+  }
+
+  Future<bool> unblockUser(String targetUserId) async {
+    try {
+      final token = await getToken();
+      if (token == null) return false;
+
+      final response = await http.delete(
+        Uri.parse('$baseUrl/auth/block/$targetUserId'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      print('Unblock error: $e');
+      return false;
+    }
+  }
+}

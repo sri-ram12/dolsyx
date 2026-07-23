@@ -97,7 +97,9 @@ class CallService {
   Future<void> _initializePeerConnection(bool isVideo) async {
     final configuration = {
       'iceServers': [
-        {'url': 'stun:stun.l.google.com:19302'},
+        {
+          'urls': ['stun:stun.l.google.com:19302']
+        },
       ]
     };
 
@@ -137,8 +139,9 @@ class CallService {
 
     _localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
     if (onLocalStream != null) onLocalStream!(_localStream!);
-
-    _peerConnection!.addStream(_localStream!);
+    
+    // Add local stream to the peer connection so tracks are sent to the remote side
+    await _peerConnection!.addStream(_localStream!);
   }
 
   void endCall() {

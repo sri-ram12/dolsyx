@@ -48,6 +48,7 @@ class _CallScreenState extends State<CallScreen> {
     await _localRenderer.initialize();
     await _remoteRenderer.initialize();
     
+    if (!mounted) return;
     final socketService = Provider.of<AuthProvider>(context, listen: false).socketService;
     _callService = CallService(socketService);
     
@@ -66,6 +67,7 @@ class _CallScreenState extends State<CallScreen> {
     if (widget.isIncoming) {
       // In a real app we'd pass the offer through to answerCall, but simplifying here
     } else {
+      if (!mounted) return;
       final currentUser = Provider.of<AuthProvider>(context, listen: false).user;
       final callerName = currentUser?['username'] ?? 'Unknown User';
       final callerAvatar = currentUser?['avatarUrl'];

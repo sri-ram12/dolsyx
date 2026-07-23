@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:async';
+import 'package:intl/intl.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
@@ -38,6 +40,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   final ScrollController _scrollController = ScrollController();
   List<Message> _messages = [];
   bool _isLoading = true;
+  bool _isTyping = false;
+  bool _isRemoteUserTyping = false;
+  bool _isRemoteUserOnline = false;
+  DateTime? _remoteUserLastSeen;
+  Timer? _typingTimer;
 
   @override
   void initState() {
@@ -52,15 +59,69 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     authProvider.socketService.socket?.emit('mark_read', {
       'conversationId': widget.conversationId,
     });
+
+    authProvider.socketService.onTypingChange(_handleTypingChange);
+    authProvider.socketService.onStatusChange(_handleStatusChange);
+
+    _messageController.addListener(_onTextChanged);
+    
+    // Set initial status from widget if available
+    if (widget.remoteUser != null) {
+      if (widget.remoteUser!['isOnline'] == true) {
+        _isRemoteUserOnline = true;
+      }
+      if (widget.remoteUser!['lastSeen'] != null) {
+        _remoteUserLastSeen = DateTime.tryParse(widget.remoteUser!['lastSeen'].toString());
+      }
+    }
   }
 
   @override
   void dispose() {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     authProvider.socketService.offMessageReceived(_handleIncomingMessage);
+    authProvider.socketService.offTypingChange(_handleTypingChange);
+    authProvider.socketService.offStatusChange(_handleStatusChange);
+    _messageController.removeListener(_onTextChanged);
     _messageController.dispose();
     _scrollController.dispose();
+    _typingTimer?.cancel();
     super.dispose();
+  }
+
+  void _onTextChanged() {
+    final text = _messageController.text;
+    if (text.isNotEmpty && !_isTyping) {
+      _isTyping = true;
+      Provider.of<AuthProvider>(context, listen: false).socketService.emitTyping(widget.conversationId, true);
+    }
+    
+    _typingTimer?.cancel();
+    _typingTimer = Timer(const Duration(seconds: 2), () {
+      if (_isTyping && mounted) {
+        _isTyping = false;
+        Provider.of<AuthProvider>(context, listen: false).socketService.emitTyping(widget.conversationId, false);
+      }
+    });
+  }
+
+  void _handleTypingChange(dynamic data) {
+    if (mounted && data['conversationId'] == widget.conversationId && data['userId'] == widget.remoteUserId) {
+      setState(() {
+        _isRemoteUserTyping = data['isTyping'] == true;
+      });
+    }
+  }
+
+  void _handleStatusChange(dynamic data) {
+    if (mounted && data['userId'] == widget.remoteUserId) {
+      setState(() {
+        _isRemoteUserOnline = data['status'] == 'online';
+        if (data['lastSeen'] != null) {
+          _remoteUserLastSeen = DateTime.tryParse(data['lastSeen'].toString());
+        }
+      });
+    }
   }
 
   void _handleIncomingMessage(dynamic data) {
@@ -121,6 +182,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
     authProvider.socketService.sendMessage(widget.conversationId, text);
     _messageController.clear();
+    if (_isTyping) {
+      _isTyping = false;
+      authProvider.socketService.emitTyping(widget.conversationId, false);
+      _typingTimer?.cancel();
+    }
   }
 
   Future<void> _pickImage(ImageSource source) async {
@@ -347,10 +413,20 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                       overflow: TextOverflow.ellipsis,
                     ),
-                    const Text(
-                      'online',
-                      style: TextStyle(fontSize: 11, color: Colors.green, fontWeight: FontWeight.w400),
-                    ),
+                    if (widget.remoteUserId != null)
+                      Text(
+                        _isRemoteUserTyping
+                            ? 'Typing...'
+                            : _isRemoteUserOnline
+                                ? 'Online'
+                                : (_remoteUserLastSeen != null
+                                    ? 'Last seen at ${DateFormat.jm().format(_remoteUserLastSeen!.toLocal())}'
+                                    : 'Offline'),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: _isRemoteUserTyping || _isRemoteUserOnline ? AppTheme.primaryColor : AppTheme.textSecondary,
+                        ),
+                      ),
                   ],
                 ),
               ),

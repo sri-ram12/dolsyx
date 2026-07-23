@@ -65,6 +65,39 @@ class SocketService {
     }
   }
 
+  void emitTyping(String conversationId, bool isTyping) {
+    if (socket != null && socket!.connected) {
+      socket!.emit('typing', {
+        'conversationId': conversationId,
+        'isTyping': isTyping,
+      });
+    }
+  }
+
+  void onTypingChange(Function(dynamic) callback) {
+    if (socket != null) {
+      socket!.on('user_typing', callback);
+    }
+  }
+
+  void offTypingChange(Function(dynamic) callback) {
+    if (socket != null) {
+      socket!.off('user_typing', callback);
+    }
+  }
+
+  void onStatusChange(Function(dynamic) callback) {
+    if (socket != null) {
+      socket!.on('user_status_change', callback);
+    }
+  }
+
+  void offStatusChange(Function(dynamic) callback) {
+    if (socket != null) {
+      socket!.off('user_status_change', callback);
+    }
+  }
+
   void disconnect() {
     socket?.disconnect();
     socket?.dispose();

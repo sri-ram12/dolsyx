@@ -15,13 +15,22 @@ class MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bool isOnlyImage = message.mediaUrl != null &&
+        message.mediaUrl!.isNotEmpty &&
+        message.mediaType == 'IMAGE' &&
+        message.content.isEmpty;
+
+    final imageSize = MediaQuery.of(context).size.width * 0.75;
+
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        padding: isOnlyImage
+            ? EdgeInsets.zero
+            : const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         decoration: BoxDecoration(
-          color: isMe ? AppTheme.primaryColor : AppTheme.surfaceColor,
+          color: isOnlyImage ? Colors.transparent : (isMe ? AppTheme.primaryColor : AppTheme.surfaceColor),
           borderRadius: BorderRadius.circular(16).copyWith(
             bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(16),
             bottomLeft: !isMe ? const Radius.circular(4) : const Radius.circular(16),
@@ -33,17 +42,19 @@ class MessageBubble extends StatelessWidget {
             if (message.mediaUrl != null && message.mediaUrl!.isNotEmpty) ...[
               if (message.mediaType == 'IMAGE')
                 ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(isOnlyImage ? 16 : 8).copyWith(
+                    bottomRight: (isMe && isOnlyImage) ? const Radius.circular(4) : null,
+                    bottomLeft: (!isMe && isOnlyImage) ? const Radius.circular(4) : null,
+                  ),
                   child: CachedNetworkImage(
                     imageUrl: message.mediaUrl!.startsWith('http')
                         ? message.mediaUrl!
                         : 'https://dolsyx-app.onrender.com${message.mediaUrl}',
-                    width: 200,
-                    height: 200,
-                    fit: BoxFit.cover,
+                    width: imageSize,
+                    fit: BoxFit.contain,
                     placeholder: (context, url) => Container(
-                      width: 200,
-                      height: 200,
+                      width: imageSize,
+                      height: imageSize,
                       color: Colors.black12,
                       child: const Center(child: CircularProgressIndicator()),
                     ),

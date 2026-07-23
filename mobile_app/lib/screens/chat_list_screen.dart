@@ -12,6 +12,7 @@ import 'create_group_screen.dart';
 import 'my_qr_screen.dart';
 import 'qr_scanner_screen.dart';
 import 'other_user_profile_screen.dart';
+import 'status_screen.dart';
 
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
@@ -97,7 +98,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
   Widget _buildChatsTab() {
     return Column(
       children: [
-        // Ask Meta AI or Search Bar (Pic 2 style)
+        // Search Bar (Pic 2 style)
         GestureDetector(
           onTap: () {
             Navigator.push(context, MaterialPageRoute(builder: (_) => const SearchScreen()));
@@ -114,7 +115,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 Icon(Icons.search, color: AppTheme.textSecondary, size: 20),
                 const SizedBox(width: 12),
                 Text(
-                  'Ask Meta AI or Search',
+                  'Search',
                   style: TextStyle(color: AppTheme.textSecondary, fontSize: 15),
                 ),
               ],
@@ -280,24 +281,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
   }
 
   Widget _buildUpdatesTab() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.blur_circular, size: 64, color: AppTheme.textSecondary),
-          const SizedBox(height: 16),
-          Text(
-            'Updates Section',
-            style: TextStyle(color: AppTheme.textPrimary, fontSize: 20, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Status updates and news will appear here.',
-            style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
-          ),
-        ],
-      ),
-    );
+    return const StatusScreen();
   }
 
   Widget _buildCommunitiesTab() {
@@ -336,7 +320,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
         centerTitle: false,
         actions: [
           IconButton(
-            icon: const Icon(Icons.camera_alt_outlined),
+            icon: const Icon(Icons.qr_code_scanner),
             onPressed: () {
               Navigator.push(context, MaterialPageRoute(builder: (_) => const QrScannerScreen()));
             },

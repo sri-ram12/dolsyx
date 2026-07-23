@@ -151,7 +151,7 @@ class _CallScreenState extends State<CallScreen> {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const CircleAvatar(radius: 60, backgroundColor: AppTheme.surfaceColor, child: Icon(Icons.person, size: 60)),
+                    CircleAvatar(radius: 60, backgroundColor: AppTheme.surfaceColor, child: const Icon(Icons.person, size: 60)),
                     const SizedBox(height: 24),
                     Text(widget.remoteUserName, style: const TextStyle(fontSize: 24, color: Colors.white, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 8),

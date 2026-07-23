@@ -187,7 +187,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             children: [
               ListTile(
                 leading: const Icon(Icons.camera_alt, color: AppTheme.primaryColor),
-                title: const Text('Camera', style: TextStyle(color: AppTheme.textPrimary)),
+                title: Text('Camera', style: TextStyle(color: AppTheme.textPrimary)),
                 onTap: () {
                   Navigator.pop(sheetContext);
                   _pickImage(ImageSource.camera);
@@ -195,7 +195,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               ),
               ListTile(
                 leading: const Icon(Icons.photo, color: AppTheme.primaryColor),
-                title: const Text('Gallery', style: TextStyle(color: AppTheme.textPrimary)),
+                title: Text('Gallery', style: TextStyle(color: AppTheme.textPrimary)),
                 onTap: () {
                   Navigator.pop(sheetContext);
                   _pickImage(ImageSource.gallery);
@@ -203,7 +203,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               ),
               ListTile(
                 leading: const Icon(Icons.insert_drive_file, color: AppTheme.primaryColor),
-                title: const Text('Document', style: TextStyle(color: AppTheme.textPrimary)),
+                title: Text('Document', style: TextStyle(color: AppTheme.textPrimary)),
                 onTap: () {
                   Navigator.pop(sheetContext);
                   _pickFile();
@@ -241,7 +241,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
+              Text(
                 'Emojis',
                 style: TextStyle(color: AppTheme.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
               ),
@@ -332,7 +332,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     ? NetworkImage(widget.avatarUrl!)
                     : null,
                 child: (widget.avatarUrl == null || !widget.avatarUrl!.startsWith('http'))
-                    ? const Icon(Icons.person, size: 20, color: AppTheme.textSecondary)
+                    ? Icon(Icons.person, size: 20, color: AppTheme.textSecondary)
                     : null,
               ),
               const SizedBox(width: 8),
@@ -408,8 +408,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                   ),
           ),
           if (_isLoading && _messages.isNotEmpty)
-            const Padding(
-              padding: EdgeInsets.all(8.0),
+            Padding(
+              padding: const EdgeInsets.all(8.0),
               child: LinearProgressIndicator(color: AppTheme.primaryColor),
             ),
           Container(
@@ -420,26 +420,26 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 Expanded(
                   child: TextField(
                     controller: _messageController,
-                    style: const TextStyle(color: AppTheme.textPrimary),
+                    style: TextStyle(color: AppTheme.textPrimary),
                     decoration: InputDecoration(
                       hintText: 'Message',
-                      hintStyle: const TextStyle(color: AppTheme.textSecondary),
+                      hintStyle: TextStyle(color: AppTheme.textSecondary),
                       filled: true,
                       fillColor: AppTheme.surfaceColor,
                       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                       prefixIcon: IconButton(
-                        icon: const Icon(Icons.emoji_emotions_outlined, color: AppTheme.textSecondary),
+                        icon: Icon(Icons.emoji_emotions_outlined, color: AppTheme.textSecondary),
                         onPressed: _showEmojiPicker,
                       ),
                       suffixIcon: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           IconButton(
-                            icon: const Icon(Icons.attach_file, color: AppTheme.textSecondary),
+                            icon: Icon(Icons.attach_file, color: AppTheme.textSecondary),
                             onPressed: _showAttachmentOptions,
                           ),
                           IconButton(
-                            icon: const Icon(Icons.camera_alt_outlined, color: AppTheme.textSecondary),
+                            icon: Icon(Icons.camera_alt_outlined, color: AppTheme.textSecondary),
                             onPressed: () => _pickImage(ImageSource.camera),
                           ),
                         ],

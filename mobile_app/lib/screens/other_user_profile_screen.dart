@@ -60,8 +60,8 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           ListTile(
-                            leading: const Icon(Icons.phone, color: AppTheme.primaryColor),
-                            title: const Text('Voice Call', style: TextStyle(color: AppTheme.textPrimary)),
+                            leading: Icon(Icons.phone, color: AppTheme.primaryColor),
+                            title: Text('Voice Call', style: TextStyle(color: AppTheme.textPrimary)),
                             onTap: () {
                               Navigator.pop(sheetContext);
                               Navigator.push(
@@ -77,8 +77,8 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
                             },
                           ),
                           ListTile(
-                            leading: const Icon(Icons.videocam, color: AppTheme.primaryColor),
-                            title: const Text('Video Call', style: TextStyle(color: AppTheme.textPrimary)),
+                            leading: Icon(Icons.videocam, color: AppTheme.primaryColor),
+                            title: Text('Video Call', style: TextStyle(color: AppTheme.textPrimary)),
                             onTap: () {
                               Navigator.pop(sheetContext);
                               Navigator.push(
@@ -105,17 +105,17 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
                 backgroundImage: avatarUrl != null && avatarUrl.startsWith('http')
                     ? NetworkImage(avatarUrl)
                     : (avatarUrl != null ? NetworkImage('https://dolsyx-app.onrender.com$avatarUrl') : null),
-                child: avatarUrl == null ? const Icon(Icons.person, size: 60, color: AppTheme.textSecondary) : null,
+                child: avatarUrl == null ? Icon(Icons.person, size: 60, color: AppTheme.textSecondary) : null,
               ),
             ),
             const SizedBox(height: 24),
             Text(
               username,
-              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
             ),
             Text(
               email,
-              style: const TextStyle(fontSize: 16, color: AppTheme.textSecondary),
+              style: TextStyle(fontSize: 16, color: AppTheme.textSecondary),
             ),
             const SizedBox(height: 32),
             Container(
@@ -128,9 +128,9 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('About', style: TextStyle(color: AppTheme.textSecondary, fontSize: 14)),
+                  Text('About', style: TextStyle(color: AppTheme.textSecondary, fontSize: 14)),
                   const SizedBox(height: 8),
-                  Text(bio, style: const TextStyle(color: AppTheme.textPrimary, fontSize: 16)),
+                  Text(bio, style: TextStyle(color: AppTheme.textPrimary, fontSize: 16)),
                 ],
               ),
             ),

@@ -91,8 +91,8 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
               decoration: const InputDecoration(labelText: 'Description (Optional)'),
             ),
           ),
-          const Padding(
-            padding: EdgeInsets.all(16.0),
+          Padding(
+            padding: const EdgeInsets.all(16.0),
             child: Text('Select Members', style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
           ),
           Padding(
@@ -115,7 +115,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                         : null,
                     child: user['avatarUrl'] == null ? const Icon(Icons.person) : null,
                   ),
-                  title: Text(user['username'], style: const TextStyle(color: AppTheme.textPrimary)),
+                  title: Text(user['username'], style: TextStyle(color: AppTheme.textPrimary)),
                   trailing: Checkbox(
                     value: isSelected,
                     onChanged: (val) {

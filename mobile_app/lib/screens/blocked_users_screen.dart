@@ -56,7 +56,7 @@ class _BlockedUsersScreenState extends State<BlockedUsersScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
           : _blockedUsers.isEmpty
-              ? const Center(
+              ? Center(
                   child: Text('No blocked users', style: TextStyle(color: AppTheme.textSecondary)),
                 )
               : ListView.builder(
@@ -75,16 +75,16 @@ class _BlockedUsersScreenState extends State<BlockedUsersScreen> {
                         backgroundImage: avatarUrl != null && avatarUrl.startsWith('http')
                             ? NetworkImage(avatarUrl)
                             : (avatarUrl != null ? NetworkImage('https://dolsyx-app.onrender.com$avatarUrl') : null),
-                        child: avatarUrl == null ? const Icon(Icons.person, color: AppTheme.textSecondary) : null,
+                        child: avatarUrl == null ? Icon(Icons.person, color: AppTheme.textSecondary) : null,
                       ),
-                      title: Text(username, style: const TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
+                      title: Text(username, style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
                       trailing: ElevatedButton(
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.transparent,
-                          side: const BorderSide(color: AppTheme.primaryColor),
+                          side: BorderSide(color: AppTheme.primaryColor),
                         ),
                         onPressed: () => _unblockUser(blockedUser['_id'] ?? blockedUser['id']),
-                        child: const Text('Unblock', style: TextStyle(color: AppTheme.primaryColor)),
+                        child: Text('Unblock', style: TextStyle(color: AppTheme.primaryColor)),
                       ),
                     );
                   },

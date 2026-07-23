@@ -44,6 +44,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     authProvider.socketService.joinConversation(widget.conversationId);
     authProvider.socketService.onMessageReceived(_handleIncomingMessage);
+    
+    // Clear unread messages count on entry
+    authProvider.socketService.socket?.emit('mark_read', {
+      'conversationId': widget.conversationId,
+    });
   }
 
   @override
@@ -62,6 +67,12 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           _messages.add(Message.fromJson(data['message']));
         });
         _scrollToBottom();
+        
+        // Clear unread count for the new incoming message
+        final authProvider = Provider.of<AuthProvider>(context, listen: false);
+        authProvider.socketService.socket?.emit('mark_read', {
+          'conversationId': widget.conversationId,
+        });
       } catch (e) {
         print('Error parsing incoming message: $e');
       }
@@ -307,28 +318,29 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                   : null,
             ),
             const SizedBox(width: 8),
-            Text(widget.chatName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    widget.chatName,
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const Text(
+                    'online',
+                    style: TextStyle(fontSize: 11, color: Colors.green, fontWeight: FontWeight.w400),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
         actions: [
           if (widget.remoteUserId != null) ...[
             IconButton(
-              icon: const Icon(Icons.call),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => CallScreen(
-                      remoteUserId: widget.remoteUserId!,
-                      remoteUserName: widget.chatName,
-                      isVideo: false,
-                    ),
-                  ),
-                );
-              },
-            ),
-            IconButton(
-              icon: const Icon(Icons.videocam),
+              icon: const Icon(Icons.videocam_outlined, color: Colors.blue, size: 26),
               onPressed: () {
                 Navigator.push(
                   context,
@@ -337,6 +349,21 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                       remoteUserId: widget.remoteUserId!,
                       remoteUserName: widget.chatName,
                       isVideo: true,
+                    ),
+                  ),
+                );
+              },
+            ),
+            IconButton(
+              icon: const Icon(Icons.phone_outlined, color: Colors.blue, size: 24),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => CallScreen(
+                      remoteUserId: widget.remoteUserId!,
+                      remoteUserName: widget.chatName,
+                      isVideo: false,
                     ),
                   ),
                 );
@@ -367,34 +394,39 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               child: LinearProgressIndicator(color: AppTheme.primaryColor),
             ),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            color: AppTheme.surfaceColor,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            color: Colors.transparent,
             child: Row(
               children: [
-                IconButton(
-                  icon: const Icon(Icons.attach_file, color: AppTheme.primaryColor),
-                  onPressed: _showAttachmentOptions,
-                ),
-                 IconButton(
-                  icon: const Icon(Icons.camera_alt, color: AppTheme.primaryColor),
-                  onPressed: () => _pickImage(ImageSource.camera),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.emoji_emotions, color: AppTheme.primaryColor),
-                  onPressed: _showEmojiPicker,
-                ),
                 Expanded(
                   child: TextField(
                     controller: _messageController,
                     style: const TextStyle(color: AppTheme.textPrimary),
                     decoration: InputDecoration(
-                      hintText: 'Type a message...',
+                      hintText: 'Message',
                       hintStyle: const TextStyle(color: AppTheme.textSecondary),
                       filled: true,
-                      fillColor: AppTheme.backgroundColor,
+                      fillColor: AppTheme.surfaceColor,
                       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      prefixIcon: IconButton(
+                        icon: const Icon(Icons.emoji_emotions_outlined, color: AppTheme.textSecondary),
+                        onPressed: _showEmojiPicker,
+                      ),
+                      suffixIcon: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.attach_file, color: AppTheme.textSecondary),
+                            onPressed: _showAttachmentOptions,
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.camera_alt_outlined, color: AppTheme.textSecondary),
+                            onPressed: () => _pickImage(ImageSource.camera),
+                          ),
+                        ],
+                      ),
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(24),
+                        borderRadius: BorderRadius.circular(28),
                         borderSide: BorderSide.none,
                       ),
                     ),

@@ -4,7 +4,7 @@ class Chat {
   final bool isGroup;
   final String? avatarUrl;
   final List<dynamic>? participants;
-  final List<dynamic>? messages;
+  final Map<String, dynamic>? lastMessage;
   final int unreadCount;
 
   Chat({
@@ -13,7 +13,7 @@ class Chat {
     this.isGroup = false,
     this.avatarUrl,
     this.participants,
-    this.messages,
+    this.lastMessage,
     this.unreadCount = 0,
   });
 
@@ -24,7 +24,7 @@ class Chat {
       isGroup: json['isGroup'] ?? false,
       avatarUrl: json['avatarUrl'],
       participants: json['participants'],
-      messages: json['messages'],
+      lastMessage: json['lastMessage'],
       unreadCount: json['unreadCount'] ?? 0,
     );
   }

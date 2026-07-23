@@ -36,6 +36,7 @@ const fileFilter = (req: any, file: any, cb: any) => {
     "application/msword",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "text/",
+    "application/octet-stream",
   ];
   if (allowed.some((type) => file.mimetype.startsWith(type))) {
     cb(null, true);
@@ -60,26 +61,33 @@ router.delete("/:conversationId", deleteConversation as any);
 router.delete("/:conversationId/messages", clearChatMessages as any);
 
 // Upload endpoint
-router.post("/upload", upload.single("file"), (req: any, res: any) => {
-  try {
-    if (!req.file) {
-      res.status(400).json({ message: "No file uploaded" });
-      return;
+router.post("/upload", (req: any, res: any) => {
+  upload.single("file")(req, res, (err: any) => {
+    if (err) {
+      console.error("[Multer Error]", err);
+      return res.status(400).json({ message: err.message || "File upload error" });
     }
 
-    // Build relative file URL
-    const fileUrl = `/uploads/${req.file.filename}`;
+    try {
+      if (!req.file) {
+        res.status(400).json({ message: "No file uploaded" });
+        return;
+      }
 
-    res.json({
-      fileUrl,
-      fileName: req.file.originalname,
-      fileType: req.file.mimetype,
-      size: req.file.size,
-    });
-  } catch (error) {
-    console.error("Upload error:", error);
-    res.status(500).json({ message: "File upload failed" });
-  }
+      // Build relative file URL
+      const fileUrl = `/uploads/${req.file.filename}`;
+
+      res.json({
+        fileUrl,
+        fileName: req.file.originalname,
+        fileType: req.file.mimetype,
+        size: req.file.size,
+      });
+    } catch (error) {
+      console.error("Upload handler error:", error);
+      res.status(500).json({ message: "File upload processing failed" });
+    }
+  });
 });
 
 export default router;

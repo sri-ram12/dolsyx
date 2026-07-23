@@ -59,8 +59,8 @@ class _SearchScreenState extends State<SearchScreen> {
         title: TextField(
           controller: _searchController,
           autofocus: true,
-          style: const TextStyle(color: AppTheme.textPrimary),
-          decoration: const InputDecoration(
+          style: TextStyle(color: AppTheme.textPrimary),
+          decoration: InputDecoration(
             hintText: 'Search for users...',
             border: InputBorder.none,
             hintStyle: TextStyle(color: AppTheme.textSecondary),
@@ -71,7 +71,7 @@ class _SearchScreenState extends State<SearchScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
           : _searchResults.isEmpty
-              ? const Center(
+              ? Center(
                   child: Text(
                     'Search for a username to start chatting',
                     style: TextStyle(color: AppTheme.textSecondary),
@@ -86,16 +86,16 @@ class _SearchScreenState extends State<SearchScreen> {
                         backgroundColor: AppTheme.surfaceColor,
                         backgroundImage: user['avatarUrl'] != null ? NetworkImage(user['avatarUrl']) : null,
                         child: user['avatarUrl'] == null
-                            ? const Icon(Icons.person, color: AppTheme.textSecondary)
+                            ? Icon(Icons.person, color: AppTheme.textSecondary)
                             : null,
                       ),
                       title: Text(
                         user['username'] ?? 'Unknown User',
-                        style: const TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold),
+                        style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold),
                       ),
                       subtitle: Text(
                         user['email'] ?? '',
-                        style: const TextStyle(color: AppTheme.textSecondary),
+                        style: TextStyle(color: AppTheme.textSecondary),
                       ),
                       onTap: () => _startChat(user['id']),
                     );

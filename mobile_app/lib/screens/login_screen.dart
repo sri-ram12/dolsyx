@@ -88,7 +88,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                     color: AppTheme.primaryColor,
                   ),
                   const SizedBox(height: 32),
-                  const Text(
+                  Text(
                     'Welcome back',
                     style: TextStyle(
                       fontSize: 32,
@@ -99,7 +99,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 8),
-                  const Text(
+                  Text(
                     'Sign in to continue to DOLSYX',
                     style: TextStyle(
                       fontSize: 16,
@@ -111,7 +111,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                   TextField(
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       hintText: 'Email address',
                       prefixIcon: Icon(Icons.email_outlined, color: AppTheme.textSecondary),
                     ),
@@ -120,7 +120,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                   TextField(
                     controller: _passwordController,
                     obscureText: true,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       hintText: 'Password',
                       prefixIcon: Icon(Icons.lock_outline, color: AppTheme.textSecondary),
                     ),
@@ -155,7 +155,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Text(
+                      Text(
                         "Don't have an account?",
                         style: TextStyle(color: AppTheme.textSecondary),
                       ),

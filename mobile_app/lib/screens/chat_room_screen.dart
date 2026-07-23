@@ -11,6 +11,7 @@ import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
 import 'call_screen.dart';
 import '../widgets/message_bubble.dart';
+import 'other_user_profile_screen.dart';
 
 class ChatRoomScreen extends StatefulWidget {
   final String conversationId;

@@ -124,7 +124,7 @@ class _StatusScreenState extends State<StatusScreen> {
                               ? NetworkImage('https://dolsyx-app.onrender.com${myStatuses.last.mediaUrl}')
                               : null,
                           child: myStatuses.isEmpty
-                              ? const Icon(Icons.person, color: AppTheme.textSecondary)
+                              ? Icon(Icons.person, color: AppTheme.textSecondary)
                               : null,
                         ),
                         if (myStatuses.isEmpty)
@@ -142,23 +142,23 @@ class _StatusScreenState extends State<StatusScreen> {
                           ),
                       ],
                     ),
-                    title: const Text('My Status', style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
+                    title: Text('My Status', style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
                     subtitle: Text(
                       myStatuses.isEmpty ? 'Tap to add status update' : '${myStatuses.length} updates',
-                      style: const TextStyle(color: AppTheme.textSecondary),
+                      style: TextStyle(color: AppTheme.textSecondary),
                     ),
                     onTap: myStatuses.isEmpty
                         ? _addStatus
                         : () => _viewStatus(myStatuses.first), // A real app would iterate through them
                   ),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                     child: Text('Recent updates', style: TextStyle(color: AppTheme.textSecondary, fontWeight: FontWeight.bold)),
                   ),
                   // Other Users' Statuses
                   if (groupedStatuses.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.all(16.0),
+                    Padding(
+                      padding: const EdgeInsets.all(16.0),
                       child: Text('No recent updates.', style: TextStyle(color: AppTheme.textSecondary)),
                     ),
                   ...groupedStatuses.entries.map((entry) {
@@ -181,12 +181,12 @@ class _StatusScreenState extends State<StatusScreen> {
                               ? NetworkImage(avatarUrl)
                               : null,
                           child: (avatarUrl == null || !avatarUrl.startsWith('http'))
-                              ? const Icon(Icons.person, color: AppTheme.textSecondary)
+                              ? Icon(Icons.person, color: AppTheme.textSecondary)
                               : null,
                         ),
                       ),
-                      title: Text(user['username'] ?? 'User', style: const TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
-                      subtitle: Text(_formatTime(latest.createdAt), style: const TextStyle(color: AppTheme.textSecondary)),
+                      title: Text(user['username'] ?? 'User', style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
+                      subtitle: Text(_formatTime(latest.createdAt), style: TextStyle(color: AppTheme.textSecondary)),
                       onTap: () => _viewStatus(statuses.first),
                     );
                   }).toList(),

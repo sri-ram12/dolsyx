@@ -109,10 +109,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
               color: AppTheme.surfaceColor,
               borderRadius: BorderRadius.circular(24),
             ),
-            child: const Row(
+            child: Row(
               children: [
                 Icon(Icons.search, color: AppTheme.textSecondary, size: 20),
-                SizedBox(width: 12),
+                const SizedBox(width: 12),
                 Text(
                   'Ask Meta AI or Search',
                   style: TextStyle(color: AppTheme.textSecondary, fontSize: 15),
@@ -125,7 +125,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
           child: _isLoading
               ? const Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
               : _chats.isEmpty
-                  ? const Center(
+                  ? Center(
                       child: Text(
                         'No conversations yet.\nStart a chat!',
                         textAlign: TextAlign.center,
@@ -161,13 +161,13 @@ class _ChatListScreenState extends State<ChatListScreen> {
                               backgroundColor: AppTheme.surfaceColor,
                               backgroundImage: chat.avatarUrl != null ? NetworkImage(chat.avatarUrl!) : null,
                               child: chat.avatarUrl == null
-                                  ? const Icon(Icons.person, color: AppTheme.textSecondary)
+                                  ? Icon(Icons.person, color: AppTheme.textSecondary)
                                   : null,
                             ),
                           ),
                           title: Text(
                             _getChatName(chat),
-                            style: const TextStyle(
+                            style: TextStyle(
                               color: AppTheme.textPrimary,
                               fontWeight: FontWeight.bold,
                               fontSize: 16,
@@ -175,7 +175,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                           ),
                           subtitle: Text(
                             _getLastMessage(chat),
-                            style: const TextStyle(color: AppTheme.textSecondary),
+                            style: TextStyle(color: AppTheme.textSecondary),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -183,7 +183,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                             mainAxisAlignment: MainAxisAlignment.center,
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
-                              const Text(
+                              Text(
                                 "12:00", // Placeholder for time
                                 style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
                               ),
@@ -242,12 +242,12 @@ class _ChatListScreenState extends State<ChatListScreen> {
   }
 
   Widget _buildCallsTab() {
-    return const Center(
+    return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(Icons.call, size: 64, color: AppTheme.textSecondary),
-          SizedBox(height: 16),
+          const SizedBox(height: 16),
           Text(
             'No recent calls.\nStart a call from any chat room!',
             textAlign: TextAlign.center,
@@ -259,17 +259,17 @@ class _ChatListScreenState extends State<ChatListScreen> {
   }
 
   Widget _buildOtherTab() {
-    return const Center(
+    return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(Icons.widgets, size: 64, color: AppTheme.textSecondary),
-          SizedBox(height: 16),
+          const SizedBox(height: 16),
           Text(
             'Other Section',
             style: TextStyle(color: AppTheme.textPrimary, fontSize: 20, fontWeight: FontWeight.bold),
           ),
-          SizedBox(height: 8),
+          const SizedBox(height: 8),
           Text(
             'More tools and features coming soon.',
             style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
@@ -280,17 +280,17 @@ class _ChatListScreenState extends State<ChatListScreen> {
   }
 
   Widget _buildUpdatesTab() {
-    return const Center(
+    return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(Icons.blur_circular, size: 64, color: AppTheme.textSecondary),
-          SizedBox(height: 16),
+          const SizedBox(height: 16),
           Text(
             'Updates Section',
             style: TextStyle(color: AppTheme.textPrimary, fontSize: 20, fontWeight: FontWeight.bold),
           ),
-          SizedBox(height: 8),
+          const SizedBox(height: 8),
           Text(
             'Status updates and news will appear here.',
             style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
@@ -301,17 +301,17 @@ class _ChatListScreenState extends State<ChatListScreen> {
   }
 
   Widget _buildCommunitiesTab() {
-    return const Center(
+    return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(Icons.groups_outlined, size: 64, color: AppTheme.textSecondary),
-          SizedBox(height: 16),
+          const SizedBox(height: 16),
           Text(
             'Communities Section',
             style: TextStyle(color: AppTheme.textPrimary, fontSize: 20, fontWeight: FontWeight.bold),
           ),
-          SizedBox(height: 8),
+          const SizedBox(height: 8),
           Text(
             'Group communities will appear here.',
             style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
@@ -419,7 +419,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                         children: [
                           ListTile(
                             leading: const Icon(Icons.person, color: AppTheme.primaryColor),
-                            title: const Text('New Direct Chat', style: TextStyle(color: AppTheme.textPrimary)),
+                            title: Text('New Direct Chat', style: TextStyle(color: AppTheme.textPrimary)),
                             onTap: () {
                               Navigator.pop(context);
                               Navigator.push(context, MaterialPageRoute(builder: (_) => const SearchScreen()));
@@ -427,7 +427,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                           ),
                           ListTile(
                             leading: const Icon(Icons.group, color: AppTheme.primaryColor),
-                            title: const Text('New Group Chat', style: TextStyle(color: AppTheme.textPrimary)),
+                            title: Text('New Group Chat', style: TextStyle(color: AppTheme.textPrimary)),
                             onTap: () {
                               Navigator.pop(context);
                               Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateGroupScreen()));

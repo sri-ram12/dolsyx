@@ -102,7 +102,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         backgroundImage: avatarUrl != null && avatarUrl.startsWith('http')
                             ? NetworkImage(avatarUrl)
                             : (avatarUrl != null ? NetworkImage('https://dolsyx-app.onrender.com$avatarUrl') : null),
-                        child: avatarUrl == null ? const Icon(Icons.person, size: 60, color: AppTheme.textSecondary) : null,
+                        child: avatarUrl == null ? Icon(Icons.person, size: 60, color: AppTheme.textSecondary) : null,
                       ),
                       Positioned(
                         bottom: 0,
@@ -124,11 +124,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   const SizedBox(height: 24),
                   Text(
                     username,
-                    style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
                   ),
                   Text(
                     email,
-                    style: const TextStyle(fontSize: 16, color: AppTheme.textSecondary),
+                    style: TextStyle(fontSize: 16, color: AppTheme.textSecondary),
                   ),
                   const SizedBox(height: 32),
                   TextField(
@@ -154,7 +154,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       return SwitchListTile(
                         tileColor: AppTheme.surfaceColor,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        title: const Text('Dark Mode', style: TextStyle(color: AppTheme.textPrimary)),
+                        title: Text('Dark Mode', style: TextStyle(color: AppTheme.textPrimary)),
                         secondary: Icon(
                           isDark ? Icons.dark_mode : Icons.light_mode,
                           color: AppTheme.primaryColor,
@@ -171,8 +171,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     tileColor: AppTheme.surfaceColor,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     leading: const Icon(Icons.block, color: Colors.redAccent),
-                    title: const Text('Blocked Users', style: TextStyle(color: AppTheme.textPrimary)),
-                    trailing: const Icon(Icons.chevron_right, color: AppTheme.textSecondary),
+                    title: Text('Blocked Users', style: TextStyle(color: AppTheme.textPrimary)),
+                    trailing: Icon(Icons.chevron_right, color: AppTheme.textSecondary),
                     onTap: () {
                       Navigator.push(context, MaterialPageRoute(builder: (_) => const BlockedUsersScreen()));
                     },

@@ -4,6 +4,7 @@ import 'screens/login_screen.dart';
 import 'package:provider/provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/theme_provider.dart';
+import 'widgets/app_lock_wrapper.dart';
 
 void main() {
   runApp(
@@ -12,7 +13,7 @@ void main() {
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
       ],
-      child: const DolsyxApp(),
+      child: const GlobalAppLockWrapper(child: DolsyxApp()),
     ),
   );
 }
@@ -24,7 +25,6 @@ class DolsyxApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<ThemeProvider>(
       builder: (context, themeProvider, child) {
-        AppTheme.isDark = themeProvider.themeMode == ThemeMode.dark;
         return MaterialApp(
           title: 'DOLSYX Mobile',
           debugShowCheckedModeBanner: false,

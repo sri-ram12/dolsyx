@@ -350,29 +350,28 @@ export const updateProfile = async (req: AuthRequest, res: Response): Promise<vo
 
     const updatedUser = await prisma.user.update({
       where: { id: userId },
-      data: {
-        ...(updatedUsername !== undefined && { username: updatedUsername }),
-        ...(bio !== undefined && { bio }),
-        ...(avatarUrl !== undefined && { avatarUrl }),
-        ...(req.body.avatarPrivacy !== undefined && { avatarPrivacy: req.body.avatarPrivacy }),
-      },
+      data: dataToUpdate,
       select: {
         id: true,
         username: true,
         email: true,
+        phoneNumber: true,
         avatarUrl: true,
-        avatarPrivacy: true,
+        coverUrl: true,
         bio: true,
-        createdAt: true,
+        statusMessage: true,
+        xp: true,
+        streakCount: true,
+        avatarPrivacy: true,
+        lastSeenPrivacy: true,
+        readReceipts: true,
+        disappearingTimer: true,
       },
     });
 
-    res.json({
-      message: "Profile updated successfully",
-      user: updatedUser,
-    });
+    res.json({ message: "Profile updated successfully", user: updatedUser });
   } catch (error) {
-    console.error("UpdateProfile error:", error);
+    console.error("Update profile error:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 };

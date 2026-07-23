@@ -47,11 +47,19 @@ export const initChatSocket = (io: Server) => {
     // Join personal room to receive real-time direct notifications/messages
     socket.join(userId);
 
-    // Broadcast user online status change
-    io.emit("user_status_change", {
-      userId,
-      status: "online",
-      onlineUsers: Array.from(onlineUsers.keys()),
+    // Provide immediate list of online users to the connected client
+    socket.emit("online_users_list", Array.from(onlineUsers.keys()));
+
+    // Fetch privacy settings
+    prisma.user.findUnique({ where: { id: userId }, select: { lastSeenPrivacy: true } }).then(user => {
+      if (user?.lastSeenPrivacy === 'PUBLIC' || user?.lastSeenPrivacy === 'CONTACTS') {
+        // Broadcast user online status change
+        io.emit("user_status_change", {
+          userId,
+          status: "online",
+          onlineUsers: Array.from(onlineUsers.keys()),
+        });
+      }
     });
 
     // Provide immediate list of online users to the connected client
@@ -184,6 +192,10 @@ export const initChatSocket = (io: Server) => {
       try {
         const { conversationId } = data;
         if (!conversationId) return;
+
+        // Respect Read Receipts privacy
+        const user = await prisma.user.findUnique({ where: { id: userId }, select: { readReceipts: true } });
+        if (user?.readReceipts === false) return;
 
         // Find messages sent by others that don't have a READ receipt for this user
         const messagesToRead = await prisma.message.findMany({
@@ -550,16 +562,19 @@ export const initChatSocket = (io: Server) => {
           prisma.user.update({
             where: { id: userId },
             data: { lastSeen: lastSeenTime },
+            select: { lastSeenPrivacy: true },
+          }).then(user => {
+            if (user?.lastSeenPrivacy === 'PUBLIC' || user?.lastSeenPrivacy === 'CONTACTS') {
+              // Broadcast user offline status change with lastSeen timestamp
+              io.emit("user_status_change", {
+                userId,
+                status: "offline",
+                lastSeen: lastSeenTime,
+                onlineUsers: Array.from(onlineUsers.keys()),
+              });
+            }
           }).catch(err => {
             console.error("Error updating user lastSeen on socket disconnect:", err);
-          });
-
-          // Broadcast user offline status change with lastSeen timestamp
-          io.emit("user_status_change", {
-            userId,
-            status: "offline",
-            lastSeen: lastSeenTime,
-            onlineUsers: Array.from(onlineUsers.keys()),
           });
         }
       }

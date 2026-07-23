@@ -16,7 +16,7 @@ class SettingsScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Settings'),
+        title: Text('Settings'),
         backgroundColor: AppTheme.surfaceColor,
       ),
       backgroundColor: AppTheme.backgroundColor,
@@ -29,13 +29,13 @@ class SettingsScreen extends StatelessWidget {
                 radius: 30,
                 backgroundColor: AppTheme.backgroundColor,
                 backgroundImage: user?['avatarUrl'] != null && user!['avatarUrl'].startsWith('http')
-                    ? NetworkImage(user['avatarUrl'])
-                    : (user?['avatarUrl'] != null ? NetworkImage('https://dolsyx-app.onrender.com${user['avatarUrl']}') : null),
+                    ? NetworkImage(user!['avatarUrl'])
+                    : (user?['avatarUrl'] != null ? NetworkImage('https://dolsyx-app.onrender.com${user!['avatarUrl']}') : null),
                 child: user?['avatarUrl'] == null ? Icon(Icons.person, size: 30, color: AppTheme.textSecondary) : null,
               ),
-              title: Text(user?['username'] ?? 'User', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),
-              subtitle: Text(user?['bio'] ?? 'Hey there, I am using DOLSYX', style: const TextStyle(color: AppTheme.textSecondary)),
-              trailing: const Icon(Icons.qr_code, color: AppTheme.primaryColor),
+              title: Text(user?['username'] ?? 'User', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),
+              subtitle: Text(user?['bio'] ?? 'Hey there, I am using DOLSYX', style: TextStyle(color: AppTheme.textSecondary)),
+              trailing: Icon(Icons.qr_code, color: AppTheme.primaryColor),
               onTap: () {
                 Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
               },
@@ -67,8 +67,8 @@ class SettingsScreen extends StatelessWidget {
         padding: const EdgeInsets.only(top: 8.0),
         child: Icon(icon, color: AppTheme.textSecondary),
       ),
-      title: Text(title, style: const TextStyle(color: AppTheme.textPrimary, fontSize: 16)),
-      subtitle: subtitle.isNotEmpty ? Text(subtitle, style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13)) : null,
+      title: Text(title, style: TextStyle(color: AppTheme.textPrimary, fontSize: 16)),
+      subtitle: subtitle.isNotEmpty ? Text(subtitle, style: TextStyle(color: AppTheme.textSecondary, fontSize: 13)) : null,
       onTap: onTap,
     );
   }

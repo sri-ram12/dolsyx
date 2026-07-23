@@ -502,3 +502,4 @@ export const getCallHistory = async (req: AuthRequest, res: Response): Promise<v
     res.status(500).json({ message: "Internal server error" });
   }
 };
+

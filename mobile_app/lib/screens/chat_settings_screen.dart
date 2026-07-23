@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
+import 'package:provider/provider.dart';
+import '../providers/theme_provider.dart';
+
 class ChatSettingsScreen extends StatefulWidget {
   const ChatSettingsScreen({super.key});
 
@@ -9,47 +12,49 @@ class ChatSettingsScreen extends StatefulWidget {
 }
 
 class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
-  String _selectedTheme = 'Dark';
-  double _fontSize = 15.0;
 
   @override
   Widget build(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
+    final _selectedTheme = themeProvider.currentTheme;
+    final _fontSize = themeProvider.currentFontSize;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Chats'),
+        title: Text('Chats'),
         backgroundColor: AppTheme.surfaceColor,
       ),
       backgroundColor: AppTheme.backgroundColor,
       body: ListView(
         children: [
-          const Padding(
+          Padding(
             padding: EdgeInsets.all(16.0),
             child: Text('Display', style: TextStyle(color: AppTheme.textSecondary, fontWeight: FontWeight.bold)),
           ),
           ListTile(
-            leading: const Icon(Icons.brightness_medium, color: AppTheme.textSecondary),
-            title: const Text('Theme', style: TextStyle(color: AppTheme.textPrimary)),
-            subtitle: Text(_selectedTheme, style: const TextStyle(color: AppTheme.textSecondary)),
+            leading: Icon(Icons.brightness_medium, color: AppTheme.textSecondary),
+            title: Text('Theme', style: TextStyle(color: AppTheme.textPrimary)),
+            subtitle: Text(_selectedTheme, style: TextStyle(color: AppTheme.textSecondary)),
             onTap: () {
               showDialog(
                 context: context,
                 builder: (context) {
                   return AlertDialog(
                     backgroundColor: AppTheme.surfaceColor,
-                    title: const Text('Choose theme', style: TextStyle(color: AppTheme.textPrimary)),
+                    title: Text('Choose theme', style: TextStyle(color: AppTheme.textPrimary)),
                     content: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        _buildThemeOption('Light'),
-                        _buildThemeOption('Dark'),
-                        _buildThemeOption('Aqua Sky Blue'),
-                        _buildThemeOption('Violet'),
+                        _buildThemeOption('Light', themeProvider, _selectedTheme),
+                        _buildThemeOption('Dark', themeProvider, _selectedTheme),
+                        _buildThemeOption('Aqua Sky Blue', themeProvider, _selectedTheme),
+                        _buildThemeOption('Violet', themeProvider, _selectedTheme),
                       ],
                     ),
                     actions: [
                       TextButton(
                         onPressed: () => Navigator.pop(context),
-                        child: const Text('Cancel', style: TextStyle(color: AppTheme.primaryColor)),
+                        child: Text('Cancel', style: TextStyle(color: AppTheme.primaryColor)),
                       ),
                     ],
                   );
@@ -58,62 +63,62 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             },
           ),
           ListTile(
-            leading: const Icon(Icons.wallpaper, color: AppTheme.textSecondary),
-            title: const Text('Wallpaper', style: TextStyle(color: AppTheme.textPrimary)),
+            leading: Icon(Icons.wallpaper, color: AppTheme.textSecondary),
+            title: Text('Wallpaper', style: TextStyle(color: AppTheme.textPrimary)),
             onTap: () {},
           ),
           const Divider(color: Colors.grey),
-          const Padding(
+          Padding(
             padding: EdgeInsets.all(16.0),
             child: Text('Chat settings', style: TextStyle(color: AppTheme.textSecondary, fontWeight: FontWeight.bold)),
           ),
           SwitchListTile(
-            title: const Text('Enter is send', style: TextStyle(color: AppTheme.textPrimary)),
-            subtitle: const Text('Enter key will send your message', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+            title: Text('Enter is send', style: TextStyle(color: AppTheme.textPrimary)),
+            subtitle: Text('Enter key will send your message', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
             value: false,
             activeColor: AppTheme.primaryColor,
             onChanged: (val) {},
           ),
           ListTile(
-            title: const Text('Font size', style: TextStyle(color: AppTheme.textPrimary)),
-            subtitle: Text(_fontSize == 12 ? 'Small' : _fontSize == 15 ? 'Medium' : 'Large', style: const TextStyle(color: AppTheme.textSecondary)),
+            title: Text('Font size', style: TextStyle(color: AppTheme.textPrimary)),
+            subtitle: Text(_fontSize == 12 ? 'Small' : _fontSize == 15 ? 'Medium' : 'Large', style: TextStyle(color: AppTheme.textSecondary)),
             onTap: () {
               showDialog(
                 context: context,
                 builder: (context) {
                   return AlertDialog(
                     backgroundColor: AppTheme.surfaceColor,
-                    title: const Text('Font size', style: TextStyle(color: AppTheme.textPrimary)),
+                    title: Text('Font size', style: TextStyle(color: AppTheme.textPrimary)),
                     content: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         RadioListTile<double>(
-                          title: const Text('Small', style: TextStyle(color: AppTheme.textPrimary)),
+                          title: Text('Small', style: TextStyle(color: AppTheme.textPrimary)),
                           value: 12.0,
                           groupValue: _fontSize,
                           activeColor: AppTheme.primaryColor,
                           onChanged: (val) {
-                            setState(() => _fontSize = val!);
+                            themeProvider.setFontSize(val!);
                             Navigator.pop(context);
                           },
                         ),
                         RadioListTile<double>(
-                          title: const Text('Medium', style: TextStyle(color: AppTheme.textPrimary)),
+                          title: Text('Medium', style: TextStyle(color: AppTheme.textPrimary)),
                           value: 15.0,
                           groupValue: _fontSize,
                           activeColor: AppTheme.primaryColor,
                           onChanged: (val) {
-                            setState(() => _fontSize = val!);
+                            themeProvider.setFontSize(val!);
                             Navigator.pop(context);
                           },
                         ),
                         RadioListTile<double>(
-                          title: const Text('Large', style: TextStyle(color: AppTheme.textPrimary)),
+                          title: Text('Large', style: TextStyle(color: AppTheme.textPrimary)),
                           value: 18.0,
                           groupValue: _fontSize,
                           activeColor: AppTheme.primaryColor,
                           onChanged: (val) {
-                            setState(() => _fontSize = val!);
+                            themeProvider.setFontSize(val!);
                             Navigator.pop(context);
                           },
                         ),
@@ -129,16 +134,14 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
     );
   }
 
-  Widget _buildThemeOption(String themeName) {
+  Widget _buildThemeOption(String themeName, ThemeProvider themeProvider, String currentTheme) {
     return RadioListTile<String>(
-      title: Text(themeName, style: const TextStyle(color: AppTheme.textPrimary)),
+      title: Text(themeName, style: TextStyle(color: AppTheme.textPrimary)),
       value: themeName,
-      groupValue: _selectedTheme,
+      groupValue: currentTheme,
       activeColor: AppTheme.primaryColor,
       onChanged: (val) {
-        setState(() {
-          _selectedTheme = val!;
-        });
+        themeProvider.setTheme(val!);
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('$themeName theme selected.')),

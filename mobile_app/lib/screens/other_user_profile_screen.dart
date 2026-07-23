@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 import '../theme/app_theme.dart';
 import '../services/api_service.dart';
+import '../providers/auth_provider.dart';
 import 'call_screen.dart';
 
 class OtherUserProfileScreen extends StatefulWidget {
@@ -62,7 +66,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
                 });
                 Navigator.pop(context);
               },
-              child: const Text('Save', style: TextStyle(color: AppTheme.primaryColor)),
+              child: Text('Save', style: TextStyle(color: AppTheme.primaryColor)),
             ),
           ],
         );
@@ -103,11 +107,49 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
           children: [
             Icon(icon, color: AppTheme.primaryColor, size: 28),
             const SizedBox(height: 8),
-            Text(label, style: const TextStyle(color: AppTheme.primaryColor, fontSize: 14)),
+            Text(label, style: TextStyle(color: AppTheme.primaryColor, fontSize: 14)),
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _clearChat() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppTheme.surfaceColor,
+        title: Text('Clear this chat?', style: TextStyle(color: AppTheme.textPrimary)),
+        content: Text('Messages will be removed for you on this device.', style: TextStyle(color: AppTheme.textSecondary)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Clear chat', style: TextStyle(color: Colors.red))),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        final authProvider = Provider.of<AuthProvider>(context, listen: false);
+        final token = authProvider.token;
+        final conversationId = widget.user['conversationId'] ?? '';
+        if (conversationId.isEmpty) return;
+
+        final response = await http.delete(
+          Uri.parse('https://dolsyx-app.onrender.com/api/chat/$conversationId/messages'),
+          headers: {'Authorization': 'Bearer $token'},
+        );
+
+        if (response.statusCode == 200) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Chat cleared')));
+          Navigator.pop(context); // Go back to chat screen
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to clear chat')));
+        }
+      } catch (e) {
+        print(e);
+      }
+    }
   }
 
   @override
@@ -119,11 +161,11 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Contact Info'),
+        title: Text('Contact Info'),
         backgroundColor: AppTheme.surfaceColor,
         actions: [
           PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert),
+            icon: Icon(Icons.more_vert),
             onSelected: (value) {
               if (value == 'edit_name') {
                 _editName();
@@ -210,10 +252,13 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
               color: AppTheme.surfaceColor,
               child: Column(
                 children: [
-                  _buildActionItem(Icons.group_add, 'Create group with user', () {}),
+                  _buildActionItem(Icons.group_add, 'Create group with user', () {
+                    // Navigate to group creation with this user pre-selected if supported
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Select other participants in the New Group screen.')));
+                  }),
                   _buildActionItem(Icons.group, 'Add to group', () {}),
                   _buildActionItem(Icons.star, 'Add to favourite', () {}),
-                  _buildActionItem(Icons.delete_outline, 'Clear chat', () {}, isDestructive: true),
+                  _buildActionItem(Icons.delete_outline, 'Clear chat', _clearChat, isDestructive: true),
                   _buildActionItem(Icons.block, 'Block user', _blockUser, isDestructive: true),
                   _buildActionItem(Icons.thumb_down_alt_outlined, 'Report user', () {}, isDestructive: true),
                 ],

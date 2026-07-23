@@ -6,6 +6,7 @@ import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import 'blocked_users_screen.dart';
+import '../providers/theme_provider.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -147,6 +148,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     child: const Text('Save Bio'),
                   ),
                   const SizedBox(height: 48),
+                  Consumer<ThemeProvider>(
+                    builder: (context, themeProvider, child) {
+                      final isDark = themeProvider.themeMode == ThemeMode.dark;
+                      return SwitchListTile(
+                        tileColor: AppTheme.surfaceColor,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        title: const Text('Dark Mode', style: TextStyle(color: AppTheme.textPrimary)),
+                        secondary: Icon(
+                          isDark ? Icons.dark_mode : Icons.light_mode,
+                          color: AppTheme.primaryColor,
+                        ),
+                        value: isDark,
+                        onChanged: (val) {
+                          themeProvider.toggleTheme(val);
+                        },
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 16),
                   ListTile(
                     tileColor: AppTheme.surfaceColor,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),

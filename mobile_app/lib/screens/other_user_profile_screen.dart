@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../services/api_service.dart';
+import 'call_screen.dart';
 
 class OtherUserProfileScreen extends StatefulWidget {
   final Map<String, dynamic> user;
@@ -48,13 +49,64 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            CircleAvatar(
-              radius: 60,
-              backgroundColor: AppTheme.surfaceColor,
-              backgroundImage: avatarUrl != null && avatarUrl.startsWith('http')
-                  ? NetworkImage(avatarUrl)
-                  : (avatarUrl != null ? NetworkImage('https://dolsyx-app.onrender.com$avatarUrl') : null),
-              child: avatarUrl == null ? const Icon(Icons.person, size: 60, color: AppTheme.textSecondary) : null,
+            GestureDetector(
+              onTap: () {
+                showModalBottomSheet(
+                  context: context,
+                  backgroundColor: AppTheme.surfaceColor,
+                  builder: (sheetContext) {
+                    return SafeArea(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          ListTile(
+                            leading: const Icon(Icons.phone, color: AppTheme.primaryColor),
+                            title: const Text('Voice Call', style: TextStyle(color: AppTheme.textPrimary)),
+                            onTap: () {
+                              Navigator.pop(sheetContext);
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => CallScreen(
+                                    remoteUserId: widget.user['id'] ?? widget.user['_id'],
+                                    remoteUserName: username,
+                                    isVideo: false,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                          ListTile(
+                            leading: const Icon(Icons.videocam, color: AppTheme.primaryColor),
+                            title: const Text('Video Call', style: TextStyle(color: AppTheme.textPrimary)),
+                            onTap: () {
+                              Navigator.pop(sheetContext);
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => CallScreen(
+                                    remoteUserId: widget.user['id'] ?? widget.user['_id'],
+                                    remoteUserName: username,
+                                    isVideo: true,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                );
+              },
+              child: CircleAvatar(
+                radius: 60,
+                backgroundColor: AppTheme.surfaceColor,
+                backgroundImage: avatarUrl != null && avatarUrl.startsWith('http')
+                    ? NetworkImage(avatarUrl)
+                    : (avatarUrl != null ? NetworkImage('https://dolsyx-app.onrender.com$avatarUrl') : null),
+                child: avatarUrl == null ? const Icon(Icons.person, size: 60, color: AppTheme.textSecondary) : null,
+              ),
             ),
             const SizedBox(height: 24),
             Text(

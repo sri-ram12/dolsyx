@@ -20,6 +20,10 @@ class ChatListScreen extends StatefulWidget {
   State<ChatListScreen> createState() => _ChatListScreenState();
 }
 
+class _ChatListScreenState extends State<ChatListScreen> {
+  final ChatService _chatService = ChatService();
+  List<Chat> _chats = [];
+  bool _isLoading = true;
   int _selectedIndex = 0;
 
   @override
@@ -201,8 +205,9 @@ class ChatListScreen extends StatefulWidget {
                               ]
                             ],
                           ),
-                          onTap: () {
+                           onTap: () {
                             String? remoteId;
+                            Map<String, dynamic>? remoteUser;
                             if (!chat.isGroup && chat.participants != null) {
                               final currentUserId = Provider.of<AuthProvider>(context, listen: false).user?['id'] ?? Provider.of<AuthProvider>(context, listen: false).user?['_id'];
                               final otherParticipant = chat.participants!.firstWhere(
@@ -211,6 +216,7 @@ class ChatListScreen extends StatefulWidget {
                               );
                               if (otherParticipant != null) {
                                 remoteId = otherParticipant['user']['id'] ?? otherParticipant['user']['_id'];
+                                remoteUser = otherParticipant['user'];
                               }
                             }
 
@@ -222,6 +228,7 @@ class ChatListScreen extends StatefulWidget {
                                   chatName: _getChatName(chat),
                                   avatarUrl: chat.avatarUrl,
                                   remoteUserId: remoteId,
+                                  remoteUser: remoteUser,
                                 ),
                               ),
                             );

@@ -17,6 +17,7 @@ class ChatRoomScreen extends StatefulWidget {
   final String chatName;
   final String? avatarUrl;
   final String? remoteUserId;
+  final Map<String, dynamic>? remoteUser;
 
   const ChatRoomScreen({
     super.key,
@@ -24,6 +25,7 @@ class ChatRoomScreen extends StatefulWidget {
     required this.chatName,
     this.avatarUrl,
     this.remoteUserId,
+    this.remoteUser,
   });
 
   @override
@@ -305,37 +307,54 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
-        title: Row(
-          children: [
-            CircleAvatar(
-              radius: 18,
-              backgroundColor: AppTheme.surfaceColor,
-              backgroundImage: widget.avatarUrl != null && widget.avatarUrl!.startsWith('http')
-                  ? NetworkImage(widget.avatarUrl!)
-                  : null,
-              child: (widget.avatarUrl == null || !widget.avatarUrl!.startsWith('http'))
-                  ? const Icon(Icons.person, size: 20, color: AppTheme.textSecondary)
-                  : null,
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    widget.chatName,
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const Text(
-                    'online',
-                    style: TextStyle(fontSize: 11, color: Colors.green, fontWeight: FontWeight.w400),
-                  ),
-                ],
+        title: GestureDetector(
+          onTap: () {
+            if (widget.remoteUserId != null) {
+              final userMap = widget.remoteUser ?? {
+                'id': widget.remoteUserId,
+                'username': widget.chatName,
+                'avatarUrl': widget.avatarUrl,
+              };
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => OtherUserProfileScreen(user: userMap),
+                ),
+              );
+            }
+          },
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 18,
+                backgroundColor: AppTheme.surfaceColor,
+                backgroundImage: widget.avatarUrl != null && widget.avatarUrl!.startsWith('http')
+                    ? NetworkImage(widget.avatarUrl!)
+                    : null,
+                child: (widget.avatarUrl == null || !widget.avatarUrl!.startsWith('http'))
+                    ? const Icon(Icons.person, size: 20, color: AppTheme.textSecondary)
+                    : null,
               ),
-            ),
-          ],
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      widget.chatName,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const Text(
+                      'online',
+                      style: TextStyle(fontSize: 11, color: Colors.green, fontWeight: FontWeight.w400),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
         actions: [
           if (widget.remoteUserId != null) ...[

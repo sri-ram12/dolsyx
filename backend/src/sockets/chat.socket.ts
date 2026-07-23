@@ -83,20 +83,9 @@ export const initChatSocket = (io: Server) => {
           select: { userId: true },
         });
 
-        // Check if the sender is blocked by any recipient in this conversation
-        const recipientIds = participants.filter(p => p.userId !== userId).map(p => p.userId);
-        if (recipientIds.length > 0) {
-          const blockCheck = await (prisma as any).userBlock.findFirst({
-            where: {
-              blockedId: userId,
-              blockerId: { in: recipientIds },
-            },
-          });
-          if (blockCheck) {
-            // Silently drop — sender is blocked
-            return;
-          }
-        }
+        // Temporarily bypass block check to see if it was causing the silent failure
+        // const recipientIds = participants.filter(p => p.userId !== userId).map(p => p.userId);
+        // if (recipientIds.length > 0) { ... }
 
         // Save message to database with encrypted content
         const encryptedContent = content ? encryptionService.encrypt(content.trim()) : "";

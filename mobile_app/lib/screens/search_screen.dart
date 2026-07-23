@@ -69,7 +69,7 @@ class _SearchScreenState extends State<SearchScreen> {
         ),
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
+          ? Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
           : _searchResults.isEmpty
               ? Center(
                   child: Text(

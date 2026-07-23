@@ -253,7 +253,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           child: Wrap(
             children: [
               ListTile(
-                leading: const Icon(Icons.camera_alt, color: AppTheme.primaryColor),
+                leading: Icon(Icons.camera_alt, color: AppTheme.primaryColor),
                 title: Text('Camera', style: TextStyle(color: AppTheme.textPrimary)),
                 onTap: () {
                   Navigator.pop(sheetContext);
@@ -261,7 +261,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.photo, color: AppTheme.primaryColor),
+                leading: Icon(Icons.photo, color: AppTheme.primaryColor),
                 title: Text('Gallery', style: TextStyle(color: AppTheme.textPrimary)),
                 onTap: () {
                   Navigator.pop(sheetContext);
@@ -269,7 +269,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.insert_drive_file, color: AppTheme.primaryColor),
+                leading: Icon(Icons.insert_drive_file, color: AppTheme.primaryColor),
                 title: Text('Document', style: TextStyle(color: AppTheme.textPrimary)),
                 onTap: () {
                   Navigator.pop(sheetContext);
@@ -312,7 +312,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 'Emojis',
                 style: TextStyle(color: AppTheme.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
               ),
-              const SizedBox(height: 12),
+              SizedBox(height: 12),
               Expanded(
                 child: GridView.builder(
                   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -472,7 +472,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         children: [
           Expanded(
             child: _isLoading && _messages.isEmpty
-                ? const Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
+                ? Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
                 : ListView.builder(
                     controller: _scrollController,
                     padding: const EdgeInsets.all(16),
@@ -529,7 +529,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     onSubmitted: (_) => _sendMessage(),
                   ),
                 ),
-                const SizedBox(width: 8),
+                SizedBox(width: 8),
                 CircleAvatar(
                   radius: 24,
                   backgroundColor: AppTheme.primaryColor,

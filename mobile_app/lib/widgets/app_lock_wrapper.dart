@@ -82,10 +82,8 @@ class _GlobalAppLockWrapperState extends State<GlobalAppLockWrapper> with Widget
 
       final authenticated = await _localAuth.authenticate(
         localizedReason: 'Please authenticate to access DOLSYX',
-        options: const AuthenticationOptions(
-          stickyAuth: true,
-          biometricOnly: false,
-        ),
+        persistAcrossBackgrounding: true,
+        biometricOnly: false,
       );
 
       if (authenticated) {

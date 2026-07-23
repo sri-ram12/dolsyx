@@ -137,7 +137,7 @@ class _CallScreenState extends State<CallScreen> {
               Center(
                 child: _remoteRenderer.srcObject != null
                     ? RTCVideoView(_remoteRenderer, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover)
-                    : const Column(
+                    : Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           CircularProgressIndicator(color: AppTheme.primaryColor),

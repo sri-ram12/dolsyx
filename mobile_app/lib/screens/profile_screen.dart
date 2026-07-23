@@ -88,7 +88,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
       backgroundColor: AppTheme.backgroundColor,
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
+          ? Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
           : SingleChildScrollView(
               padding: const EdgeInsets.all(24.0),
               child: Column(
@@ -111,8 +111,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           onTap: _updateAvatar,
                           child: Container(
                             padding: const EdgeInsets.all(8),
-                            decoration: const BoxDecoration(
-                              color: AppTheme.primaryColor,
+                            decoration: BoxDecoration(color: AppTheme.primaryColor,
                               shape: BoxShape.circle,
                             ),
                             child: const Icon(Icons.camera_alt, color: Colors.white, size: 24),
@@ -121,7 +120,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 24),
+                  SizedBox(height: 24),
                   Text(
                     username,
                     style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
@@ -150,20 +149,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   const SizedBox(height: 48),
                   Consumer<ThemeProvider>(
                     builder: (context, themeProvider, child) {
-                      final isDark = themeProvider.themeMode == ThemeMode.dark;
-                      return SwitchListTile(
-                        tileColor: AppTheme.surfaceColor,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        title: Text('Dark Mode', style: TextStyle(color: AppTheme.textPrimary)),
-                        secondary: Icon(
-                          isDark ? Icons.dark_mode : Icons.light_mode,
-                          color: AppTheme.primaryColor,
-                        ),
-                        value: isDark,
-                        onChanged: (val) {
-                          themeProvider.toggleTheme(val);
-                        },
-                      );
+                      return const SizedBox.shrink();
                     },
                   ),
                   const SizedBox(height: 16),

@@ -63,7 +63,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
         title: const Text('Create Group'),
         actions: [
           if (_isLoading)
-            const Padding(
+            Padding(
               padding: EdgeInsets.all(16.0),
               child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: AppTheme.primaryColor)),
             )

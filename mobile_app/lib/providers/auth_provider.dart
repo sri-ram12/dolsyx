@@ -16,6 +16,14 @@ class AuthProvider with ChangeNotifier {
   bool get isAuthenticated => _isAuthenticated;
   Map<String, dynamic>? get user => _user;
   SocketService get socketService => _socketService;
+  
+  String? _token;
+  String? get token => _token;
+
+  void updateUser(Map<String, dynamic> updatedUser) {
+    _user = updatedUser;
+    notifyListeners();
+  }
 
   Future<void> login(String email, String password) async {
     _isLoading = true;
@@ -27,6 +35,7 @@ class AuthProvider with ChangeNotifier {
     if (result['success']) {
       _isAuthenticated = true;
       _user = result['data']['user'];
+      _token = result['data']['token'];
       await _socketService.connect(_user!['id']);
     } else {
       _isAuthenticated = false;

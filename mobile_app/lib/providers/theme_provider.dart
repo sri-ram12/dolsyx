@@ -57,6 +57,14 @@ class ThemeProvider extends ChangeNotifier {
         AppTheme.textPrimary = const Color(0xFF023E8A);
         AppTheme.textSecondary = const Color(0xFF0077B6);
         break;
+      case 'Lime':
+        AppTheme.isDark = false;
+        AppTheme.primaryColor = const Color(0xFFA3E635); // Lime green
+        AppTheme.backgroundColor = const Color(0xFFF7FEE7);
+        AppTheme.surfaceColor = Colors.white;
+        AppTheme.textPrimary = const Color(0xFF365314);
+        AppTheme.textSecondary = const Color(0xFF4D7C0F);
+        break;
       case 'Violet':
         AppTheme.isDark = true;
         AppTheme.primaryColor = const Color(0xFF9D4EDD);

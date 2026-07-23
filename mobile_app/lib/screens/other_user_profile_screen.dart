@@ -51,7 +51,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
               hintText: 'Enter name',
               hintStyle: TextStyle(color: AppTheme.textSecondary),
               enabledBorder: const UnderlineInputBorder(borderSide: BorderSide(color: Colors.grey)),
-              focusedBorder: const UnderlineInputBorder(borderSide: BorderSide(color: AppTheme.primaryColor)),
+              focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: AppTheme.primaryColor)),
             ),
           ),
           actions: [
@@ -106,7 +106,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(icon, color: AppTheme.primaryColor, size: 28),
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             Text(label, style: TextStyle(color: AppTheme.primaryColor, fontSize: 14)),
           ],
         ),

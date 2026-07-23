@@ -193,9 +193,8 @@ export const initChatSocket = (io: Server) => {
         const { conversationId } = data;
         if (!conversationId) return;
 
-        // Respect Read Receipts privacy
+        // Respect Read Receipts privacy for broadcasting
         const user = await prisma.user.findUnique({ where: { id: userId }, select: { readReceipts: true } });
-        if (user?.readReceipts === false) return;
 
         // Find messages sent by others that don't have a READ receipt for this user
         const messagesToRead = await prisma.message.findMany({
@@ -235,11 +234,13 @@ export const initChatSocket = (io: Server) => {
             });
           }
 
-          // Broadcast to everyone in the conversation room
-          io.to(conversationId).emit("messages_read", {
-            conversationId,
-            userId, // The user who read the messages
-          });
+          // Broadcast to everyone in the conversation room ONLY if they have read receipts enabled
+          if (user?.readReceipts !== false) {
+            io.to(conversationId).emit("messages_read", {
+              conversationId,
+              userId, // The user who read the messages
+            });
+          }
         }
       } catch (error) {
         console.error("Socket mark_read error:", error);

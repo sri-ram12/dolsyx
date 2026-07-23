@@ -54,7 +54,7 @@ class _BlockedUsersScreenState extends State<BlockedUsersScreen> {
       ),
       backgroundColor: AppTheme.backgroundColor,
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
+          ? Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
           : _blockedUsers.isEmpty
               ? Center(
                   child: Text('No blocked users', style: TextStyle(color: AppTheme.textSecondary)),

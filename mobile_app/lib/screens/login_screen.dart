@@ -82,12 +82,12 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Icon(
-                    Icons.chat_bubble_rounded,
+                  Icon(
+                    Icons.chat_bubble_outline,
                     size: 80,
                     color: AppTheme.primaryColor,
                   ),
-                  const SizedBox(height: 32),
+                  SizedBox(height: 32),
                   Text(
                     'Welcome back',
                     style: TextStyle(
@@ -136,7 +136,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                       child: const Text('Forgot password?'),
                     ),
                   ),
-                  const SizedBox(height: 24),
+                  SizedBox(height: 24),
                   Consumer<AuthProvider>(
                     builder: (context, auth, _) {
                       return ElevatedButton(

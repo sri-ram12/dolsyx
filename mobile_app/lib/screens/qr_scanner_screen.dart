@@ -23,7 +23,7 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
     
     final List<Barcode> barcodes = capture.barcodes;
     if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
-      String scannedUserId = barcodes.first.rawValue!;
+      String scannedUserId = barcodes.first.rawValue!.trim();
       print("SCANNED RAW VALUE: \$scannedUserId");
 
       // Sometimes QR codes store JSON strings. Let's try parsing it just in case.
@@ -90,7 +90,7 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
             onDetect: _onDetect,
           ),
           if (_isProcessing)
-            const Center(
+            Center(
               child: CircularProgressIndicator(color: AppTheme.primaryColor),
             ),
         ],

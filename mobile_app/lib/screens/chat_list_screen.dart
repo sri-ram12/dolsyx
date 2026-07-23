@@ -114,7 +114,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
             child: Row(
               children: [
                 Icon(Icons.search, color: AppTheme.textSecondary, size: 20),
-                const SizedBox(width: 12),
+                SizedBox(width: 12),
                 Text(
                   'Search',
                   style: TextStyle(color: AppTheme.textSecondary, fontSize: 15),
@@ -125,7 +125,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
         ),
         Expanded(
           child: _isLoading
-              ? const Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
+              ? Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
               : _chats.isEmpty
                   ? Center(
                       child: Text(
@@ -190,7 +190,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                                 style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
                               ),
                               if (chat.unreadCount > 0) ...[
-                                const SizedBox(height: 4),
+                                SizedBox(height: 4),
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                   decoration: BoxDecoration(
@@ -317,7 +317,30 @@ class _ChatListScreenState extends State<ChatListScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('DOLSYX', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Row(
+          children: [
+            Consumer<AuthProvider>(
+              builder: (context, auth, child) {
+                final user = auth.user;
+                return GestureDetector(
+                  onTap: () {
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
+                  },
+                  child: CircleAvatar(
+                    radius: 18,
+                    backgroundColor: AppTheme.backgroundColor,
+                    backgroundImage: user?['avatarUrl'] != null ? NetworkImage(user!['avatarUrl']) : null,
+                    child: user?['avatarUrl'] == null
+                        ? Icon(Icons.person, color: AppTheme.textSecondary, size: 20)
+                        : null,
+                  ),
+                );
+              },
+            ),
+            const SizedBox(width: 12),
+            const Text('DOLSYX', style: TextStyle(fontWeight: FontWeight.bold)),
+          ],
+        ),
         centerTitle: false,
         actions: [
           IconButton(
@@ -423,7 +446,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           ListTile(
-                            leading: const Icon(Icons.person, color: AppTheme.primaryColor),
+                            leading: Icon(Icons.person, color: AppTheme.primaryColor),
                             title: Text('New Direct Chat', style: TextStyle(color: AppTheme.textPrimary)),
                             onTap: () {
                               Navigator.pop(context);
@@ -431,7 +454,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                             },
                           ),
                           ListTile(
-                            leading: const Icon(Icons.group, color: AppTheme.primaryColor),
+                            leading: Icon(Icons.group, color: AppTheme.primaryColor),
                             title: Text('New Group Chat', style: TextStyle(color: AppTheme.textPrimary)),
                             onTap: () {
                               Navigator.pop(context);

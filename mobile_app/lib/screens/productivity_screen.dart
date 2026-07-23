@@ -115,7 +115,7 @@ class _ProductivityScreenState extends State<ProductivityScreen> with SingleTick
       ),
       backgroundColor: AppTheme.backgroundColor,
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
+          ? Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
           : TabBarView(
               controller: _tabController,
               children: [
@@ -138,7 +138,7 @@ class _ProductivityScreenState extends State<ProductivityScreen> with SingleTick
   }
 
   Widget _buildNotesTab() {
-    if (_notes.isEmpty) return const Center(child: Text('No notes yet.', style: TextStyle(color: AppTheme.textSecondary)));
+    if (_notes.isEmpty) return Center(child: Text('No notes yet.', style: TextStyle(color: AppTheme.textSecondary)));
     return ListView.builder(
       padding: const EdgeInsets.all(8),
       itemCount: _notes.length,

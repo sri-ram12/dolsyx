@@ -107,7 +107,7 @@ class _StatusScreenState extends State<StatusScreen> {
         },
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
+          ? Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
           : RefreshIndicator(
               color: AppTheme.primaryColor,
               onRefresh: _fetchStatuses,
@@ -133,8 +133,7 @@ class _StatusScreenState extends State<StatusScreen> {
                             right: 0,
                             child: Container(
                               padding: const EdgeInsets.all(2),
-                              decoration: const BoxDecoration(
-                                color: AppTheme.primaryColor,
+                              decoration: BoxDecoration(color: AppTheme.primaryColor,
                                 shape: BoxShape.circle,
                               ),
                               child: const Icon(Icons.add, size: 14, color: Colors.white),

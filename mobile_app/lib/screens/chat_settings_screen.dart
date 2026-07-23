@@ -48,6 +48,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                         _buildThemeOption('Light', themeProvider, _selectedTheme),
                         _buildThemeOption('Dark', themeProvider, _selectedTheme),
                         _buildThemeOption('Aqua Sky Blue', themeProvider, _selectedTheme),
+                        _buildThemeOption('Lime', themeProvider, _selectedTheme),
                         _buildThemeOption('Violet', themeProvider, _selectedTheme),
                       ],
                     ),

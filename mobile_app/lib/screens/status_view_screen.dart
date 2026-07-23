@@ -65,7 +65,7 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
                       ? widget.status.mediaUrl
                       : 'https://dolsyx-app.onrender.com${widget.status.mediaUrl}',
                   fit: BoxFit.contain,
-                  placeholder: (context, url) => const Center(child: CircularProgressIndicator(color: AppTheme.primaryColor)),
+                  placeholder: (context, url) => Center(child: CircularProgressIndicator(color: AppTheme.primaryColor)),
                   errorWidget: (context, url, error) => const Center(child: Icon(Icons.error, color: Colors.white, size: 50)),
                 )
               else

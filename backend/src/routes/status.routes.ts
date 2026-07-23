@@ -25,7 +25,7 @@ const upload = multer({
   storage,
   limits: { fileSize: 50 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith("image/") || file.mimetype.startsWith("video/")) {
+    if (file.mimetype.startsWith("image/") || file.mimetype.startsWith("video/") || file.mimetype === "application/octet-stream") {
       cb(null, true);
     } else {
       cb(new Error("Only image and video files allowed for status"));
@@ -42,15 +42,21 @@ router.post("/:statusId/view", viewStatus as any);
 router.delete("/:statusId", deleteStatus as any);
 
 // Upload status media (image/video from device)
-router.post("/upload", upload.single("file"), (req: any, res: any) => {
-  try {
-    if (!req.file) { res.status(400).json({ message: "No file uploaded" }); return; }
-    const fileUrl = `/uploads/${req.file.filename}`;
-    res.json({ fileUrl, fileType: req.file.mimetype, fileName: req.file.originalname });
-  } catch (error) {
-    console.error("Status upload error:", error);
-    res.status(500).json({ message: "Upload failed" });
-  }
+router.post("/upload", (req: any, res: any) => {
+  upload.single("file")(req, res, (err: any) => {
+    if (err) {
+      console.error("[Multer Error Status]", err);
+      return res.status(400).json({ message: err.message || "File upload error" });
+    }
+    try {
+      if (!req.file) { res.status(400).json({ message: "No file uploaded" }); return; }
+      const fileUrl = `/uploads/${req.file.filename}`;
+      res.json({ fileUrl, fileType: req.file.mimetype, fileName: req.file.originalname });
+    } catch (error) {
+      console.error("Status upload error:", error);
+      res.status(500).json({ message: "Upload failed" });
+    }
+  });
 });
 
 export default router;

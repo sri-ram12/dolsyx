@@ -17,6 +17,7 @@ class CallService {
 
   CallService(this._socketService) {
     _socketService.socket?.on('ice_candidate', (data) {
+      print('WEBRTC: Received ice_candidate from \${data['fromUserId']}');
       if (data['fromUserId'] == _remoteUserId && _peerConnection != null) {
         _peerConnection!.addCandidate(
           RTCIceCandidate(
@@ -29,6 +30,7 @@ class CallService {
     });
 
     _socketService.socket?.on('call_ended', (data) {
+      print('WEBRTC: Received call_ended');
       _cleanUp();
       if (onCallEnded != null) onCallEnded!();
     });
@@ -44,6 +46,7 @@ class CallService {
     final offer = await _peerConnection!.createOffer();
     await _peerConnection!.setLocalDescription(offer);
 
+    print('WEBRTC: Emitting call_offer to $targetUserId');
     _socketService.socket?.emit('call_offer', {
       'targetUserId': targetUserId,
       'conversationId': conversationId,
@@ -57,11 +60,13 @@ class CallService {
     });
 
     _socketService.socket?.once('call_answered', (data) async {
+      print('WEBRTC: Received call_answered');
       final answer = RTCSessionDescription(data['answer']['sdp'], data['answer']['type']);
       await _peerConnection!.setRemoteDescription(answer);
     });
     
     _socketService.socket?.once('call_rejected', (data) {
+      print('WEBRTC: Received call_rejected');
       _cleanUp();
       if (onCallEnded != null) onCallEnded!();
     });
@@ -99,6 +104,7 @@ class CallService {
     _peerConnection = await createPeerConnection(configuration);
 
     _peerConnection!.onIceCandidate = (candidate) {
+      print('WEBRTC: Emitting local ice_candidate');
       if (_remoteUserId != null) {
         _socketService.socket?.emit('ice_candidate', {
           'targetUserId': _remoteUserId,
@@ -112,6 +118,7 @@ class CallService {
     };
 
     _peerConnection!.onAddStream = (stream) {
+      print('WEBRTC: Received remote stream');
       if (onRemoteStream != null) onRemoteStream!(stream);
     };
 

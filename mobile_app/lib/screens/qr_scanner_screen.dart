@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'dart:convert';
 import '../services/chat_service.dart';
 import '../theme/app_theme.dart';
 import 'package:provider/provider.dart';
@@ -22,7 +23,21 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
     
     final List<Barcode> barcodes = capture.barcodes;
     if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
-      final String scannedUserId = barcodes.first.rawValue!;
+      String scannedUserId = barcodes.first.rawValue!;
+      print("SCANNED RAW VALUE: \$scannedUserId");
+
+      // Sometimes QR codes store JSON strings. Let's try parsing it just in case.
+      try {
+        final Map<String, dynamic> parsed = jsonDecode(scannedUserId);
+        if (parsed.containsKey('id')) scannedUserId = parsed['id'];
+        else if (parsed.containsKey('_id')) scannedUserId = parsed['_id'];
+        else if (parsed.containsKey('userId')) scannedUserId = parsed['userId'];
+      } catch (e) {
+        // Not a JSON string, assume it's the raw ID
+      }
+      
+      print("SCANNED EXTRACTED ID: \$scannedUserId");
+
       setState(() => _isProcessing = true);
       
       try {

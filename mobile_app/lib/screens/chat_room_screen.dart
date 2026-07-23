@@ -114,6 +114,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     try {
       final picker = ImagePicker();
       final pickedFile = await picker.pickImage(source: source, imageQuality: 70);
+      if (!mounted) return;
       if (pickedFile != null) {
         _uploadAndSendMedia(File(pickedFile.path), 'IMAGE');
       }
@@ -127,6 +128,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     Navigator.pop(context);
     try {
       final result = await FilePicker.pickFiles();
+      if (!mounted) return;
       if (result != null && result.files.single.path != null) {
         _uploadAndSendMedia(File(result.files.single.path!), 'FILE');
       }

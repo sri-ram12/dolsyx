@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/call_service.dart';
 import '../theme/app_theme.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class CallScreen extends StatefulWidget {
   final String remoteUserId;
@@ -38,6 +39,12 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Future<void> _initRenderers() async {
+    // Request permissions first
+    await Permission.microphone.request();
+    if (widget.isVideo) {
+      await Permission.camera.request();
+    }
+
     await _localRenderer.initialize();
     await _remoteRenderer.initialize();
     

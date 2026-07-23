@@ -17,7 +17,7 @@ class CallService {
 
   CallService(this._socketService) {
     _socketService.socket?.on('ice_candidate', (data) {
-      print('WEBRTC: Received ice_candidate from \${data['fromUserId']}');
+      print("WEBRTC: Received ice_candidate from \${data['fromUserId']}");
       if (data['fromUserId'] == _remoteUserId && _peerConnection != null) {
         _peerConnection!.addCandidate(
           RTCIceCandidate(

@@ -203,6 +203,78 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     );
   }
 
+  void _showEmojiPicker() {
+    final emojis = [
+      '😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇',
+      '🙂', '🙃', '😉', '😌', '😍', '🥰', '😘', '😗', '😙', '😚',
+      '😋', '😛', '😝', '😜', '🤪', '🤨', '🧐', '🤓', '😎', '🥸',
+      '🤩', '🥳', '😏', '😒', '😞', '😔', '😟', '😕', '🙁', '☹️',
+      '😣', '😖', '😫', '😩', '🥺', '😢', '😭', '😤', '😠', '😡',
+      '👍', '👎', '👌', '✌️', '🤞', '🤟', '🤘', '🤙', '👈', '👉',
+      '👆', '🖕', '👇', '☝️', '👍', '👋', '🤚', '🖐', '✋', '🖖',
+      '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔'
+    ];
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppTheme.surfaceColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        return Container(
+          height: 250,
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Emojis',
+                style: TextStyle(color: AppTheme.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: GridView.builder(
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 8,
+                    mainAxisSpacing: 8,
+                    crossAxisSpacing: 8,
+                  ),
+                  itemCount: emojis.length,
+                  itemBuilder: (context, index) {
+                    return GestureDetector(
+                      onTap: () {
+                        final text = _messageController.text;
+                        final selection = _messageController.selection;
+                        final newText = text.replaceRange(
+                          selection.start >= 0 ? selection.start : text.length,
+                          selection.end >= 0 ? selection.end : text.length,
+                          emojis[index],
+                        );
+                        _messageController.text = newText;
+                        _messageController.selection = TextSelection.fromPosition(
+                          TextPosition(
+                            offset: (selection.start >= 0 ? selection.start : text.length) + emojis[index].length,
+                          ),
+                        );
+                      },
+                      child: Center(
+                        child: Text(
+                          emojis[index],
+                          style: const TextStyle(fontSize: 24),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   void _scrollToBottom() {
     if (_scrollController.hasClients) {
       Future.delayed(const Duration(milliseconds: 100), () {
@@ -303,9 +375,13 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                   icon: const Icon(Icons.attach_file, color: AppTheme.primaryColor),
                   onPressed: _showAttachmentOptions,
                 ),
-                IconButton(
+                 IconButton(
                   icon: const Icon(Icons.camera_alt, color: AppTheme.primaryColor),
                   onPressed: () => _pickImage(ImageSource.camera),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.emoji_emotions, color: AppTheme.primaryColor),
+                  onPressed: _showEmojiPicker,
                 ),
                 Expanded(
                   child: TextField(

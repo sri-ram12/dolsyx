@@ -40,9 +40,13 @@ class _CallScreenState extends State<CallScreen> {
 
   Future<void> _initRenderers() async {
     // Request permissions first
-    await Permission.microphone.request();
-    if (widget.isVideo) {
-      await Permission.camera.request();
+    try {
+      await Permission.microphone.request();
+      if (widget.isVideo) {
+        await Permission.camera.request();
+      }
+    } catch (e) {
+      print("Permission request error: $e");
     }
 
     if (!mounted) return;

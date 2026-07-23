@@ -5,6 +5,7 @@ class Chat {
   final String? avatarUrl;
   final List<dynamic>? participants;
   final List<dynamic>? messages;
+  final int unreadCount;
 
   Chat({
     required this.id,
@@ -13,6 +14,7 @@ class Chat {
     this.avatarUrl,
     this.participants,
     this.messages,
+    this.unreadCount = 0,
   });
 
   factory Chat.fromJson(Map<String, dynamic> json) {
@@ -23,6 +25,7 @@ class Chat {
       avatarUrl: json['avatarUrl'],
       participants: json['participants'],
       messages: json['messages'],
+      unreadCount: json['unreadCount'] ?? 0,
     );
   }
 }

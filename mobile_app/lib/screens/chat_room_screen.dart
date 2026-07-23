@@ -110,7 +110,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   Future<void> _pickImage(ImageSource source) async {
-    Navigator.pop(context);
     try {
       final picker = ImagePicker();
       final pickedFile = await picker.pickImage(source: source, imageQuality: 70);
@@ -125,7 +124,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   Future<void> _pickFile() async {
-    Navigator.pop(context);
     try {
       final result = await FilePicker.pickFiles();
       if (!mounted) return;
@@ -138,6 +136,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   Future<void> _uploadAndSendMedia(File file, String mediaType) async {
+    if (!mounted) return;
     setState(() => _isLoading = true);
     try {
       final apiService = ApiService();
@@ -169,24 +168,33 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) {
+      builder: (sheetContext) {
         return SafeArea(
           child: Wrap(
             children: [
               ListTile(
                 leading: const Icon(Icons.camera_alt, color: AppTheme.primaryColor),
                 title: const Text('Camera', style: TextStyle(color: AppTheme.textPrimary)),
-                onTap: () => _pickImage(ImageSource.camera),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _pickImage(ImageSource.camera);
+                },
               ),
               ListTile(
                 leading: const Icon(Icons.photo, color: AppTheme.primaryColor),
                 title: const Text('Gallery', style: TextStyle(color: AppTheme.textPrimary)),
-                onTap: () => _pickImage(ImageSource.gallery),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _pickImage(ImageSource.gallery);
+                },
               ),
               ListTile(
                 leading: const Icon(Icons.insert_drive_file, color: AppTheme.primaryColor),
                 title: const Text('Document', style: TextStyle(color: AppTheme.textPrimary)),
-                onTap: _pickFile,
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _pickFile();
+                },
               ),
             ],
           ),

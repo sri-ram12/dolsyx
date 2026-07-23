@@ -13,6 +13,7 @@ import 'my_qr_screen.dart';
 import 'qr_scanner_screen.dart';
 import 'other_user_profile_screen.dart';
 import 'status_screen.dart';
+import 'settings_screen.dart';
 
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
@@ -35,7 +36,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       authProvider.socketService.socket?.on('new_message', _handleSocketUpdate);
-      authProvider.socketService.socket?.on('mark_read', _handleSocketUpdate);
+      authProvider.socketService.socket?.on('messages_read', _handleSocketUpdate);
     });
   }
 
@@ -44,7 +45,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
     try {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       authProvider.socketService.socket?.off('new_message', _handleSocketUpdate);
-      authProvider.socketService.socket?.off('mark_read', _handleSocketUpdate);
+      authProvider.socketService.socket?.off('messages_read', _handleSocketUpdate);
     } catch (_) {}
     super.dispose();
   }
@@ -325,25 +326,45 @@ class _ChatListScreenState extends State<ChatListScreen> {
               Navigator.push(context, MaterialPageRoute(builder: (_) => const QrScannerScreen()));
             },
           ),
+          IconButton(
+            icon: const Icon(Icons.qr_code),
+            onPressed: () {
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const MyQrScreen()));
+            },
+          ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
             onSelected: (value) {
-              if (value == 'profile') {
-                Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
-              } else if (value == 'my_qr') {
-                Navigator.push(context, MaterialPageRoute(builder: (_) => const MyQrScreen()));
+              if (value == 'settings') {
+                Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
               } else if (value == 'logout') {
                 _handleLogout();
               }
             },
             itemBuilder: (context) => [
               const PopupMenuItem(
-                value: 'profile',
-                child: Text('Profile Settings'),
+                value: 'new_group',
+                child: Text('New Group'),
               ),
               const PopupMenuItem(
-                value: 'my_qr',
-                child: Text('My QR Code'),
+                value: 'new_community',
+                child: Text('New Community'),
+              ),
+              const PopupMenuItem(
+                value: 'linked_devices',
+                child: Text('Linked Devices'),
+              ),
+              const PopupMenuItem(
+                value: 'starred',
+                child: Text('Starred Messages'),
+              ),
+              const PopupMenuItem(
+                value: 'settings',
+                child: Text('Settings'),
+              ),
+              const PopupMenuItem(
+                value: 'switch_account',
+                child: Text('Switch Account'),
               ),
               const PopupMenuItem(
                 value: 'logout',

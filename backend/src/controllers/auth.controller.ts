@@ -424,6 +424,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
         isOnline: true,
         lastLogin: new Date(),
         lastSeen: new Date(),
+        bio: "Hey there, I am using DOLSYX",
       }
     });
 

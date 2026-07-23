@@ -320,9 +320,10 @@ export const logout = async (req: AuthRequest, res: Response): Promise<void> => 
 export const updateProfile = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.user!.id;
-    const { username, bio, avatarUrl } = req.body;
+    const { username, bio, avatarUrl, coverUrl, statusMessage, avatarPrivacy, lastSeenPrivacy, readReceipts, disappearingTimer } = req.body;
 
-    let updatedUsername = undefined;
+    const dataToUpdate: any = {};
+    
     if (username !== undefined) {
       const trimmed = username.trim();
       if (!trimmed) {
@@ -332,12 +333,8 @@ export const updateProfile = async (req: AuthRequest, res: Response): Promise<vo
 
       const existing = await prisma.user.findFirst({
         where: {
-          username: {
-            equals: trimmed,
-          },
-          id: {
-            not: userId,
-          },
+          username: { equals: trimmed },
+          id: { not: userId },
         },
       });
 
@@ -345,8 +342,17 @@ export const updateProfile = async (req: AuthRequest, res: Response): Promise<vo
         res.status(400).json({ message: "Name is already taken" });
         return;
       }
-      updatedUsername = trimmed;
+      dataToUpdate.username = trimmed;
     }
+
+    if (bio !== undefined) dataToUpdate.bio = bio;
+    if (avatarUrl !== undefined) dataToUpdate.avatarUrl = avatarUrl;
+    if (coverUrl !== undefined) dataToUpdate.coverUrl = coverUrl;
+    if (statusMessage !== undefined) dataToUpdate.statusMessage = statusMessage;
+    if (avatarPrivacy !== undefined) dataToUpdate.avatarPrivacy = avatarPrivacy;
+    if (lastSeenPrivacy !== undefined) dataToUpdate.lastSeenPrivacy = lastSeenPrivacy;
+    if (readReceipts !== undefined) dataToUpdate.readReceipts = readReceipts;
+    if (disappearingTimer !== undefined) dataToUpdate.disappearingTimer = disappearingTimer;
 
     const updatedUser = await prisma.user.update({
       where: { id: userId },

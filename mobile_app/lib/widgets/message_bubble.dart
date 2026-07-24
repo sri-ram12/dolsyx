@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/message.dart';
 import '../theme/app_theme.dart';
+import 'package:intl/intl.dart';
 
 class MessageBubble extends StatelessWidget {
   final Message message;
@@ -110,6 +111,7 @@ class MessageBubble extends StatelessWidget {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 mainAxisAlignment: MainAxisAlignment.end,
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Flexible(
                     child: Text(
@@ -120,11 +122,19 @@ class MessageBubble extends StatelessWidget {
                       ),
                     ),
                   ),
+                  const SizedBox(width: 8),
+                  Text(
+                    DateFormat('hh:mm a').format(message.createdAt.toLocal()),
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: isMe ? Colors.white70 : AppTheme.textSecondary,
+                    ),
+                  ),
                   if (isMe) ...[
                     const SizedBox(width: 4),
                     Icon(
                       Icons.done_all,
-                      size: 16,
+                      size: 14,
                       color: (message.receipts != null && message.receipts!.any((r) => r['status'] == 'READ'))
                           ? Colors.blue
                           : Colors.white70,

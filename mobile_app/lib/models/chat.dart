@@ -6,6 +6,7 @@ class Chat {
   final List<dynamic>? participants;
   final Map<String, dynamic>? lastMessage;
   final int unreadCount;
+  final DateTime? updatedAt;
 
   Chat({
     required this.id,
@@ -15,6 +16,7 @@ class Chat {
     this.participants,
     this.lastMessage,
     this.unreadCount = 0,
+    this.updatedAt,
   });
 
   factory Chat.fromJson(Map<String, dynamic> json) {
@@ -26,6 +28,7 @@ class Chat {
       participants: json['participants'],
       lastMessage: json['lastMessage'],
       unreadCount: json['unreadCount'] ?? 0,
+      updatedAt: json['updatedAt'] != null ? DateTime.parse(json['updatedAt']) : null,
     );
   }
 }

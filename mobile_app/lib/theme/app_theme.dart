@@ -52,8 +52,8 @@ class AppTheme {
           borderSide: BorderSide.none,
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: BorderSide(color: primaryColor, width: 2),
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(color: primaryColor.withOpacity(0.5), width: 1),
         ),
       ),
     );

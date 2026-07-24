@@ -26,7 +26,7 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
     final List<Barcode> barcodes = capture.barcodes;
     if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
       String scannedUserId = barcodes.first.rawValue!.trim();
-      print("SCANNED RAW VALUE: \$scannedUserId");
+      print("SCANNED RAW VALUE: $scannedUserId");
 
       if (scannedUserId.startsWith('dolsyx://user/')) {
         scannedUserId = scannedUserId.replaceFirst('dolsyx://user/', '');
@@ -42,7 +42,7 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
         }
       }
       
-      print("SCANNED EXTRACTED ID: \$scannedUserId");
+      print("SCANNED EXTRACTED ID: $scannedUserId");
 
       setState(() => _isProcessing = true);
       

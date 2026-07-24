@@ -47,6 +47,28 @@ class AuthProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> register(String email, String username, String password) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    final result = await _apiService.register(email, username, password);
+
+    if (result['success']) {
+      _isAuthenticated = true;
+      _user = result['data']['user'];
+      _token = result['data']['token'];
+      await _socketService.connect(_user!['id']);
+      _setupSocketListeners();
+    } else {
+      _isAuthenticated = false;
+      _errorMessage = result['message'];
+    }
+
+    _isLoading = false;
+    notifyListeners();
+  }
+
   void _setupSocketListeners() {
     _socketService.onProfileUpdated((data) {
       if (data['user'] != null && _user != null && data['user']['id'] == _user!['id']) {

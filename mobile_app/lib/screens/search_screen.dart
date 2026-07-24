@@ -84,7 +84,11 @@ class _SearchScreenState extends State<SearchScreen> {
                     return ListTile(
                       leading: CircleAvatar(
                         backgroundColor: AppTheme.surfaceColor,
-                        backgroundImage: user['avatarUrl'] != null ? NetworkImage(user['avatarUrl']) : null,
+                        backgroundImage: user['avatarUrl'] != null 
+                            ? (user['avatarUrl'].toString().startsWith('http') 
+                                ? NetworkImage(user['avatarUrl']) 
+                                : NetworkImage('https://dolsyx-app.onrender.com${user['avatarUrl']}')) 
+                            : null,
                         child: user['avatarUrl'] == null
                             ? Icon(Icons.person, color: AppTheme.textSecondary)
                             : null,

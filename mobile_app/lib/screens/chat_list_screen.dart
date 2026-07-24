@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../models/chat.dart';
 import '../services/chat_service.dart';
@@ -104,6 +105,22 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
     return "No messages yet";
   }
 
+  String _formatTime(DateTime? time) {
+    if (time == null) return "";
+    final now = DateTime.now();
+    final difference = now.difference(time);
+    
+    if (difference.inDays == 0 && now.day == time.day) {
+      return DateFormat('hh:mm a').format(time); // Today
+    } else if (difference.inDays == 1 || (difference.inDays == 0 && now.day != time.day)) {
+      return "Yesterday";
+    } else if (difference.inDays < 7) {
+      return DateFormat('EEEE').format(time); // Day of week
+    } else {
+      return DateFormat('dd/MM/yyyy').format(time); // Date
+    }
+  }
+
   void _handleLogout() async {
     await Provider.of<AuthProvider>(context, listen: false).logout();
     if (mounted) {
@@ -194,7 +211,9 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                                 : CircleAvatar(
                                     radius: 24,
                                     backgroundColor: AppTheme.surfaceColor,
-                                    backgroundImage: NetworkImage(chat.avatarUrl!),
+                                    backgroundImage: chat.avatarUrl!.startsWith('http')
+                                        ? NetworkImage(chat.avatarUrl!)
+                                        : NetworkImage('https://dolsyx-app.onrender.com${chat.avatarUrl!}'),
                                   ),
                           ),
                           title: Text(
@@ -216,8 +235,12 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
                               Text(
-                                "12:00", // Placeholder for time
-                                style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                                _formatTime(chat.updatedAt ?? (chat.lastMessage != null && chat.lastMessage!['createdAt'] != null ? DateTime.tryParse(chat.lastMessage!['createdAt']) : null)),
+                                style: TextStyle(
+                                  color: chat.unreadCount > 0 ? Colors.green : AppTheme.textSecondary,
+                                  fontSize: 12,
+                                  fontWeight: chat.unreadCount > 0 ? FontWeight.bold : FontWeight.normal
+                                ),
                               ),
                               if (chat.unreadCount > 0) ...[
                                 SizedBox(height: 4),
@@ -468,7 +491,9 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                       ? CircleAvatar(
                           radius: 18,
                           backgroundColor: AppTheme.backgroundColor,
-                          backgroundImage: NetworkImage(user!['avatarUrl']),
+                          backgroundImage: user!['avatarUrl'].toString().startsWith('http')
+                              ? NetworkImage(user!['avatarUrl'])
+                              : NetworkImage('https://dolsyx-app.onrender.com${user!['avatarUrl']}'),
                         )
                       : ColorAvatar(
                           name: user?['username'] ?? '?',

@@ -131,7 +131,9 @@ class _CallsTabState extends State<CallsTab> {
             leading: otherUser['avatarUrl'] != null
                 ? CircleAvatar(
                     backgroundColor: AppTheme.surfaceColor,
-                    backgroundImage: NetworkImage(otherUser['avatarUrl']),
+                    backgroundImage: otherUser['avatarUrl'].toString().startsWith('http')
+                        ? NetworkImage(otherUser['avatarUrl'])
+                        : NetworkImage('https://dolsyx-app.onrender.com${otherUser['avatarUrl']}'),
                   )
                 : ColorAvatar(
                     name: otherUser['username'] ?? '?',

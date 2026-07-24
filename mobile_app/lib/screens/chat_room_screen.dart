@@ -485,7 +485,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                             : _isRemoteUserOnline
                                 ? 'Online'
                                 : (_remoteUserLastSeen != null
-                                    ? 'Last seen at ${DateFormat.jm().format(_remoteUserLastSeen!.toLocal())}'
+                                    ? 'Last seen at ${DateFormat('dd-MMM-yyyy hh:mm a').format(_remoteUserLastSeen!.toLocal())}'
                                     : 'Offline'),
                         style: TextStyle(
                           fontSize: 12,

@@ -62,10 +62,8 @@ class _AppLockScreenState extends State<AppLockScreen> {
               
               final authenticated = await localAuth.authenticate(
                 localizedReason: val ? 'Please authenticate to enable App Lock' : 'Please authenticate to disable App Lock',
-                options: const AuthenticationOptions(
-                  biometricOnly: true,
-                  stickyAuth: true,
-                ),
+                biometricOnly: true,
+                persistAcrossBackgrounding: true,
               );
 
               if (authenticated) {

@@ -5,7 +5,6 @@ import 'dart:convert';
 import '../theme/app_theme.dart';
 import '../services/api_service.dart';
 import '../providers/auth_provider.dart';
-import 'call_screen.dart';
 
 class OtherUserProfileScreen extends StatefulWidget {
   final Map<String, dynamic> user;

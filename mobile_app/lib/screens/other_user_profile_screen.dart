@@ -74,21 +74,6 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
     );
   }
 
-  void _makeCall(bool isVideo) {
-    final userId = widget.user['id'] ?? widget.user['_id'];
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => CallScreen(
-          remoteUserId: userId,
-          remoteUserName: _localNickname ?? widget.user['username'] ?? 'User',
-          conversationId: userId, // Placeholder
-          isVideo: isVideo,
-        ),
-      ),
-    );
-  }
-
   Widget _buildActionItem(IconData icon, String text, VoidCallback onTap, {bool isDestructive = false}) {
     return ListTile(
       leading: Icon(icon, color: isDestructive ? Colors.redAccent : AppTheme.primaryColor),
@@ -212,8 +197,6 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      _buildHeaderAction(Icons.call, 'Audio', () => _makeCall(false)),
-                      _buildHeaderAction(Icons.videocam, 'Video', () => _makeCall(true)),
                       _buildHeaderAction(Icons.search, 'Search', () {}),
                     ],
                   ),

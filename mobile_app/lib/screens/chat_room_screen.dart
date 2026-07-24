@@ -434,40 +434,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           ),
         ),
         actions: [
-          if (widget.remoteUserId != null) ...[
-            IconButton(
-              icon: const Icon(Icons.videocam_outlined, color: Colors.blue, size: 26),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => CallScreen(
-                      remoteUserId: widget.remoteUserId!,
-                      remoteUserName: widget.chatName,
-                      conversationId: widget.conversationId,
-                      isVideo: true,
-                    ),
-                  ),
-                );
-              },
-            ),
-            IconButton(
-              icon: const Icon(Icons.phone_outlined, color: Colors.blue, size: 24),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => CallScreen(
-                      remoteUserId: widget.remoteUserId!,
-                      remoteUserName: widget.chatName,
-                      conversationId: widget.conversationId,
-                      isVideo: false,
-                    ),
-                  ),
-                );
-              },
-            ),
-          ],
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert, color: Colors.white),
             onSelected: (value) {

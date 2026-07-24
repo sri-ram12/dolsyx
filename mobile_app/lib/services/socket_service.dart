@@ -3,8 +3,6 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import 'api_service.dart';
 import '../main.dart';
-import '../screens/call_screen.dart';
-
 class SocketService {
   IO.Socket? socket;
   final String _socketUrl = 'https://dolsyx-app.onrender.com';
@@ -32,7 +30,6 @@ class SocketService {
       socket?.emit('register', userId);
     });
 
-    socket?.on('call_incoming', _handleIncomingCall);
     socket?.on('new_message', (data) {
       _messageStreamController.add(data);
     });
@@ -112,52 +109,6 @@ class SocketService {
   void offStatusChange(Function(dynamic) callback) {
     if (socket != null) {
       socket!.off('user_status_change', callback);
-    }
-  }
-
-  void _handleIncomingCall(dynamic data) {
-    print('Incoming call: $data');
-    final context = navigatorKey.currentContext;
-    if (context != null) {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (ctx) => AlertDialog(
-          title: Text('${data['callerName'] ?? 'Someone'} is calling...'),
-          content: Text('Incoming ${data['callType'] == 'video' ? 'Video' : 'Audio'} Call'),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(ctx);
-                socket?.emit('call_reject', {
-                  'callerId': data['callerId'],
-                  'conversationId': data['conversationId']
-                });
-              },
-              child: const Text('Decline', style: TextStyle(color: Colors.red)),
-            ),
-            TextButton(
-              onPressed: () {
-                Navigator.pop(ctx);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => CallScreen(
-                      remoteUserId: data['callerId'],
-                      remoteUserName: data['callerName'] ?? 'Unknown User',
-                      conversationId: data['conversationId'],
-                      isVideo: data['callType'] == 'video',
-                      isIncoming: true,
-                      offerData: data['offer'],
-                    ),
-                  ),
-                );
-              },
-              child: const Text('Accept', style: TextStyle(color: Colors.green)),
-            ),
-          ],
-        ),
-      );
     }
   }
 

@@ -54,15 +54,15 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
             width: double.infinity,
             child: Column(
               children: [
-                const CircleAvatar(
+                CircleAvatar(
                   radius: 50,
                   backgroundColor: AppTheme.primaryColor,
-                  child: Icon(Icons.group, size: 50, color: Colors.white),
+                  child: const Icon(Icons.group, size: 50, color: Colors.white),
                 ),
                 const SizedBox(height: 16),
-                Text(widget.groupName, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),
+                Text(widget.groupName, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),
                 const SizedBox(height: 8),
-                Text('${_participants.length} members', style: const TextStyle(color: AppTheme.textSecondary)),
+                Text('${_participants.length} members', style: TextStyle(color: AppTheme.textSecondary)),
               ],
             ),
           ),
@@ -84,8 +84,8 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                         : null,
                     child: user['avatarUrl'] == null ? const Icon(Icons.person) : null,
                   ),
-                  title: Text(user['username'], style: const TextStyle(color: AppTheme.textPrimary)),
-                  subtitle: Text(isOwner ? 'Group Admin' : 'Member', style: const TextStyle(color: AppTheme.textSecondary)),
+                  title: Text(user['username'], style: TextStyle(color: AppTheme.textPrimary)),
+                  subtitle: Text(isOwner ? 'Group Admin' : 'Member', style: TextStyle(color: AppTheme.textSecondary)),
                   trailing: !isOwner
                       ? IconButton(
                           icon: const Icon(Icons.remove_circle_outline, color: Colors.redAccent),

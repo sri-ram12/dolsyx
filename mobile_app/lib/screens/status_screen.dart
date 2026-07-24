@@ -241,10 +241,10 @@ class _StatusScreenState extends State<StatusScreen> {
                         CircleAvatar(
                           radius: 26,
                           backgroundColor: AppTheme.surfaceColor,
-                          backgroundImage: (myGroup != null && myGroup.statuses.isNotEmpty && myGroup.statuses.last.mediaUrl.isNotEmpty)
+                          backgroundImage: (myGroup != null && myGroup.statuses.isNotEmpty && myGroup.statuses.last.mediaUrl.isNotEmpty && myGroup.statuses.last.mediaType == 'IMAGE')
                               ? NetworkImage(myGroup.statuses.last.mediaUrl.startsWith('http') ? myGroup.statuses.last.mediaUrl : 'https://dolsyx-app.onrender.com${myGroup.statuses.last.mediaUrl}')
                               : null,
-                          child: (myGroup == null || myGroup.statuses.isEmpty || myGroup.statuses.last.mediaUrl.isEmpty)
+                          child: (myGroup == null || myGroup.statuses.isEmpty || myGroup.statuses.last.mediaUrl.isEmpty || myGroup.statuses.last.mediaType != 'IMAGE')
                               ? Icon(Icons.person, color: AppTheme.textSecondary)
                               : null,
                         ),

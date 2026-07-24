@@ -144,4 +144,27 @@ class ChatService {
       return false;
     }
   }
+
+  Future<List<dynamic>> getCallLogs() async {
+    try {
+      final token = await ApiService().getToken();
+      if (token == null) return [];
+
+      final response = await http.get(
+        Uri.parse('${ApiService.baseUrl}/chats/calls'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+      return [];
+    } catch (e) {
+      print('Network error fetching call logs: $e');
+      return [];
+    }
+  }
 }

@@ -374,6 +374,10 @@ export const updateProfile = async (req: AuthRequest, res: Response): Promise<vo
         disappearingTimer: true,
       },
     });
+    const io = (req as any).app.get("io");
+    if (io) {
+      io.emit("profile_updated", { user: updatedUser });
+    }
 
     res.json({ message: "Profile updated successfully", user: updatedUser });
   } catch (error) {

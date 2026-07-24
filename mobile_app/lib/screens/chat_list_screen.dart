@@ -8,6 +8,7 @@ import '../theme/app_theme.dart';
 import '../widgets/color_avatar.dart';
 import '../widgets/full_screen_image_view.dart';
 import 'login_screen.dart';
+import 'tabs/calls_tab.dart';
 import 'search_screen.dart';
 import 'chat_room_screen.dart';
 import 'profile_screen.dart';
@@ -289,20 +290,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
   }
 
   Widget _buildCallsTab() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.call, size: 64, color: AppTheme.textSecondary),
-          const SizedBox(height: 16),
-          Text(
-            'No recent calls.\nStart a call from any chat room!',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: AppTheme.textSecondary, fontSize: 16),
-          ),
-        ],
-      ),
-    );
+    return const CallsTab();
   }
 
   Widget _buildOtherTab() {

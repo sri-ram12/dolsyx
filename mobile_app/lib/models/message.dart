@@ -8,6 +8,7 @@ class Message {
   final bool isDeleted;
   final String? mediaUrl;
   final String? mediaType;
+  final List<dynamic>? receipts;
   final DateTime createdAt;
 
   Message({
@@ -20,6 +21,7 @@ class Message {
     this.isDeleted = false,
     this.mediaUrl,
     this.mediaType,
+    this.receipts,
     required this.createdAt,
   });
 
@@ -34,6 +36,7 @@ class Message {
       isDeleted: json['isDeleted'] ?? false,
       mediaUrl: json['mediaUrl'],
       mediaType: json['mediaType'],
+      receipts: json['receipts'],
       createdAt: DateTime.parse(json['createdAt'] ?? DateTime.now().toIso8601String()),
     );
   }

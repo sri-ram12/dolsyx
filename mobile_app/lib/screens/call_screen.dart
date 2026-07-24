@@ -232,10 +232,7 @@ class _CallScreenState extends State<CallScreen> {
   Future<bool> _initWebRTC() async {
     try {
       final Map<String, dynamic> mediaConstraints = {
-        'audio': {
-          'echoCancellation': true,
-          'noiseSuppression': true,
-        },
+        'audio': true,
         'video': widget.isAudioOnly ? false : {
           'facingMode': 'user',
         },
@@ -501,19 +498,27 @@ class _CallScreenState extends State<CallScreen> {
                         color: _isVideoOff ? Colors.black : Colors.white,
                       ),
                     ),
+                  if (widget.isIncoming && !_callActive)
+                    FloatingActionButton(
+                      heroTag: 'end',
+                      backgroundColor: Colors.red,
+                      onPressed: _rejectCall,
+                      child: const Icon(Icons.call_end, color: Colors.white),
+                    )
+                  else if (!widget.isIncoming || _callActive)
+                    FloatingActionButton(
+                      heroTag: 'end',
+                      backgroundColor: Colors.red,
+                      onPressed: _endCall,
+                      child: const Icon(Icons.call_end, color: Colors.white),
+                    ),
                   if (widget.isIncoming && !_callActive && !_hardwareFailed)
                     FloatingActionButton(
                       heroTag: 'accept',
                       backgroundColor: Colors.green,
                       onPressed: _acceptCall,
-                      child: const Icon(Icons.call, color: Colors.white),
+                      child: Icon(widget.isAudioOnly ? Icons.call : Icons.videocam, color: Colors.white),
                     ),
-                  FloatingActionButton(
-                    heroTag: 'end',
-                    backgroundColor: Colors.red,
-                    onPressed: widget.isIncoming && !_callActive ? _rejectCall : _endCall,
-                    child: const Icon(Icons.call_end, color: Colors.white),
-                  ),
                 ],
               ),
             ),

@@ -61,7 +61,7 @@ class MessageBubble extends StatelessWidget {
                     errorWidget: (context, url, error) => const Icon(Icons.broken_image, size: 50, color: Colors.grey),
                   ),
                 )
-              else if (message.mediaType == 'CALL')
+              else if (message.mediaType == 'CALL_LOG')
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -76,7 +76,7 @@ class MessageBubble extends StatelessWidget {
                       child: Text(
                         message.content == 'missed' ? 'Missed ${message.mediaUrl == "video" ? "Video" : "Voice"} Call' :
                         message.content == 'declined' ? 'Declined ${message.mediaUrl == "video" ? "Video" : "Voice"} Call' :
-                        '\${message.mediaUrl == "video" ? "Video" : "Voice"} Call \${message.content.startsWith("connected:") ? "Ended" : ""}',
+                        '${message.mediaUrl == "video" ? "Video" : "Voice"} Call ${message.content.startsWith("connected:") ? "Ended" : ""}',
                         style: TextStyle(
                           color: message.content == 'missed' || message.content == 'declined'
                               ? Colors.redAccent
@@ -106,13 +106,31 @@ class MessageBubble extends StatelessWidget {
                 ),
               if (message.content.isNotEmpty) const SizedBox(height: 8),
             ],
-            if (message.content.isNotEmpty && message.mediaType != 'CALL')
-              Text(
-                message.content,
-                style: TextStyle(
-                  color: isMe ? Colors.white : AppTheme.textPrimary,
-                  fontSize: 15,
-                ),
+            if (message.content.isNotEmpty && message.mediaType != 'CALL_LOG')
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Flexible(
+                    child: Text(
+                      message.content,
+                      style: TextStyle(
+                        color: isMe ? Colors.white : AppTheme.textPrimary,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ),
+                  if (isMe) ...[
+                    const SizedBox(width: 4),
+                    Icon(
+                      Icons.done_all,
+                      size: 16,
+                      color: (message.receipts != null && message.receipts!.any((r) => r['status'] == 'READ'))
+                          ? Colors.blue
+                          : Colors.white70,
+                    ),
+                  ],
+                ],
               ),
           ],
         ),

@@ -124,6 +124,22 @@ class SocketService {
     }
   }
 
+  void onMessagesRead(Function(dynamic) callback) {
+    if (socket != null) socket!.on('messages_read', callback);
+  }
+
+  void offMessagesRead(Function(dynamic) callback) {
+    if (socket != null) socket!.off('messages_read', callback);
+  }
+
+  void onProfileUpdated(Function(dynamic) callback) {
+    if (socket != null) socket!.on('profile_updated', callback);
+  }
+
+  void offProfileUpdated(Function(dynamic) callback) {
+    if (socket != null) socket!.off('profile_updated', callback);
+  }
+
   void onCallIncoming(Function(dynamic) callback) {
     if (socket != null) {
       socket!.on('call_incoming', callback);

@@ -67,6 +67,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     authProvider.socketService.onTypingChange(_handleTypingChange);
     authProvider.socketService.onStatusChange(_handleStatusChange);
     authProvider.socketService.onChatCleared(_handleChatCleared);
+    authProvider.socketService.onMessagesRead(_handleMessagesRead);
+    authProvider.socketService.onProfileUpdated(_handleProfileUpdated);
 
     _messageController.addListener(_onTextChanged);
     
@@ -88,6 +90,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     authProvider.socketService.offTypingChange(_handleTypingChange);
     authProvider.socketService.offStatusChange(_handleStatusChange);
     authProvider.socketService.offChatCleared(_handleChatCleared);
+    authProvider.socketService.offMessagesRead(_handleMessagesRead);
+    authProvider.socketService.offProfileUpdated(_handleProfileUpdated);
     _messageController.removeListener(_onTextChanged);
     _messageController.dispose();
     _scrollController.dispose();
@@ -125,6 +129,44 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         _isRemoteUserOnline = data['status'] == 'online';
         if (data['lastSeen'] != null) {
           _remoteUserLastSeen = DateTime.tryParse(data['lastSeen'].toString());
+        }
+      });
+    }
+  }
+
+  void _handleMessagesRead(dynamic data) {
+    if (mounted && data['conversationId'] == widget.conversationId) {
+      setState(() {
+        for (var msg in _messages) {
+          if (msg.senderId != data['userId']) {
+            if (msg.receipts == null) {
+              // Message model receipts is final List<dynamic>?, so we can't just assign to it if it's null
+              // and we can't mutate a potentially unmodifiable list. 
+              // We should just update the state of blue ticks directly or wait for the next fetch.
+              // We will just do a soft reload of messages if this happens, but for now since we just need the blue tick,
+              // we can update it if it's mutable, but to be safe, let's just trigger a re-fetch of messages.
+              _fetchMessages();
+              break;
+            } else if (!msg.receipts!.any((r) => r['userId'] == data['userId'] && r['status'] == 'READ')) {
+              try {
+                msg.receipts!.add({'userId': data['userId'], 'status': 'READ'});
+              } catch (e) {
+                _fetchMessages();
+                break;
+              }
+            }
+          }
+        }
+      });
+    }
+  }
+
+  void _handleProfileUpdated(dynamic data) {
+    if (mounted && data['user'] != null && data['user']['id'] == widget.remoteUserId) {
+      setState(() {
+        if (widget.remoteUser != null) {
+          widget.remoteUser!['avatarUrl'] = data['user']['avatarUrl'];
+          widget.remoteUser!['username'] = data['user']['username'];
         }
       });
     }

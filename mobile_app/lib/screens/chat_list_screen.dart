@@ -368,7 +368,8 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
           IconButton(
             icon: const Icon(Icons.delete),
             onPressed: () async {
-              for (String id in _selectedChatIds) {
+              final idsToProcess = List.from(_selectedChatIds);
+              for (String id in idsToProcess) {
                 await _chatService.deleteChat(id);
               }
               setState(() {
@@ -380,7 +381,8 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
           IconButton(
             icon: const Icon(Icons.notifications_off),
             onPressed: () async {
-              for (String id in _selectedChatIds) {
+              final idsToProcess = List.from(_selectedChatIds);
+              for (String id in idsToProcess) {
                 // Setting muteUntil far in the future
                 await _chatService.updateChatSettings(id, {'muteUntil': DateTime.now().add(const Duration(days: 3650)).toIso8601String()});
               }
@@ -393,7 +395,8 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
           IconButton(
             icon: const Icon(Icons.archive),
             onPressed: () async {
-              for (String id in _selectedChatIds) {
+              final idsToProcess = List.from(_selectedChatIds);
+              for (String id in idsToProcess) {
                 await _chatService.updateChatSettings(id, {'isArchived': true});
               }
               setState(() {
@@ -405,20 +408,21 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
             onSelected: (value) async {
+              final idsToProcess = List.from(_selectedChatIds);
               if (value == 'clear_chat') {
-                for (String id in _selectedChatIds) {
+                for (String id in idsToProcess) {
                   await _chatService.clearChat(id);
                 }
                 setState(() => _selectedChatIds.clear());
                 _fetchChats();
               } else if (value == 'lock') {
-                for (String id in _selectedChatIds) {
+                for (String id in idsToProcess) {
                   await _chatService.updateChatSettings(id, {'isLocked': true});
                 }
                 setState(() => _selectedChatIds.clear());
                 _fetchChats();
               } else if (value == 'favorite') {
-                for (String id in _selectedChatIds) {
+                for (String id in idsToProcess) {
                   await _chatService.updateChatSettings(id, {'isFavorite': true});
                 }
                 setState(() => _selectedChatIds.clear());

@@ -18,17 +18,9 @@ import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+import { getCloudinaryStorage } from "../config/cloudinary.config.js";
 
-// Configure multer storage
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, path.join(__dirname, "../../uploads"));
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    cb(null, uniqueSuffix + path.extname(file.originalname));
-  },
-});
+const storage = getCloudinaryStorage("dolsyx_chats");
 
 const fileFilter = (req: any, file: any, cb: any) => {
   const allowed = [
@@ -78,9 +70,7 @@ router.post("/upload", (req: any, res: any) => {
         return;
       }
 
-      // Build relative file URL with timestamp to prevent caching
-      const fileUrl = `/uploads/${req.file.filename}?v=${Date.now()}`;
-
+      const fileUrl = req.file.path; // Cloudinary returns the full URL in `path`
       res.json({
         fileUrl,
         fileName: req.file.originalname,

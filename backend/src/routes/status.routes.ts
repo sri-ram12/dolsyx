@@ -12,14 +12,9 @@ import { authenticateToken } from "../middleware/auth.middleware.js";
 import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+import { getCloudinaryStorage } from "../config/cloudinary.config.js";
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => { cb(null, path.join(__dirname, "../../uploads")); },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    cb(null, uniqueSuffix + path.extname(file.originalname));
-  },
-});
+const storage = getCloudinaryStorage("dolsyx_status");
 
 const upload = multer({
   storage,
@@ -50,7 +45,7 @@ router.post("/upload", (req: any, res: any) => {
     }
     try {
       if (!req.file) { res.status(400).json({ message: "No file uploaded" }); return; }
-      const fileUrl = `/uploads/${req.file.filename}`;
+      const fileUrl = req.file.path; // Cloudinary full URL
       res.json({ fileUrl, fileType: req.file.mimetype, fileName: req.file.originalname });
     } catch (error) {
       console.error("Status upload error:", error);

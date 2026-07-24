@@ -572,8 +572,7 @@ export const clearCallLogs = async (req: AuthRequest, res: Response): Promise<vo
       }));
 
       await prisma.deletedMessage.createMany({
-        data: deletedEntries,
-        skipDuplicates: true
+        data: deletedEntries
       });
     }
 

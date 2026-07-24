@@ -320,6 +320,35 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     }
   }
 
+  void _starSelectedMessages() async {
+    for (String msgId in _selectedMessageIds) {
+      await _chatService.starMessage(msgId);
+    }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${_selectedMessageIds.length} message(s) starred')));
+      setState(() => _selectedMessageIds.clear());
+    }
+  }
+
+  void _pinSelectedMessages() async {
+    for (String msgId in _selectedMessageIds) {
+      await _chatService.pinMessage(widget.conversationId, msgId);
+    }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${_selectedMessageIds.length} message(s) pinned')));
+      setState(() => _selectedMessageIds.clear());
+    }
+  }
+
+  void _deleteSelectedMessages(bool forEveryone) async {
+    for (String msgId in _selectedMessageIds) {
+      _deleteMessage(msgId, forEveryone);
+    }
+    if (mounted) {
+      setState(() => _selectedMessageIds.clear());
+    }
+  }
+
   Future<void> _checkIfContact() async {
     // This calls the backend to check if the user is in contacts.
     // For now, we simulate this call.
@@ -618,24 +647,50 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               actions: [
                 IconButton(
                   icon: const Icon(Icons.star_border),
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Starred')));
-                    setState(() => _selectedMessageIds.clear());
-                  },
+                  onPressed: _starSelectedMessages,
                 ),
                 IconButton(
                   icon: const Icon(Icons.delete_outline),
                   onPressed: () async {
-                    if (_selectedMessageIds.length == 1) {
-                      final msgId = _selectedMessageIds.first;
-                      final message = _messages.firstWhere((m) => m.id == msgId);
-                      final isMe = message.senderId == currentUser?['id'];
-                      setState(() => _selectedMessageIds.clear());
-                      _showMessageOptions(message, isMe);
-                    } else {
-                       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Multiple delete coming soon')));
-                       setState(() => _selectedMessageIds.clear());
+                    bool allMine = true;
+                    for (String msgId in _selectedMessageIds) {
+                      final msg = _messages.firstWhere((m) => m.id == msgId);
+                      if (msg.senderId != currentUser?['id']) {
+                        allMine = false;
+                        break;
+                      }
                     }
+                    
+                    showModalBottomSheet(
+                      context: context,
+                      shape: const RoundedRectangleBorder(
+                        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                      ),
+                      builder: (context) => SafeArea(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (allMine)
+                              ListTile(
+                                leading: const Icon(Icons.delete_forever, color: Colors.red),
+                                title: const Text('Delete for Everyone', style: TextStyle(color: Colors.red)),
+                                onTap: () {
+                                  Navigator.pop(context);
+                                  _deleteSelectedMessages(true);
+                                },
+                              ),
+                            ListTile(
+                              leading: const Icon(Icons.delete_outline),
+                              title: const Text('Delete for Me'),
+                              onTap: () {
+                                Navigator.pop(context);
+                                _deleteSelectedMessages(false);
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
                   },
                 ),
                 IconButton(
@@ -654,10 +709,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.push_pin_outlined),
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pinned')));
-                    setState(() => _selectedMessageIds.clear());
-                  },
+                  onPressed: _pinSelectedMessages,
                 ),
               ],
             )

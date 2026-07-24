@@ -49,6 +49,42 @@ class ChatService {
     }
   }
 
+  Future<bool> starMessage(String messageId) async {
+    try {
+      final token = await ApiService().getToken();
+      if (token == null) return false;
+
+      final response = await http.post(
+        Uri.parse('${ApiService.baseUrl}/chats/messages/$messageId/star'),
+        headers: {
+          'Authorization': 'Bearer $token',
+        },
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      print('Network error starring message: $e');
+      return false;
+    }
+  }
+
+  Future<bool> pinMessage(String conversationId, String messageId) async {
+    try {
+      final token = await ApiService().getToken();
+      if (token == null) return false;
+
+      final response = await http.post(
+        Uri.parse('${ApiService.baseUrl}/chats/$conversationId/messages/$messageId/pin'),
+        headers: {
+          'Authorization': 'Bearer $token',
+        },
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      print('Network error pinning message: $e');
+      return false;
+    }
+  }
+
   Future<List<dynamic>> searchUsers(String query) async {
     try {
       final token = await ApiService().getToken();

@@ -29,8 +29,7 @@ class _StatusScreenState extends State<StatusScreen> {
     super.initState();
     _fetchStatuses();
     
-    // Listen to real-time status updates
-    final socketService = Provider.of<SocketService>(context, listen: false);
+    final socketService = Provider.of<AuthProvider>(context, listen: false).socketService;
     _statusSubscription = socketService.onStatusStream.listen((event) {
       if (mounted) _fetchStatuses();
     });

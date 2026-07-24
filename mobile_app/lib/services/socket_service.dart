@@ -14,6 +14,10 @@ class SocketService {
   final _messageStreamController = StreamController<dynamic>.broadcast();
   Stream<dynamic> get onMessageStream => _messageStreamController.stream;
 
+  final Set<String> onlineUserIds = {};
+  final StreamController<Set<String>> onlineUsersStream = StreamController<Set<String>>.broadcast();
+  final StreamController<Map<String, dynamic>> typingUpdates = StreamController<Map<String, dynamic>>.broadcast();
+
   Future<void> connect(String userId) async {
     final token = await ApiService().getToken();
     if (token == null) return;
@@ -47,6 +51,29 @@ class SocketService {
       }
     });
 
+    socket?.on('online_users_list', (data) {
+      if (data is List) {
+        onlineUserIds.clear();
+        onlineUserIds.addAll(data.map((e) => e.toString()));
+        onlineUsersStream.add(onlineUserIds);
+      }
+    });
+
+    socket?.on('user_status_change', (data) {
+      if (data['userId'] != null && data['status'] != null) {
+        if (data['status'] == 'online') {
+          onlineUserIds.add(data['userId'].toString());
+        } else {
+          onlineUserIds.remove(data['userId'].toString());
+        }
+        onlineUsersStream.add(onlineUserIds);
+      }
+    });
+
+    socket?.on('user_typing', (data) {
+      typingUpdates.add(data);
+    });
+
     socket?.onDisconnect((_) {
       print('❌ Socket Disconnected');
     });
@@ -59,6 +86,12 @@ class SocketService {
   void joinConversation(String conversationId) {
     if (socket != null && socket!.connected) {
       socket!.emit('join_conversation', conversationId);
+    }
+  }
+
+  void leaveConversation(String conversationId) {
+    if (socket != null && socket!.connected) {
+      socket!.emit('leave_conversation', conversationId);
     }
   }
 

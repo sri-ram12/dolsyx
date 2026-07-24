@@ -86,6 +86,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   @override
   void dispose() {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    authProvider.socketService.leaveConversation(widget.conversationId);
     authProvider.socketService.offMessageReceived(_handleIncomingMessage);
     authProvider.socketService.offTypingChange(_handleTypingChange);
     authProvider.socketService.offStatusChange(_handleStatusChange);
@@ -101,13 +102,23 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   void _onTextChanged() {
     final text = _messageController.text;
-    if (text.isNotEmpty && !_isTyping) {
+    
+    if (text.isEmpty) {
+      if (_isTyping) {
+        _isTyping = false;
+        Provider.of<AuthProvider>(context, listen: false).socketService.emitTyping(widget.conversationId, false);
+        _typingTimer?.cancel();
+      }
+      return;
+    }
+
+    if (!_isTyping) {
       _isTyping = true;
       Provider.of<AuthProvider>(context, listen: false).socketService.emitTyping(widget.conversationId, true);
     }
     
     _typingTimer?.cancel();
-    _typingTimer = Timer(const Duration(seconds: 2), () {
+    _typingTimer = Timer(const Duration(seconds: 1), () {
       if (_isTyping && mounted) {
         _isTyping = false;
         Provider.of<AuthProvider>(context, listen: false).socketService.emitTyping(widget.conversationId, false);
@@ -423,6 +434,31 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     }
   }
 
+  String _formatLastSeen(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final dateLocal = date.toLocal();
+    final dateDay = DateTime(dateLocal.year, dateLocal.month, dateLocal.day);
+
+    final timeStr = DateFormat('h:mm a').format(dateLocal);
+
+    if (dateDay == today) {
+      return 'last seen today at $timeStr';
+    } else if (dateDay == yesterday) {
+      return 'last seen yesterday at $timeStr';
+    } else if (now.difference(dateLocal).inDays < 7) {
+      final weekday = DateFormat('EEEE').format(dateLocal);
+      return 'last seen $weekday at $timeStr';
+    } else if (now.year == dateLocal.year) {
+      final dateStr = DateFormat('d MMMM').format(dateLocal);
+      return 'last seen $dateStr at $timeStr';
+    } else {
+      final dateStr = DateFormat('d MMMM yyyy').format(dateLocal);
+      return 'last seen $dateStr at $timeStr';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final currentUser = Provider.of<AuthProvider>(context).user;
@@ -464,7 +500,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     : CircleAvatar(
                         radius: 18,
                         backgroundColor: AppTheme.surfaceColor,
-                        backgroundImage: NetworkImage(widget.avatarUrl!),
+                        backgroundImage: widget.avatarUrl!.startsWith('http')
+                            ? NetworkImage(widget.avatarUrl!)
+                            : NetworkImage('https://dolsyx-app.onrender.com${widget.avatarUrl!}'),
                       ),
               ),
               const SizedBox(width: 8),
@@ -485,7 +523,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                             : _isRemoteUserOnline
                                 ? 'Online'
                                 : (_remoteUserLastSeen != null
-                                    ? 'Last seen at ${DateFormat('dd-MMM-yyyy hh:mm a').format(_remoteUserLastSeen!.toLocal())}'
+                                    ? _formatLastSeen(_remoteUserLastSeen!)
                                     : 'Offline'),
                         style: TextStyle(
                           fontSize: 12,

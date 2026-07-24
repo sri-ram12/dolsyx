@@ -51,13 +51,31 @@ export const initChatSocket = (io: Server) => {
     socket.emit("online_users_list", Array.from(onlineUsers.keys()));
 
     // Fetch privacy settings
-    prisma.user.findUnique({ where: { id: userId }, select: { lastSeenPrivacy: true } }).then(user => {
+    prisma.user.findUnique({ where: { id: userId }, select: { lastSeenPrivacy: true } }).then(async user => {
       if (user?.lastSeenPrivacy === 'PUBLIC' || user?.lastSeenPrivacy === 'CONTACTS') {
-        // Broadcast user online status change
-        io.emit("user_status_change", {
+        // Find all users who share a conversation with the connected user to broadcast presence
+        const relatedParticipants = await prisma.participant.findMany({
+          where: {
+            conversation: {
+              participants: {
+                some: { userId }
+              }
+            },
+            userId: { not: userId }
+          },
+          select: { userId: true },
+          distinct: ['userId']
+        });
+        
+        const payload = {
           userId,
           status: "online",
           onlineUsers: Array.from(onlineUsers.keys()),
+        };
+
+        // Broadcast user online status change ONLY to relevant contacts
+        relatedParticipants.forEach(p => {
+          io.to(p.userId).emit("user_status_change", payload);
         });
       }
     });
@@ -241,6 +259,12 @@ export const initChatSocket = (io: Server) => {
               userId, // The user who read the messages
             });
           }
+          
+          // ALWAYS emit to the user's personal room so their other logged-in devices sync the unread count drop
+          io.to(userId).emit("messages_read", {
+            conversationId,
+            userId,
+          });
         }
       } catch (error) {
         console.error("Socket mark_read error:", error);
@@ -536,7 +560,7 @@ export const initChatSocket = (io: Server) => {
 
     // Handle typing indicator
 
-    socket.on("typing", (data: { conversationId: string; isTyping: boolean }) => {
+    socket.on("typing", async (data: { conversationId: string; isTyping: boolean }) => {
       const { conversationId, isTyping } = data;
       // Broadcast user typing state to other users inside the conversation room
       socket.to(conversationId).emit("user_typing", {
@@ -545,6 +569,25 @@ export const initChatSocket = (io: Server) => {
         username,
         isTyping,
       });
+
+      try {
+        const participants = await prisma.participant.findMany({
+          where: { conversationId },
+          select: { userId: true },
+        });
+        participants.forEach((p) => {
+          if (p.userId !== userId) {
+            io.to(p.userId).emit("user_typing", {
+              conversationId,
+              userId,
+              username,
+              isTyping,
+            });
+          }
+        });
+      } catch (err) {
+        console.error("Error broadcasting typing to participants:", err);
+      }
     });
 
     // Handle client disconnect
@@ -564,14 +607,29 @@ export const initChatSocket = (io: Server) => {
             where: { id: userId },
             data: { lastSeen: lastSeenTime },
             select: { lastSeenPrivacy: true },
-          }).then(user => {
+          }).then(async user => {
             if (user?.lastSeenPrivacy === 'PUBLIC' || user?.lastSeenPrivacy === 'CONTACTS') {
-              // Broadcast user offline status change with lastSeen timestamp
-              io.emit("user_status_change", {
+              // Broadcast user offline status change with lastSeen timestamp to relevant contacts only
+              const relatedParticipants = await prisma.participant.findMany({
+                where: {
+                  conversation: {
+                    participants: { some: { userId } }
+                  },
+                  userId: { not: userId }
+                },
+                select: { userId: true },
+                distinct: ['userId']
+              });
+
+              const payload = {
                 userId,
                 status: "offline",
                 lastSeen: lastSeenTime,
                 onlineUsers: Array.from(onlineUsers.keys()),
+              };
+
+              relatedParticipants.forEach(p => {
+                io.to(p.userId).emit("user_status_change", payload);
               });
             }
           }).catch(err => {

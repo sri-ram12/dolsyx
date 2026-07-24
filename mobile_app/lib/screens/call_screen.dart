@@ -415,7 +415,9 @@ class _CallScreenState extends State<CallScreen> {
                     if (widget.remoteAvatarUrl != null)
                       CircleAvatar(
                         radius: 60,
-                        backgroundImage: NetworkImage(widget.remoteAvatarUrl!),
+                        backgroundImage: widget.remoteAvatarUrl!.startsWith('http')
+                            ? NetworkImage(widget.remoteAvatarUrl!)
+                            : NetworkImage('https://dolsyx-app.onrender.com${widget.remoteAvatarUrl!}'),
                       )
                     else
                       ColorAvatar(name: widget.remoteUserName, radius: 60, fontSize: 40),

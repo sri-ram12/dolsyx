@@ -967,6 +967,14 @@ export default function ChatWindow({
 
     if (!socket || !chat) return;
 
+    if (e.target.value === "") {
+      socket.emit("typing", { conversationId: chat.id, isTyping: false });
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+      return;
+    }
+
     // Emit typing status
     socket.emit("typing", { conversationId: chat.id, isTyping: true });
 
@@ -977,7 +985,7 @@ export default function ChatWindow({
 
     typingTimeoutRef.current = setTimeout(() => {
       socket.emit("typing", { conversationId: chat.id, isTyping: false });
-    }, 1500);
+    }, 1000);
   };
 
   const handleSendMessage = (e: React.FormEvent) => {
@@ -1330,20 +1338,30 @@ export default function ChatWindow({
     try {
       const date = new Date(dateString);
       const now = new Date();
-      const diffMs = now.getTime() - date.getTime();
-      const diffMins = Math.floor(diffMs / 60000);
-      const isToday = date.toDateString() === now.toDateString();
-      const yesterday = new Date(now);
+      
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const yesterday = new Date(today);
       yesterday.setDate(yesterday.getDate() - 1);
-      const isYesterday = date.toDateString() === yesterday.toDateString();
+      
+      const dateDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+      const timeStr = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+      
+      const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
 
-      const timeStr = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-
-      return (
-        date.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }) +
-        " at " +
-        timeStr
-      );
+      if (dateDay.getTime() === today.getTime()) {
+        return `today at ${timeStr}`;
+      } else if (dateDay.getTime() === yesterday.getTime()) {
+        return `yesterday at ${timeStr}`;
+      } else if (diffDays < 7) {
+        const weekday = date.toLocaleDateString('en-US', { weekday: 'long' });
+        return `${weekday} at ${timeStr}`;
+      } else if (now.getFullYear() === date.getFullYear()) {
+        const dateStr = date.toLocaleDateString('en-US', { day: 'numeric', month: 'long' });
+        return `${dateStr} at ${timeStr}`;
+      } else {
+        const dateStr = date.toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' });
+        return `${dateStr} at ${timeStr}`;
+      }
     } catch (e) {
       return "offline";
     }

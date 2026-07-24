@@ -38,6 +38,11 @@ class AppTheme {
           ),
         ),
       ),
+      textSelectionTheme: TextSelectionThemeData(
+        cursorColor: textPrimary,
+        selectionColor: primaryColor.withOpacity(0.3),
+        selectionHandleColor: primaryColor,
+      ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: surfaceColor,
@@ -53,7 +58,7 @@ class AppTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: primaryColor.withOpacity(0.5), width: 1),
+          borderSide: BorderSide.none,
         ),
       ),
     );

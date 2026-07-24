@@ -34,7 +34,11 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
   int _selectedIndex = 0;
   StreamSubscription? _messageSubscription;
   StreamSubscription? _profileSubscription;
+  StreamSubscription? _onlineSubscription;
+  StreamSubscription? _typingSubscription;
   final Set<String> _selectedChatIds = {};
+  Set<String> _onlineUsers = {};
+  Map<String, bool> _typingStatus = {};
 
   @override
   void initState() {
@@ -51,6 +55,16 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
       _profileSubscription = authProvider.socketService.profileUpdates.stream.listen((event) {
         _handleSocketUpdate(event);
       });
+      _onlineSubscription = authProvider.socketService.onlineUsersStream.stream.listen((users) {
+        if (mounted) setState(() { _onlineUsers = users; });
+      });
+      _typingSubscription = authProvider.socketService.typingUpdates.stream.listen((data) {
+        if (mounted) {
+          final convId = data['conversationId'];
+          final isTyping = data['isTyping'];
+          setState(() { _typingStatus[convId] = isTyping; });
+        }
+      });
     });
   }
 
@@ -66,6 +80,8 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
     WidgetsBinding.instance.removeObserver(this);
     _messageSubscription?.cancel();
     _profileSubscription?.cancel();
+    _onlineSubscription?.cancel();
+    _typingSubscription?.cancel();
     super.dispose();
   }
 
@@ -99,10 +115,31 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
   }
 
   String _getLastMessage(Chat chat) {
+    if (_typingStatus[chat.id] == true) {
+      return "Typing...";
+    }
     if (chat.lastMessage != null) {
       return chat.lastMessage!['content'] ?? "Sent a message";
     }
     return "No messages yet";
+  }
+
+  bool _isChatOnline(Chat chat) {
+    if (chat.isGroup) return false;
+    if (chat.participants != null && chat.participants!.isNotEmpty) {
+      final currentUserId = Provider.of<AuthProvider>(context, listen: false).user?['id'] ?? Provider.of<AuthProvider>(context, listen: false).user?['_id'];
+      final otherParticipant = chat.participants!.firstWhere(
+        (p) => p['user'] != null && (p['user']['id'] != currentUserId && p['user']['_id'] != currentUserId),
+        orElse: () => null,
+      );
+      if (otherParticipant != null) {
+        final userId = otherParticipant['user']['id'] ?? otherParticipant['user']['_id'];
+        if (_onlineUsers.contains(userId.toString())) return true;
+        // fallback to initial state from API
+        return otherParticipant['user']['isOnline'] == true;
+      }
+    }
+    return false;
   }
 
   String _formatTime(DateTime? time) {
@@ -226,7 +263,11 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                           ),
                           subtitle: Text(
                             _getLastMessage(chat),
-                            style: TextStyle(color: AppTheme.textSecondary),
+                            style: TextStyle(
+                              color: _typingStatus[chat.id] == true 
+                                ? AppTheme.primaryColor 
+                                : AppTheme.textSecondary
+                            ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),

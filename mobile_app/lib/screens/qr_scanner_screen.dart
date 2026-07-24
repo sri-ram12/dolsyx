@@ -78,13 +78,17 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              avatarUrl == null
+              (avatarUrl == null || avatarUrl.isEmpty)
                   ? ColorAvatar(name: name, radius: 40, fontSize: 32)
                   : CircleAvatar(
                       radius: 40,
+                      backgroundColor: AppTheme.surfaceColor,
                       backgroundImage: avatarUrl.startsWith('http')
                           ? NetworkImage(avatarUrl)
                           : NetworkImage('https://dolsyx-app.onrender.com$avatarUrl'),
+                      onBackgroundImageError: (exception, stackTrace) {
+                        print("Failed to load avatar image: $exception");
+                      },
                     ),
               const SizedBox(height: 16),
               Text(name, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),

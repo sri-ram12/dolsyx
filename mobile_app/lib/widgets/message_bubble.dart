@@ -132,12 +132,26 @@ class MessageBubble extends StatelessWidget {
                   ),
                   if (isMe) ...[
                     const SizedBox(width: 4),
-                    Icon(
-                      Icons.done_all,
-                      size: 14,
-                      color: (message.receipts != null && message.receipts!.any((r) => r['status'] == 'READ'))
-                          ? Colors.blue
-                          : Colors.white70,
+                    Builder(
+                      builder: (context) {
+                        bool isRead = false;
+                        bool isDelivered = false;
+                        if (message.receipts != null && message.receipts!.isNotEmpty) {
+                          if (message.receipts!.any((r) => r['status'] == 'READ')) {
+                            isRead = true;
+                          } else if (message.receipts!.any((r) => r['status'] == 'DELIVERED')) {
+                            isDelivered = true;
+                          }
+                        }
+                        
+                        if (isRead) {
+                          return const Icon(Icons.done_all, size: 14, color: Colors.blue);
+                        } else if (isDelivered) {
+                          return const Icon(Icons.done_all, size: 14, color: Colors.white70);
+                        } else {
+                          return const Icon(Icons.check, size: 14, color: Colors.white70);
+                        }
+                      },
                     ),
                   ],
                 ],

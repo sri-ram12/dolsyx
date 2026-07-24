@@ -27,6 +27,7 @@ export const getChats = async (req: AuthRequest, res: Response): Promise<void> =
                 phoneNumber: true,
                 avatarUrl: true,
                 lastSeen: true,
+                isOnline: true,
                 bio: true,
               },
             },
@@ -207,7 +208,7 @@ export const createOrGetDirectChat = async (req: AuthRequest, res: Response): Pr
     // Check if user exists
     const targetUser = await prisma.user.findUnique({
       where: { id: targetUserId },
-      select: { id: true, username: true, email: true, phoneNumber: true, avatarUrl: true, lastSeen: true },
+      select: { id: true, username: true, email: true, phoneNumber: true, avatarUrl: true, lastSeen: true, isOnline: true },
     });
 
     if (!targetUser) {
@@ -235,6 +236,7 @@ export const createOrGetDirectChat = async (req: AuthRequest, res: Response): Pr
                 phoneNumber: true,
                 avatarUrl: true,
                 lastSeen: true,
+                isOnline: true,
                 bio: true,
               },
             },
@@ -278,6 +280,7 @@ export const createOrGetDirectChat = async (req: AuthRequest, res: Response): Pr
                 phoneNumber: true,
                 avatarUrl: true,
                 lastSeen: true,
+                isOnline: true,
                 bio: true,
               },
             },

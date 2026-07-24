@@ -9,6 +9,8 @@ import {
   deleteConversation,
   clearChatMessages,
   getCallHistory,
+  updateParticipantSettings,
+  clearCallLogs,
 } from "../controllers/chat.controller.js";
 import { authenticateToken } from "../middleware/auth.middleware.js";
 
@@ -59,6 +61,8 @@ router.get("/:conversationId/messages", getMessages as any);
 router.post("/direct", createOrGetDirectChat as any);
 router.delete("/:conversationId", deleteConversation as any);
 router.delete("/:conversationId/messages", clearChatMessages as any);
+router.patch("/:conversationId/participant", updateParticipantSettings as any);
+router.delete("/calls/clear", clearCallLogs as any);
 
 // Upload endpoint
 router.post("/upload", (req: any, res: any) => {

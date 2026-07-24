@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 class AppTheme {
   static bool isDark = true;
 
-  static Color primaryColor = const Color(0xFF6366F1); // Indigo 500
+  static Color primaryColor = const Color(0xFF32CD32); // Lime Green
   static Color backgroundColor = const Color(0xFF0F172A);
   static Color surfaceColor = const Color(0xFF1E293B);
   static Color textPrimary = Colors.white;

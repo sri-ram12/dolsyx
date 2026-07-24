@@ -18,6 +18,8 @@ void main() {
   );
 }
 
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
 class DolsyxApp extends StatelessWidget {
   const DolsyxApp({super.key});
 
@@ -26,6 +28,7 @@ class DolsyxApp extends StatelessWidget {
     return Consumer<ThemeProvider>(
       builder: (context, themeProvider, child) {
         return MaterialApp(
+          navigatorKey: navigatorKey,
           title: 'DOLSYX Mobile',
           debugShowCheckedModeBanner: false,
           theme: AppTheme.themeData,

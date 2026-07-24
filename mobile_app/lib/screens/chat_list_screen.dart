@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'package:provider/provider.dart';
 import '../models/chat.dart';
 import '../services/chat_service.dart';
@@ -22,31 +23,40 @@ class ChatListScreen extends StatefulWidget {
   State<ChatListScreen> createState() => _ChatListScreenState();
 }
 
-class _ChatListScreenState extends State<ChatListScreen> {
+class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObserver {
   final ChatService _chatService = ChatService();
   List<Chat> _chats = [];
   bool _isLoading = true;
   int _selectedIndex = 0;
+  StreamSubscription? _messageSubscription;
+  final Set<String> _selectedChatIds = {};
 
   @override
   void initState() {
     super.initState();
     _fetchChats();
     
+    WidgetsBinding.instance.addObserver(this);
+    
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      authProvider.socketService.socket?.on('new_message', _handleSocketUpdate);
-      authProvider.socketService.socket?.on('messages_read', _handleSocketUpdate);
+      _messageSubscription = authProvider.socketService.onMessageStream.listen((_) {
+        _handleSocketUpdate(_);
+      });
     });
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _fetchChats();
+    }
+  }
+
+  @override
   void dispose() {
-    try {
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      authProvider.socketService.socket?.off('new_message', _handleSocketUpdate);
-      authProvider.socketService.socket?.off('messages_read', _handleSocketUpdate);
-    } catch (_) {}
+    WidgetsBinding.instance.removeObserver(this);
+    _messageSubscription?.cancel();
     super.dispose();
   }
 
@@ -138,9 +148,13 @@ class _ChatListScreenState extends State<ChatListScreen> {
                       itemCount: _chats.length,
                       itemBuilder: (context, index) {
                         final chat = _chats[index];
-                        return ListTile(
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                          leading: GestureDetector(
+                        final isSelected = _selectedChatIds.contains(chat.id);
+                        return Container(
+                          color: isSelected ? AppTheme.primaryColor.withOpacity(0.2) : Colors.transparent,
+                          child: ListTile(
+                            selected: isSelected,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                            leading: GestureDetector(
                             onTap: () {
                               if (!chat.isGroup && chat.participants != null && chat.participants!.isNotEmpty) {
                                 final currentUserId = Provider.of<AuthProvider>(context, listen: false).user?['id'] ?? Provider.of<AuthProvider>(context, listen: false).user?['_id'];
@@ -208,6 +222,17 @@ class _ChatListScreenState extends State<ChatListScreen> {
                             ],
                           ),
                            onTap: () {
+                            if (_selectedChatIds.isNotEmpty) {
+                              setState(() {
+                                if (isSelected) {
+                                  _selectedChatIds.remove(chat.id);
+                                } else {
+                                  _selectedChatIds.add(chat.id);
+                                }
+                              });
+                              return;
+                            }
+
                             String? remoteId;
                             Map<String, dynamic>? remoteUser;
                             if (!chat.isGroup && chat.participants != null) {
@@ -235,6 +260,16 @@ class _ChatListScreenState extends State<ChatListScreen> {
                               ),
                             );
                           },
+                          onLongPress: () {
+                            setState(() {
+                              if (isSelected) {
+                                _selectedChatIds.remove(chat.id);
+                              } else {
+                                _selectedChatIds.add(chat.id);
+                              }
+                            });
+                          },
+                        ),
                         );
                       },
                     ),
@@ -316,7 +351,103 @@ class _ChatListScreenState extends State<ChatListScreen> {
     ];
 
     return Scaffold(
-      appBar: AppBar(
+      appBar: _selectedChatIds.isNotEmpty ? AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.close),
+          onPressed: () {
+            setState(() {
+              _selectedChatIds.clear();
+            });
+          },
+        ),
+        title: Text('${_selectedChatIds.length}'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete),
+            onPressed: () async {
+              for (String id in _selectedChatIds) {
+                await _chatService.deleteChat(id);
+              }
+              setState(() {
+                _selectedChatIds.clear();
+              });
+              _fetchChats();
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.notifications_off),
+            onPressed: () async {
+              for (String id in _selectedChatIds) {
+                // Setting muteUntil far in the future
+                await _chatService.updateChatSettings(id, {'muteUntil': DateTime.now().add(const Duration(days: 3650)).toIso8601String()});
+              }
+              setState(() {
+                _selectedChatIds.clear();
+              });
+              _fetchChats();
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.archive),
+            onPressed: () async {
+              for (String id in _selectedChatIds) {
+                await _chatService.updateChatSettings(id, {'isArchived': true});
+              }
+              setState(() {
+                _selectedChatIds.clear();
+              });
+              _fetchChats();
+            },
+          ),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            onSelected: (value) async {
+              if (value == 'clear_chat') {
+                for (String id in _selectedChatIds) {
+                  await _chatService.clearChat(id);
+                }
+                setState(() => _selectedChatIds.clear());
+                _fetchChats();
+              } else if (value == 'lock') {
+                for (String id in _selectedChatIds) {
+                  await _chatService.updateChatSettings(id, {'isLocked': true});
+                }
+                setState(() => _selectedChatIds.clear());
+                _fetchChats();
+              } else if (value == 'favorite') {
+                for (String id in _selectedChatIds) {
+                  await _chatService.updateChatSettings(id, {'isFavorite': true});
+                }
+                setState(() => _selectedChatIds.clear());
+                _fetchChats();
+              }
+            },
+            itemBuilder: (context) => [
+              if (_selectedChatIds.length == 1)
+                const PopupMenuItem(
+                  value: 'view_contact',
+                  child: Text('View Contact'),
+                ),
+              const PopupMenuItem(
+                value: 'lock',
+                child: Text('Lock Chat'),
+              ),
+              const PopupMenuItem(
+                value: 'favorite',
+                child: Text('Add to Favourite'),
+              ),
+              const PopupMenuItem(
+                value: 'clear_chat',
+                child: Text('Clear Chat'),
+              ),
+              const PopupMenuItem(
+                value: 'block',
+                child: Text('Block'),
+              ),
+            ],
+          ),
+        ],
+      ) : AppBar(
         title: Row(
           children: [
             Consumer<AuthProvider>(
@@ -343,58 +474,93 @@ class _ChatListScreenState extends State<ChatListScreen> {
         ),
         centerTitle: false,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.qr_code_scanner),
-            onPressed: () {
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const QrScannerScreen()));
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.qr_code),
-            onPressed: () {
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const MyQrScreen()));
-            },
-          ),
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert),
-            onSelected: (value) {
-              if (value == 'settings') {
-                Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
-              } else if (value == 'logout') {
-                _handleLogout();
-              }
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: 'new_group',
-                child: Text('New Group'),
-              ),
-              const PopupMenuItem(
-                value: 'new_community',
-                child: Text('New Community'),
-              ),
-              const PopupMenuItem(
-                value: 'linked_devices',
-                child: Text('Linked Devices'),
-              ),
-              const PopupMenuItem(
-                value: 'starred',
-                child: Text('Starred Messages'),
-              ),
-              const PopupMenuItem(
-                value: 'settings',
-                child: Text('Settings'),
-              ),
-              const PopupMenuItem(
-                value: 'switch_account',
-                child: Text('Switch Account'),
-              ),
-              const PopupMenuItem(
-                value: 'logout',
-                child: Text('Logout'),
-              ),
-            ],
-          ),
+          if (_selectedIndex == 1) ...[
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert),
+              onSelected: (value) {
+                if (value == 'status_privacy') {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Status Privacy Settings coming soon')));
+                }
+              },
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'status_privacy',
+                  child: Text('Status Privacy'),
+                ),
+              ],
+            )
+          ] else if (_selectedIndex == 3) ...[
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert),
+              onSelected: (value) async {
+                if (value == 'clear_logs') {
+                  final success = await _chatService.clearCallLogs();
+                  if (success) {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Call logs cleared')));
+                  }
+                }
+              },
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'clear_logs',
+                  child: Text('Clear call logs'),
+                ),
+              ],
+            )
+          ] else ...[
+            IconButton(
+              icon: const Icon(Icons.qr_code_scanner),
+              onPressed: () {
+                Navigator.push(context, MaterialPageRoute(builder: (_) => const QrScannerScreen()));
+              },
+            ),
+            IconButton(
+              icon: const Icon(Icons.qr_code),
+              onPressed: () {
+                Navigator.push(context, MaterialPageRoute(builder: (_) => const MyQrScreen()));
+              },
+            ),
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert),
+              onSelected: (value) {
+                if (value == 'settings') {
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
+                } else if (value == 'logout') {
+                  _handleLogout();
+                }
+              },
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'new_group',
+                  child: Text('New Group'),
+                ),
+                const PopupMenuItem(
+                  value: 'new_community',
+                  child: Text('New Community'),
+                ),
+                const PopupMenuItem(
+                  value: 'linked_devices',
+                  child: Text('Linked Devices'),
+                ),
+                const PopupMenuItem(
+                  value: 'starred',
+                  child: Text('Starred Messages'),
+                ),
+                const PopupMenuItem(
+                  value: 'settings',
+                  child: Text('Settings'),
+                ),
+                const PopupMenuItem(
+                  value: 'switch_account',
+                  child: Text('Switch Account'),
+                ),
+                const PopupMenuItem(
+                  value: 'logout',
+                  child: Text('Logout'),
+                ),
+              ],
+            ),
+          ]
         ],
       ),
       body: pages[_selectedIndex],

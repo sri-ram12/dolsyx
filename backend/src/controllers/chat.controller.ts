@@ -503,3 +503,79 @@ export const getCallHistory = async (req: AuthRequest, res: Response): Promise<v
   }
 };
 
+export const updateParticipantSettings = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const conversationId = req.params["conversationId"] as string;
+    const userId = req.user!.id;
+    const { muteUntil, isArchived, isLocked, isFavorite } = req.body;
+
+    if (!conversationId) {
+      res.status(400).json({ message: "Conversation ID is required" });
+      return;
+    }
+
+    const participant = await prisma.participant.findFirst({
+      where: { conversationId, userId }
+    });
+
+    if (!participant) {
+      res.status(403).json({ message: "You are not a participant" });
+      return;
+    }
+
+    const updatedParticipant = await prisma.participant.update({
+      where: { id: participant.id },
+      data: {
+        muteUntil: muteUntil !== undefined ? (muteUntil ? new Date(muteUntil) : null) : undefined,
+        isArchived: isArchived !== undefined ? isArchived : undefined,
+        isLocked: isLocked !== undefined ? isLocked : undefined,
+        isFavorite: isFavorite !== undefined ? isFavorite : undefined,
+      },
+    });
+
+    res.json(updatedParticipant);
+  } catch (error) {
+    console.error("updateParticipantSettings error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+export const clearCallLogs = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.id;
+    
+    // We can just soft-delete the call logs for this specific user.
+    // First, find all call logs for this user.
+    const callLogs = await prisma.message.findMany({
+      where: {
+        mediaType: "CALL_LOG",
+        conversation: {
+          participants: {
+            some: { userId }
+          }
+        }
+      },
+      select: { id: true }
+    });
+
+    const callLogIds = callLogs.map(log => log.id);
+
+    if (callLogIds.length > 0) {
+      // For each call log, create a DeletedMessage entry for this user
+      const deletedEntries = callLogIds.map(messageId => ({
+        messageId,
+        userId
+      }));
+
+      await prisma.deletedMessage.createMany({
+        data: deletedEntries,
+        skipDuplicates: true
+      });
+    }
+
+    res.json({ message: "Call logs cleared" });
+  } catch (error) {
+    console.error("clearCallLogs error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};

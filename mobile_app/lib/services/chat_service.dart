@@ -76,4 +76,72 @@ class ChatService {
       return null;
     }
   }
+
+  Future<bool> deleteChat(String conversationId) async {
+    try {
+      final token = await ApiService().getToken();
+      if (token == null) return false;
+
+      final response = await http.delete(
+        Uri.parse('${ApiService.baseUrl}/chats/$conversationId'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      print('Error deleting chat: $e');
+      return false;
+    }
+  }
+
+  Future<bool> clearChat(String conversationId) async {
+    try {
+      final token = await ApiService().getToken();
+      if (token == null) return false;
+
+      final response = await http.delete(
+        Uri.parse('${ApiService.baseUrl}/chats/$conversationId/messages'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      print('Error clearing chat: $e');
+      return false;
+    }
+  }
+
+  Future<bool> updateChatSettings(String conversationId, Map<String, dynamic> settings) async {
+    try {
+      final token = await ApiService().getToken();
+      if (token == null) return false;
+
+      final response = await http.patch(
+        Uri.parse('${ApiService.baseUrl}/chats/$conversationId/participant'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token'
+        },
+        body: jsonEncode(settings),
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      print('Error updating chat settings: $e');
+      return false;
+    }
+  }
+
+  Future<bool> clearCallLogs() async {
+    try {
+      final token = await ApiService().getToken();
+      if (token == null) return false;
+
+      final response = await http.delete(
+        Uri.parse('${ApiService.baseUrl}/chats/calls/clear'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      print('Error clearing call logs: $e');
+      return false;
+    }
+  }
 }

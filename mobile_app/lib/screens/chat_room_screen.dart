@@ -433,6 +433,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             ],
           ),
         ),
+          ]
+        ],
         actions: [
           if (widget.remoteUserId != null) ...[
             IconButton(
@@ -444,6 +446,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     builder: (_) => CallScreen(
                       remoteUserId: widget.remoteUserId!,
                       remoteUserName: widget.chatName,
+                      conversationId: widget.conversationId,
                       isVideo: true,
                     ),
                   ),
@@ -459,13 +462,49 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     builder: (_) => CallScreen(
                       remoteUserId: widget.remoteUserId!,
                       remoteUserName: widget.chatName,
+                      conversationId: widget.conversationId,
                       isVideo: false,
                     ),
                   ),
                 );
               },
             ),
-          ]
+          ],
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, color: Colors.white),
+            onSelected: (value) {
+              if (value == 'view_contact' && widget.remoteUserId != null) {
+                final userMap = widget.remoteUser ?? {
+                  'id': widget.remoteUserId,
+                  'username': widget.chatName,
+                  'avatarUrl': widget.avatarUrl,
+                };
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => OtherUserProfileScreen(user: userMap)),
+                );
+              } else if (value == 'mute') {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Mute options coming soon')));
+              } else if (value == 'disappearing') {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Disappearing messages options coming soon')));
+              }
+            },
+            itemBuilder: (context) => [
+              if (widget.remoteUserId != null)
+                const PopupMenuItem(
+                  value: 'view_contact',
+                  child: Text('View Contact'),
+                ),
+              const PopupMenuItem(
+                value: 'mute',
+                child: Text('Mute Notifications'),
+              ),
+              const PopupMenuItem(
+                value: 'disappearing',
+                child: Text('Disappearing Messages'),
+              ),
+            ],
+          ),
         ],
       ),
       body: Column(

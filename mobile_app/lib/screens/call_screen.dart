@@ -9,6 +9,7 @@ import 'package:permission_handler/permission_handler.dart';
 class CallScreen extends StatefulWidget {
   final String remoteUserId;
   final String remoteUserName;
+  final String conversationId;
   final bool isVideo;
   final bool isIncoming;
 
@@ -16,6 +17,7 @@ class CallScreen extends StatefulWidget {
     super.key,
     required this.remoteUserId,
     required this.remoteUserName,
+    required this.conversationId,
     this.isVideo = true,
     this.isIncoming = false,
   });
@@ -78,13 +80,36 @@ class _CallScreenState extends State<CallScreen> {
       final callerName = currentUser?['username'] ?? 'Unknown User';
       final callerAvatar = currentUser?['avatarUrl'];
       
-      await _callService!.startCall(
-        widget.remoteUserId, 
-        widget.remoteUserId, // using remoteUserId as conversationId placeholder for simplicity if needed
-        widget.isVideo,
-        callerName,
-        callerAvatar,
-      );
+      try {
+        await _callService!.startCall(
+          widget.remoteUserId, 
+          widget.conversationId,
+          widget.isVideo,
+          callerName,
+          callerAvatar,
+        );
+      } catch (e) {
+        print("Start call error: $e");
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              backgroundColor: AppTheme.surfaceColor,
+              title: Text('Call Failed', style: TextStyle(color: AppTheme.textPrimary)),
+              content: Text('Could not access camera/microphone. Please check permissions.', style: TextStyle(color: AppTheme.textSecondary)),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    Navigator.pop(context);
+                  },
+                  child: const Text('OK'),
+                )
+              ],
+            ),
+          );
+        }
+      }
     }
   }
 

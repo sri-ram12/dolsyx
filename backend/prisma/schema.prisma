@@ -112,6 +112,10 @@ model Participant {
   conversationId String
   role           String       @default("MEMBER") // OWNER, ADMIN, MODERATOR, MEMBER
   createdAt      DateTime     @default(now())
+  muteUntil      DateTime?
+  isArchived     Boolean      @default(false)
+  isLocked       Boolean      @default(false)
+  isFavorite     Boolean      @default(false)
   
   // Relations
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)

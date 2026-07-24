@@ -433,8 +433,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             ],
           ),
         ),
-          ]
-        ],
         actions: [
           if (widget.remoteUserId != null) ...[
             IconButton(

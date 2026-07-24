@@ -82,6 +82,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
         builder: (_) => CallScreen(
           remoteUserId: userId,
           remoteUserName: _localNickname ?? widget.user['username'] ?? 'User',
+          conversationId: userId, // Placeholder
           isVideo: isVideo,
         ),
       ),

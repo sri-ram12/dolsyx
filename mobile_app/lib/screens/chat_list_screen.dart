@@ -40,8 +40,8 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
     
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      _messageSubscription = authProvider.socketService.onMessageStream.listen((_) {
-        _handleSocketUpdate(_);
+      _messageSubscription = authProvider.socketService.onMessageStream.listen((event) {
+        _handleSocketUpdate(event);
       });
     });
   }

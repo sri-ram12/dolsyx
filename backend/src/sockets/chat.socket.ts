@@ -47,30 +47,33 @@ export const initChatSocket = (io: Server) => {
     // Join personal room to receive real-time direct notifications/messages
     socket.join(userId);
 
-    // Provide immediate list of online users to the connected client
-    socket.emit("online_users_list", Array.from(onlineUsers.keys()));
-
-    // Fetch privacy settings
+    // Fetch privacy settings and relevant contacts
     prisma.user.findUnique({ where: { id: userId }, select: { lastSeenPrivacy: true } }).then(async user => {
-      if (user?.lastSeenPrivacy === 'PUBLIC' || user?.lastSeenPrivacy === 'CONTACTS') {
-        // Find all users who share a conversation with the connected user to broadcast presence
-        const relatedParticipants = await prisma.participant.findMany({
-          where: {
-            conversation: {
-              participants: {
-                some: { userId }
-              }
-            },
-            userId: { not: userId }
+      // Find all users who share a conversation with the connected user
+      const relatedParticipants = await prisma.participant.findMany({
+        where: {
+          conversation: {
+            participants: {
+              some: { userId }
+            }
           },
-          select: { userId: true },
-          distinct: ['userId']
-        });
-        
+          userId: { not: userId }
+        },
+        select: { userId: true },
+        distinct: ['userId']
+      });
+
+      // Filter onlineUsers to only include those relevant contacts
+      const contactIds = new Set(relatedParticipants.map(p => p.userId));
+      const onlineContacts = Array.from(onlineUsers.keys()).filter(id => contactIds.has(id));
+
+      // Provide immediate restricted list of online users to the connected client
+      socket.emit("online_users_list", onlineContacts);
+
+      if (user?.lastSeenPrivacy === 'PUBLIC' || user?.lastSeenPrivacy === 'CONTACTS') {
         const payload = {
           userId,
           status: "online",
-          onlineUsers: Array.from(onlineUsers.keys()),
         };
 
         // Broadcast user online status change ONLY to relevant contacts
@@ -78,10 +81,9 @@ export const initChatSocket = (io: Server) => {
           io.to(p.userId).emit("user_status_change", payload);
         });
       }
+    }).catch(err => {
+      console.error("Error in connection logic:", err);
     });
-
-    // Provide immediate list of online users to the connected client
-    socket.emit("online_users_list", Array.from(onlineUsers.keys()));
 
     // Join a conversation room (for targeting typing status broadcasts)
     socket.on("join_conversation", (conversationId: string) => {
@@ -625,7 +627,6 @@ export const initChatSocket = (io: Server) => {
                 userId,
                 status: "offline",
                 lastSeen: lastSeenTime,
-                onlineUsers: Array.from(onlineUsers.keys()),
               };
 
               relatedParticipants.forEach(p => {

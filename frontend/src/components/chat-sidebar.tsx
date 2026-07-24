@@ -785,6 +785,7 @@ export default function ChatSidebar({
                         </div>
                       );
                     })()}
+
                     {isOnline && (
                       <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-[var(--theme-bg-container)] bg-green-500" />
                     )}

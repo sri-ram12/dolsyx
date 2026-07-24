@@ -134,9 +134,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
       );
       if (otherParticipant != null) {
         final userId = otherParticipant['user']['id'] ?? otherParticipant['user']['_id'];
-        if (_onlineUsers.contains(userId.toString())) return true;
-        // fallback to initial state from API
-        return otherParticipant['user']['isOnline'] == true;
+        return _onlineUsers.contains(userId.toString());
       }
     }
     return false;
@@ -293,7 +291,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                                   ),
                                   constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
                                   child: Text(
-                                    "${chat.unreadCount}",
+                                    chat.unreadCount > 99 ? "99+" : "${chat.unreadCount}",
                                     style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
                                     textAlign: TextAlign.center,
                                   ),

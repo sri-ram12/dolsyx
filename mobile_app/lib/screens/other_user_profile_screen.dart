@@ -7,6 +7,7 @@ import '../services/api_service.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/color_avatar.dart';
 import '../widgets/full_screen_image_view.dart';
+import '../screens/call_screen.dart';
 
 class OtherUserProfileScreen extends StatefulWidget {
   final Map<String, dynamic> user;
@@ -73,6 +74,56 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
         );
       }
     );
+  }
+
+  void _startAudioCall() => _startCall(false);
+  void _startVideoCall() => _startCall(true);
+
+  Future<void> _startCall(bool isVideo) async {
+    final remoteUserId = widget.user['id'] ?? widget.user['_id'];
+    if (remoteUserId == null) return;
+
+    String conversationId = widget.user['conversationId'] ?? '';
+    
+    if (conversationId.isEmpty) {
+      setState(() => _isProcessing = true);
+      try {
+        final authProvider = Provider.of<AuthProvider>(context, listen: false);
+        final response = await http.post(
+          Uri.parse('https://dolsyx-app.onrender.com/api/chats/direct'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ${authProvider.token}',
+          },
+          body: jsonEncode({'targetUserId': remoteUserId}),
+        );
+        if (response.statusCode == 200 || response.statusCode == 201) {
+          final data = jsonDecode(response.body);
+          conversationId = data['id'];
+        }
+      } catch (e) {
+        print(e);
+      }
+      setState(() => _isProcessing = false);
+    }
+
+    if (conversationId.isNotEmpty) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => CallScreen(
+            conversationId: conversationId,
+            remoteUserId: remoteUserId,
+            remoteUsername: _localNickname ?? widget.user['username'] ?? 'User',
+            remoteAvatarUrl: widget.user['avatarUrl'],
+            isVideo: isVideo,
+            isIncoming: false,
+          ),
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to start call')));
+    }
   }
 
   Widget _buildActionItem(IconData icon, String text, VoidCallback onTap, {bool isDestructive = false}) {
@@ -214,6 +265,8 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
+                      _buildHeaderAction(Icons.call, 'Audio', _startAudioCall),
+                      _buildHeaderAction(Icons.videocam, 'Video', _startVideoCall),
                       _buildHeaderAction(Icons.search, 'Search', () {}),
                     ],
                   ),

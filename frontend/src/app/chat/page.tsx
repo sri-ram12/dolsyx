@@ -433,8 +433,14 @@ export default function ChatPage() {
 
     socket.on(
       "user_status_change",
-      (data: { userId: string; status: "online" | "offline"; lastSeen?: string; onlineUsers: string[] }) => {
-        setOnlineUsers(data.onlineUsers);
+      (data: { userId: string; status: "online" | "offline"; lastSeen?: string; onlineUsers?: string[] }) => {
+        setOnlineUsers((prev) => {
+          if (data.status === "online") {
+            return Array.from(new Set([...prev, data.userId]));
+          } else {
+            return prev.filter(id => id !== data.userId);
+          }
+        });
 
         setChats((prev) =>
           prev.map((c) => {

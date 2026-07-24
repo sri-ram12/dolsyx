@@ -72,14 +72,12 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
     _messageController.addListener(_onTextChanged);
     
-    // Set initial status from widget if available
-    if (widget.remoteUser != null) {
-      if (widget.remoteUser!['isOnline'] == true) {
-        _isRemoteUserOnline = true;
-      }
-      if (widget.remoteUser!['lastSeen'] != null) {
-        _remoteUserLastSeen = DateTime.tryParse(widget.remoteUser!['lastSeen'].toString());
-      }
+    // Set initial status from socket and widget
+    if (widget.remoteUserId != null) {
+      _isRemoteUserOnline = authProvider.socketService.onlineUserIds.contains(widget.remoteUserId);
+    }
+    if (widget.remoteUser != null && widget.remoteUser!['lastSeen'] != null) {
+      _remoteUserLastSeen = DateTime.tryParse(widget.remoteUser!['lastSeen'].toString());
     }
   }
 

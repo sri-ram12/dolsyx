@@ -17,6 +17,7 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
   final StatusService _statusService = StatusService();
   double _progress = 0.0;
   bool _isPaused = false;
+  bool _isLoading = true; // Add loading state
 
   @override
   void initState() {
@@ -29,7 +30,7 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
     Future.doWhile(() async {
       await Future.delayed(const Duration(milliseconds: 50));
       if (!mounted) return false;
-      if (!_isPaused) {
+      if (!_isPaused && !_isLoading) { // Pause while loading
         setState(() {
           _progress += 0.01;
         });
@@ -65,8 +66,32 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
                       ? widget.status.mediaUrl
                       : 'https://dolsyx-app.onrender.com${widget.status.mediaUrl}',
                   fit: BoxFit.contain,
-                  placeholder: (context, url) => Center(child: CircularProgressIndicator(color: AppTheme.primaryColor)),
-                  errorWidget: (context, url, error) => const Center(child: Icon(Icons.error, color: Colors.white, size: 50)),
+                  progressIndicatorBuilder: (context, url, downloadProgress) {
+                    // It's still loading
+                    if (!_isLoading) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted) setState(() => _isLoading = true);
+                      });
+                    }
+                    return Center(child: CircularProgressIndicator(color: AppTheme.primaryColor, value: downloadProgress.progress));
+                  },
+                  imageBuilder: (context, imageProvider) {
+                    // Finished loading
+                    if (_isLoading) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted) setState(() => _isLoading = false);
+                      });
+                    }
+                    return Image(image: imageProvider, fit: BoxFit.contain);
+                  },
+                  errorWidget: (context, url, error) {
+                    if (_isLoading) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted) setState(() => _isLoading = false);
+                      });
+                    }
+                    return const Center(child: Icon(Icons.error, color: Colors.white, size: 50));
+                  },
                 )
               else
                 const Center(child: Text('Video statuses not fully supported yet', style: TextStyle(color: Colors.white))),

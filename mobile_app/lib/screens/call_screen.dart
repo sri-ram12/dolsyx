@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
@@ -39,6 +40,20 @@ class _CallScreenState extends State<CallScreen> {
   bool _hardwareFailed = false;
   bool _callActive = false;
   String _status = 'Connecting...';
+  
+  // Call Timer
+  Timer? _callTimer;
+  int _callDuration = 0;
+
+  // ICE Candidate Queue
+  final List<RTCIceCandidate> _iceCandidateQueue = [];
+
+  // Local Video Dragging
+  double _localVideoX = 20;
+  double _localVideoY = 120;
+  
+  // Video Swapping
+  bool _isLocalMain = false;
 
   @override
   void initState() {
@@ -72,7 +87,9 @@ class _CallScreenState extends State<CallScreen> {
       if (data['answer'] != null) {
         final answer = RTCSessionDescription(data['answer']['sdp'], data['answer']['type']);
         await _peerConnection?.setRemoteDescription(answer);
+        _flushIceCandidates();
       }
+      _startTimer();
     });
 
     socket.on('call_rejected', (data) {
@@ -93,9 +110,27 @@ class _CallScreenState extends State<CallScreen> {
           data['candidate']['sdpMid'],
           data['candidate']['sdpMLineIndex'],
         );
-        await _peerConnection?.addCandidate(candidate);
+        if (_peerConnection == null || await _peerConnection!.getRemoteDescription() == null) {
+          _iceCandidateQueue.add(candidate);
+        } else {
+          await _peerConnection?.addCandidate(candidate);
+        }
       }
     });
+  }
+
+  void _startTimer() {
+    _callTimer?.cancel();
+    _callTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted) setState(() => _callDuration++);
+    });
+  }
+
+  Future<void> _flushIceCandidates() async {
+    for (var candidate in _iceCandidateQueue) {
+      await _peerConnection?.addCandidate(candidate);
+    }
+    _iceCandidateQueue.clear();
   }
 
   Future<void> _startCall() async {
@@ -165,6 +200,7 @@ class _CallScreenState extends State<CallScreen> {
       try {
         final offer = RTCSessionDescription(widget.initialOffer!['sdp'], widget.initialOffer!['type']);
         await _peerConnection!.setRemoteDescription(offer);
+        _flushIceCandidates();
         
         final answer = await _peerConnection!.createAnswer();
         await _peerConnection!.setLocalDescription(answer);
@@ -176,6 +212,7 @@ class _CallScreenState extends State<CallScreen> {
             'type': answer.type,
           },
         });
+        _startTimer();
       } catch (e) {
         print('Error handling initial offer: $e');
       }
@@ -195,7 +232,10 @@ class _CallScreenState extends State<CallScreen> {
   Future<bool> _initWebRTC() async {
     try {
       final Map<String, dynamic> mediaConstraints = {
-        'audio': true,
+        'audio': {
+          'echoCancellation': true,
+          'noiseSuppression': true,
+        },
         'video': widget.isAudioOnly ? false : {
           'facingMode': 'user',
         },
@@ -267,6 +307,15 @@ class _CallScreenState extends State<CallScreen> {
     }
   }
 
+  void _switchCamera() async {
+    if (widget.isAudioOnly || _localStream == null) return;
+    final videoTracks = _localStream!.getVideoTracks();
+    if (videoTracks.isNotEmpty) {
+      await Helper.switchCamera(videoTracks[0]);
+      // Local renderer automatically reflects the flip
+    }
+  }
+
   void _endCall() {
     final socket = Provider.of<AuthProvider>(context, listen: false).socketService.socket;
     final userId = Provider.of<AuthProvider>(context, listen: false).user?['id'];
@@ -275,7 +324,7 @@ class _CallScreenState extends State<CallScreen> {
       'conversationId': widget.conversationId,
       'callType': widget.isAudioOnly ? 'audio' : 'video',
       'status': _callActive ? 'connected' : 'missed',
-      'duration': 0,
+      'duration': _callDuration,
       'callerId': widget.isIncoming ? widget.remoteUserId : userId,
     });
     _endCallLocally('Call ended');
@@ -291,6 +340,7 @@ class _CallScreenState extends State<CallScreen> {
 
   @override
   void dispose() {
+    _callTimer?.cancel();
     final socketService = Provider.of<AuthProvider>(context, listen: false).socketService;
     socketService.socket?.off('call_answered');
     socketService.socket?.off('call_rejected');
@@ -306,6 +356,12 @@ class _CallScreenState extends State<CallScreen> {
     super.dispose();
   }
 
+  String _formatDuration(int seconds) {
+    final m = seconds ~/ 60;
+    final s = seconds % 60;
+    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -313,24 +369,47 @@ class _CallScreenState extends State<CallScreen> {
       body: SafeArea(
         child: Stack(
           children: [
-            // Video views
+            // Main Fullscreen Video
             if (!widget.isAudioOnly && _callActive)
               Positioned.fill(
-                child: RTCVideoView(_remoteRenderer, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
-              ),
-            if (!widget.isAudioOnly && _callActive && !_isVideoOff)
-              Positioned(
-                right: 20,
-                bottom: 120,
-                width: 100,
-                height: 150,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: RTCVideoView(_localRenderer, mirror: true, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
+                child: GestureDetector(
+                  onTap: () {
+                    // Tap background to do nothing or hide controls
+                  },
+                  child: RTCVideoView(_isLocalMain ? _localRenderer : _remoteRenderer, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover, mirror: _isLocalMain),
                 ),
               ),
 
-            // Audio only / connecting UI
+            // Draggable Picture-in-Picture Local Video
+            if (!widget.isAudioOnly && _callActive && !_isVideoOff)
+              Positioned(
+                right: _localVideoX,
+                bottom: _localVideoY,
+                width: 100,
+                height: 150,
+                child: GestureDetector(
+                  onPanUpdate: (details) {
+                    setState(() {
+                      _localVideoX -= details.delta.dx;
+                      _localVideoY -= details.delta.dy;
+                    });
+                  },
+                  onDoubleTap: () {
+                    setState(() {
+                      _isLocalMain = !_isLocalMain;
+                    });
+                  },
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      color: Colors.grey[900],
+                      child: RTCVideoView(_isLocalMain ? _remoteRenderer : _localRenderer, mirror: !_isLocalMain, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
+                    ),
+                  ),
+                ),
+              ),
+
+            // Audio only / connecting UI (Overlayed timer if active audio)
             if (widget.isAudioOnly || !_callActive)
               Center(
                 child: Column(
@@ -350,7 +429,7 @@ class _CallScreenState extends State<CallScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      _status,
+                      _callActive ? _formatDuration(_callDuration) : _status,
                       style: const TextStyle(color: Colors.white70, fontSize: 16),
                     ),
                     if (_hardwareFailed)
@@ -363,6 +442,27 @@ class _CallScreenState extends State<CallScreen> {
                         ),
                       )
                   ],
+                ),
+              ),
+
+            // Top Status Bar Overlay (Timer for Video Call)
+            if (!widget.isAudioOnly && _callActive)
+              Positioned(
+                top: 20,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.black54,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      _formatDuration(_callDuration),
+                      style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                  ),
                 ),
               ),
 
@@ -383,6 +483,13 @@ class _CallScreenState extends State<CallScreen> {
                         _isMuted ? Icons.mic_off : Icons.mic,
                         color: _isMuted ? Colors.black : Colors.white,
                       ),
+                    ),
+                  if (!widget.isAudioOnly && (_callActive || !widget.isIncoming))
+                    FloatingActionButton(
+                      heroTag: 'switch_cam',
+                      backgroundColor: Colors.white24,
+                      onPressed: _switchCamera,
+                      child: const Icon(Icons.flip_camera_ios, color: Colors.white),
                     ),
                   if (!widget.isAudioOnly && (_callActive || !widget.isIncoming))
                     FloatingActionButton(

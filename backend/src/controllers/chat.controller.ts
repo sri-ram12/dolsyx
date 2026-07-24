@@ -523,14 +523,15 @@ export const updateParticipantSettings = async (req: AuthRequest, res: Response)
       return;
     }
 
+    const updateData: any = {};
+    if (muteUntil !== undefined) updateData.muteUntil = muteUntil ? new Date(muteUntil) : null;
+    if (isArchived !== undefined) updateData.isArchived = isArchived;
+    if (isLocked !== undefined) updateData.isLocked = isLocked;
+    if (isFavorite !== undefined) updateData.isFavorite = isFavorite;
+
     const updatedParticipant = await prisma.participant.update({
       where: { id: participant.id },
-      data: {
-        muteUntil: muteUntil !== undefined ? (muteUntil ? new Date(muteUntil) : null) : undefined,
-        isArchived: isArchived !== undefined ? isArchived : undefined,
-        isLocked: isLocked !== undefined ? isLocked : undefined,
-        isFavorite: isFavorite !== undefined ? isFavorite : undefined,
-      },
+      data: updateData,
     });
 
     res.json(updatedParticipant);

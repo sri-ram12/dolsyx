@@ -252,29 +252,41 @@ export default function ChatSidebar({
 
   const handleScanSuccess = async (decodedText: string) => {
     try {
-      if (decodedText.startsWith("dolsyx://user/")) {
-        const scannedUsername = decodedText.split("dolsyx://user/")[1];
-        if (scannedUsername === user?.username) {
-          toast("You cannot chat with yourself.", "error");
-          return;
-        }
-        
-        // Let's search for this user by username
-        const res = await fetch(`${API_URL}/api/chats/search?query=${encodeURIComponent(scannedUsername)}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        if (res.ok) {
-          const data = await res.json();
-          const targetUser = data.find((u: User) => u.username === scannedUsername);
-          if (targetUser) {
-            setShowScanQrModal(false);
-            await handleStartChat(targetUser);
-          } else {
-            toast("User not found.", "error");
-          }
-        }
+      let scannedId = decodedText;
+      if (scannedId.startsWith("dolsyx://user/")) {
+        scannedId = scannedId.replace("dolsyx://user/", "");
       } else {
-        toast("Invalid QR Code.", "error");
+        try {
+          const parsed = JSON.parse(scannedId);
+          if (parsed.id) scannedId = parsed.id;
+          else if (parsed._id) scannedId = parsed._id;
+          else if (parsed.userId) scannedId = parsed.userId;
+        } catch (e) {
+          // It's not JSON, assume raw string
+        }
+      }
+
+      if (scannedId === user?.id) {
+        toast("You cannot chat with yourself.", "error");
+        return;
+      }
+      
+      const res = await fetch(`${API_URL}/api/chats/direct`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ targetUserId: scannedId }),
+      });
+      
+      if (res.ok) {
+        const chatData = await res.json();
+        setShowScanQrModal(false);
+        onChatCreated(chatData);
+        onSelectChat(chatData);
+      } else {
+        toast("Failed to start chat from QR code.", "error");
       }
     } catch (err) {
       console.error(err);
@@ -472,7 +484,7 @@ export default function ChatSidebar({
 
   const formatTime = (dateString: string) => {
     const date = new Date(dateString);
-    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    return date.toLocaleDateString([], { month: "short", day: "numeric" }) + ", " + date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
 
   // Sort & Filter chats: hide locked chats unless the search query matches the secret key

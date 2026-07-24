@@ -439,6 +439,16 @@ export default function LoginPage() {
             >
               {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <><span>Continue</span><ArrowRight className="h-4 w-4" /></>}
             </button>
+            <div className="mt-4 text-center text-xs text-[var(--theme-text-secondary)]">
+              Don't have an account?{" "}
+              <button
+                type="button"
+                onClick={() => router.push("/register")}
+                className="font-bold text-[var(--theme-accent)] hover:underline"
+              >
+                Sign up
+              </button>
+            </div>
           </form>
         )}
 

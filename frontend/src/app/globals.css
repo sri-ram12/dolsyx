@@ -465,3 +465,13 @@ html { font-size: 17px; }
 .animate-color-shift {
   animation: color-shift 15s infinite;
 }
+
+/* Autofill styling override to prevent yellow/black strips on signin */
+input:-webkit-autofill,
+input:-webkit-autofill:hover, 
+input:-webkit-autofill:focus, 
+input:-webkit-autofill:active{
+    -webkit-box-shadow: 0 0 0 30px var(--theme-bg-sidebar-search) inset !important;
+    -webkit-text-fill-color: var(--theme-text-primary) !important;
+    transition: background-color 5000s ease-in-out 0s;
+}

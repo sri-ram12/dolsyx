@@ -204,9 +204,21 @@ export default function StatusPanel({ onClose, onNewStatus }: StatusPanelProps) 
     const handleNewStatus = () => {
       fetchStatuses();
     };
+    
+    const handleProfileUpdated = (data: { user: any }) => {
+      setStatusGroups(prev => prev.map(group => {
+        if (group.user.id === data.user.id) {
+          return { ...group, user: { ...group.user, ...data.user } };
+        }
+        return group;
+      }));
+    };
+    
     socket.on("new_status", handleNewStatus);
+    socket.on("profile_updated", handleProfileUpdated);
     return () => {
       socket.off("new_status", handleNewStatus);
+      socket.off("profile_updated", handleProfileUpdated);
     };
   }, [socket]);
 

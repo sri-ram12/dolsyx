@@ -1323,7 +1323,7 @@ export default function ChatWindow({
 
   const formatMessageTime = (dateString: string) => {
     const date = new Date(dateString);
-    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    return date.toLocaleDateString([], { month: "short", day: "numeric" }) + ", " + date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
 
   const formatLastSeen = (dateString: string) => {
@@ -1338,9 +1338,6 @@ export default function ChatWindow({
       const isYesterday = date.toDateString() === yesterday.toDateString();
 
       const timeStr = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-
-      if (isToday) return `today at ${timeStr}`;
-      if (isYesterday) return `yesterday at ${timeStr}`;
 
       return (
         date.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }) +

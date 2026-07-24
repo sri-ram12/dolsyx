@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useAuth, API_URL } from "@/context/auth-context";
 import { getAvatarUrl } from "@/utils/avatar";
+import { useSocket } from "@/hooks/use-socket";
 import { Phone, Video, PhoneIncoming, PhoneOutgoing, PhoneMissed, Trash2, X, MoreVertical, CheckSquare, MessageSquare } from "lucide-react";
 interface CallLog {
   id: string;
@@ -62,6 +63,38 @@ export default function CallsSidebar({ onStartCall }: { onStartCall?: (chatId: s
     };
     fetchCalls();
   }, [token]);
+
+  const { socket } = useSocket(token);
+  useEffect(() => {
+    if (!socket) return;
+    const handleProfileUpdated = (data: { user: any }) => {
+      setCalls(prev => prev.map(call => {
+        let updated = false;
+        const newCall = { ...call };
+        
+        if (newCall.sender.id === data.user.id) {
+          newCall.sender = { ...newCall.sender, ...data.user };
+          updated = true;
+        }
+        
+        if (newCall.conversation.participants) {
+          newCall.conversation.participants = newCall.conversation.participants.map(p => {
+            if (p.user.id === data.user.id) {
+              updated = true;
+              return { ...p, user: { ...p.user, ...data.user } };
+            }
+            return p;
+          });
+        }
+        
+        return updated ? newCall : call;
+      }));
+    };
+    socket.on("profile_updated", handleProfileUpdated);
+    return () => {
+      socket.off("profile_updated", handleProfileUpdated);
+    };
+  }, [socket]);
 
   const startPress = (callId: string) => {
     if (isSelectionMode) return;

@@ -18,7 +18,7 @@ import CallsSidebar from "@/components/calls-sidebar";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 
 export default function ChatPage() {
-  const { user, token, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { user, token, isAuthenticated, isLoading: authLoading, updateUser } = useAuth();
   const router = useRouter();
   const { socket } = useSocket(token);
   usePushNotifications();
@@ -558,6 +558,39 @@ export default function ChatPage() {
           return currentChats; // Don't actually change chats here
         });
       }
+    });
+
+    // Listen for profile updates
+    socket.on("profile_updated", (data: { user: any }) => {
+      // If it's my own profile that was updated (e.g. from another tab or mobile)
+      if (data.user.id === user?.id) {
+        updateUser(data.user);
+      }
+      
+      // Update chat list if the updated user is a participant/recipient
+      setChats((prevChats) =>
+        prevChats.map((chat) => {
+          if (chat.isGroup) {
+             const updatedParticipants = chat.participants?.map((p) => {
+               if (p.user.id === data.user.id) {
+                 return { ...p, user: { ...p.user, ...data.user } };
+               }
+               return p;
+             });
+             return { ...chat, participants: updatedParticipants };
+          } else {
+             if (chat.recipient?.id === data.user.id) {
+               return {
+                 ...chat,
+                 recipient: { ...chat.recipient, ...data.user },
+                 name: data.user.username,
+                 avatarUrl: data.user.avatarUrl,
+               };
+             }
+             return chat;
+          }
+        })
+      );
     });
 
     // Listen for new status updates

@@ -87,9 +87,9 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
                           : NetworkImage('https://dolsyx-app.onrender.com$avatarUrl'),
                     ),
               const SizedBox(height: 16),
-              Text(name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),
+              Text(name, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),
               const SizedBox(height: 8),
-              Text(email, style: const TextStyle(fontSize: 14, color: AppTheme.textSecondary)),
+              Text(email, style: TextStyle(fontSize: 14, color: AppTheme.textSecondary)),
               const SizedBox(height: 24),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,

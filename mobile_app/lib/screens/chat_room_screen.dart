@@ -10,9 +10,13 @@ import 'package:file_picker/file_picker.dart';
 import '../models/message.dart';
 import '../services/api_service.dart';
 import '../providers/auth_provider.dart';
+import '../services/socket_service.dart';
+import '../models/chat.dart';
 import '../theme/app_theme.dart';
 import '../widgets/message_bubble.dart';
 import 'other_user_profile_screen.dart';
+import '../widgets/color_avatar.dart';
+import '../widgets/full_screen_image_view.dart';
 
 class ChatRoomScreen extends StatefulWidget {
   final String conversationId;
@@ -61,6 +65,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
     authProvider.socketService.onTypingChange(_handleTypingChange);
     authProvider.socketService.onStatusChange(_handleStatusChange);
+    authProvider.socketService.onChatCleared(_handleChatCleared);
 
     _messageController.addListener(_onTextChanged);
     
@@ -81,6 +86,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     authProvider.socketService.offMessageReceived(_handleIncomingMessage);
     authProvider.socketService.offTypingChange(_handleTypingChange);
     authProvider.socketService.offStatusChange(_handleStatusChange);
+    authProvider.socketService.offChatCleared(_handleChatCleared);
     _messageController.removeListener(_onTextChanged);
     _messageController.dispose();
     _scrollController.dispose();
@@ -139,6 +145,14 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       } catch (e) {
         print('Error parsing incoming message: $e');
       }
+    }
+  }
+
+  void _handleChatCleared(dynamic data) {
+    if (mounted && data != null && data['conversationId'] == widget.conversationId) {
+      setState(() {
+        _messages.clear();
+      });
     }
   }
 
@@ -391,15 +405,24 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           },
           child: Row(
             children: [
-              CircleAvatar(
-                radius: 18,
-                backgroundColor: AppTheme.surfaceColor,
-                backgroundImage: widget.avatarUrl != null && widget.avatarUrl!.startsWith('http')
-                    ? NetworkImage(widget.avatarUrl!)
-                    : null,
-                child: (widget.avatarUrl == null || !widget.avatarUrl!.startsWith('http'))
-                    ? Icon(Icons.person, size: 20, color: AppTheme.textSecondary)
-                    : null,
+              GestureDetector(
+                onTap: () {
+                  if (widget.avatarUrl != null) {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => FullScreenImageView(imageUrl: widget.avatarUrl!),
+                      ),
+                    );
+                  }
+                },
+                child: widget.avatarUrl == null
+                    ? ColorAvatar(name: widget.chatName, radius: 18, fontSize: 16)
+                    : CircleAvatar(
+                        radius: 18,
+                        backgroundColor: AppTheme.surfaceColor,
+                        backgroundImage: NetworkImage(widget.avatarUrl!),
+                      ),
               ),
               const SizedBox(width: 8),
               Expanded(

@@ -5,6 +5,8 @@ import 'dart:convert';
 import '../theme/app_theme.dart';
 import '../services/api_service.dart';
 import '../providers/auth_provider.dart';
+import '../widgets/color_avatar.dart';
+import '../widgets/full_screen_image_view.dart';
 
 class OtherUserProfileScreen extends StatefulWidget {
   final Map<String, dynamic> user;
@@ -175,13 +177,29 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
               padding: const EdgeInsets.symmetric(vertical: 24),
               child: Column(
                 children: [
-                  CircleAvatar(
-                    radius: 60,
-                    backgroundColor: AppTheme.backgroundColor,
-                    backgroundImage: avatarUrl != null && avatarUrl.startsWith('http')
-                        ? NetworkImage(avatarUrl)
-                        : (avatarUrl != null ? NetworkImage('https://dolsyx-app.onrender.com$avatarUrl') : null),
-                    child: avatarUrl == null ? Icon(Icons.person, size: 60, color: AppTheme.textSecondary) : null,
+                  GestureDetector(
+                    onTap: () {
+                      if (avatarUrl != null) {
+                        String fullUrl = avatarUrl.startsWith('http') 
+                            ? avatarUrl 
+                            : 'https://dolsyx-app.onrender.com$avatarUrl';
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => FullScreenImageView(imageUrl: fullUrl),
+                          ),
+                        );
+                      }
+                    },
+                    child: avatarUrl == null
+                        ? ColorAvatar(name: username, radius: 60, fontSize: 40)
+                        : CircleAvatar(
+                            radius: 60,
+                            backgroundColor: AppTheme.backgroundColor,
+                            backgroundImage: avatarUrl.startsWith('http')
+                                ? NetworkImage(avatarUrl)
+                                : NetworkImage('https://dolsyx-app.onrender.com$avatarUrl'),
+                          ),
                   ),
                   const SizedBox(height: 16),
                   Text(

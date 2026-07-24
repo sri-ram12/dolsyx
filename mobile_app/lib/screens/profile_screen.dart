@@ -7,6 +7,8 @@ import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import 'blocked_users_screen.dart';
 import '../providers/theme_provider.dart';
+import '../widgets/color_avatar.dart';
+import '../widgets/full_screen_image_view.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -45,10 +47,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
         final uploadResponse = await _apiService.uploadMedia(pickedFile.path);
         
         if (uploadResponse != null && uploadResponse['fileUrl'] != null) {
-          final success = await _apiService.updateProfile(_bioController.text, uploadResponse['fileUrl']);
-          if (success) {
-            // In a real app we'd trigger a user reload in AuthProvider
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profile picture updated. Please login again to see changes everywhere.')));
+          final updatedUser = await _apiService.updateProfile(_bioController.text, uploadResponse['fileUrl']);
+          if (updatedUser != null) {
+            if (mounted) Provider.of<AuthProvider>(context, listen: false).updateUser(updatedUser);
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profile picture updated successfully!')));
           } else {
             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to update avatar')));
           }
@@ -63,10 +65,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _updateBio() async {
     setState(() => _isLoading = true);
-    final success = await _apiService.updateProfile(_bioController.text, null); // Keep current avatar
+    final updatedUser = await _apiService.updateProfile(_bioController.text, null); // Keep current avatar
     if (mounted) {
       setState(() => _isLoading = false);
-      if (success) {
+      if (updatedUser != null) {
+        Provider.of<AuthProvider>(context, listen: false).updateUser(updatedUser);
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bio updated successfully')));
       } else {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to update bio')));
@@ -96,13 +99,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 children: [
                   Stack(
                     children: [
-                      CircleAvatar(
-                        radius: 60,
-                        backgroundColor: AppTheme.surfaceColor,
-                        backgroundImage: avatarUrl != null && avatarUrl.startsWith('http')
-                            ? NetworkImage(avatarUrl)
-                            : (avatarUrl != null ? NetworkImage('https://dolsyx-app.onrender.com$avatarUrl') : null),
-                        child: avatarUrl == null ? Icon(Icons.person, size: 60, color: AppTheme.textSecondary) : null,
+                      GestureDetector(
+                        onTap: () {
+                          if (avatarUrl != null) {
+                            String fullUrl = avatarUrl.startsWith('http') 
+                                ? avatarUrl 
+                                : 'https://dolsyx-app.onrender.com$avatarUrl';
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => FullScreenImageView(imageUrl: fullUrl),
+                              ),
+                            );
+                          }
+                        },
+                        child: avatarUrl == null 
+                            ? ColorAvatar(name: username, radius: 60, fontSize: 40)
+                            : CircleAvatar(
+                                radius: 60,
+                                backgroundColor: AppTheme.backgroundColor,
+                                backgroundImage: avatarUrl.startsWith('http')
+                                    ? NetworkImage(avatarUrl)
+                                    : NetworkImage('https://dolsyx-app.onrender.com$avatarUrl'),
+                              ),
                       ),
                       Positioned(
                         bottom: 0,

@@ -79,6 +79,18 @@ class SocketService {
     }
   }
 
+  void onChatCleared(Function(dynamic) callback) {
+    if (socket != null) {
+      socket!.on('chat_cleared', callback);
+    }
+  }
+
+  void offChatCleared(Function(dynamic) callback) {
+    if (socket != null) {
+      socket!.off('chat_cleared', callback);
+    }
+  }
+
   void emitTyping(String conversationId, bool isTyping) {
     if (socket != null && socket!.connected) {
       socket!.emit('typing', {

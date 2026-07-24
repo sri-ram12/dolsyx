@@ -64,10 +64,10 @@ class ApiService {
     return null;
   }
 
-  Future<bool> updateProfile(String? bio, String? avatarUrl) async {
+  Future<Map<String, dynamic>?> updateProfile(String? bio, String? avatarUrl) async {
     try {
       final token = await getToken();
-      if (token == null) return false;
+      if (token == null) return null;
 
       final response = await http.put(
         Uri.parse('$baseUrl/auth/profile'),
@@ -81,10 +81,13 @@ class ApiService {
         }),
       );
 
-      return response.statusCode == 200;
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body)['user'];
+      }
+      return null;
     } catch (e) {
       print('Update profile error: $e');
-      return false;
+      return null;
     }
   }
 

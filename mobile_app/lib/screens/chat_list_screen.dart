@@ -5,6 +5,8 @@ import '../models/chat.dart';
 import '../services/chat_service.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
+import '../widgets/color_avatar.dart';
+import '../widgets/full_screen_image_view.dart';
 import 'login_screen.dart';
 import 'search_screen.dart';
 import 'chat_room_screen.dart';
@@ -156,30 +158,38 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                             contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                             leading: GestureDetector(
                             onTap: () {
-                              if (!chat.isGroup && chat.participants != null && chat.participants!.isNotEmpty) {
-                                final currentUserId = Provider.of<AuthProvider>(context, listen: false).user?['id'] ?? Provider.of<AuthProvider>(context, listen: false).user?['_id'];
-                                final otherParticipant = chat.participants!.firstWhere(
-                                  (p) => p['user'] != null && (p['user']['id'] != currentUserId && p['user']['_id'] != currentUserId),
-                                  orElse: () => null,
+                              if (chat.avatarUrl != null) {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => FullScreenImageView(imageUrl: chat.avatarUrl!),
+                                  ),
                                 );
-                                if (otherParticipant != null) {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => OtherUserProfileScreen(user: otherParticipant['user']),
-                                    ),
+                              } else {
+                                if (!chat.isGroup && chat.participants != null && chat.participants!.isNotEmpty) {
+                                  final currentUserId = Provider.of<AuthProvider>(context, listen: false).user?['id'] ?? Provider.of<AuthProvider>(context, listen: false).user?['_id'];
+                                  final otherParticipant = chat.participants!.firstWhere(
+                                    (p) => p['user'] != null && (p['user']['id'] != currentUserId && p['user']['_id'] != currentUserId),
+                                    orElse: () => null,
                                   );
+                                  if (otherParticipant != null) {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => OtherUserProfileScreen(user: otherParticipant['user']),
+                                      ),
+                                    );
+                                  }
                                 }
                               }
                             },
-                            child: CircleAvatar(
-                              radius: 24,
-                              backgroundColor: AppTheme.surfaceColor,
-                              backgroundImage: chat.avatarUrl != null ? NetworkImage(chat.avatarUrl!) : null,
-                              child: chat.avatarUrl == null
-                                  ? Icon(Icons.person, color: AppTheme.textSecondary)
-                                  : null,
-                            ),
+                            child: chat.avatarUrl == null
+                                ? ColorAvatar(name: _getChatName(chat), radius: 24)
+                                : CircleAvatar(
+                                    radius: 24,
+                                    backgroundColor: AppTheme.surfaceColor,
+                                    backgroundImage: NetworkImage(chat.avatarUrl!),
+                                  ),
                           ),
                           title: Text(
                             _getChatName(chat),

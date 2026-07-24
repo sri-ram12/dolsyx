@@ -565,7 +565,7 @@ export default function SettingsPanel({ onClose, onSelectChat, initialTab = "pro
                 <div className="flex flex-col items-center gap-3 py-4">
                   <div className="p-3 bg-white rounded-2xl shadow-xl border border-[var(--theme-border-color)]">
                     <img
-                      src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(`dolsyx://add?email=${user.email}&username=${user.username}`)}&margin=2&color=000000&bgcolor=ffffff`}
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(`dolsyx://user/${user.id}`)}&margin=2&color=000000&bgcolor=ffffff`}
                       alt="Profile QR Code"
                       className="h-40 w-40 rounded-lg object-contain"
                     />

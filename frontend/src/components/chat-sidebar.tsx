@@ -989,7 +989,7 @@ export default function ChatSidebar({
             </button>
             <h3 className="mb-6 text-xl font-bold text-[var(--theme-text-primary)]">My QR Code</h3>
             <div className="flex justify-center bg-white p-4 rounded-xl mx-auto mb-4 w-fit">
-              <QRCode value={`dolsyx://user/${user?.username}`} size={200} />
+              <QRCode value={`dolsyx://user/${user?.id}`} size={200} />
             </div>
             <p className="text-sm text-[var(--theme-text-secondary)]">Scan to start a chat with {user?.username}</p>
           </div>

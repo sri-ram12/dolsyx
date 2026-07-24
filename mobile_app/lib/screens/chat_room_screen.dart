@@ -8,6 +8,8 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import '../models/message.dart';
+import '../services/socket_service.dart';
+import '../services/chat_service.dart';
 import '../services/api_service.dart';
 import '../providers/auth_provider.dart';
 import '../services/socket_service.dart';
@@ -40,19 +42,26 @@ class ChatRoomScreen extends StatefulWidget {
 }
 
 class _ChatRoomScreenState extends State<ChatRoomScreen> {
+  final SocketService _socketService = SocketService();
+  final ChatService _chatService = ChatService();
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   List<Message> _messages = [];
   bool _isLoading = true;
   bool _isTyping = false;
+  bool _isEmojiVisible = false;
+  bool _isContact = true;
+  FocusNode _focusNode = FocusNode();
   bool _isRemoteUserTyping = false;
   bool _isRemoteUserOnline = false;
   DateTime? _remoteUserLastSeen;
   Timer? _typingTimer;
+  final Set<String> _selectedMessageIds = {};
 
   @override
   void initState() {
     super.initState();
+    _checkIfContact();
     _fetchMessages();
     
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
@@ -221,15 +230,148 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
-        setState(() {
-          _messages = data.map((json) => Message.fromJson(json)).toList();
-          _isLoading = false;
-        });
+        if (mounted) {
+          setState(() {
+            _messages = data.map((json) => Message.fromJson(json)).toList();
+            _isLoading = false;
+          });
+        }
         _scrollToBottom();
       }
     } catch (e) {
       print('Error fetching messages: $e');
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _showMessageOptions(Message message, bool isMe) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (isMe)
+              ListTile(
+                leading: const Icon(Icons.delete_forever, color: Colors.red),
+                title: const Text('Delete for Everyone', style: TextStyle(color: Colors.red)),
+                onTap: () {
+                  Navigator.pop(context);
+                  _deleteMessage(message.id, true);
+                },
+              ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: const Text('Delete for Me'),
+              onTap: () {
+                Navigator.pop(context);
+                _deleteMessage(message.id, false);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.star_border),
+              title: const Text('Star Message'),
+              onTap: () {
+                Navigator.pop(context);
+                // _starMessage(message.id);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.push_pin_outlined),
+              title: const Text('Pin Message'),
+              onTap: () {
+                Navigator.pop(context);
+                // _pinMessage(message.id);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _deleteMessage(String messageId, bool forEveryone) async {
+    try {
+      final success = await _chatService.deleteMessage(messageId, forEveryone);
+      if (success && mounted) {
+        setState(() {
+          if (forEveryone) {
+            final idx = _messages.indexWhere((m) => m.id == messageId);
+            if (idx != -1) {
+              _messages[idx] = Message(
+                id: _messages[idx].id,
+                content: "This message was deleted",
+                senderId: _messages[idx].senderId,
+                conversationId: _messages[idx].conversationId,
+                createdAt: _messages[idx].createdAt,
+                isDeleted: true,
+              );
+            }
+          } else {
+            _messages.removeWhere((m) => m.id == messageId);
+          }
+        });
+      }
+    } catch (e) {
+      print("Delete failed: $e");
+    }
+  }
+
+  Future<void> _checkIfContact() async {
+    // This calls the backend to check if the user is in contacts.
+    // For now, we simulate this call.
+    try {
+      final token = await ApiService().getToken();
+      if (token == null || widget.remoteUserId == null) return;
+      
+      final response = await http.get(
+        Uri.parse('${ApiService.baseUrl}/contacts'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      
+      if (response.statusCode == 200) {
+        final List<dynamic> contacts = jsonDecode(response.body);
+        final isSaved = contacts.any((c) => c['contactId'] == widget.remoteUserId);
+        if (mounted) {
+          setState(() {
+            _isContact = isSaved;
+          });
+        }
+      }
+    } catch (e) {
+      print('Check contact error: $e');
+    }
+  }
+
+  Future<void> _addContact() async {
+    if (widget.remoteUser == null || widget.remoteUser!['email'] == null) return;
+    try {
+      final token = await ApiService().getToken();
+      if (token == null) return;
+
+      final response = await http.post(
+        Uri.parse('${ApiService.baseUrl}/contacts/add'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'email': widget.remoteUser!['email'],
+          'savedName': widget.remoteUser!['username'],
+        }),
+      );
+
+      if (response.statusCode == 201 && mounted) {
+        setState(() {
+          _isContact = true;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Contact added!')));
+      }
+    } catch (e) {
+      print('Add contact error: $e');
     }
   }
 
@@ -462,156 +604,235 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     final currentUser = Provider.of<AuthProvider>(context).user;
 
     return Scaffold(
-      appBar: AppBar(
-        titleSpacing: 0,
-        title: GestureDetector(
-          onTap: () {
-            if (widget.remoteUserId != null) {
-              final userMap = widget.remoteUser ?? {
-                'id': widget.remoteUserId,
-                'username': widget.chatName,
-                'avatarUrl': widget.avatarUrl,
-              };
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => OtherUserProfileScreen(user: userMap),
+      appBar: _selectedMessageIds.isNotEmpty
+          ? AppBar(
+              leading: IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () {
+                  setState(() {
+                    _selectedMessageIds.clear();
+                  });
+                },
+              ),
+              title: Text('${_selectedMessageIds.length}'),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.star_border),
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Starred')));
+                    setState(() => _selectedMessageIds.clear());
+                  },
                 ),
-              );
-            }
-          },
-          child: Row(
-            children: [
-              GestureDetector(
+                IconButton(
+                  icon: const Icon(Icons.delete_outline),
+                  onPressed: () async {
+                    if (_selectedMessageIds.length == 1) {
+                      final msgId = _selectedMessageIds.first;
+                      final message = _messages.firstWhere((m) => m.id == msgId);
+                      final isMe = message.senderId == currentUser?['id'];
+                      setState(() => _selectedMessageIds.clear());
+                      _showMessageOptions(message, isMe);
+                    } else {
+                       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Multiple delete coming soon')));
+                       setState(() => _selectedMessageIds.clear());
+                    }
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.reply),
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Reply coming soon')));
+                    setState(() => _selectedMessageIds.clear());
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.forward),
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Forward coming soon')));
+                    setState(() => _selectedMessageIds.clear());
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.push_pin_outlined),
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pinned')));
+                    setState(() => _selectedMessageIds.clear());
+                  },
+                ),
+              ],
+            )
+          : AppBar(
+              titleSpacing: 0,
+              title: GestureDetector(
                 onTap: () {
-                  if (widget.avatarUrl != null) {
+                  if (widget.remoteUserId != null) {
+                    final userMap = widget.remoteUser ?? {
+                      'id': widget.remoteUserId,
+                      'username': widget.chatName,
+                      'avatarUrl': widget.avatarUrl,
+                    };
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => FullScreenImageView(imageUrl: widget.avatarUrl!),
+                        builder: (_) => OtherUserProfileScreen(user: userMap),
                       ),
                     );
                   }
                 },
-                child: widget.avatarUrl == null
-                    ? ColorAvatar(name: widget.chatName, radius: 18, fontSize: 16)
-                    : CircleAvatar(
-                        radius: 18,
-                        backgroundColor: AppTheme.surfaceColor,
-                        backgroundImage: widget.avatarUrl!.startsWith('http')
-                            ? NetworkImage(widget.avatarUrl!)
-                            : NetworkImage('https://dolsyx-app.onrender.com${widget.avatarUrl!}'),
-                      ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
+                child: Row(
                   children: [
-                    Text(
-                      widget.chatName,
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                      overflow: TextOverflow.ellipsis,
+                    GestureDetector(
+                      onTap: () {
+                        if (widget.avatarUrl != null) {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => FullScreenImageView(imageUrl: widget.avatarUrl!),
+                            ),
+                          );
+                        }
+                      },
+                      child: widget.avatarUrl == null
+                          ? ColorAvatar(name: widget.chatName, radius: 18, fontSize: 16)
+                          : CircleAvatar(
+                              radius: 18,
+                              backgroundColor: AppTheme.surfaceColor,
+                              backgroundImage: widget.avatarUrl!.startsWith('http')
+                                  ? NetworkImage(widget.avatarUrl!)
+                                  : NetworkImage('https://dolsyx-app.onrender.com${widget.avatarUrl!}'),
+                            ),
                     ),
-                    if (widget.remoteUserId != null)
-                      Text(
-                        _isRemoteUserTyping
-                            ? 'Typing...'
-                            : _isRemoteUserOnline
-                                ? 'Online'
-                                : (_remoteUserLastSeen != null
-                                    ? _formatLastSeen(_remoteUserLastSeen!)
-                                    : 'Offline'),
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: _isRemoteUserTyping || _isRemoteUserOnline ? AppTheme.primaryColor : AppTheme.textSecondary,
-                        ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            widget.chatName,
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          if (widget.remoteUserId != null)
+                            Text(
+                              _isRemoteUserTyping
+                                  ? 'Typing...'
+                                  : _isRemoteUserOnline
+                                      ? 'Online'
+                                      : (_remoteUserLastSeen != null
+                                          ? _formatLastSeen(_remoteUserLastSeen!)
+                                          : 'Offline'),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: _isRemoteUserTyping || _isRemoteUserOnline ? AppTheme.primaryColor : AppTheme.textSecondary,
+                              ),
+                            ),
+                        ],
                       ),
+                    ),
                   ],
                 ),
               ),
-            ],
-          ),
-        ),
-        actions: [
-          if (widget.remoteUserId != null) ...[
-            IconButton(
-              icon: const Icon(Icons.videocam, color: Colors.white),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => CallScreen(
-                      conversationId: widget.conversationId,
-                      remoteUserId: widget.remoteUserId!,
-                      remoteUserName: widget.chatName,
-                      remoteAvatarUrl: widget.avatarUrl,
-                      isAudioOnly: false,
-                      isIncoming: false,
-                    ),
+              actions: [
+                if (widget.remoteUserId != null) ...[
+                  IconButton(
+                    icon: const Icon(Icons.videocam, color: Colors.white),
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => CallScreen(
+                            conversationId: widget.conversationId,
+                            remoteUserId: widget.remoteUserId!,
+                            remoteUserName: widget.chatName,
+                            remoteAvatarUrl: widget.avatarUrl,
+                            isAudioOnly: false,
+                            isIncoming: false,
+                          ),
+                        ),
+                      );
+                    },
                   ),
-                );
-              },
-            ),
-            IconButton(
-              icon: const Icon(Icons.call, color: Colors.white),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => CallScreen(
-                      conversationId: widget.conversationId,
-                      remoteUserId: widget.remoteUserId!,
-                      remoteUserName: widget.chatName,
-                      remoteAvatarUrl: widget.avatarUrl,
-                      isAudioOnly: true,
-                      isIncoming: false,
-                    ),
+                  IconButton(
+                    icon: const Icon(Icons.call, color: Colors.white),
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => CallScreen(
+                            conversationId: widget.conversationId,
+                            remoteUserId: widget.remoteUserId!,
+                            remoteUserName: widget.chatName,
+                            remoteAvatarUrl: widget.avatarUrl,
+                            isAudioOnly: true,
+                            isIncoming: false,
+                          ),
+                        ),
+                      );
+                    },
                   ),
-                );
-              },
-            ),
-          ],
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert, color: Colors.white),
-            onSelected: (value) {
-              if (value == 'view_contact' && widget.remoteUserId != null) {
-                final userMap = widget.remoteUser ?? {
-                  'id': widget.remoteUserId,
-                  'username': widget.chatName,
-                  'avatarUrl': widget.avatarUrl,
-                };
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => OtherUserProfileScreen(user: userMap)),
-                );
-              } else if (value == 'mute') {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Mute options coming soon')));
-              } else if (value == 'disappearing') {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Disappearing messages options coming soon')));
-              }
-            },
-            itemBuilder: (context) => [
-              if (widget.remoteUserId != null)
-                const PopupMenuItem(
-                  value: 'view_contact',
-                  child: Text('View Contact'),
+                ],
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.more_vert, color: Colors.white),
+                  onSelected: (value) {
+                    if (value == 'view_contact' && widget.remoteUserId != null) {
+                      final userMap = widget.remoteUser ?? {
+                        'id': widget.remoteUserId,
+                        'username': widget.chatName,
+                        'avatarUrl': widget.avatarUrl,
+                      };
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => OtherUserProfileScreen(user: userMap)),
+                      );
+                    } else if (value == 'mute') {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Mute options coming soon')));
+                    } else if (value == 'disappearing') {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Disappearing messages options coming soon')));
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    if (widget.remoteUserId != null)
+                      const PopupMenuItem(
+                        value: 'view_contact',
+                        child: Text('View Contact'),
+                      ),
+                    const PopupMenuItem(
+                      value: 'mute',
+                      child: Text('Mute Notifications'),
+                    ),
+                    const PopupMenuItem(
+                      value: 'disappearing',
+                      child: Text('Disappearing Messages'),
+                    ),
+                  ],
                 ),
-              const PopupMenuItem(
-                value: 'mute',
-                child: Text('Mute Notifications'),
-              ),
-              const PopupMenuItem(
-                value: 'disappearing',
-                child: Text('Disappearing Messages'),
-              ),
-            ],
-          ),
-        ],
-      ),
+              ],
+            ),
       body: Column(
         children: [
+          if (!_isContact && widget.remoteUserId != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              color: AppTheme.surfaceColor,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'This user is not in your contacts.',
+                      style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () => _addContact(),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppTheme.primaryColor,
+                    ),
+                    child: const Text('Add Contact'),
+                  ),
+                ],
+              ),
+            ),
           Expanded(
             child: _isLoading && _messages.isEmpty
                 ? Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
@@ -622,7 +843,33 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     itemBuilder: (context, index) {
                       final message = _messages[index];
                       final isMe = currentUser != null && message.senderId == currentUser['id'];
-                      return MessageBubble(message: message, isMe: isMe);
+                      final isSelected = _selectedMessageIds.contains(message.id);
+                      return GestureDetector(
+                        onLongPress: () {
+                          setState(() {
+                            if (isSelected) {
+                              _selectedMessageIds.remove(message.id);
+                            } else {
+                              _selectedMessageIds.add(message.id);
+                            }
+                          });
+                        },
+                        onTap: () {
+                          if (_selectedMessageIds.isNotEmpty) {
+                            setState(() {
+                              if (isSelected) {
+                                _selectedMessageIds.remove(message.id);
+                              } else {
+                                _selectedMessageIds.add(message.id);
+                              }
+                            });
+                          }
+                        },
+                        child: Container(
+                          color: isSelected ? AppTheme.primaryColor.withAlpha(50) : Colors.transparent,
+                          child: MessageBubble(message: message, isMe: isMe),
+                        ),
+                      );
                     },
                   ),
           ),

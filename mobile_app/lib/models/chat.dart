@@ -7,6 +7,7 @@ class Chat {
   final Map<String, dynamic>? lastMessage;
   final int unreadCount;
   final DateTime? updatedAt;
+  final bool isArchived;
 
   Chat({
     required this.id,
@@ -17,6 +18,7 @@ class Chat {
     this.lastMessage,
     this.unreadCount = 0,
     this.updatedAt,
+    this.isArchived = false,
   });
 
   factory Chat.fromJson(Map<String, dynamic> json) {
@@ -29,6 +31,7 @@ class Chat {
       lastMessage: json['lastMessage'],
       unreadCount: json['unreadCount'] ?? 0,
       updatedAt: json['updatedAt'] != null ? DateTime.parse(json['updatedAt']) : null,
+      isArchived: json['isArchived'] ?? false,
     );
   }
 }

@@ -234,23 +234,35 @@ export const initChatSocket = (io: Server) => {
         if (messagesToRead.length > 0) {
           const messageIds = messagesToRead.map((m) => m.id);
 
-          // Create or update receipt to READ for each message
-          for (const mId of messageIds) {
-            await prisma.messageReceipt.upsert({
-              where: {
-                messageId_userId: {
-                  messageId: mId,
-                  userId,
-                },
-              },
-              update: {
-                status: "READ",
-              },
-              create: {
+          // Use updateMany since receipts are created during send_message.
+          // For safety, we will just update existing receipts to READ.
+          await prisma.messageReceipt.updateMany({
+            where: {
+              messageId: { in: messageIds },
+              userId,
+            },
+            data: {
+              status: "READ",
+            },
+          });
+          
+          // Legacy messages that might not have a receipt at all:
+          // We can find any messages that still don't have a receipt and create them.
+          const updatedReceipts = await prisma.messageReceipt.findMany({
+            where: { messageId: { in: messageIds }, userId },
+            select: { messageId: true }
+          });
+          const updatedMessageIds = new Set(updatedReceipts.map(r => r.messageId));
+          const missingReceiptMessageIds = messageIds.filter(id => !updatedMessageIds.has(id));
+          
+          if (missingReceiptMessageIds.length > 0) {
+            await prisma.messageReceipt.createMany({
+              data: missingReceiptMessageIds.map(mId => ({
                 messageId: mId,
                 userId,
                 status: "READ",
-              },
+              })),
+              skipDuplicates: true,
             });
           }
 

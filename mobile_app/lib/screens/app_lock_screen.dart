@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:local_auth/local_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_theme.dart';
 
@@ -49,11 +50,29 @@ class _AppLockScreenState extends State<AppLockScreen> {
             subtitle: Text('When enabled, you\'ll need to use fingerprint or face recognition to open DOLSYX.', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
             value: _isAppLockEnabled,
             activeColor: AppTheme.primaryColor,
-            onChanged: (val) {
-              setState(() {
-                _isAppLockEnabled = val;
-              });
-              _saveSettings();
+            onChanged: (val) async {
+              final localAuth = LocalAuthentication();
+              final isSupported = await localAuth.isDeviceSupported();
+              if (!isSupported) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Please set up a screen lock (PIN, Pattern, or Fingerprint) in your device settings first.')),
+                );
+                return;
+              }
+              
+              final authenticated = await localAuth.authenticate(
+                localizedReason: val ? 'Please authenticate to enable App Lock' : 'Please authenticate to disable App Lock',
+                biometricOnly: false,
+                useErrorDialogs: true,
+                stickyAuth: true,
+              );
+
+              if (authenticated) {
+                setState(() {
+                  _isAppLockEnabled = val;
+                });
+                _saveSettings();
+              }
             },
           ),
           if (_isAppLockEnabled) ...[

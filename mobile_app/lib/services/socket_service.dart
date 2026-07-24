@@ -14,6 +14,9 @@ class SocketService {
   final _messageStreamController = StreamController<dynamic>.broadcast();
   Stream<dynamic> get onMessageStream => _messageStreamController.stream;
 
+  final _statusStreamController = StreamController<dynamic>.broadcast();
+  Stream<dynamic> get onStatusStream => _statusStreamController.stream;
+
   final Set<String> onlineUserIds = {};
   final StreamController<Set<String>> onlineUsersStream = StreamController<Set<String>>.broadcast();
   final StreamController<Map<String, dynamic>> typingUpdates = StreamController<Map<String, dynamic>>.broadcast();
@@ -44,6 +47,10 @@ class SocketService {
     socket?.on('messages_read', (data) {
       _messageStreamController.add({'type': 'read', 'data': data});
     });
+
+    socket?.on('new_status', (data) => _statusStreamController.add({'type': 'new_status', 'data': data}));
+    socket?.on('status_viewed', (data) => _statusStreamController.add({'type': 'status_viewed', 'data': data}));
+    socket?.on('status_deleted', (data) => _statusStreamController.add({'type': 'status_deleted', 'data': data}));
 
     socket?.on('profile_updated', (data) {
       if (data['user'] != null) {

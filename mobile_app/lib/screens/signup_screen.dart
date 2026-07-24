@@ -80,9 +80,11 @@ class _SignupScreenState extends State<SignupScreen> with SingleTickerProviderSt
           opacity: _fadeAnimation,
           child: SlideTransition(
             position: _slideAnimation,
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 48.0),
-              child: Column(
+            child: Center(
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                  child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -176,6 +178,8 @@ class _SignupScreenState extends State<SignupScreen> with SingleTickerProviderSt
                     ],
                   ),
                 ],
+              ),
+              ),
               ),
             ),
           ),

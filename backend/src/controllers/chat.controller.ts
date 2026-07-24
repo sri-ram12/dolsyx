@@ -582,3 +582,103 @@ export const clearCallLogs = async (req: AuthRequest, res: Response): Promise<vo
     res.status(500).json({ message: "Internal server error" });
   }
 };
+
+export const starMessage = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.id;
+    const messageId = req.params["messageId"] as string;
+
+    const existing = await prisma.starredMessage.findUnique({
+      where: { userId_messageId: { userId, messageId } }
+    });
+
+    if (existing) {
+      await prisma.starredMessage.delete({ where: { id: existing.id } });
+      res.json({ message: "Message unstarred" });
+    } else {
+      await prisma.starredMessage.create({
+        data: { userId, messageId }
+      });
+      res.json({ message: "Message starred" });
+    }
+  } catch (error) {
+    console.error("Star message error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+export const pinMessage = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const conversationId = req.params["conversationId"] as string;
+    const messageId = req.params["messageId"] as string;
+
+    // Toggle pin
+    const conversation = await prisma.conversation.findUnique({ where: { id: conversationId } });
+    
+    if (conversation?.pinnedMessageId === messageId) {
+      await prisma.conversation.update({
+        where: { id: conversationId },
+        data: { pinnedMessageId: null }
+      });
+      res.json({ message: "Message unpinned" });
+    } else {
+      await prisma.conversation.update({
+        where: { id: conversationId },
+        data: { pinnedMessageId: messageId }
+      });
+      res.json({ message: "Message pinned" });
+    }
+  } catch (error) {
+    console.error("Pin message error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+export const deleteMessage = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.id;
+    const messageId = req.params["messageId"] as string;
+    const forEveryone = req.query["forEveryone"] as string | undefined;
+
+    const message = await prisma.message.findUnique({ where: { id: messageId } });
+
+    if (!message) {
+      res.status(404).json({ message: "Message not found" });
+      return;
+    }
+
+    if (forEveryone === "true") {
+      if (message.senderId !== userId) {
+        res.status(403).json({ message: "You can only delete your own messages for everyone" });
+        return;
+      }
+      
+      await prisma.message.update({
+        where: { id: messageId },
+        data: { isDeleted: true, content: "This message was deleted" }
+      });
+
+      // Emit socket event
+      const io = (req as any).app.get("io");
+      if (io) {
+        const participants = await prisma.participant.findMany({
+          where: { conversationId: message.conversationId },
+          select: { userId: true }
+        });
+        participants.forEach(p => {
+          io.to(p.userId).emit("message_deleted", { messageId, conversationId: message.conversationId });
+        });
+      }
+    } else {
+      // Delete for me
+      await prisma.deletedMessage.create({
+        data: { userId, messageId }
+      });
+    }
+
+    res.json({ message: "Message deleted" });
+  } catch (error) {
+    console.error("Delete message error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};

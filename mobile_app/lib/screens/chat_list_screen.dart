@@ -19,6 +19,7 @@ import 'qr_scanner_screen.dart';
 import 'other_user_profile_screen.dart';
 import 'status_screen.dart';
 import 'settings_screen.dart';
+import 'archived_chats_screen.dart';
 
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
@@ -205,9 +206,29 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                       ),
                     )
                   : ListView.builder(
-                      itemCount: _chats.length,
+                      itemCount: _chats.where((c) => !c.isArchived).length + (_chats.any((c) => c.isArchived) ? 1 : 0),
                       itemBuilder: (context, index) {
-                        final chat = _chats[index];
+                        final activeChats = _chats.where((c) => !c.isArchived).toList();
+                        
+                        if (index == activeChats.length) {
+                          return ListTile(
+                            leading: Icon(Icons.archive_outlined, color: AppTheme.textSecondary),
+                            title: Text('Archived Chats', style: TextStyle(color: AppTheme.textSecondary)),
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => ArchivedChatsScreen(
+                                    archivedChats: _chats.where((c) => c.isArchived).toList(),
+                                    onRefresh: _fetchChats,
+                                  ),
+                                ),
+                              );
+                            },
+                          );
+                        }
+                        
+                        final chat = activeChats[index];
                         final isSelected = _selectedChatIds.contains(chat.id);
                         return Container(
                           color: isSelected ? AppTheme.primaryColor.withOpacity(0.2) : Colors.transparent,
@@ -336,7 +357,9 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                                   remoteUser: remoteUser,
                                 ),
                               ),
-                            );
+                            ).then((_) {
+                              if (mounted) _fetchChats();
+                            });
                           },
                           onLongPress: () {
                             setState(() {
@@ -454,19 +477,30 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
               _fetchChats();
             },
           ),
-          IconButton(
-            icon: const Icon(Icons.archive),
-            onPressed: () async {
-              final idsToProcess = List.from(_selectedChatIds);
-              for (String id in idsToProcess) {
-                await _chatService.updateChatSettings(id, {'isArchived': true});
-              }
-              setState(() {
-                _selectedChatIds.clear();
-              });
-              _fetchChats();
-            },
-          ),
+          if (_selectedChatIds.any((id) => _chats.firstWhere((c) => c.id == id, orElse: () => _chats.first).isArchived))
+            IconButton(
+              icon: const Icon(Icons.unarchive),
+              onPressed: () async {
+                final idsToProcess = List.from(_selectedChatIds);
+                for (String id in idsToProcess) {
+                  await _chatService.updateChatSettings(id, {'isArchived': false});
+                }
+                setState(() => _selectedChatIds.clear());
+                _fetchChats();
+              },
+            )
+          else
+            IconButton(
+              icon: const Icon(Icons.archive),
+              onPressed: () async {
+                final idsToProcess = List.from(_selectedChatIds);
+                for (String id in idsToProcess) {
+                  await _chatService.updateChatSettings(id, {'isArchived': true});
+                }
+                setState(() => _selectedChatIds.clear());
+                _fetchChats();
+              },
+            ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
             onSelected: (value) async {

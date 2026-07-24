@@ -6,7 +6,7 @@ import 'api_service.dart';
 class StatusService {
   final ApiService _apiService = ApiService();
 
-  Future<List<StatusModel>> getStatuses() async {
+  Future<List<UserStatusGroup>> getStatuses() async {
     try {
       final token = await _apiService.getToken();
       final response = await http.get(
@@ -18,7 +18,7 @@ class StatusService {
 
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
-        return data.map((json) => StatusModel.fromJson(json)).toList();
+        return data.map((json) => UserStatusGroup.fromJson(json)).toList();
       }
     } catch (e) {
       print('Error getting statuses: $e');
@@ -83,6 +83,42 @@ class StatusService {
       );
     } catch (e) {
       print('Error viewing status: $e');
+    }
+  }
+
+  Future<bool> muteStatus(String contactId) async {
+    try {
+      final token = await _apiService.getToken();
+      final response = await http.post(
+        Uri.parse('${ApiService.baseUrl}/status/mute'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({'contactId': contactId}),
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      print('Error muting status: $e');
+      return false;
+    }
+  }
+
+  Future<bool> unmuteStatus(String contactId) async {
+    try {
+      final token = await _apiService.getToken();
+      final response = await http.post(
+        Uri.parse('${ApiService.baseUrl}/status/unmute'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({'contactId': contactId}),
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      print('Error unmuting status: $e');
+      return false;
     }
   }
 }

@@ -1,10 +1,11 @@
-import 'dart:io';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/status.dart';
 import '../services/status_service.dart';
+import '../services/socket_service.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
 import 'status_view_screen.dart';
@@ -18,30 +19,51 @@ class StatusScreen extends StatefulWidget {
 
 class _StatusScreenState extends State<StatusScreen> {
   final StatusService _statusService = StatusService();
-  List<StatusModel> _statuses = [];
+  List<UserStatusGroup> _groups = [];
   bool _isLoading = true;
+  StreamSubscription? _statusSubscription;
+  bool _showMuted = false;
 
   @override
   void initState() {
     super.initState();
     _fetchStatuses();
+    
+    // Listen to real-time status updates
+    final socketService = Provider.of<SocketService>(context, listen: false);
+    _statusSubscription = socketService.onStatusStream.listen((event) {
+      if (mounted) _fetchStatuses();
+    });
+  }
+
+  @override
+  void dispose() {
+    _statusSubscription?.cancel();
+    super.dispose();
   }
 
   Future<void> _fetchStatuses() async {
-    setState(() => _isLoading = true);
-    final statuses = await _statusService.getStatuses();
+    final groups = await _statusService.getStatuses();
     if (mounted) {
       setState(() {
-        _statuses = statuses;
+        _groups = groups;
         _isLoading = false;
       });
     }
   }
 
-  Future<void> _addStatus() async {
+  Future<void> _addStatus(String type) async {
+    if (type == 'TEXT') {
+      // Show dialog to add text status
+      _showTextStatusDialog();
+      return;
+    }
+
     try {
       final picker = ImagePicker();
-      final pickedFile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
+      final pickedFile = type == 'IMAGE' 
+          ? await picker.pickImage(source: ImageSource.gallery, imageQuality: 70)
+          : await picker.pickVideo(source: ImageSource.gallery, maxDuration: const Duration(seconds: 90));
       
       if (pickedFile != null) {
         setState(() => _isLoading = true);
@@ -50,11 +72,11 @@ class _StatusScreenState extends State<StatusScreen> {
         if (uploadResponse != null && uploadResponse['fileUrl'] != null) {
           final success = await _statusService.createStatus(
             uploadResponse['fileUrl'], 
-            'IMAGE', 
+            type, 
             ''
           );
           if (success) {
-            _fetchStatuses(); // Refresh list
+            _fetchStatuses();
           } else {
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to post status')));
@@ -71,13 +93,75 @@ class _StatusScreenState extends State<StatusScreen> {
     }
   }
 
-  void _viewStatus(StatusModel status) {
+  void _showTextStatusDialog() {
+    final TextEditingController controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppTheme.surfaceColor,
+        title: const Text('Add Text Status', style: TextStyle(color: AppTheme.textPrimary)),
+        content: TextField(
+          controller: controller,
+          style: const TextStyle(color: AppTheme.textPrimary),
+          decoration: const InputDecoration(hintText: 'Type a status...', hintStyle: TextStyle(color: AppTheme.textSecondary)),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () async {
+              if (controller.text.isNotEmpty) {
+                Navigator.pop(context);
+                setState(() => _isLoading = true);
+                final success = await _statusService.createStatus('', 'TEXT', controller.text);
+                if (success) _fetchStatuses();
+                else setState(() => _isLoading = false);
+              }
+            },
+            child: const Text('Post'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _viewStatus(UserStatusGroup group) {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => StatusViewScreen(status: status),
+        builder: (_) => StatusViewScreen(group: group),
       ),
-    ).then((_) => _fetchStatuses()); // Refresh on return in case viewed status is marked
+    ).then((_) => _fetchStatuses());
+  }
+
+  void _toggleMute(UserStatusGroup group) async {
+    final isMuted = group.isMuted;
+    final contactId = group.user['id'];
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppTheme.surfaceColor,
+        title: Text(isMuted ? 'Unmute ${group.user['username']}?' : 'Mute ${group.user['username']}?', style: const TextStyle(color: AppTheme.textPrimary)),
+        content: Text(
+          isMuted ? 'New status updates from ${group.user['username']} will appear under recent updates.' 
+                  : 'New status updates from ${group.user['username']} won\'t appear under recent updates anymore.',
+          style: const TextStyle(color: AppTheme.textSecondary),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              setState(() => _isLoading = true);
+              bool success = isMuted ? await _statusService.unmuteStatus(contactId) : await _statusService.muteStatus(contactId);
+              if (success) _fetchStatuses();
+              else setState(() => _isLoading = false);
+            },
+            child: Text(isMuted ? 'Unmute' : 'Mute'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -85,26 +169,63 @@ class _StatusScreenState extends State<StatusScreen> {
     final currentUser = Provider.of<AuthProvider>(context).user;
     final currentUserId = currentUser?['id'];
 
-    // Group statuses by user
-    final Map<String, List<StatusModel>> groupedStatuses = {};
-    for (var status in _statuses) {
-      if (!groupedStatuses.containsKey(status.userId)) {
-        groupedStatuses[status.userId] = [];
-      }
-      groupedStatuses[status.userId]!.add(status);
-    }
+    UserStatusGroup? myGroup;
+    List<UserStatusGroup> recentUpdates = [];
+    List<UserStatusGroup> viewedUpdates = [];
+    List<UserStatusGroup> mutedUpdates = [];
 
-    final myStatuses = groupedStatuses[currentUserId] ?? [];
-    groupedStatuses.remove(currentUserId);
+    for (var group in _groups) {
+      if (group.user['id'] == currentUserId) {
+        myGroup = group;
+      } else if (group.isMuted) {
+        mutedUpdates.add(group);
+      } else if (group.hasUnread) {
+        recentUpdates.add(group);
+      } else {
+        viewedUpdates.add(group);
+      }
+    }
 
     return Scaffold(
       backgroundColor: AppTheme.backgroundColor,
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: AppTheme.primaryColor,
-        child: const Icon(Icons.camera_alt, color: Colors.white),
-        onPressed: () {
-          _addStatus();
-        },
+      floatingActionButton: Column(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          FloatingActionButton(
+            heroTag: "textFAB",
+            mini: true,
+            backgroundColor: AppTheme.surfaceColor,
+            child: const Icon(Icons.edit, color: AppTheme.primaryColor),
+            onPressed: () => _addStatus('TEXT'),
+          ),
+          const SizedBox(height: 16),
+          FloatingActionButton(
+            heroTag: "cameraFAB",
+            backgroundColor: AppTheme.primaryColor,
+            child: const Icon(Icons.camera_alt, color: Colors.white),
+            onPressed: () {
+              showModalBottomSheet(
+                context: context,
+                backgroundColor: AppTheme.surfaceColor,
+                builder: (context) => Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ListTile(
+                      leading: const Icon(Icons.image, color: AppTheme.primaryColor),
+                      title: const Text('Photo', style: TextStyle(color: AppTheme.textPrimary)),
+                      onTap: () { Navigator.pop(context); _addStatus('IMAGE'); },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.videocam, color: AppTheme.primaryColor),
+                      title: const Text('Video', style: TextStyle(color: AppTheme.textPrimary)),
+                      onTap: () { Navigator.pop(context); _addStatus('VIDEO'); },
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ],
       ),
       body: _isLoading
           ? Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
@@ -113,85 +234,115 @@ class _StatusScreenState extends State<StatusScreen> {
               onRefresh: _fetchStatuses,
               child: ListView(
                 children: [
-                  // My Status Section
+                  // My Status
                   ListTile(
                     leading: Stack(
                       children: [
                         CircleAvatar(
                           radius: 26,
                           backgroundColor: AppTheme.surfaceColor,
-                          backgroundImage: myStatuses.isNotEmpty
-                              ? NetworkImage('https://dolsyx-app.onrender.com${myStatuses.last.mediaUrl}')
+                          backgroundImage: (myGroup != null && myGroup.statuses.isNotEmpty && myGroup.statuses.last.mediaUrl.isNotEmpty)
+                              ? NetworkImage(myGroup.statuses.last.mediaUrl.startsWith('http') ? myGroup.statuses.last.mediaUrl : 'https://dolsyx-app.onrender.com${myGroup.statuses.last.mediaUrl}')
                               : null,
-                          child: myStatuses.isEmpty
+                          child: (myGroup == null || myGroup.statuses.isEmpty || myGroup.statuses.last.mediaUrl.isEmpty)
                               ? Icon(Icons.person, color: AppTheme.textSecondary)
                               : null,
                         ),
-                        if (myStatuses.isEmpty)
+                        if (myGroup == null || myGroup.statuses.isEmpty)
                           Positioned(
                             bottom: 0,
                             right: 0,
                             child: Container(
                               padding: const EdgeInsets.all(2),
-                              decoration: BoxDecoration(color: AppTheme.primaryColor,
-                                shape: BoxShape.circle,
-                              ),
+                              decoration: const BoxDecoration(color: AppTheme.primaryColor, shape: BoxShape.circle),
                               child: const Icon(Icons.add, size: 14, color: Colors.white),
                             ),
                           ),
                       ],
                     ),
-                    title: Text('My Status', style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
+                    title: const Text('My Status', style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
                     subtitle: Text(
-                      myStatuses.isEmpty ? 'Tap to add status update' : '${myStatuses.length} updates',
-                      style: TextStyle(color: AppTheme.textSecondary),
+                      (myGroup == null || myGroup.statuses.isEmpty) ? 'Tap to add status update' : _formatTime(myGroup.statuses.last.createdAt),
+                      style: const TextStyle(color: AppTheme.textSecondary),
                     ),
-                    onTap: myStatuses.isEmpty
-                        ? _addStatus
-                        : () => _viewStatus(myStatuses.first), // A real app would iterate through them
+                    onTap: () {
+                      if (myGroup == null || myGroup.statuses.isEmpty) {
+                        _addStatus('IMAGE');
+                      } else {
+                        _viewStatus(myGroup);
+                      }
+                    },
                   ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                    child: Text('Recent updates', style: TextStyle(color: AppTheme.textSecondary, fontWeight: FontWeight.bold)),
-                  ),
-                  // Other Users' Statuses
-                  if (groupedStatuses.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Text('No recent updates.', style: TextStyle(color: AppTheme.textSecondary)),
+                  
+                  if (recentUpdates.isNotEmpty)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                      child: Text('Recent updates', style: TextStyle(color: AppTheme.textSecondary, fontWeight: FontWeight.bold)),
                     ),
-                  ...groupedStatuses.entries.map((entry) {
-                    final statuses = entry.value;
-                    final latest = statuses.last;
-                    final user = latest.user ?? {};
-                    final avatarUrl = user['avatarUrl'];
+                  ...recentUpdates.map((group) => _buildStatusTile(group)),
+                  
+                  if (viewedUpdates.isNotEmpty)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                      child: Text('Viewed updates', style: TextStyle(color: AppTheme.textSecondary, fontWeight: FontWeight.bold)),
+                    ),
+                  ...viewedUpdates.map((group) => _buildStatusTile(group)),
 
-                    return ListTile(
-                      leading: Container(
-                        padding: const EdgeInsets.all(2),
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(color: AppTheme.primaryColor, width: 2),
-                        ),
-                        child: CircleAvatar(
-                          radius: 24,
-                          backgroundColor: AppTheme.surfaceColor,
-                          backgroundImage: avatarUrl != null && avatarUrl.startsWith('http')
-                              ? NetworkImage(avatarUrl)
-                              : null,
-                          child: (avatarUrl == null || !avatarUrl.startsWith('http'))
-                              ? Icon(Icons.person, color: AppTheme.textSecondary)
-                              : null,
+                  if (mutedUpdates.isNotEmpty) ...[
+                    InkWell(
+                      onTap: () => setState(() => _showMuted = !_showMuted),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('Muted updates', style: TextStyle(color: AppTheme.textSecondary, fontWeight: FontWeight.bold)),
+                            Icon(_showMuted ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, color: AppTheme.textSecondary),
+                          ],
                         ),
                       ),
-                      title: Text(user['username'] ?? 'User', style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
-                      subtitle: Text(_formatTime(latest.createdAt), style: TextStyle(color: AppTheme.textSecondary)),
-                      onTap: () => _viewStatus(statuses.first),
-                    );
-                  }).toList(),
+                    ),
+                    if (_showMuted)
+                      ...mutedUpdates.map((group) => _buildStatusTile(group)),
+                  ],
+                  
+                  const SizedBox(height: 80), // Padding for FAB
                 ],
               ),
             ),
+    );
+  }
+
+  Widget _buildStatusTile(UserStatusGroup group) {
+    final latest = group.statuses.last;
+    final user = group.user;
+    final avatarUrl = user['avatarUrl'];
+    
+    // Status rings: green for unread, grey for read. If muted, always grey.
+    final borderColor = group.isMuted ? Colors.grey : (group.hasUnread ? AppTheme.primaryColor : Colors.grey);
+
+    return ListTile(
+      leading: Container(
+        padding: const EdgeInsets.all(2),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: borderColor, width: 2),
+        ),
+        child: CircleAvatar(
+          radius: 24,
+          backgroundColor: AppTheme.surfaceColor,
+          backgroundImage: avatarUrl != null && avatarUrl.startsWith('http')
+              ? NetworkImage(avatarUrl)
+              : null,
+          child: (avatarUrl == null || !avatarUrl.startsWith('http'))
+              ? Icon(Icons.person, color: AppTheme.textSecondary)
+              : null,
+        ),
+      ),
+      title: Text(user['username'] ?? 'User', style: TextStyle(color: group.isMuted ? AppTheme.textSecondary : AppTheme.textPrimary, fontWeight: FontWeight.bold)),
+      subtitle: Text(_formatTime(latest.createdAt), style: const TextStyle(color: AppTheme.textSecondary)),
+      onTap: () => _viewStatus(group),
+      onLongPress: () => _toggleMute(group),
     );
   }
 

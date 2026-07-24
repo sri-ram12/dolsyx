@@ -30,6 +30,25 @@ class ChatService {
     }
   }
 
+  Future<bool> deleteMessage(String messageId, bool forEveryone) async {
+    try {
+      final token = await ApiService().getToken();
+      if (token == null) return false;
+
+      final response = await http.delete(
+        Uri.parse('${ApiService.baseUrl}/chats/messages/$messageId?forEveryone=$forEveryone'),
+        headers: {
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      return response.statusCode == 200;
+    } catch (e) {
+      print('Network error deleting message: $e');
+      return false;
+    }
+  }
+
   Future<List<dynamic>> searchUsers(String query) async {
     try {
       final token = await ApiService().getToken();

@@ -11,6 +11,9 @@ import {
   getCallHistory,
   updateParticipantSettings,
   clearCallLogs,
+  starMessage,
+  pinMessage,
+  deleteMessage,
 } from "../controllers/chat.controller.js";
 import { authenticateToken } from "../middleware/auth.middleware.js";
 
@@ -55,6 +58,11 @@ router.delete("/:conversationId", deleteConversation as any);
 router.delete("/:conversationId/messages", clearChatMessages as any);
 router.patch("/:conversationId/participant", updateParticipantSettings as any);
 router.delete("/calls/clear", clearCallLogs as any);
+
+// Message management routes
+router.post("/messages/:messageId/star", starMessage as any);
+router.delete("/messages/:messageId", deleteMessage as any);
+router.post("/:conversationId/messages/:messageId/pin", pinMessage as any);
 
 // Upload endpoint
 router.post("/upload", (req: any, res: any) => {

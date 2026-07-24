@@ -77,10 +77,12 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
           opacity: _fadeAnimation,
           child: SlideTransition(
             position: _slideAnimation,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24.0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+            child: Center(
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Icon(
@@ -176,6 +178,8 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                     ],
                   ),
                 ],
+              ),
+              ),
               ),
             ),
           ),

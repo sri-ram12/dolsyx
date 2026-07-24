@@ -6,6 +6,8 @@ import {
   getStatuses,
   viewStatus,
   deleteStatus,
+  muteStatus,
+  unmuteStatus,
 } from "../controllers/status.controller.js";
 import { authenticateToken } from "../middleware/auth.middleware.js";
 
@@ -35,6 +37,8 @@ router.get("/", getStatuses as any);
 router.post("/", createStatus as any);
 router.post("/:statusId/view", viewStatus as any);
 router.delete("/:statusId", deleteStatus as any);
+router.post("/mute", muteStatus as any);
+router.post("/unmute", unmuteStatus as any);
 
 // Upload status media (image/video from device)
 router.post("/upload", (req: any, res: any) => {

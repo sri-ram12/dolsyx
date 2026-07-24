@@ -148,6 +148,7 @@ class SocketService {
                       conversationId: data['conversationId'],
                       isVideo: data['callType'] == 'video',
                       isIncoming: true,
+                      offerData: data['offer'],
                     ),
                   ),
                 );

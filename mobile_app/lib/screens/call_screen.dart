@@ -12,6 +12,7 @@ class CallScreen extends StatefulWidget {
   final String conversationId;
   final bool isVideo;
   final bool isIncoming;
+  final dynamic offerData;
 
   const CallScreen({
     super.key,
@@ -20,6 +21,7 @@ class CallScreen extends StatefulWidget {
     required this.conversationId,
     this.isVideo = true,
     this.isIncoming = false,
+    this.offerData,
   });
 
   @override
@@ -82,8 +84,18 @@ class _CallScreenState extends State<CallScreen> {
       if (mounted) Navigator.pop(context);
     };
 
-    if (widget.isIncoming) {
-      // In a real app we'd pass the offer through to answerCall, but simplifying here
+    if (widget.isIncoming && widget.offerData != null) {
+      try {
+        await _callService!.answerCall(
+          widget.remoteUserId,
+          widget.conversationId,
+          widget.offerData,
+          widget.isVideo ? 'video' : 'audio',
+        );
+      } catch (e) {
+        print("Answer call error: $e");
+        _showPermissionError();
+      }
     } else {
       if (!mounted) return;
       final currentUser = Provider.of<AuthProvider>(context, listen: false).user;

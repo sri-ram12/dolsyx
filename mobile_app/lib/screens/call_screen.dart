@@ -12,7 +12,7 @@ class CallScreen extends StatefulWidget {
   final String? remoteAvatarUrl;
   final bool isAudioOnly;
   final bool isIncoming;
-  final String? callId;
+  final Map<String, dynamic>? initialOffer;
 
   const CallScreen({
     super.key,
@@ -22,7 +22,7 @@ class CallScreen extends StatefulWidget {
     this.remoteAvatarUrl,
     required this.isAudioOnly,
     required this.isIncoming,
-    this.callId,
+    this.initialOffer,
   });
 
   @override
@@ -39,12 +39,10 @@ class _CallScreenState extends State<CallScreen> {
   bool _hardwareFailed = false;
   bool _callActive = false;
   String _status = 'Connecting...';
-  String? _actualCallId;
 
   @override
   void initState() {
     super.initState();
-    _actualCallId = widget.callId;
     _initRenderers();
   }
 
@@ -65,55 +63,46 @@ class _CallScreenState extends State<CallScreen> {
     final socket = Provider.of<AuthProvider>(context, listen: false).socketService.socket;
     if (socket == null) return;
 
-    socket.on('call_accepted', (data) async {
-      if (!mounted || data['conversationId'] != widget.conversationId) return;
+    socket.on('call_answered', (data) async {
+      if (!mounted) return;
       setState(() {
         _status = 'Connected';
         _callActive = true;
       });
-      await _createOffer();
+      if (data['answer'] != null) {
+        final answer = RTCSessionDescription(data['answer']['sdp'], data['answer']['type']);
+        await _peerConnection?.setRemoteDescription(answer);
+      }
     });
 
     socket.on('call_rejected', (data) {
-      if (!mounted || data['conversationId'] != widget.conversationId) return;
+      if (!mounted) return;
       _endCallLocally('Call rejected');
     });
 
     socket.on('call_ended', (data) {
-      if (!mounted || data['conversationId'] != widget.conversationId) return;
+      if (!mounted) return;
       _endCallLocally('Call ended');
     });
 
-    socket.on('offer', (data) async {
-      if (!mounted || data['conversationId'] != widget.conversationId) return;
-      final offer = RTCSessionDescription(data['sdp'], data['type']);
-      await _peerConnection?.setRemoteDescription(offer);
-      await _createAnswer();
-    });
-
-    socket.on('answer', (data) async {
-      if (!mounted || data['conversationId'] != widget.conversationId) return;
-      final answer = RTCSessionDescription(data['sdp'], data['type']);
-      await _peerConnection?.setRemoteDescription(answer);
-    });
-
     socket.on('ice_candidate', (data) async {
-      if (!mounted || data['conversationId'] != widget.conversationId) return;
-      final candidate = RTCIceCandidate(
-        data['candidate'],
-        data['sdpMid'],
-        data['sdpMLineIndex'],
-      );
-      await _peerConnection?.addCandidate(candidate);
+      if (!mounted) return;
+      if (data['candidate'] != null) {
+        final candidate = RTCIceCandidate(
+          data['candidate']['candidate'],
+          data['candidate']['sdpMid'],
+          data['candidate']['sdpMLineIndex'],
+        );
+        await _peerConnection?.addCandidate(candidate);
+      }
     });
   }
 
   Future<void> _startCall() async {
     setState(() => _status = 'Calling...');
     final socket = Provider.of<AuthProvider>(context, listen: false).socketService.socket;
-    if (socket == null) return;
-
-    _actualCallId = DateTime.now().millisecondsSinceEpoch.toString();
+    final user = Provider.of<AuthProvider>(context, listen: false).user;
+    if (socket == null || user == null) return;
 
     // Hardware safe initialization
     final success = await _initWebRTC();
@@ -125,12 +114,25 @@ class _CallScreenState extends State<CallScreen> {
       return;
     }
 
-    socket.emit('call_invite', {
-      'conversationId': widget.conversationId,
-      'receiverId': widget.remoteUserId,
-      'isAudioOnly': widget.isAudioOnly,
-      'callId': _actualCallId,
-    });
+    if (_peerConnection == null) return;
+    try {
+      final offer = await _peerConnection!.createOffer();
+      await _peerConnection!.setLocalDescription(offer);
+
+      socket.emit('call_offer', {
+        'targetUserId': widget.remoteUserId,
+        'offer': {
+          'sdp': offer.sdp,
+          'type': offer.type,
+        },
+        'callType': widget.isAudioOnly ? 'audio' : 'video',
+        'conversationId': widget.conversationId,
+        'callerName': user['username'],
+        'callerAvatar': user['avatarUrl'],
+      });
+    } catch (e) {
+      print('Error creating offer: $e');
+    }
   }
 
   Future<void> _acceptCall() async {
@@ -146,9 +148,10 @@ class _CallScreenState extends State<CallScreen> {
         _status = 'Hardware not supported';
       });
       // Tell other side we rejected it due to hardware failure
-      socket.emit('call_rejected', {
+      socket.emit('call_reject', {
+        'callerId': widget.remoteUserId,
         'conversationId': widget.conversationId,
-        'receiverId': widget.remoteUserId,
+        'callType': widget.isAudioOnly ? 'audio' : 'video',
       });
       return;
     }
@@ -158,17 +161,33 @@ class _CallScreenState extends State<CallScreen> {
       _status = 'Connected';
     });
 
-    socket.emit('call_accepted', {
-      'conversationId': widget.conversationId,
-      'receiverId': widget.remoteUserId,
-    });
+    if (widget.initialOffer != null && _peerConnection != null) {
+      try {
+        final offer = RTCSessionDescription(widget.initialOffer!['sdp'], widget.initialOffer!['type']);
+        await _peerConnection!.setRemoteDescription(offer);
+        
+        final answer = await _peerConnection!.createAnswer();
+        await _peerConnection!.setLocalDescription(answer);
+
+        socket.emit('call_answer', {
+          'callerId': widget.remoteUserId,
+          'answer': {
+            'sdp': answer.sdp,
+            'type': answer.type,
+          },
+        });
+      } catch (e) {
+        print('Error handling initial offer: $e');
+      }
+    }
   }
 
   void _rejectCall() {
     final socket = Provider.of<AuthProvider>(context, listen: false).socketService.socket;
-    socket?.emit('call_rejected', {
+    socket?.emit('call_reject', {
+      'callerId': widget.remoteUserId,
       'conversationId': widget.conversationId,
-      'receiverId': widget.remoteUserId,
+      'callType': widget.isAudioOnly ? 'audio' : 'video',
     });
     _endCallLocally('Call rejected');
   }
@@ -199,11 +218,12 @@ class _CallScreenState extends State<CallScreen> {
       _peerConnection?.onIceCandidate = (RTCIceCandidate candidate) {
         final socket = Provider.of<AuthProvider>(context, listen: false).socketService.socket;
         socket?.emit('ice_candidate', {
-          'conversationId': widget.conversationId,
-          'receiverId': widget.remoteUserId,
-          'candidate': candidate.candidate,
-          'sdpMid': candidate.sdpMid,
-          'sdpMLineIndex': candidate.sdpMLineIndex,
+          'targetUserId': widget.remoteUserId,
+          'candidate': {
+            'candidate': candidate.candidate,
+            'sdpMid': candidate.sdpMid,
+            'sdpMLineIndex': candidate.sdpMLineIndex,
+          }
         });
       };
 
@@ -223,42 +243,6 @@ class _CallScreenState extends State<CallScreen> {
     } catch (e) {
       print("WebRTC Initialization Failed: $e");
       return false;
-    }
-  }
-
-  Future<void> _createOffer() async {
-    if (_peerConnection == null) return;
-    try {
-      final offer = await _peerConnection!.createOffer();
-      await _peerConnection!.setLocalDescription(offer);
-
-      final socket = Provider.of<AuthProvider>(context, listen: false).socketService.socket;
-      socket?.emit('offer', {
-        'conversationId': widget.conversationId,
-        'receiverId': widget.remoteUserId,
-        'sdp': offer.sdp,
-        'type': offer.type,
-      });
-    } catch (e) {
-      print('Error creating offer: $e');
-    }
-  }
-
-  Future<void> _createAnswer() async {
-    if (_peerConnection == null) return;
-    try {
-      final answer = await _peerConnection!.createAnswer();
-      await _peerConnection!.setLocalDescription(answer);
-
-      final socket = Provider.of<AuthProvider>(context, listen: false).socketService.socket;
-      socket?.emit('answer', {
-        'conversationId': widget.conversationId,
-        'receiverId': widget.remoteUserId,
-        'sdp': answer.sdp,
-        'type': answer.type,
-      });
-    } catch (e) {
-      print('Error creating answer: $e');
     }
   }
 
@@ -285,9 +269,14 @@ class _CallScreenState extends State<CallScreen> {
 
   void _endCall() {
     final socket = Provider.of<AuthProvider>(context, listen: false).socketService.socket;
-    socket?.emit('end_call', {
+    final userId = Provider.of<AuthProvider>(context, listen: false).user?['id'];
+    socket?.emit('call_end', {
+      'peerId': widget.remoteUserId,
       'conversationId': widget.conversationId,
-      'receiverId': widget.remoteUserId,
+      'callType': widget.isAudioOnly ? 'audio' : 'video',
+      'status': _callActive ? 'connected' : 'missed',
+      'duration': 0,
+      'callerId': widget.isIncoming ? widget.remoteUserId : userId,
     });
     _endCallLocally('Call ended');
   }
@@ -303,11 +292,9 @@ class _CallScreenState extends State<CallScreen> {
   @override
   void dispose() {
     final socketService = Provider.of<AuthProvider>(context, listen: false).socketService;
-    socketService.socket?.off('call_accepted');
+    socketService.socket?.off('call_answered');
     socketService.socket?.off('call_rejected');
     socketService.socket?.off('call_ended');
-    socketService.socket?.off('offer');
-    socketService.socket?.off('answer');
     socketService.socket?.off('ice_candidate');
 
     _localStream?.getTracks().forEach((track) => track.stop());

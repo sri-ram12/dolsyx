@@ -124,24 +124,24 @@ class SocketService {
     }
   }
 
-  void onCallInvite(Function(dynamic) callback) {
+  void onCallIncoming(Function(dynamic) callback) {
     if (socket != null) {
-      socket!.on('call_invite', callback);
+      socket!.on('call_incoming', callback);
     }
   }
 
-  void offCallInvite(Function(dynamic) callback) {
+  void offCallIncoming(Function(dynamic) callback) {
     if (socket != null) {
-      socket!.off('call_invite', callback);
+      socket!.off('call_incoming', callback);
     }
   }
 
-  void onCallAccepted(Function(dynamic) callback) {
-    if (socket != null) socket!.on('call_accepted', callback);
+  void onCallAnswered(Function(dynamic) callback) {
+    if (socket != null) socket!.on('call_answered', callback);
   }
 
-  void offCallAccepted(Function(dynamic) callback) {
-    if (socket != null) socket!.off('call_accepted', callback);
+  void offCallAnswered(Function(dynamic) callback) {
+    if (socket != null) socket!.off('call_answered', callback);
   }
 
   void onCallRejected(Function(dynamic) callback) {

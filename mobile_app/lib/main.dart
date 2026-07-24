@@ -45,20 +45,23 @@ class _DolsyxAppState extends State<DolsyxApp> {
     authProvider.addListener(() {
       if (authProvider.isAuthenticated && authProvider.socketService.socket != null) {
         // Ensure we don't attach multiple listeners
-        authProvider.socketService.offCallInvite(_handleCallInvite);
-        authProvider.socketService.onCallInvite(_handleCallInvite);
+        authProvider.socketService.offCallIncoming(_handleCallIncoming);
+        authProvider.socketService.onCallIncoming(_handleCallIncoming);
       }
     });
   }
 
-  void _handleCallInvite(dynamic data) {
+  void _handleCallIncoming(dynamic data) {
     if (data == null) return;
-    final String conversationId = data['conversationId'];
-    final bool isAudioOnly = data['isAudioOnly'] ?? false;
-    final String callId = data['callId'] ?? '';
+    final String conversationId = data['conversationId'] ?? '';
+    final String callTypeStr = data['callType'] ?? 'audio';
+    final bool isAudioOnly = callTypeStr == 'audio';
     final String callerId = data['callerId'] ?? '';
     final String callerName = data['callerName'] ?? 'Incoming Call';
     final String? callerAvatarUrl = data['callerAvatarUrl'];
+    
+    // WebRTC offer from caller
+    final Map<String, dynamic>? initialOffer = data['offer'];
 
     // Only navigate if we're not already on a call screen
     // For simplicity, we just push it. In a real app we'd check current route.
@@ -72,7 +75,7 @@ class _DolsyxAppState extends State<DolsyxApp> {
             remoteAvatarUrl: callerAvatarUrl,
             isAudioOnly: isAudioOnly,
             isIncoming: true,
-            callId: callId,
+            initialOffer: initialOffer,
           ),
         ),
       );

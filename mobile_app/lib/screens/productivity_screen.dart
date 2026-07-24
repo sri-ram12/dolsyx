@@ -45,7 +45,7 @@ class _ProductivityScreenState extends State<ProductivityScreen> with SingleTick
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: AppTheme.surfaceColor,
-        title: const Text('Add Note', style: TextStyle(color: AppTheme.textPrimary)),
+        title: Text('Add Note', style: TextStyle(color: AppTheme.textPrimary)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -77,7 +77,7 @@ class _ProductivityScreenState extends State<ProductivityScreen> with SingleTick
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: AppTheme.surfaceColor,
-        title: const Text('Add Task', style: TextStyle(color: AppTheme.textPrimary)),
+        title: Text('Add List', style: TextStyle(color: AppTheme.textPrimary)),
         content: TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'Task title')),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
@@ -147,8 +147,8 @@ class _ProductivityScreenState extends State<ProductivityScreen> with SingleTick
         return Card(
           color: AppTheme.surfaceColor,
           child: ListTile(
-            title: Text(note['title'] ?? '', style: const TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
-            subtitle: Text(note['content'] ?? '', style: const TextStyle(color: AppTheme.textSecondary)),
+            title: Text(note['title'] ?? '', style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
+            subtitle: Text(note['content'] ?? '', style: TextStyle(color: AppTheme.textSecondary)),
           ),
         );
       },
@@ -156,7 +156,7 @@ class _ProductivityScreenState extends State<ProductivityScreen> with SingleTick
   }
 
   Widget _buildTasksTab() {
-    if (_tasks.isEmpty) return const Center(child: Text('No tasks yet.', style: TextStyle(color: AppTheme.textSecondary)));
+    if (_tasks.isEmpty) return Center(child: Text('No tasks yet.', style: TextStyle(color: AppTheme.textSecondary)));
     return ListView.builder(
       padding: const EdgeInsets.all(8),
       itemCount: _tasks.length,

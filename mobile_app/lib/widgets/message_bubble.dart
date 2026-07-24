@@ -61,6 +61,32 @@ class MessageBubble extends StatelessWidget {
                     errorWidget: (context, url, error) => const Icon(Icons.broken_image, size: 50, color: Colors.grey),
                   ),
                 )
+              else if (message.mediaType == 'CALL')
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      message.mediaUrl == 'video' ? Icons.videocam : Icons.phone, 
+                      color: message.content == 'missed' || message.content == 'declined' 
+                          ? Colors.redAccent 
+                          : (isMe ? Colors.white : AppTheme.textPrimary)
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        message.content == 'missed' ? 'Missed ${message.mediaUrl == "video" ? "Video" : "Voice"} Call' :
+                        message.content == 'declined' ? 'Declined ${message.mediaUrl == "video" ? "Video" : "Voice"} Call' :
+                        '\${message.mediaUrl == "video" ? "Video" : "Voice"} Call \${message.content.startsWith("connected:") ? "Ended" : ""}',
+                        style: TextStyle(
+                          color: message.content == 'missed' || message.content == 'declined'
+                              ? Colors.redAccent
+                              : (isMe ? Colors.white : AppTheme.textPrimary),
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                )
               else 
                 Row(
                   mainAxisSize: MainAxisSize.min,
@@ -80,7 +106,7 @@ class MessageBubble extends StatelessWidget {
                 ),
               if (message.content.isNotEmpty) const SizedBox(height: 8),
             ],
-            if (message.content.isNotEmpty)
+            if (message.content.isNotEmpty && message.mediaType != 'CALL')
               Text(
                 message.content,
                 style: TextStyle(

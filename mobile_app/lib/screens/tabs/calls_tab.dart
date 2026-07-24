@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../theme/app_theme.dart';
 import '../../services/chat_service.dart';
 import '../../providers/auth_provider.dart';
+import '../../widgets/color_avatar.dart';
 import '../call_screen.dart';
 
 class CallsTab extends StatefulWidget {
@@ -17,11 +19,27 @@ class _CallsTabState extends State<CallsTab> {
   final ChatService _chatService = ChatService();
   List<dynamic> _callLogs = [];
   bool _isLoading = true;
+  StreamSubscription? _profileSubscription;
 
   @override
   void initState() {
     super.initState();
     _fetchCalls();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      _profileSubscription = authProvider.socketService.profileUpdates.stream.listen((event) {
+        if (mounted) {
+          _fetchCalls();
+        }
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _profileSubscription?.cancel();
+    super.dispose();
   }
 
   Future<void> _fetchCalls() async {
@@ -110,11 +128,15 @@ class _CallsTabState extends State<CallsTab> {
           }
 
           return ListTile(
-            leading: CircleAvatar(
-              backgroundColor: AppTheme.surfaceColor,
-              backgroundImage: otherUser['avatarUrl'] != null ? NetworkImage(otherUser['avatarUrl']) : null,
-              child: otherUser['avatarUrl'] == null ? Icon(Icons.person, color: AppTheme.textSecondary) : null,
-            ),
+            leading: otherUser['avatarUrl'] != null
+                ? CircleAvatar(
+                    backgroundColor: AppTheme.surfaceColor,
+                    backgroundImage: NetworkImage(otherUser['avatarUrl']),
+                  )
+                : ColorAvatar(
+                    name: otherUser['username'] ?? '?',
+                    radius: 20.0,
+                  ),
             title: Text(
               otherUser['username'],
               style: TextStyle(

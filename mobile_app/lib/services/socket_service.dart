@@ -3,8 +3,12 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import 'api_service.dart';
 import '../main.dart';
+
 class SocketService {
   IO.Socket? socket;
+  
+  // Stream to broadcast profile updates globally
+  final StreamController<Map<String, dynamic>> profileUpdates = StreamController<Map<String, dynamic>>.broadcast();
   final String _socketUrl = 'https://dolsyx-app.onrender.com';
 
   final _messageStreamController = StreamController<dynamic>.broadcast();
@@ -35,6 +39,12 @@ class SocketService {
     });
     socket?.on('messages_read', (data) {
       _messageStreamController.add({'type': 'read', 'data': data});
+    });
+
+    socket?.on('profile_updated', (data) {
+      if (data['user'] != null) {
+        profileUpdates.add(data['user']);
+      }
     });
 
     socket?.onDisconnect((_) {

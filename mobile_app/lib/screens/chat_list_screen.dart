@@ -32,6 +32,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
   bool _isLoading = true;
   int _selectedIndex = 0;
   StreamSubscription? _messageSubscription;
+  StreamSubscription? _profileSubscription;
   final Set<String> _selectedChatIds = {};
 
   @override
@@ -44,6 +45,9 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       _messageSubscription = authProvider.socketService.onMessageStream.listen((event) {
+        _handleSocketUpdate(event);
+      });
+      _profileSubscription = authProvider.socketService.profileUpdates.stream.listen((event) {
         _handleSocketUpdate(event);
       });
     });
@@ -60,6 +64,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _messageSubscription?.cancel();
+    _profileSubscription?.cancel();
     super.dispose();
   }
 
@@ -455,14 +460,16 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                   onTap: () {
                     Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
                   },
-                  child: CircleAvatar(
-                    radius: 18,
-                    backgroundColor: AppTheme.backgroundColor,
-                    backgroundImage: user?['avatarUrl'] != null ? NetworkImage(user!['avatarUrl']) : null,
-                    child: user?['avatarUrl'] == null
-                        ? Icon(Icons.person, color: AppTheme.textSecondary, size: 20)
-                        : null,
-                  ),
+                  child: user?['avatarUrl'] != null
+                      ? CircleAvatar(
+                          radius: 18,
+                          backgroundColor: AppTheme.backgroundColor,
+                          backgroundImage: NetworkImage(user!['avatarUrl']),
+                        )
+                      : ColorAvatar(
+                          name: user?['username'] ?? '?',
+                          radius: 18,
+                        ),
                 );
               },
             ),

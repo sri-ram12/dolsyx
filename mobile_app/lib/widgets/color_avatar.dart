@@ -12,46 +12,43 @@ class ColorAvatar extends StatelessWidget {
     this.fontSize = 20.0,
   });
 
-  Color _getAvatarColor(String text) {
+  List<Color> _getAvatarGradientColors(String text) {
     final int hash = text.hashCode;
-    final List<Color> colors = [
-      Colors.redAccent,
-      Colors.blueAccent,
-      Colors.green,
-      Colors.orange,
-      Colors.purpleAccent,
-      Colors.teal,
-      Colors.pinkAccent,
-      Colors.indigoAccent,
-      Colors.deepOrange,
-      Colors.cyan,
+    final List<List<Color>> gradients = [
+      [const Color(0xFFff9a9e), const Color(0xFFfecfef)], // Peach to pink
+      [const Color(0xFFa18cd1), const Color(0xFFfbc2eb)], // Purple to pink
+      [const Color(0xFF84fab0), const Color(0xFF8fd3f4)], // Green to blue
+      [const Color(0xFFfccb90), const Color(0xFFd57eeb)], // Orange to purple
+      [const Color(0xFFe0c3fc), const Color(0xFF8ec5fc)], // Lavender to sky blue
+      [const Color(0xFFf093fb), const Color(0xFFf5576c)], // Magenta to red
+      [const Color(0xFF4facfe), const Color(0xFF00f2fe)], // Bright cyan to blue
+      [const Color(0xFF43e97b), const Color(0xFF38f9d7)], // Mint green
+      [const Color(0xFFfa709a), const Color(0xFFfee140)], // Pink to yellow
+      [const Color(0xFF30cfd0), const Color(0xFF330867)], // Teal to dark purple
     ];
-    return colors[(hash.abs()) % colors.length].withOpacity(0.85);
-  }
-
-  String _getInitials(String text) {
-    if (text.isEmpty) return "?";
-    final parts = text.trim().split(RegExp(r'\s+'));
-    if (parts.length > 1) {
-      return (parts[0][0] + parts[1][0]).toUpperCase();
-    }
-    return text.substring(0, text.length > 1 ? 2 : 1).toUpperCase();
+    return gradients[(hash.abs()) % gradients.length];
   }
 
   @override
   Widget build(BuildContext context) {
-    final color = _getAvatarColor(name);
-    final initials = _getInitials(name);
+    final gradientColors = _getAvatarGradientColors(name);
 
-    return CircleAvatar(
-      radius: radius,
-      backgroundColor: color,
-      child: Text(
-        initials,
-        style: TextStyle(
-          color: Colors.white,
-          fontSize: fontSize,
-          fontWeight: FontWeight.bold,
+    return Container(
+      width: radius * 2,
+      height: radius * 2,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(
+          colors: gradientColors,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: Center(
+        child: Icon(
+          Icons.person,
+          color: Colors.white.withOpacity(0.5),
+          size: radius * 1.2,
         ),
       ),
     );

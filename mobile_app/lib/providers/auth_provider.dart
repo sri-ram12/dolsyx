@@ -37,6 +37,7 @@ class AuthProvider with ChangeNotifier {
       _user = result['data']['user'];
       _token = result['data']['token'];
       await _socketService.connect(_user!['id']);
+      _setupSocketListeners();
     } else {
       _isAuthenticated = false;
       _errorMessage = result['message'];
@@ -44,6 +45,15 @@ class AuthProvider with ChangeNotifier {
 
     _isLoading = false;
     notifyListeners();
+  }
+
+  void _setupSocketListeners() {
+    _socketService.onProfileUpdated((data) {
+      if (data['user'] != null && _user != null && data['user']['id'] == _user!['id']) {
+        _user = data['user'];
+        notifyListeners();
+      }
+    });
   }
 
   Future<void> logout() async {

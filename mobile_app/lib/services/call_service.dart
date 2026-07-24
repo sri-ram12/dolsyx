@@ -119,9 +119,11 @@ class CallService {
       }
     };
 
-    _peerConnection!.onAddStream = (stream) {
-      print('WEBRTC: Received remote stream');
-      if (onRemoteStream != null) onRemoteStream!(stream);
+    _peerConnection!.onTrack = (event) {
+      print('WEBRTC: Received remote track');
+      if (event.streams.isNotEmpty) {
+        if (onRemoteStream != null) onRemoteStream!(event.streams[0]);
+      }
     };
 
     final mediaConstraints = {

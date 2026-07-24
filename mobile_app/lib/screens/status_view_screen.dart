@@ -243,9 +243,9 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('Viewed by ${views.length}', style: const TextStyle(color: AppTheme.textPrimary, fontSize: 18, fontWeight: FontWeight.bold)),
+                  Text('Viewed by ${views.length}', style: TextStyle(color: AppTheme.textPrimary, fontSize: 18, fontWeight: FontWeight.bold)),
                   IconButton(
-                    icon: const Icon(Icons.delete, color: Colors.red),
+                    icon: Icon(Icons.delete, color: Colors.red),
                     onPressed: () {
                       // Delete status
                     },
@@ -255,7 +255,7 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
               const Divider(color: Colors.grey),
               Expanded(
                 child: views.isEmpty 
-                  ? const Center(child: Text('No views yet', style: TextStyle(color: AppTheme.textSecondary)))
+                  ? Center(child: Text('No views yet', style: TextStyle(color: AppTheme.textSecondary)))
                   : ListView.builder(
                       itemCount: views.length,
                       itemBuilder: (context, idx) {
@@ -264,10 +264,10 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
                         return ListTile(
                           leading: CircleAvatar(
                             backgroundImage: viewer['avatarUrl'] != null ? NetworkImage(viewer['avatarUrl']) : null,
-                            child: viewer['avatarUrl'] == null ? const Icon(Icons.person) : null,
+                            child: viewer['avatarUrl'] == null ? Icon(Icons.person) : null,
                           ),
-                          title: Text(viewer['username'], style: const TextStyle(color: AppTheme.textPrimary)),
-                          subtitle: Text('Today at ${DateTime.parse(view['viewedAt']).toLocal().toString().substring(11, 16)}', style: const TextStyle(color: AppTheme.textSecondary)),
+                          title: Text(viewer['username'], style: TextStyle(color: AppTheme.textPrimary)),
+                          subtitle: Text('Today at ${DateTime.parse(view['viewedAt']).toLocal().toString().substring(11, 16)}', style: TextStyle(color: AppTheme.textSecondary)),
                         );
                       },
                     ),
@@ -346,7 +346,7 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
                   },
                   errorWidget: (context, url, error) {
                     if (_isLoading) WidgetsBinding.instance.addPostFrameCallback((_) { if(mounted) setState(() => _isLoading = false); });
-                    return const Center(child: Icon(Icons.error, color: Colors.white, size: 50));
+                    return Center(child: Icon(Icons.error, color: Colors.white, size: 50));
                   },
                 )
               else if (status.mediaType == 'VIDEO' && _videoController != null && _videoController!.value.isInitialized)
@@ -361,11 +361,11 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
                   color: Colors.primaries[status.userId.hashCode % Colors.primaries.length].shade800,
                   alignment: Alignment.center,
                   padding: const EdgeInsets.all(20),
-                  child: Text(status.caption, style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+                  child: Text(status.caption, style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
                 ),
 
               if (status.mediaType == 'VIDEO' && _isLoading)
-                const Center(child: CircularProgressIndicator(color: Colors.white)),
+                Center(child: CircularProgressIndicator(color: Colors.white)),
 
               // Dimming overlay when replying
               if (_isReplying || _showSeenBy)
@@ -381,13 +381,13 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
                       const SizedBox(height: 8),
                       Row(
                         children: [
-                          IconButton(icon: const Icon(Icons.arrow_back, color: Colors.white), onPressed: () => Navigator.pop(context)),
+                          IconButton(icon: Icon(Icons.arrow_back, color: Colors.white), onPressed: () => Navigator.pop(context)),
                           CircleAvatar(
                             radius: 18, backgroundColor: Colors.grey,
                             backgroundImage: avatarUrl != null && avatarUrl.startsWith('http') ? NetworkImage(avatarUrl) : null,
                           ),
                           const SizedBox(width: 8),
-                          Text(username, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                          Text(username, style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
                         ],
                       ),
                     ],
@@ -401,7 +401,7 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
                   child: Container(
                     padding: const EdgeInsets.all(12),
                     color: Colors.black54,
-                    child: Text(status.caption, style: const TextStyle(color: Colors.white, fontSize: 18), textAlign: TextAlign.center),
+                    child: Text(status.caption, style: TextStyle(color: Colors.white, fontSize: 18), textAlign: TextAlign.center),
                   ),
                 ),
 
@@ -411,8 +411,8 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
                   bottom: 20, left: 0, right: 0,
                   child: Column(
                     children: [
-                      const Icon(Icons.keyboard_arrow_up, color: Colors.white),
-                      Text(isMine ? '${status.views?.length ?? 0} views' : 'Reply', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      Icon(Icons.keyboard_arrow_up, color: Colors.white),
+                      Text(isMine ? '${status.views?.length ?? 0} views' : 'Reply', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                     ],
                   ),
                 ),
@@ -431,10 +431,10 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
                           child: TextField(
                             controller: _replyController,
                             autofocus: true,
-                            style: const TextStyle(color: AppTheme.textPrimary),
+                            style: TextStyle(color: AppTheme.textPrimary),
                             decoration: InputDecoration(
                               hintText: 'Reply to $username...',
-                              hintStyle: const TextStyle(color: AppTheme.textSecondary),
+                              hintStyle: TextStyle(color: AppTheme.textSecondary),
                               border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none),
                               filled: true,
                               fillColor: AppTheme.backgroundColor,
@@ -443,7 +443,7 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
                           ),
                         ),
                         IconButton(
-                          icon: const Icon(Icons.send, color: AppTheme.primaryColor),
+                          icon: Icon(Icons.send, color: AppTheme.primaryColor),
                           onPressed: () => _sendReply(_replyController.text),
                         )
                       ],

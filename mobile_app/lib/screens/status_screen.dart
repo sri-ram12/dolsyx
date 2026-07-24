@@ -99,14 +99,14 @@ class _StatusScreenState extends State<StatusScreen> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: AppTheme.surfaceColor,
-        title: const Text('Add Text Status', style: TextStyle(color: AppTheme.textPrimary)),
+        title: Text('Add Text Status', style: TextStyle(color: AppTheme.textPrimary)),
         content: TextField(
           controller: controller,
-          style: const TextStyle(color: AppTheme.textPrimary),
-          decoration: const InputDecoration(hintText: 'Type a status...', hintStyle: TextStyle(color: AppTheme.textSecondary)),
+          style: TextStyle(color: AppTheme.textPrimary),
+          decoration: InputDecoration(hintText: 'Type a status...', hintStyle: TextStyle(color: AppTheme.textSecondary)),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(context), child: Text('Cancel')),
           ElevatedButton(
             onPressed: () async {
               if (controller.text.isNotEmpty) {
@@ -117,7 +117,7 @@ class _StatusScreenState extends State<StatusScreen> {
                 else setState(() => _isLoading = false);
               }
             },
-            child: const Text('Post'),
+            child: Text('Post'),
           ),
         ],
       ),
@@ -141,14 +141,14 @@ class _StatusScreenState extends State<StatusScreen> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: AppTheme.surfaceColor,
-        title: Text(isMuted ? 'Unmute ${group.user['username']}?' : 'Mute ${group.user['username']}?', style: const TextStyle(color: AppTheme.textPrimary)),
+        title: Text(isMuted ? 'Unmute ${group.user['username']}?' : 'Mute ${group.user['username']}?', style: TextStyle(color: AppTheme.textPrimary)),
         content: Text(
           isMuted ? 'New status updates from ${group.user['username']} will appear under recent updates.' 
                   : 'New status updates from ${group.user['username']} won\'t appear under recent updates anymore.',
-          style: const TextStyle(color: AppTheme.textSecondary),
+          style: TextStyle(color: AppTheme.textSecondary),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(context), child: Text('Cancel')),
           ElevatedButton(
             onPressed: () async {
               Navigator.pop(context);
@@ -195,14 +195,14 @@ class _StatusScreenState extends State<StatusScreen> {
             heroTag: "textFAB",
             mini: true,
             backgroundColor: AppTheme.surfaceColor,
-            child: const Icon(Icons.edit, color: AppTheme.primaryColor),
+            child: Icon(Icons.edit, color: AppTheme.primaryColor),
             onPressed: () => _addStatus('TEXT'),
           ),
           const SizedBox(height: 16),
           FloatingActionButton(
             heroTag: "cameraFAB",
             backgroundColor: AppTheme.primaryColor,
-            child: const Icon(Icons.camera_alt, color: Colors.white),
+            child: Icon(Icons.camera_alt, color: Colors.white),
             onPressed: () {
               showModalBottomSheet(
                 context: context,
@@ -211,13 +211,13 @@ class _StatusScreenState extends State<StatusScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     ListTile(
-                      leading: const Icon(Icons.image, color: AppTheme.primaryColor),
-                      title: const Text('Photo', style: TextStyle(color: AppTheme.textPrimary)),
+                      leading: Icon(Icons.image, color: AppTheme.primaryColor),
+                      title: Text('Photo', style: TextStyle(color: AppTheme.textPrimary)),
                       onTap: () { Navigator.pop(context); _addStatus('IMAGE'); },
                     ),
                     ListTile(
-                      leading: const Icon(Icons.videocam, color: AppTheme.primaryColor),
-                      title: const Text('Video', style: TextStyle(color: AppTheme.textPrimary)),
+                      leading: Icon(Icons.videocam, color: AppTheme.primaryColor),
+                      title: Text('Video', style: TextStyle(color: AppTheme.textPrimary)),
                       onTap: () { Navigator.pop(context); _addStatus('VIDEO'); },
                     ),
                   ],
@@ -254,16 +254,16 @@ class _StatusScreenState extends State<StatusScreen> {
                             right: 0,
                             child: Container(
                               padding: const EdgeInsets.all(2),
-                              decoration: const BoxDecoration(color: AppTheme.primaryColor, shape: BoxShape.circle),
-                              child: const Icon(Icons.add, size: 14, color: Colors.white),
+                              decoration: BoxDecoration(color: AppTheme.primaryColor, shape: BoxShape.circle),
+                              child: Icon(Icons.add, size: 14, color: Colors.white),
                             ),
                           ),
                       ],
                     ),
-                    title: const Text('My Status', style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
+                    title: Text('My Status', style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
                     subtitle: Text(
                       (myGroup == null || myGroup.statuses.isEmpty) ? 'Tap to add status update' : _formatTime(myGroup.statuses.last.createdAt),
-                      style: const TextStyle(color: AppTheme.textSecondary),
+                      style: TextStyle(color: AppTheme.textSecondary),
                     ),
                     onTap: () {
                       if (myGroup == null || myGroup.statuses.isEmpty) {
@@ -275,14 +275,14 @@ class _StatusScreenState extends State<StatusScreen> {
                   ),
                   
                   if (recentUpdates.isNotEmpty)
-                    const Padding(
+                    Padding(
                       padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                       child: Text('Recent updates', style: TextStyle(color: AppTheme.textSecondary, fontWeight: FontWeight.bold)),
                     ),
                   ...recentUpdates.map((group) => _buildStatusTile(group)),
                   
                   if (viewedUpdates.isNotEmpty)
-                    const Padding(
+                    Padding(
                       padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                       child: Text('Viewed updates', style: TextStyle(color: AppTheme.textSecondary, fontWeight: FontWeight.bold)),
                     ),
@@ -296,7 +296,7 @@ class _StatusScreenState extends State<StatusScreen> {
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text('Muted updates', style: TextStyle(color: AppTheme.textSecondary, fontWeight: FontWeight.bold)),
+                            Text('Muted updates', style: TextStyle(color: AppTheme.textSecondary, fontWeight: FontWeight.bold)),
                             Icon(_showMuted ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, color: AppTheme.textSecondary),
                           ],
                         ),
@@ -340,7 +340,7 @@ class _StatusScreenState extends State<StatusScreen> {
         ),
       ),
       title: Text(user['username'] ?? 'User', style: TextStyle(color: group.isMuted ? AppTheme.textSecondary : AppTheme.textPrimary, fontWeight: FontWeight.bold)),
-      subtitle: Text(_formatTime(latest.createdAt), style: const TextStyle(color: AppTheme.textSecondary)),
+      subtitle: Text(_formatTime(latest.createdAt), style: TextStyle(color: AppTheme.textSecondary)),
       onTap: () => _viewStatus(group),
       onLongPress: () => _toggleMute(group),
     );

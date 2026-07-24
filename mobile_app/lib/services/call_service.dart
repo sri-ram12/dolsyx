@@ -126,9 +126,7 @@ class CallService {
 
     final mediaConstraints = {
       'audio': true,
-      'video': isVideo ? {
-        'facingMode': 'user',
-      } : false,
+      'video': isVideo,
     };
 
     _localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);

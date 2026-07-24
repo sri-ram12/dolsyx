@@ -43,12 +43,22 @@ class _CallScreenState extends State<CallScreen> {
   Future<void> _initRenderers() async {
     // Request permissions first
     try {
-      await Permission.microphone.request();
+      final micStatus = await Permission.microphone.request();
+      if (micStatus != PermissionStatus.granted) {
+        _showPermissionError();
+        return;
+      }
       if (widget.isVideo) {
-        await Permission.camera.request();
+        final camStatus = await Permission.camera.request();
+        if (camStatus != PermissionStatus.granted) {
+          _showPermissionError();
+          return;
+        }
       }
     } catch (e) {
       print("Permission request error: $e");
+      _showPermissionError();
+      return;
     }
 
     if (!mounted) return;
@@ -90,26 +100,30 @@ class _CallScreenState extends State<CallScreen> {
         );
       } catch (e) {
         print("Start call error: $e");
-        if (mounted) {
-          showDialog(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              backgroundColor: AppTheme.surfaceColor,
-              title: Text('Call Failed', style: TextStyle(color: AppTheme.textPrimary)),
-              content: Text('Could not access camera/microphone. Please check permissions.', style: TextStyle(color: AppTheme.textSecondary)),
-              actions: [
-                TextButton(
-                  onPressed: () {
-                    Navigator.pop(ctx);
-                    Navigator.pop(context);
-                  },
-                  child: const Text('OK'),
-                )
-              ],
-            ),
-          );
-        }
+        _showPermissionError();
       }
+    }
+  }
+
+  void _showPermissionError() {
+    if (mounted) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: AppTheme.surfaceColor,
+          title: Text('Call Failed', style: TextStyle(color: AppTheme.textPrimary)),
+          content: Text('Could not access camera/microphone. Please enable permissions in your phone settings.', style: TextStyle(color: AppTheme.textSecondary)),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                Navigator.pop(context);
+              },
+              child: const Text('OK'),
+            )
+          ],
+        ),
+      );
     }
   }
 

@@ -91,6 +91,26 @@ class ApiService {
     }
   }
 
+  Future<Map<String, dynamic>?> getUserById(String userId) async {
+    try {
+      final token = await getToken();
+      if (token == null) return null;
+
+      final response = await http.get(
+        Uri.parse('$baseUrl/auth/users/$userId'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+      return null;
+    } catch (e) {
+      print('Get user by id error: $e');
+      return null;
+    }
+  }
+
   Future<List<dynamic>> getBlockedUsers() async {
     try {
       final token = await getToken();

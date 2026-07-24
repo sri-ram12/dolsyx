@@ -297,6 +297,30 @@ export const getMe = async (req: AuthRequest, res: Response): Promise<void> => {
   }
 };
 
+export const getUserById = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const user = await prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        avatarUrl: true,
+        bio: true,
+        lastSeen: true,
+      }
+    });
+    if (!user) {
+      res.status(404).json({ message: "User not found" });
+      return;
+    }
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
 // Terminate user session and update online status to offline
 export const logout = async (req: AuthRequest, res: Response): Promise<void> => {
   try {

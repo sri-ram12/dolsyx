@@ -78,8 +78,8 @@ router.post("/upload", (req: any, res: any) => {
         return;
       }
 
-      // Build relative file URL
-      const fileUrl = `/uploads/${req.file.filename}`;
+      // Build relative file URL with timestamp to prevent caching
+      const fileUrl = `/uploads/${req.file.filename}?v=${Date.now()}`;
 
       res.json({
         fileUrl,

@@ -16,6 +16,9 @@ router.put("/profile", authenticateToken as any, updateProfile as any);
 // Block management
 router.post("/block/:targetUserId", authenticateToken as any, blockUser as any);
 router.delete("/block/:targetUserId", authenticateToken as any, unblockUser as any);
+router.get("/users/:id", authenticateToken as any, (req: any, res: any) => {
+  import("../controllers/auth.controller.js").then(m => m.getUserById(req, res)).catch(e => res.status(500).json({message: "Server error"}));
+});
 router.get("/blocks", authenticateToken as any, getBlockedUsers as any);
 
 export default router;

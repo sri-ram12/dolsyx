@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'dart:convert';
 import '../services/chat_service.dart';
+import '../services/api_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/color_avatar.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import 'chat_room_screen.dart';
@@ -45,39 +47,100 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
       setState(() => _isProcessing = true);
       
       try {
-        final chat = await _chatService.createDirectChat(scannedUserId);
-        if (mounted && chat != null) {
-          String chatName = 'Scanned User';
-          if (chat.participants != null && chat.participants!.isNotEmpty) {
-            final currentUserId = Provider.of<AuthProvider>(context, listen: false).user?['id'] ?? Provider.of<AuthProvider>(context, listen: false).user?['_id'];
-            final otherParticipant = chat.participants!.firstWhere(
-              (p) => p['user'] != null && (p['user']['id'] != currentUserId && p['user']['_id'] != currentUserId),
-              orElse: () => null,
-            );
-            if (otherParticipant != null && otherParticipant['user']['username'] != null) {
-              chatName = otherParticipant['user']['username'];
-            }
-          }
-          
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(
-                builder: (_) => ChatRoomScreen(
-                  conversationId: chat.id,
-                  chatName: chatName,
-                  remoteUserId: scannedUserId,
-                ),
-              ),
-            );
+        final targetUser = await ApiService().getUserById(scannedUserId);
+        if (targetUser != null && mounted) {
+          setState(() => _isProcessing = false);
+          _showUserDialog(targetUser, scannedUserId);
         } else {
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to open chat with this QR code')));
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('User not found')));
             setState(() => _isProcessing = false);
           }
         }
       } catch (e) {
         if (mounted) setState(() => _isProcessing = false);
       }
+    }
+  }
+
+  void _showUserDialog(Map<String, dynamic> user, String userId) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        final String name = user['username'] ?? 'User';
+        final String email = user['email'] ?? '';
+        final String? avatarUrl = user['avatarUrl'];
+
+        return AlertDialog(
+          backgroundColor: AppTheme.surfaceColor,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              avatarUrl == null
+                  ? ColorAvatar(name: name, radius: 40, fontSize: 32)
+                  : CircleAvatar(
+                      radius: 40,
+                      backgroundImage: avatarUrl.startsWith('http')
+                          ? NetworkImage(avatarUrl)
+                          : NetworkImage('https://dolsyx-app.onrender.com$avatarUrl'),
+                    ),
+              const SizedBox(height: 16),
+              Text(name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),
+              const SizedBox(height: 8),
+              Text(email, style: const TextStyle(fontSize: 14, color: AppTheme.textSecondary)),
+              const SizedBox(height: 24),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      setState(() => _isProcessing = false);
+                    },
+                    child: const Text('Cancel'),
+                  ),
+                  ElevatedButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _startCommunication(userId, name);
+                    },
+                    style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryColor),
+                    child: const Text('Communicate', style: TextStyle(color: Colors.white)),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _startCommunication(String userId, String chatName) async {
+    setState(() => _isProcessing = true);
+    try {
+      final chat = await _chatService.createDirectChat(userId);
+      if (mounted && chat != null) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ChatRoomScreen(
+              conversationId: chat.id,
+              chatName: chatName,
+              remoteUserId: userId,
+            ),
+          ),
+        );
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to start chat')));
+          setState(() => _isProcessing = false);
+        }
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isProcessing = false);
     }
   }
 

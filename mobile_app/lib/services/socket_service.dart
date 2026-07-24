@@ -124,6 +124,66 @@ class SocketService {
     }
   }
 
+  void onCallInvite(Function(dynamic) callback) {
+    if (socket != null) {
+      socket!.on('call_invite', callback);
+    }
+  }
+
+  void offCallInvite(Function(dynamic) callback) {
+    if (socket != null) {
+      socket!.off('call_invite', callback);
+    }
+  }
+
+  void onCallAccepted(Function(dynamic) callback) {
+    if (socket != null) socket!.on('call_accepted', callback);
+  }
+
+  void offCallAccepted(Function(dynamic) callback) {
+    if (socket != null) socket!.off('call_accepted', callback);
+  }
+
+  void onCallRejected(Function(dynamic) callback) {
+    if (socket != null) socket!.on('call_rejected', callback);
+  }
+
+  void offCallRejected(Function(dynamic) callback) {
+    if (socket != null) socket!.off('call_rejected', callback);
+  }
+
+  void onOffer(Function(dynamic) callback) {
+    if (socket != null) socket!.on('offer', callback);
+  }
+
+  void offOffer(Function(dynamic) callback) {
+    if (socket != null) socket!.off('offer', callback);
+  }
+
+  void onAnswer(Function(dynamic) callback) {
+    if (socket != null) socket!.on('answer', callback);
+  }
+
+  void offAnswer(Function(dynamic) callback) {
+    if (socket != null) socket!.off('answer', callback);
+  }
+
+  void onIceCandidate(Function(dynamic) callback) {
+    if (socket != null) socket!.on('ice_candidate', callback);
+  }
+
+  void offIceCandidate(Function(dynamic) callback) {
+    if (socket != null) socket!.off('ice_candidate', callback);
+  }
+
+  void onCallEnded(Function(dynamic) callback) {
+    if (socket != null) socket!.on('call_ended', callback);
+  }
+
+  void offCallEnded(Function(dynamic) callback) {
+    if (socket != null) socket!.off('call_ended', callback);
+  }
+
   void disconnect() {
     socket?.disconnect();
     socket?.dispose();

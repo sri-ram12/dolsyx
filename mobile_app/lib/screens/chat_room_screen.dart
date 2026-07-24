@@ -17,6 +17,7 @@ import '../widgets/message_bubble.dart';
 import 'other_user_profile_screen.dart';
 import '../widgets/color_avatar.dart';
 import '../widgets/full_screen_image_view.dart';
+import 'call_screen.dart';
 
 class ChatRoomScreen extends StatefulWidget {
   final String conversationId;
@@ -456,6 +457,44 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           ),
         ),
         actions: [
+          if (widget.remoteUserId != null) ...[
+            IconButton(
+              icon: const Icon(Icons.videocam, color: Colors.white),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => CallScreen(
+                      conversationId: widget.conversationId,
+                      remoteUserId: widget.remoteUserId!,
+                      remoteUserName: widget.chatName,
+                      remoteAvatarUrl: widget.avatarUrl,
+                      isAudioOnly: false,
+                      isIncoming: false,
+                    ),
+                  ),
+                );
+              },
+            ),
+            IconButton(
+              icon: const Icon(Icons.call, color: Colors.white),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => CallScreen(
+                      conversationId: widget.conversationId,
+                      remoteUserId: widget.remoteUserId!,
+                      remoteUserName: widget.chatName,
+                      remoteAvatarUrl: widget.avatarUrl,
+                      isAudioOnly: true,
+                      isIncoming: false,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ],
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert, color: Colors.white),
             onSelected: (value) {

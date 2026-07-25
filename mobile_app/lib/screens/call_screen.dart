@@ -44,6 +44,7 @@ class _CallScreenState extends State<CallScreen> {
   
   // Call Timer
   Timer? _callTimer;
+  Timer? _timeoutTimer;
   int _callDuration = 0;
 
   // ICE Candidate Queue
@@ -70,6 +71,11 @@ class _CallScreenState extends State<CallScreen> {
     if (widget.isIncoming) {
       setState(() => _status = 'Ringing...');
       // Ringing state, wait for user to hit accept
+      _timeoutTimer = Timer(const Duration(minutes: 2), () {
+        if (!_callActive && mounted) {
+          _rejectCall();
+        }
+      });
     } else {
       _startCall();
     }
@@ -82,6 +88,7 @@ class _CallScreenState extends State<CallScreen> {
     socket.on('call_answered', (data) async {
       if (!mounted) return;
       SoundService().stopRingtone();
+      _timeoutTimer?.cancel();
       setState(() {
         _status = 'Connected';
         _callActive = true;
@@ -136,8 +143,13 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Future<void> _startCall() async {
-    SoundService().startRingtone();
+    SoundService().startRingbackTone();
     setState(() => _status = 'Calling...');
+    _timeoutTimer = Timer(const Duration(minutes: 2), () {
+      if (!_callActive && mounted) {
+        _endCallLocally('No answer');
+      }
+    });
     final socket = Provider.of<AuthProvider>(context, listen: false).socketService.socket;
     final user = Provider.of<AuthProvider>(context, listen: false).user;
     if (socket == null || user == null) return;
@@ -194,6 +206,7 @@ class _CallScreenState extends State<CallScreen> {
       return;
     }
 
+    _timeoutTimer?.cancel();
     setState(() {
       _callActive = true;
       _status = 'Connected';
@@ -343,6 +356,7 @@ class _CallScreenState extends State<CallScreen> {
   void dispose() {
     SoundService().stopRingtone();
     _callTimer?.cancel();
+    _timeoutTimer?.cancel();
     final socketService = Provider.of<AuthProvider>(context, listen: false).socketService;
     socketService.socket?.off('call_answered');
     socketService.socket?.off('call_rejected');

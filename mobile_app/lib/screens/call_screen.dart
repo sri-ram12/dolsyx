@@ -159,6 +159,7 @@ class _CallScreenState extends State<CallScreen> {
 
     // Hardware safe initialization
     final success = await _initWebRTC();
+    if (!mounted) return;
     if (!success) {
       setState(() {
         _hardwareFailed = true;
@@ -196,6 +197,7 @@ class _CallScreenState extends State<CallScreen> {
 
     // Hardware safe initialization
     final success = await _initWebRTC();
+    if (!mounted) return;
     if (!success) {
       setState(() {
         _hardwareFailed = true;

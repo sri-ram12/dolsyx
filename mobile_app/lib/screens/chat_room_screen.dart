@@ -896,31 +896,78 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                       final message = _messages[index];
                       final isMe = currentUser != null && message.senderId == currentUser['id'];
                       final isSelected = _selectedMessageIds.contains(message.id);
-                      return GestureDetector(
-                        onLongPress: () {
-                          setState(() {
-                            if (isSelected) {
-                              _selectedMessageIds.remove(message.id);
-                            } else {
-                              _selectedMessageIds.add(message.id);
-                            }
-                          });
-                        },
-                        onTap: () {
-                          if (_selectedMessageIds.isNotEmpty) {
-                            setState(() {
-                              if (isSelected) {
-                                _selectedMessageIds.remove(message.id);
-                              } else {
-                                _selectedMessageIds.add(message.id);
+                      
+                      bool showDateSeparator = false;
+                      if (index == 0) {
+                        showDateSeparator = true;
+                      } else {
+                        final prevMessage = _messages[index - 1];
+                        final prevDate = DateTime(prevMessage.createdAt.toLocal().year, prevMessage.createdAt.toLocal().month, prevMessage.createdAt.toLocal().day);
+                        final currDate = DateTime(message.createdAt.toLocal().year, message.createdAt.toLocal().month, message.createdAt.toLocal().day);
+                        if (currDate.isAfter(prevDate)) {
+                          showDateSeparator = true;
+                        }
+                      }
+
+                      Widget separator = const SizedBox.shrink();
+                      if (showDateSeparator) {
+                        final now = DateTime.now();
+                        final currDate = DateTime(message.createdAt.toLocal().year, message.createdAt.toLocal().month, message.createdAt.toLocal().day);
+                        final diff = DateTime(now.year, now.month, now.day).difference(currDate).inDays;
+                        
+                        String dateStr;
+                        if (diff == 0) dateStr = 'Today';
+                        else if (diff == 1) dateStr = 'Yesterday';
+                        else dateStr = DateFormat('MMMM d, yyyy').format(currDate);
+
+                        separator = Container(
+                          alignment: Alignment.center,
+                          margin: const EdgeInsets.symmetric(vertical: 16),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: AppTheme.surfaceColor.withOpacity(0.8),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              dateStr,
+                              style: TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        );
+                      }
+
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          separator,
+                          GestureDetector(
+                            onLongPress: () {
+                              setState(() {
+                                if (isSelected) {
+                                  _selectedMessageIds.remove(message.id);
+                                } else {
+                                  _selectedMessageIds.add(message.id);
+                                }
+                              });
+                            },
+                            onTap: () {
+                              if (_selectedMessageIds.isNotEmpty) {
+                                setState(() {
+                                  if (isSelected) {
+                                    _selectedMessageIds.remove(message.id);
+                                  } else {
+                                    _selectedMessageIds.add(message.id);
+                                  }
+                                });
                               }
-                            });
-                          }
-                        },
-                        child: Container(
-                          color: isSelected ? AppTheme.primaryColor.withAlpha(50) : Colors.transparent,
-                          child: MessageBubble(message: message, isMe: isMe),
-                        ),
+                            },
+                            child: Container(
+                              color: isSelected ? AppTheme.primaryColor.withAlpha(50) : Colors.transparent,
+                              child: MessageBubble(message: message, isMe: isMe),
+                            ),
+                          ),
+                        ],
                       );
                     },
                   ),

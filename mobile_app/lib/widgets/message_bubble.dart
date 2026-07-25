@@ -23,6 +23,10 @@ class MessageBubble extends StatelessWidget {
 
     final imageSize = MediaQuery.of(context).size.width * 0.75;
 
+    if (message.mediaType == 'CALL_LOG') {
+      return _buildCallLogBubble(context);
+    }
+
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
@@ -62,32 +66,7 @@ class MessageBubble extends StatelessWidget {
                     errorWidget: (context, url, error) => const Icon(Icons.broken_image, size: 50, color: Colors.grey),
                   ),
                 )
-              else if (message.mediaType == 'CALL_LOG')
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      message.mediaUrl == 'video' ? Icons.videocam : Icons.phone, 
-                      color: message.content == 'missed' || message.content == 'declined' 
-                          ? Colors.redAccent 
-                          : (isMe ? Colors.white : AppTheme.textPrimary)
-                    ),
-                    const SizedBox(width: 8),
-                    Flexible(
-                      child: Text(
-                        message.content == 'missed' ? 'Missed ${message.mediaUrl == "video" ? "Video" : "Voice"} Call' :
-                        message.content == 'declined' ? 'Declined ${message.mediaUrl == "video" ? "Video" : "Voice"} Call' :
-                        '${message.mediaUrl == "video" ? "Video" : "Voice"} Call ${message.content.startsWith("connected:") ? "Ended" : ""}',
-                        style: TextStyle(
-                          color: message.content == 'missed' || message.content == 'declined'
-                              ? Colors.redAccent
-                              : (isMe ? Colors.white : AppTheme.textPrimary),
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ],
-                )
+              // Removed inline call log handling because it's handled at the root
               else 
                 Row(
                   mainAxisSize: MainAxisSize.min,
@@ -156,6 +135,68 @@ class MessageBubble extends StatelessWidget {
                   ],
                 ],
               ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCallLogBubble(BuildContext context) {
+    final bool isVideo = message.mediaUrl == 'video';
+    final bool isMissed = message.content == 'missed' || message.content == 'declined';
+    
+    IconData iconData;
+    Color iconColor;
+    if (isMissed) {
+      iconData = isMe ? Icons.call_made : Icons.call_missed;
+      iconColor = Colors.redAccent;
+    } else {
+      iconData = isMe ? Icons.call_made : Icons.call_received;
+      iconColor = Colors.green;
+    }
+
+    String title = isMissed 
+        ? 'Missed ${isVideo ? "video" : "voice"} call'
+        : (message.content == 'declined' ? 'Declined ${isVideo ? "video" : "voice"} call' : '${isVideo ? "Video" : "Voice"} call');
+
+    return Align(
+      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: AppTheme.surfaceColor, // Always surface color for call logs
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            CircleAvatar(
+              backgroundColor: AppTheme.backgroundColor,
+              radius: 20,
+              child: Icon(iconData, color: iconColor, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold, fontSize: 15),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Tap to call back',
+                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+                ),
+              ],
+            ),
+            const SizedBox(width: 16),
+            Text(
+              DateFormat('h:mm a').format(message.createdAt.toLocal()),
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+            ),
           ],
         ),
       ),

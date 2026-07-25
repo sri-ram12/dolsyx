@@ -97,6 +97,7 @@ class _GlobalAppLockWrapperState extends State<GlobalAppLockWrapper> with Widget
         setState(() {
           _isLocked = false;
         });
+        _pausedTime = null; // Clear the paused time so it doesn't immediately relock
       }
     } catch (e) {
       print('Authentication error: $e');

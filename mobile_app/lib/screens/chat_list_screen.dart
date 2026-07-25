@@ -56,6 +56,9 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
       _profileSubscription = authProvider.socketService.profileUpdates.stream.listen((event) {
         _handleSocketUpdate(event);
       });
+      authProvider.socketService.socket?.on('messages_read', (data) {
+        _handleSocketUpdate(data);
+      });
       _onlineSubscription = authProvider.socketService.onlineUsersStream.stream.listen((users) {
         if (mounted) setState(() { _onlineUsers = users; });
       });
@@ -83,6 +86,8 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
     _profileSubscription?.cancel();
     _onlineSubscription?.cancel();
     _typingSubscription?.cancel();
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    authProvider.socketService.socket?.off('messages_read');
     super.dispose();
   }
 

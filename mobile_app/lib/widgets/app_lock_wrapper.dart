@@ -116,29 +116,41 @@ class _GlobalAppLockWrapperState extends State<GlobalAppLockWrapper> with Widget
 
   @override
   Widget build(BuildContext context) {
-    if (_isLocked) {
-      return MaterialApp(
-        debugShowCheckedModeBanner: false,
-        home: Scaffold(
-          backgroundColor: AppTheme.backgroundColor,
-          body: Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.lock, size: 80, color: AppTheme.primaryColor),
-                const SizedBox(height: 20),
-                Text('DOLSYX is locked', style: TextStyle(color: AppTheme.textPrimary, fontSize: 24, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 40),
-                ElevatedButton(
-                  onPressed: _authenticate,
-                  child: const Text('Unlock'),
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: Stack(
+        children: [
+          widget.child,
+          if (_isLocked)
+            Positioned.fill(
+              child: Scaffold(
+                backgroundColor: AppTheme.backgroundColor,
+                body: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.lock, size: 80, color: AppTheme.primaryColor),
+                      const SizedBox(height: 20),
+                      Text(
+                        'DOLSYX is locked',
+                        style: TextStyle(color: AppTheme.textPrimary, fontSize: 24, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 40),
+                      ElevatedButton(
+                        onPressed: _authenticate,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.primaryColor,
+                          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                        ),
+                        child: const Text('Unlock', style: TextStyle(color: Colors.white, fontSize: 16)),
+                      ),
+                    ],
+                  ),
                 ),
-              ],
+              ),
             ),
-          ),
-        ),
-      );
-    }
-    return widget.child;
+        ],
+      ),
+    );
   }
 }

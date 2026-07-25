@@ -173,17 +173,28 @@ class MessageBubble extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             CircleAvatar(
-              backgroundColor: AppTheme.backgroundColor,
+              backgroundColor: iconColor.withOpacity(0.15),
               radius: 20,
-              child: Icon(iconData, color: iconColor, size: 20),
+              child: Icon(
+                isVideo ? Icons.videocam : Icons.phone,
+                color: iconColor,
+                size: 22,
+              ),
             ),
             const SizedBox(width: 12),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold, fontSize: 15),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(iconData, color: iconColor, size: 16),
+                    const SizedBox(width: 4),
+                    Text(
+                      title,
+                      style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold, fontSize: 15),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 2),
                 Text(

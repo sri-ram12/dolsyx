@@ -19,6 +19,22 @@ class QrScannerScreen extends StatefulWidget {
 class _QrScannerScreenState extends State<QrScannerScreen> {
   final ChatService _chatService = ChatService();
   bool _isProcessing = false;
+  late final MobileScannerController _scannerController;
+
+  @override
+  void initState() {
+    super.initState();
+    _scannerController = MobileScannerController(
+      formats: const [BarcodeFormat.qrCode],
+      detectionSpeed: DetectionSpeed.normal,
+    );
+  }
+
+  @override
+  void dispose() {
+    _scannerController.dispose();
+    super.dispose();
+  }
 
   void _onDetect(BarcodeCapture capture) async {
     if (_isProcessing) return;
@@ -158,10 +174,7 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
       body: Stack(
         children: [
           MobileScanner(
-            controller: MobileScannerController(
-              formats: const [BarcodeFormat.qrCode],
-              detectionSpeed: DetectionSpeed.normal,
-            ),
+            controller: _scannerController,
             onDetect: _onDetect,
           ),
           if (_isProcessing)

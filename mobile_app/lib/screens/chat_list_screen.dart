@@ -95,15 +95,21 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
     if (mounted) {
       if (event != null && event is Map<String, dynamic> && event['conversationId'] != null) {
         final conversationId = event['conversationId'];
+        final currentUserId = Provider.of<AuthProvider>(context, listen: false).user?['id'] ?? Provider.of<AuthProvider>(context, listen: false).user?['_id'];
+        final message = event['message'];
+        final senderId = message != null ? (message['senderId'] ?? message['sender']?['id']) : null;
+
         setState(() {
           final index = _chats.indexWhere((c) => c.id == conversationId);
           if (index != -1) {
             if (event['type'] == 'read') {
                _chats[index].unreadCount = 0;
             } else {
-               _chats[index].unreadCount += 1;
-               if (event['message'] != null) {
-                 _chats[index].lastMessage = event['message'];
+               if (senderId != null && senderId.toString() != currentUserId?.toString()) {
+                 _chats[index].unreadCount += 1;
+               }
+               if (message != null) {
+                 _chats[index].lastMessage = message;
                }
                _chats[index].updatedAt = DateTime.now();
                

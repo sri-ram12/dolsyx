@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/color_avatar.dart';
+import '../services/sound_service.dart';
 
 class CallScreen extends StatefulWidget {
   final String conversationId;
@@ -80,6 +81,7 @@ class _CallScreenState extends State<CallScreen> {
 
     socket.on('call_answered', (data) async {
       if (!mounted) return;
+      SoundService().stopRingtone();
       setState(() {
         _status = 'Connected';
         _callActive = true;
@@ -134,6 +136,7 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Future<void> _startCall() async {
+    SoundService().startRingtone();
     setState(() => _status = 'Calling...');
     final socket = Provider.of<AuthProvider>(context, listen: false).socketService.socket;
     final user = Provider.of<AuthProvider>(context, listen: false).user;
@@ -328,6 +331,7 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   void _endCallLocally(String reason) {
+    SoundService().stopRingtone();
     if (!mounted) return;
     setState(() => _status = reason);
     Future.delayed(const Duration(seconds: 1), () {
@@ -337,6 +341,7 @@ class _CallScreenState extends State<CallScreen> {
 
   @override
   void dispose() {
+    SoundService().stopRingtone();
     _callTimer?.cancel();
     final socketService = Provider.of<AuthProvider>(context, listen: false).socketService;
     socketService.socket?.off('call_answered');

@@ -2,6 +2,7 @@ import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'api_service.dart';
+import 'sound_service.dart';
 import '../main.dart';
 
 class SocketService {
@@ -42,6 +43,7 @@ class SocketService {
     });
 
     socket?.on('new_message', (data) {
+      SoundService().playNotificationSound();
       _messageStreamController.add(data);
     });
     socket?.on('messages_read', (data) {

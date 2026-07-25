@@ -7,6 +7,7 @@ import '../theme/app_theme.dart';
 import '../widgets/color_avatar.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import 'chat_room_screen.dart';
 
 class QrScannerScreen extends StatefulWidget {
@@ -24,6 +25,7 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
   @override
   void initState() {
     super.initState();
+    WakelockPlus.enable();
     _scannerController = MobileScannerController(
       formats: const [BarcodeFormat.qrCode],
       detectionSpeed: DetectionSpeed.normal,
@@ -32,6 +34,7 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
 
   @override
   void dispose() {
+    WakelockPlus.disable();
     _scannerController.dispose();
     super.dispose();
   }

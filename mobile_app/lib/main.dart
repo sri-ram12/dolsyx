@@ -6,6 +6,7 @@ import 'providers/auth_provider.dart';
 import 'providers/theme_provider.dart';
 import 'widgets/app_lock_wrapper.dart';
 import 'screens/call_screen.dart';
+import 'services/sound_service.dart';
 
 void main() {
   runApp(
@@ -62,6 +63,9 @@ class _DolsyxAppState extends State<DolsyxApp> {
     
     // WebRTC offer from caller
     final Map<String, dynamic>? initialOffer = data['offer'];
+
+    // Start caller ringtone loop
+    SoundService().startRingtone();
 
     // Only navigate if we're not already on a call screen
     // For simplicity, we just push it. In a real app we'd check current route.

@@ -15,6 +15,7 @@ class GlobalAppLockWrapper extends StatefulWidget {
 class _GlobalAppLockWrapperState extends State<GlobalAppLockWrapper> with WidgetsBindingObserver {
   final LocalAuthentication _localAuth = LocalAuthentication();
   bool _isLocked = false;
+  bool _isAuthenticating = false;
   DateTime? _pausedTime;
 
   @override
@@ -68,7 +69,10 @@ class _GlobalAppLockWrapperState extends State<GlobalAppLockWrapper> with Widget
   }
 
   Future<void> _authenticate() async {
+    if (_isAuthenticating) return;
+    
     try {
+      _isAuthenticating = true;
       final bool canAuthenticateWithBiometrics = await _localAuth.canCheckBiometrics;
       final bool canAuthenticate = canAuthenticateWithBiometrics || await _localAuth.isDeviceSupported();
 
@@ -77,13 +81,14 @@ class _GlobalAppLockWrapperState extends State<GlobalAppLockWrapper> with Widget
         setState(() {
           _isLocked = false;
         });
+        _isAuthenticating = false;
         return;
       }
 
       final authenticated = await _localAuth.authenticate(
         localizedReason: 'Please authenticate to access DOLSYX',
         biometricOnly: true,
-        persistAcrossBackgrounding: true,
+        options: const AuthenticationOptions(stickyAuth: true),
       );
 
       if (authenticated) {
@@ -92,7 +97,9 @@ class _GlobalAppLockWrapperState extends State<GlobalAppLockWrapper> with Widget
         });
       }
     } catch (e) {
-      print(e);
+      print('Authentication error: $e');
+    } finally {
+      _isAuthenticating = false;
     }
   }
 

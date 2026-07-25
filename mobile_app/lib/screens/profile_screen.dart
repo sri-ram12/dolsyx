@@ -19,6 +19,7 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   final ApiService _apiService = ApiService();
+  final _usernameController = TextEditingController();
   final _bioController = TextEditingController();
   bool _isLoading = false;
 
@@ -26,14 +27,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void initState() {
     super.initState();
     final user = Provider.of<AuthProvider>(context, listen: false).user;
-    if (user != null && user['bio'] != null) {
-      _bioController.text = user['bio'];
+    if (user != null) {
+      if (user['bio'] != null) _bioController.text = user['bio'];
+      if (user['username'] != null) _usernameController.text = user['username'];
     }
   }
 
   @override
   void dispose() {
     _bioController.dispose();
+    _usernameController.dispose();
     super.dispose();
   }
 
@@ -47,7 +50,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
         final uploadResponse = await _apiService.uploadMedia(pickedFile.path);
         
         if (uploadResponse != null && uploadResponse['fileUrl'] != null) {
-          final updatedUser = await _apiService.updateProfile(_bioController.text, uploadResponse['fileUrl']);
+          final updatedUser = await _apiService.updateProfile(
+            avatarUrl: uploadResponse['fileUrl']
+          );
           if (updatedUser != null) {
             if (mounted) Provider.of<AuthProvider>(context, listen: false).updateUser(updatedUser);
             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profile picture updated successfully!')));
@@ -63,16 +68,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  Future<void> _updateBio() async {
+  Future<void> _updateProfile() async {
     setState(() => _isLoading = true);
-    final updatedUser = await _apiService.updateProfile(_bioController.text, null); // Keep current avatar
+    final updatedUser = await _apiService.updateProfile(
+      bio: _bioController.text, 
+      username: _usernameController.text,
+    ); 
     if (mounted) {
       setState(() => _isLoading = false);
       if (updatedUser != null) {
         Provider.of<AuthProvider>(context, listen: false).updateUser(updatedUser);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bio updated successfully')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profile updated successfully')));
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to update bio')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to update profile')));
       }
     }
   }
@@ -139,11 +147,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                     ],
                   ),
-                  SizedBox(height: 24),
-                  Text(
-                    username,
-                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+                  const SizedBox(height: 32),
+                  TextField(
+                    controller: _usernameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Username',
+                      prefixIcon: Icon(Icons.person),
+                    ),
                   ),
+                  const SizedBox(height: 16),
                   Text(
                     email,
                     style: TextStyle(fontSize: 16, color: AppTheme.textSecondary),
@@ -159,11 +171,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                   const SizedBox(height: 16),
                   ElevatedButton(
-                    onPressed: _updateBio,
+                    onPressed: _updateProfile,
                     style: ElevatedButton.styleFrom(
                       minimumSize: const Size.fromHeight(50),
                     ),
-                    child: const Text('Save Bio'),
+                    child: const Text('Save Profile'),
                   ),
                   const SizedBox(height: 48),
                   Consumer<ThemeProvider>(

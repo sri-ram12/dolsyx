@@ -60,7 +60,7 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
     _isLoading = true;
 
     if (index >= widget.group.statuses.length) {
-      Navigator.pop(context);
+      if (mounted) WidgetsBinding.instance.addPostFrameCallback((_) => Navigator.pop(context));
       return;
     }
 
@@ -142,7 +142,7 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
         _loadStatus(_currentIndex);
       });
     } else {
-      Navigator.pop(context);
+      if (mounted) WidgetsBinding.instance.addPostFrameCallback((_) => Navigator.pop(context));
     }
   }
 
@@ -246,8 +246,14 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
                   Text('Viewed by ${views.length}', style: TextStyle(color: AppTheme.textPrimary, fontSize: 18, fontWeight: FontWeight.bold)),
                   IconButton(
                     icon: Icon(Icons.delete, color: Colors.red),
-                    onPressed: () {
-                      // Delete status
+                    onPressed: () async {
+                      final success = await _statusService.deleteStatus(status.id);
+                      if (success) {
+                        Navigator.pop(context); // Close bottom sheet
+                        if (mounted) Navigator.pop(context); // Close status view
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to delete status')));
+                      }
                     },
                   )
                 ],
@@ -411,8 +417,8 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
                   bottom: 20, left: 0, right: 0,
                   child: Column(
                     children: [
-                      Icon(Icons.keyboard_arrow_up, color: Colors.white),
-                      Text(isMine ? '${status.views?.length ?? 0} views' : 'Reply', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      Icon(Icons.keyboard_double_arrow_up, color: Colors.white, size: 30),
+                      Text(isMine ? 'Swipe up to see views (${status.views?.length ?? 0})' : 'Swipe up to reply', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, shadows: [Shadow(color: Colors.black, blurRadius: 4)])),
                     ],
                   ),
                 ),

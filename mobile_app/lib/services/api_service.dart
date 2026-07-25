@@ -92,10 +92,15 @@ class ApiService {
     return null;
   }
 
-  Future<Map<String, dynamic>?> updateProfile(String? bio, String? avatarUrl) async {
+  Future<Map<String, dynamic>?> updateProfile({String? bio, String? username, String? avatarUrl}) async {
     try {
       final token = await getToken();
       if (token == null) return null;
+
+      final body = <String, dynamic>{};
+      if (bio != null) body['bio'] = bio;
+      if (username != null) body['username'] = username;
+      if (avatarUrl != null) body['avatarUrl'] = avatarUrl;
 
       final response = await http.put(
         Uri.parse('$baseUrl/auth/profile'),
@@ -103,10 +108,7 @@ class ApiService {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
         },
-        body: jsonEncode({
-          'bio': bio,
-          'avatarUrl': avatarUrl,
-        }),
+        body: jsonEncode(body),
       );
 
       if (response.statusCode == 200) {

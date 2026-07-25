@@ -121,4 +121,20 @@ class StatusService {
       return false;
     }
   }
+
+  Future<bool> deleteStatus(String statusId) async {
+    try {
+      final token = await _apiService.getToken();
+      final response = await http.delete(
+        Uri.parse('${ApiService.baseUrl}/status/$statusId'),
+        headers: {
+          'Authorization': 'Bearer $token',
+        },
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      print('Error deleting status: $e');
+      return false;
+    }
+  }
 }

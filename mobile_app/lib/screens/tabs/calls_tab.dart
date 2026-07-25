@@ -123,8 +123,9 @@ class _CallsTabState extends State<CallsTab> {
             
             final otherUser = otherParticipant['user'];
             
-            // Determine status
+            // Determine status and type
             final isMissed = log['content'] == 'missed' || log['content'] == 'declined';
+            final isVideo = log['mediaUrl'] == 'video';
             
             IconData iconData;
             Color iconColor;
@@ -136,6 +137,8 @@ class _CallsTabState extends State<CallsTab> {
               iconData = isCaller ? Icons.call_made : Icons.call_received;
               iconColor = Colors.green;
             }
+            
+            IconData typeIcon = isVideo ? Icons.videocam : Icons.call;
 
             return Container(
               color: isSelected ? AppTheme.primaryColor.withAlpha(50) : Colors.transparent,
@@ -181,6 +184,8 @@ class _CallsTabState extends State<CallsTab> {
                 subtitle: Row(
                   children: [
                     Icon(iconData, size: 16, color: iconColor),
+                    const SizedBox(width: 4),
+                    Icon(typeIcon, size: 14, color: AppTheme.textSecondary),
                     const SizedBox(width: 4),
                     Text(
                       DateFormat('MM/dd/yyyy, hh:mm a').format(DateTime.parse(log['createdAt']).toLocal()),

@@ -264,6 +264,36 @@ class _StatusScreenState extends State<StatusScreen> {
                       (myGroup == null || myGroup.statuses.isEmpty) ? 'Tap to add status update' : _formatTime(myGroup.statuses.last.createdAt),
                       style: TextStyle(color: AppTheme.textSecondary),
                     ),
+                    trailing: (myGroup != null && myGroup.statuses.isNotEmpty) ? IconButton(
+                      icon: Icon(Icons.add, color: AppTheme.primaryColor),
+                      onPressed: () {
+                        // Show bottom sheet to pick type
+                        showModalBottomSheet(
+                          context: context,
+                          backgroundColor: AppTheme.surfaceColor,
+                          builder: (context) => Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              ListTile(
+                                leading: Icon(Icons.text_fields, color: AppTheme.primaryColor),
+                                title: Text('Text', style: TextStyle(color: AppTheme.textPrimary)),
+                                onTap: () { Navigator.pop(context); _addStatus('TEXT'); },
+                              ),
+                              ListTile(
+                                leading: Icon(Icons.image, color: AppTheme.primaryColor),
+                                title: Text('Photo', style: TextStyle(color: AppTheme.textPrimary)),
+                                onTap: () { Navigator.pop(context); _addStatus('IMAGE'); },
+                              ),
+                              ListTile(
+                                leading: Icon(Icons.videocam, color: AppTheme.primaryColor),
+                                title: Text('Video', style: TextStyle(color: AppTheme.textPrimary)),
+                                onTap: () { Navigator.pop(context); _addStatus('VIDEO'); },
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ) : null,
                     onTap: () {
                       if (myGroup == null || myGroup.statuses.isEmpty) {
                         _addStatus('IMAGE');

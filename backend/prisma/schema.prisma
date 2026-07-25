@@ -271,14 +271,19 @@ model UserBlock {
 }
 
 model Contact {
-  id        String   @id @default(uuid())
-  userId    String
-  contactId String
-  savedName String?
-  createdAt DateTime @default(now())
+  id              String   @id @default(uuid())
+  userId          String   // owner
+  contactId       String   // the saved user
+  savedName       String?
+  savedEmail      String?
+  savedUsername   String?
+  isFavorite      Boolean  @default(false)
+  isBlocked       Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  user      User     @relation("UserContacts", fields: [userId], references: [id], onDelete: Cascade)
-  contact   User     @relation("SavedByContacts", fields: [contactId], references: [id], onDelete: Cascade)
+  user    User @relation("UserContacts", fields: [userId], references: [id], onDelete: Cascade)
+  contact User @relation("SavedByContacts", fields: [contactId], references: [id], onDelete: Cascade)
 
   @@unique([userId, contactId])
 }

@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 
 class ColorAvatar extends StatelessWidget {
   final String name;
+  final String? avatarUrl;
   final double radius;
   final double fontSize;
 
   const ColorAvatar({
     super.key,
     required this.name,
+    this.avatarUrl,
     this.radius = 24.0,
     this.fontSize = 20.0,
   });
@@ -31,26 +33,42 @@ class ColorAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final hasImage = avatarUrl != null && avatarUrl!.isNotEmpty;
     final gradientColors = _getAvatarGradientColors(name);
+    final String resolvedUrl = avatarUrl != null && avatarUrl!.startsWith('http')
+        ? avatarUrl!
+        : 'https://dolsyx-app.onrender.com$avatarUrl';
 
     return Container(
       width: radius * 2,
       height: radius * 2,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        gradient: LinearGradient(
+        gradient: hasImage ? null : LinearGradient(
           colors: gradientColors,
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
+        image: hasImage
+            ? DecorationImage(
+                image: NetworkImage(resolvedUrl),
+                fit: BoxFit.cover,
+                onError: (exception, stackTrace) {},
+              )
+            : null,
       ),
-      child: Center(
-        child: Icon(
-          Icons.person,
-          color: Colors.white.withOpacity(0.5),
-          size: radius * 1.2,
-        ),
-      ),
+      child: hasImage
+          ? null
+          : Center(
+              child: Text(
+                name.isNotEmpty ? name[0].toUpperCase() : '?',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: fontSize,
+                ),
+              ),
+            ),
     );
   }
 }

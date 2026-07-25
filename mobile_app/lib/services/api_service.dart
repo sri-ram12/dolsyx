@@ -6,6 +6,11 @@ class ApiService {
   // Replace with your computer's local Wi-Fi IP address
   static const String baseUrl = 'https://dolsyx-app.onrender.com/api';
 
+  static Map<String, String> authHeaders(String token) => {
+    'Content-Type': 'application/json',
+    'Authorization': 'Bearer $token',
+  };
+
   Future<Map<String, dynamic>> login(String email, String password) async {
     try {
       final response = await http.post(

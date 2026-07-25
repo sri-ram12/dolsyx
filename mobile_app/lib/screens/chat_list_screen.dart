@@ -20,6 +20,7 @@ import 'other_user_profile_screen.dart';
 import 'status_screen.dart';
 import 'settings_screen.dart';
 import 'archived_chats_screen.dart';
+import 'contacts_screen.dart';
 
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
@@ -500,6 +501,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
   Widget build(BuildContext context) {
     final List<Widget> pages = [
       _buildChatsTab(),
+      const ContactsScreen(),
       _buildUpdatesTab(),
       _buildCommunitiesTab(),
       _buildCallsTab(),
@@ -766,6 +768,11 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
             icon: Icon(Icons.chat_bubble_outline),
             activeIcon: Icon(Icons.chat_bubble),
             label: 'Chats',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.contacts_outlined),
+            activeIcon: Icon(Icons.contacts),
+            label: 'Contacts',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.blur_circular),

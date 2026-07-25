@@ -13,6 +13,7 @@ import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import '../models/message.dart';
 import '../services/socket_service.dart';
 import '../services/chat_service.dart';
+import '../services/contact_service.dart';
 import '../services/api_service.dart';
 import '../providers/auth_provider.dart';
 import '../providers/wallpaper_provider.dart';
@@ -473,25 +474,15 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   Future<void> _checkIfContact() async {
-    // This calls the backend to check if the user is in contacts.
-    // For now, we simulate this call.
     try {
       final token = await ApiService().getToken();
       if (token == null || widget.remoteUserId == null) return;
       
-      final response = await http.get(
-        Uri.parse('${ApiService.baseUrl}/contacts'),
-        headers: {'Authorization': 'Bearer $token'},
-      );
-      
-      if (response.statusCode == 200) {
-        final List<dynamic> contacts = jsonDecode(response.body);
-        final isSaved = contacts.any((c) => c['contactId'] == widget.remoteUserId);
-        if (mounted) {
-          setState(() {
-            _isContact = isSaved;
-          });
-        }
+      final isSaved = await ContactService.isContact(token, widget.remoteUserId!);
+      if (mounted) {
+        setState(() {
+          _isContact = isSaved;
+        });
       }
     } catch (e) {
       print('Check contact error: $e');
@@ -499,31 +490,23 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   Future<void> _addContact() async {
-    if (widget.remoteUser == null || widget.remoteUser!['email'] == null) return;
+    if (widget.remoteUserId == null) return;
     try {
       final token = await ApiService().getToken();
       if (token == null) return;
 
-      final response = await http.post(
-        Uri.parse('${ApiService.baseUrl}/contacts/add'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({
-          'email': widget.remoteUser!['email'],
-          'savedName': widget.remoteUser!['username'],
-        }),
-      );
-
-      if (response.statusCode == 201 && mounted) {
+      await ContactService.addContactById(token, widget.remoteUserId!, savedName: widget.chatName);
+      
+      if (mounted) {
         setState(() {
           _isContact = true;
         });
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Contact added!')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Contact saved!')));
       }
     } catch (e) {
-      print('Add contact error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceAll('Exception: ', ''))));
+      }
     }
   }
 

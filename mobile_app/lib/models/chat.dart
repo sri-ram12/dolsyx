@@ -1,13 +1,13 @@
 class Chat {
-  final String id;
-  final String? name;
-  final bool isGroup;
-  final String? avatarUrl;
-  final List<dynamic>? participants;
-  final Map<String, dynamic>? lastMessage;
-  final int unreadCount;
-  final DateTime? updatedAt;
-  final bool isArchived;
+  String id;
+  String? name;
+  bool isGroup;
+  String? avatarUrl;
+  List<dynamic>? participants;
+  Map<String, dynamic>? lastMessage;
+  int unreadCount;
+  DateTime? updatedAt;
+  bool isArchived;
 
   Chat({
     required this.id,

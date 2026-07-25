@@ -91,8 +91,29 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
     super.dispose();
   }
 
-  void _handleSocketUpdate(dynamic _) {
+  void _handleSocketUpdate(dynamic event) {
     if (mounted) {
+      if (event != null && event is Map<String, dynamic> && event['conversationId'] != null) {
+        final conversationId = event['conversationId'];
+        setState(() {
+          final index = _chats.indexWhere((c) => c.id == conversationId);
+          if (index != -1) {
+            if (event['type'] == 'read') {
+               _chats[index].unreadCount = 0;
+            } else {
+               _chats[index].unreadCount += 1;
+               if (event['message'] != null) {
+                 _chats[index].lastMessage = event['message'];
+               }
+               _chats[index].updatedAt = DateTime.now();
+               
+               // Move the updated chat to the top of the list
+               final updatedChat = _chats.removeAt(index);
+               _chats.insert(0, updatedChat);
+            }
+          }
+        });
+      }
       _fetchChats();
     }
   }

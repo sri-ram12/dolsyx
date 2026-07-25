@@ -331,14 +331,14 @@ export const initChatSocket = (io: Server) => {
           const missingReceiptMessageIds = messageIds.filter(id => !updatedMessageIds.has(id));
           
           if (missingReceiptMessageIds.length > 0) {
-            await prisma.messageReceipt.createMany({
-              data: missingReceiptMessageIds.map(mId => ({
-                messageId: mId,
-                userId,
-                status: "READ",
-              })),
-              skipDuplicates: true,
-            });
+            // Use upsert-style to avoid duplicate constraint errors
+            for (const mId of missingReceiptMessageIds) {
+              await prisma.messageReceipt.upsert({
+                where: { messageId_userId: { messageId: mId, userId } },
+                create: { messageId: mId, userId, status: "READ" },
+                update: { status: "READ" },
+              });
+            }
           }
 
           // Broadcast to everyone in the conversation room ONLY if they have read receipts enabled

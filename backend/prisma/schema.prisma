@@ -25,12 +25,17 @@ model User {
   lastLogin        DateTime?         @default(now())
   emailVerified    Boolean           @default(false)
   isOnline         Boolean           @default(false)
-  avatarPrivacy    String            @default("PUBLIC") // PUBLIC, NOBODY
-  lastSeenPrivacy  String            @default("PUBLIC") // PUBLIC, CONTACTS, NOBODY
-  readReceipts     Boolean           @default(true)
+  avatarPrivacy     String            @default("EVERYONE") // EVERYONE, MY_CONTACTS, EXCEPT, NOBODY
+  lastSeenPrivacy   String            @default("EVERYONE") // EVERYONE, MY_CONTACTS, EXCEPT, NOBODY
+  onlinePrivacy     String            @default("EVERYONE") // EVERYONE, SAME_AS_LAST_SEEN, NOBODY
+  aboutPrivacy      String            @default("EVERYONE") // EVERYONE, MY_CONTACTS, EXCEPT, NOBODY
+  readReceipts      Boolean           @default(true)
   disappearingTimer String           @default("OFF") // OFF, 24H, 7D, 90D
   statusPrivacyType String           @default("MY_CONTACTS") // MY_CONTACTS, EXCEPT, ONLY_SHARE
   statusPrivacyList String           @default("[]") // JSON string list of user IDs for Except/Only_Share
+  avatarPrivacyExceptList String      @default("[]") // JSON string list of user IDs
+  lastSeenPrivacyExceptList String    @default("[]") // JSON string list of user IDs
+  aboutPrivacyExceptList String       @default("[]") // JSON string list of user IDs
   // Relations
   messages         Message[]
   participants     Participant[]
@@ -280,7 +285,7 @@ model Contact {
   isFavorite      Boolean  @default(false)
   isBlocked       Boolean  @default(false)
   createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  updatedAt       DateTime @default(now()) @updatedAt
 
   user    User @relation("UserContacts", fields: [userId], references: [id], onDelete: Cascade)
   contact User @relation("SavedByContacts", fields: [contactId], references: [id], onDelete: Cascade)

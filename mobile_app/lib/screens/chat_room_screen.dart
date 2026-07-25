@@ -628,6 +628,73 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     }
   }
 
+  void _confirmClearChat() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.surfaceColor,
+        title: Text('Clear Chat', style: TextStyle(color: AppTheme.textPrimary)),
+        content: Text('Are you sure you want to clear all messages in this chat?', style: TextStyle(color: AppTheme.textSecondary)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final success = await _chatService.clearChat(widget.conversationId);
+              if (mounted) {
+                if (success) {
+                  setState(() => _messages.clear());
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Chat cleared')));
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to clear chat')));
+                }
+              }
+            },
+            child: const Text('Clear', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmBlockUser() {
+    if (widget.remoteUserId == null) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.surfaceColor,
+        title: Text('Block ${widget.chatName}?', style: TextStyle(color: AppTheme.textPrimary)),
+        content: Text('Blocked contacts will no longer be able to call you or send you messages.', style: TextStyle(color: AppTheme.textSecondary)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final success = await ApiService().blockUser(widget.remoteUserId!);
+              if (mounted) {
+                if (success) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${widget.chatName} blocked')));
+                  Navigator.pop(context);
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to block user')));
+                }
+              }
+            },
+            child: const Text('Block', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final currentUser = Provider.of<AuthProvider>(context).user;
@@ -788,7 +855,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               actions: [
                 if (widget.remoteUserId != null) ...[
                   IconButton(
-                    icon: const Icon(Icons.videocam, color: Colors.white),
+                    icon: Icon(Icons.videocam, color: AppTheme.textPrimary),
                     onPressed: () {
                       Navigator.push(
                         context,
@@ -806,7 +873,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     },
                   ),
                   IconButton(
-                    icon: const Icon(Icons.call, color: Colors.white),
+                    icon: Icon(Icons.call, color: AppTheme.textPrimary),
                     onPressed: () {
                       Navigator.push(
                         context,
@@ -825,7 +892,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                   ),
                 ],
                 PopupMenuButton<String>(
-                  icon: const Icon(Icons.more_vert, color: Colors.white),
+                  icon: Icon(Icons.more_vert, color: AppTheme.textPrimary),
                   onSelected: (value) {
                     if (value == 'view_contact' && widget.remoteUserId != null) {
                       final userMap = widget.remoteUser ?? {
@@ -837,6 +904,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                         context,
                         MaterialPageRoute(builder: (_) => OtherUserProfileScreen(user: userMap)),
                       );
+                    } else if (value == 'clear_chat') {
+                      _confirmClearChat();
+                    } else if (value == 'block_user') {
+                      _confirmBlockUser();
                     } else if (value == 'mute') {
                       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Mute options coming soon')));
                     } else if (value == 'disappearing') {
@@ -848,6 +919,15 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                       const PopupMenuItem(
                         value: 'view_contact',
                         child: Text('View Contact'),
+                      ),
+                    const PopupMenuItem(
+                      value: 'clear_chat',
+                      child: Text('Clear Chat'),
+                    ),
+                    if (widget.remoteUserId != null)
+                      const PopupMenuItem(
+                        value: 'block_user',
+                        child: Text('Block User', style: TextStyle(color: Colors.red)),
                       ),
                     const PopupMenuItem(
                       value: 'mute',

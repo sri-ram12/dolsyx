@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:audioplayers/audioplayers.dart';
 import '../theme/app_theme.dart';
+import '../services/sound_service.dart';
 
 class NotificationSettingsScreen extends StatefulWidget {
   const NotificationSettingsScreen({super.key});
@@ -71,15 +72,9 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
     await prefs.setString(key, value);
   }
 
-  Future<void> _playSoundPreview(String toneName) async {
+  Future<void> _playSoundPreview(String toneName, bool isCallRingtone) async {
     try {
-      await _audioPlayer.stop();
-      if (_customDeviceTonePath != null && toneName.contains('Custom')) {
-        await _audioPlayer.play(DeviceFileSource(_customDeviceTonePath!));
-      } else {
-        // Play built-in sound preview
-        await _audioPlayer.play(UrlSource('https://actions.google.com/sounds/v1/notifications/positive_notification.ogg'));
-      }
+      await SoundService().playPreviewTone(toneName, isCallRingtone);
     } catch (e) {
       print('Error playing preview: $e');
     }
@@ -196,7 +191,7 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
             leading: Icon(Icons.music_note, color: AppTheme.primaryColor),
             trailing: IconButton(
               icon: Icon(Icons.volume_up, color: AppTheme.primaryColor),
-              onPressed: () => _playSoundPreview(_messageTone),
+              onPressed: () => _playSoundPreview(_messageTone, false),
             ),
             onTap: () {
               _showPicker('Select Notification Tone', _messageTone, _messageTones, false, (val) {
@@ -223,7 +218,7 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
             leading: Icon(Icons.ring_volume, color: AppTheme.primaryColor),
             trailing: IconButton(
               icon: Icon(Icons.volume_up, color: AppTheme.primaryColor),
-              onPressed: () => _playSoundPreview(_callRingtone),
+              onPressed: () => _playSoundPreview(_callRingtone, true),
             ),
             onTap: () {
               _showPicker('Select Call Ringtone', _callRingtone, _callRingtones, true, (val) {

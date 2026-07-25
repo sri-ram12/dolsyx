@@ -4,6 +4,7 @@ import 'screens/login_screen.dart';
 import 'package:provider/provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/theme_provider.dart';
+import 'providers/wallpaper_provider.dart';
 import 'widgets/app_lock_wrapper.dart';
 import 'screens/call_screen.dart';
 import 'services/sound_service.dart';
@@ -14,6 +15,7 @@ void main() {
       providers: [
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
+        ChangeNotifierProvider(create: (_) => WallpaperProvider()),
       ],
       child: const GlobalAppLockWrapper(child: DolsyxApp()),
     ),

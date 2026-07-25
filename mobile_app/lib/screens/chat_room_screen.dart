@@ -15,6 +15,7 @@ import '../services/socket_service.dart';
 import '../services/chat_service.dart';
 import '../services/api_service.dart';
 import '../providers/auth_provider.dart';
+import '../providers/wallpaper_provider.dart';
 import '../services/socket_service.dart';
 import '../models/chat.dart';
 import '../theme/app_theme.dart';
@@ -23,6 +24,7 @@ import 'other_user_profile_screen.dart';
 import '../widgets/color_avatar.dart';
 import '../widgets/full_screen_image_view.dart';
 import 'call_screen.dart';
+import 'wallpaper_settings_screen.dart';
 
 class ChatRoomScreen extends StatefulWidget {
   final String conversationId;
@@ -807,9 +809,42 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     );
   }
 
+  Color _fromHex(String hexString) {
+    final buffer = StringBuffer();
+    if (hexString.length == 6 || hexString.length == 7) buffer.write('ff');
+    buffer.write(hexString.replaceFirst('#', ''));
+    return Color(int.parse(buffer.toString(), radix: 16));
+  }
+
   @override
   Widget build(BuildContext context) {
     final currentUser = Provider.of<AuthProvider>(context).user;
+    final wallpaperConfig = Provider.of<WallpaperProvider>(context).getWallpaperForChat(widget.conversationId);
+    
+    BoxDecoration? wallpaperDecoration;
+    if (wallpaperConfig.type == WallpaperType.solidColor && wallpaperConfig.value != null) {
+      wallpaperDecoration = BoxDecoration(
+        color: _fromHex(wallpaperConfig.value!),
+      );
+    } else if (wallpaperConfig.type == WallpaperType.pattern && wallpaperConfig.value != null) {
+      wallpaperDecoration = BoxDecoration(
+        gradient: LinearGradient(
+          colors: wallpaperConfig.value!.split(',').map((c) => _fromHex(c)).toList(),
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      );
+    } else if (wallpaperConfig.type == WallpaperType.customFile && wallpaperConfig.value != null) {
+      wallpaperDecoration = BoxDecoration(
+        image: DecorationImage(
+          image: FileImage(File(wallpaperConfig.value!)),
+          fit: BoxFit.cover,
+          colorFilter: wallpaperConfig.opacity < 1.0 
+              ? ColorFilter.mode(Colors.black.withOpacity(1.0 - wallpaperConfig.opacity), BlendMode.dstATop)
+              : null,
+        ),
+      );
+    }
 
     return Scaffold(
       appBar: _selectedMessageIds.isNotEmpty
@@ -1076,6 +1111,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Mute options coming soon')));
                     } else if (value == 'disappearing') {
                       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Disappearing messages options coming soon')));
+                    } else if (value == 'wallpaper') {
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => WallpaperSettingsScreen(conversationId: widget.conversationId)));
                     }
                   },
                   itemBuilder: (context) => [
@@ -1101,11 +1138,23 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                       value: 'disappearing',
                       child: Text('Disappearing Messages'),
                     ),
+                    const PopupMenuItem(
+                      value: 'wallpaper',
+                      child: Row(
+                        children: [
+                          Icon(Icons.wallpaper, size: 18),
+                          SizedBox(width: 8),
+                          Text('Set Wallpaper'),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
               ],
             ),
-      body: Column(
+      body: Container(
+        decoration: wallpaperDecoration,
+        child: Column(
         children: [
           if (!_isContact && widget.remoteUserId != null)
             Container(
@@ -1352,6 +1401,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               ),
             ),
         ],
+        ),
       ),
     );
   }

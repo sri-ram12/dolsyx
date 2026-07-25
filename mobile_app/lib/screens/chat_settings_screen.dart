@@ -4,6 +4,7 @@ import '../theme/app_theme.dart';
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
 import 'theme_settings_screen.dart';
+import 'wallpaper_settings_screen.dart';
 
 class ChatSettingsScreen extends StatefulWidget {
   const ChatSettingsScreen({super.key});
@@ -49,7 +50,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             onTap: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => const ThemeSettingsScreen()),
+                MaterialPageRoute(builder: (_) => const WallpaperSettingsScreen()),
               );
             },
           ),

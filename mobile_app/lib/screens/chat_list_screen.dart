@@ -94,10 +94,12 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
 
   Future<void> _fetchChats() async {
     final chats = await _chatService.getChats();
-    setState(() {
-      _chats = chats;
-      _isLoading = false;
-    });
+    if (mounted) {
+      setState(() {
+        _chats = chats;
+        _isLoading = false;
+      });
+    }
   }
 
   String _getChatName(Chat chat) {

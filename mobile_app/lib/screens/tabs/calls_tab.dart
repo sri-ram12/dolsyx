@@ -194,19 +194,15 @@ class _CallsTabState extends State<CallsTab> {
                   ],
                 ),
                 trailing: _selectedCallIds.isEmpty
-                    ? Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            icon: Icon(Icons.call, color: AppTheme.primaryColor),
-                            onPressed: () => _startCall(otherUser, true, log['conversationId']),
-                          ),
-                          IconButton(
+                    ? (isVideo
+                        ? IconButton(
                             icon: Icon(Icons.videocam, color: AppTheme.primaryColor),
                             onPressed: () => _startCall(otherUser, false, log['conversationId']),
-                          ),
-                        ],
-                      )
+                          )
+                        : IconButton(
+                            icon: Icon(Icons.call, color: AppTheme.primaryColor),
+                            onPressed: () => _startCall(otherUser, true, log['conversationId']),
+                          ))
                     : null,
               ),
             );

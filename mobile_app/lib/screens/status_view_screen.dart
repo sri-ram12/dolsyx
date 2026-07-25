@@ -394,6 +394,20 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
                           ),
                           const SizedBox(width: 8),
                           Text(username, style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                          const Spacer(),
+                          if (isMine)
+                            IconButton(
+                              icon: const Icon(Icons.delete, color: Colors.white, shadows: [Shadow(color: Colors.black, blurRadius: 4)]),
+                              onPressed: () async {
+                                _videoController?.pause();
+                                final success = await _statusService.deleteStatus(status.id);
+                                if (success && mounted) {
+                                  Navigator.pop(context);
+                                } else {
+                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to delete status')));
+                                }
+                              },
+                            ),
                         ],
                       ),
                     ],

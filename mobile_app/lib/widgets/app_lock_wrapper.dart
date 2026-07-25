@@ -47,6 +47,8 @@ class _GlobalAppLockWrapperState extends State<GlobalAppLockWrapper> with Widget
     if (state == AppLifecycleState.paused) {
       _pausedTime = DateTime.now();
     } else if (state == AppLifecycleState.resumed) {
+      if (_isLocked) return; // Prevent re-triggering authentication if already locked
+
       if (_pausedTime != null) {
         final prefs = await SharedPreferences.getInstance();
         final isEnabled = prefs.getBool('app_lock_enabled') ?? false;
@@ -88,7 +90,7 @@ class _GlobalAppLockWrapperState extends State<GlobalAppLockWrapper> with Widget
       final authenticated = await _localAuth.authenticate(
         localizedReason: 'Please authenticate to access DOLSYX',
         biometricOnly: true,
-        options: const AuthenticationOptions(stickyAuth: true),
+        persistAcrossBackgrounding: true,
       );
 
       if (authenticated) {

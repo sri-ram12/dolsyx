@@ -176,13 +176,7 @@ export const initChatSocket = (io: Server) => {
           const roomSockets = io.sockets.adapter.rooms.get(conversationId);
           const userSockets = onlineUsers.get(participant.userId);
           
-          let status = "SENT";
-          if (userSockets && roomSockets) {
-            const isViewing = Array.from(userSockets).some(sid => roomSockets.has(sid));
-            status = isViewing ? "READ" : "DELIVERED";
-          } else if (onlineUsers.has(participant.userId)) {
-            status = "DELIVERED";
-          }
+          let status = onlineUsers.has(participant.userId) ? "DELIVERED" : "SENT";
 
           const receipt = await prisma.messageReceipt.create({
             data: {

@@ -38,7 +38,7 @@ class MyQrScreen extends StatelessWidget {
               const Text('Scan to chat', style: TextStyle(color: Colors.grey)),
               const SizedBox(height: 24),
               QrImageView(
-                data: 'dolsyx://user/$userId',
+                data: '{"id":"$userId","username":"$username","email":"${user['email'] ?? ''}","avatarUrl":"${user['avatarUrl'] ?? ''}"}',
                 version: QrVersions.auto,
                 size: 200.0,
                 backgroundColor: Colors.white,

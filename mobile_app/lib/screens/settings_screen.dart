@@ -4,6 +4,7 @@ import 'profile_screen.dart';
 import 'privacy_settings_screen.dart';
 import 'app_lock_screen.dart';
 import 'chat_settings_screen.dart';
+import 'notification_settings_screen.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 
@@ -41,6 +42,9 @@ class SettingsScreen extends StatelessWidget {
               },
             ),
             const Divider(color: Colors.grey, height: 1),
+            _buildSettingItem(context, Icons.notifications, 'Notification Tones & Call Ringtones', 'Message sounds, caller tones, custom device tones', () {
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationSettingsScreen()));
+            }),
             _buildSettingItem(context, Icons.key, 'Account', 'Security notifications, change number', () {}),
             _buildSettingItem(context, Icons.lock, 'Privacy', 'Block contacts, disappearing messages', () {
               Navigator.push(context, MaterialPageRoute(builder: (_) => const PrivacySettingsScreen()));
@@ -48,7 +52,6 @@ class SettingsScreen extends StatelessWidget {
             _buildSettingItem(context, Icons.chat, 'Chats', 'Theme, wallpapers, chat history', () {
               Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatSettingsScreen()));
             }),
-            _buildSettingItem(context, Icons.notifications, 'Notifications', 'Message, group & call tones', () {}),
             _buildSettingItem(context, Icons.data_usage, 'Storage and data', 'Network usage, auto-download', () {}),
             _buildSettingItem(context, Icons.fingerprint, 'App Lock', 'Require biometric or PIN', () {
               Navigator.push(context, MaterialPageRoute(builder: (_) => const AppLockScreen()));

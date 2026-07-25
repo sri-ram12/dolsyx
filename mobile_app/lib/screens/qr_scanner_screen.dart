@@ -44,23 +44,34 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
       String scannedUserId = barcodes.first.rawValue!.trim();
       print("SCANNED RAW VALUE: $scannedUserId");
 
+      Map<String, dynamic>? inlineUser;
       if (scannedUserId.startsWith('dolsyx://user/')) {
         scannedUserId = scannedUserId.replaceFirst('dolsyx://user/', '');
-      } else {
-        // Sometimes QR codes store JSON strings. Let's try parsing it just in case.
-        try {
-          final Map<String, dynamic> parsed = jsonDecode(scannedUserId);
-          if (parsed.containsKey('id')) scannedUserId = parsed['id'];
-          else if (parsed.containsKey('_id')) scannedUserId = parsed['_id'];
-          else if (parsed.containsKey('userId')) scannedUserId = parsed['userId'];
-        } catch (e) {
-          // Not a JSON string, assume it's the raw ID
+      }
+
+      try {
+        final Map<String, dynamic> parsed = jsonDecode(scannedUserId);
+        if (parsed.containsKey('id')) scannedUserId = parsed['id'];
+        else if (parsed.containsKey('_id')) scannedUserId = parsed['_id'];
+        else if (parsed.containsKey('userId')) scannedUserId = parsed['userId'];
+
+        if (parsed.containsKey('username')) {
+          inlineUser = parsed;
         }
+      } catch (e) {
+        // Not a JSON string, assume raw ID
       }
       
       print("SCANNED EXTRACTED ID: $scannedUserId");
 
       setState(() => _isProcessing = true);
+
+      // If user details are embedded in QR code, show dialog INSTANTLY without waiting for API!
+      if (inlineUser != null && mounted) {
+        setState(() => _isProcessing = false);
+        _showUserDialog(inlineUser, scannedUserId);
+        return;
+      }
       
       try {
         final targetUser = await ApiService().getUserById(scannedUserId);

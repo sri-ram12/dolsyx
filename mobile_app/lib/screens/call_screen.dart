@@ -412,12 +412,16 @@ class _CallScreenState extends State<CallScreen> {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    if (widget.remoteAvatarUrl != null)
+                    if (widget.remoteAvatarUrl != null && widget.remoteAvatarUrl!.trim().isNotEmpty)
                       CircleAvatar(
                         radius: 60,
+                        backgroundColor: AppTheme.surfaceColor,
                         backgroundImage: widget.remoteAvatarUrl!.startsWith('http')
                             ? NetworkImage(widget.remoteAvatarUrl!)
                             : NetworkImage('https://dolsyx-app.onrender.com${widget.remoteAvatarUrl!}'),
+                        onBackgroundImageError: (exception, stackTrace) {
+                          print("Call avatar load error: $exception");
+                        },
                       )
                     else
                       ColorAvatar(name: widget.remoteUserName, radius: 60, fontSize: 40),

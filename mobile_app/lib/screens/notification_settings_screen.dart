@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:audioplayers/audioplayers.dart';
 import '../theme/app_theme.dart';
 
 class NotificationSettingsScreen extends StatefulWidget {
@@ -15,13 +17,16 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
   String _messageTone = 'Default (Chime)';
   String _callRingtone = 'Default (DOLSYX Bell)';
   bool _highPriorityNotifications = true;
+  String? _customDeviceTonePath;
+  
+  final AudioPlayer _audioPlayer = AudioPlayer();
 
   final List<String> _messageTones = [
     'Default (Chime)',
     'Pop',
     'Whistle',
     'Gentle Drop',
-    'Device System Tone (Default)',
+    'Custom Tone from Device Storage...',
   ];
 
   final List<String> _callRingtones = [
@@ -29,13 +34,19 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
     'Classic Telephone',
     'Digital Pulse',
     'Marimba Melody',
-    'Device Custom Ringtone',
+    'Custom Ringtone from Device Storage...',
   ];
 
   @override
   void initState() {
     super.initState();
     _loadPreferences();
+  }
+
+  @override
+  void dispose() {
+    _audioPlayer.dispose();
+    super.dispose();
   }
 
   Future<void> _loadPreferences() async {
@@ -46,6 +57,7 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
       _messageTone = prefs.getString('notif_message_tone') ?? 'Default (Chime)';
       _callRingtone = prefs.getString('notif_call_ringtone') ?? 'Default (DOLSYX Bell)';
       _highPriorityNotifications = prefs.getBool('notif_high_priority') ?? true;
+      _customDeviceTonePath = prefs.getString('notif_custom_device_path');
     });
   }
 
@@ -59,7 +71,65 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
     await prefs.setString(key, value);
   }
 
-  void _showPicker(String title, String current, List<String> options, Function(String) onSelect) {
+  Future<void> _playSoundPreview(String toneName) async {
+    try {
+      await _audioPlayer.stop();
+      if (_customDeviceTonePath != null && toneName.contains('Custom')) {
+        await _audioPlayer.play(DeviceFileSource(_customDeviceTonePath!));
+      } else {
+        // Play built-in sound preview
+        await _audioPlayer.play(UrlSource('https://actions.google.com/sounds/v1/notifications/positive_notification.ogg'));
+      }
+    } catch (e) {
+      print('Error playing preview: $e');
+    }
+  }
+
+  Future<void> _pickCustomAudioFile(bool isCallRingtone) async {
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.audio,
+        allowMultiple: false,
+      );
+
+      if (result != null && result.files.single.path != null) {
+        final filePath = result.files.single.path!;
+        final fileName = result.files.single.name;
+
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('notif_custom_device_path', filePath);
+
+        final label = 'Custom ($fileName)';
+        if (isCallRingtone) {
+          setState(() {
+            _callRingtone = label;
+            _customDeviceTonePath = filePath;
+          });
+          await _saveString('notif_call_ringtone', label);
+        } else {
+          setState(() {
+            _messageTone = label;
+            _customDeviceTonePath = filePath;
+          });
+          await _saveString('notif_message_tone', label);
+        }
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Set custom tone: $fileName')),
+        );
+
+        // Play preview of selected file
+        await _audioPlayer.stop();
+        await _audioPlayer.play(DeviceFileSource(filePath));
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not load audio file: $e')),
+      );
+    }
+  }
+
+  void _showPicker(String title, String current, List<String> options, bool isCallRingtone, Function(String) onSelect) {
     showModalBottomSheet(
       context: context,
       backgroundColor: AppTheme.surfaceColor,
@@ -77,10 +147,19 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
             const Divider(height: 1),
             ...options.map((opt) => ListTile(
                   title: Text(opt, style: TextStyle(color: AppTheme.textPrimary)),
+                  leading: Icon(
+                    opt.contains('Custom') ? Icons.folder_open : Icons.music_note,
+                    color: AppTheme.primaryColor,
+                  ),
                   trailing: opt == current ? Icon(Icons.check_circle, color: AppTheme.primaryColor) : null,
-                  onTap: () {
-                    onSelect(opt);
+                  onTap: () async {
                     Navigator.pop(context);
+                    if (opt.contains('Custom')) {
+                      await _pickCustomAudioFile(isCallRingtone);
+                    } else {
+                      onSelect(opt);
+                      await _playSoundPreview(opt);
+                    }
                   },
                 )),
             const SizedBox(height: 20),
@@ -115,8 +194,12 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
             title: Text('Notification Tone', style: TextStyle(color: AppTheme.textPrimary)),
             subtitle: Text(_messageTone, style: TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
             leading: Icon(Icons.music_note, color: AppTheme.primaryColor),
+            trailing: IconButton(
+              icon: Icon(Icons.volume_up, color: AppTheme.primaryColor),
+              onPressed: () => _playSoundPreview(_messageTone),
+            ),
             onTap: () {
-              _showPicker('Select Notification Tone', _messageTone, _messageTones, (val) {
+              _showPicker('Select Notification Tone', _messageTone, _messageTones, false, (val) {
                 setState(() => _messageTone = val);
                 _saveString('notif_message_tone', val);
               });
@@ -138,22 +221,22 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
             title: Text('Caller Ringtone', style: TextStyle(color: AppTheme.textPrimary)),
             subtitle: Text(_callRingtone, style: TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
             leading: Icon(Icons.ring_volume, color: AppTheme.primaryColor),
+            trailing: IconButton(
+              icon: Icon(Icons.volume_up, color: AppTheme.primaryColor),
+              onPressed: () => _playSoundPreview(_callRingtone),
+            ),
             onTap: () {
-              _showPicker('Select Call Ringtone', _callRingtone, _callRingtones, (val) {
+              _showPicker('Select Call Ringtone', _callRingtone, _callRingtones, true, (val) {
                 setState(() => _callRingtone = val);
                 _saveString('notif_call_ringtone', val);
               });
             },
           ),
           ListTile(
-            title: Text('Custom Tone Access', style: TextStyle(color: AppTheme.textPrimary)),
-            subtitle: Text('Allow DOLSYX to access custom tones on device storage', style: TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
-            leading: Icon(Icons.sd_storage, color: AppTheme.primaryColor),
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Device tone access granted')),
-              );
-            },
+            title: Text('Select Custom Tone from Device Storage', style: TextStyle(color: AppTheme.textPrimary)),
+            subtitle: Text(_customDeviceTonePath != null ? 'Selected: ${_customDeviceTonePath!.split('/').last}' : 'Pick any MP3 or WAV audio file from phone', style: TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
+            leading: Icon(Icons.folder_open, color: AppTheme.primaryColor),
+            onTap: () => _pickCustomAudioFile(true),
           ),
           const Divider(height: 1),
           _buildSectionHeader('Priority'),

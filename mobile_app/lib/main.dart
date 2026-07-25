@@ -58,7 +58,7 @@ class _DolsyxAppState extends State<DolsyxApp> {
     final bool isAudioOnly = callTypeStr == 'audio';
     final String callerId = data['callerId'] ?? '';
     final String callerName = data['callerName'] ?? 'Incoming Call';
-    final String? callerAvatarUrl = data['callerAvatarUrl'];
+    final String? callerAvatarUrl = data['callerAvatarUrl'] ?? data['callerAvatar'];
     
     // WebRTC offer from caller
     final Map<String, dynamic>? initialOffer = data['offer'];

@@ -519,6 +519,7 @@ export const initChatSocket = (io: Server) => {
         callerId: userId,
         callerName: data.callerName || username,
         callerAvatar: data.callerAvatar || null,
+        callerAvatarUrl: data.callerAvatar || null,
         offer: data.offer,
         callType: data.callType,
         conversationId: data.conversationId,

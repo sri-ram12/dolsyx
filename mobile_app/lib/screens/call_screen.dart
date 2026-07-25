@@ -40,6 +40,7 @@ class _CallScreenState extends State<CallScreen> {
   bool _isVideoOff = false;
   bool _hardwareFailed = false;
   bool _callActive = false;
+  bool _isSpeakerOn = false;
   String _status = 'Connecting...';
   
   // Call Timer
@@ -64,6 +65,8 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Future<void> _initRenderers() async {
+    _isSpeakerOn = !widget.isAudioOnly;
+    Helper.setSpeakerphoneOn(_isSpeakerOn);
     await _localRenderer.initialize();
     await _remoteRenderer.initialize();
     _setupSocketListeners();
@@ -186,6 +189,7 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Future<void> _acceptCall() async {
+    SoundService().stopRingtone();
     setState(() => _status = 'Connecting...');
     final socket = Provider.of<AuthProvider>(context, listen: false).socketService.socket;
     if (socket == null) return;
@@ -327,6 +331,13 @@ class _CallScreenState extends State<CallScreen> {
       await Helper.switchCamera(videoTracks[0]);
       // Local renderer automatically reflects the flip
     }
+  }
+
+  void _toggleSpeaker() {
+    setState(() {
+      _isSpeakerOn = !_isSpeakerOn;
+      Helper.setSpeakerphoneOn(_isSpeakerOn);
+    });
   }
 
   void _endCall() {
@@ -499,6 +510,7 @@ class _CallScreenState extends State<CallScreen> {
                   if (_callActive || !widget.isIncoming)
                     FloatingActionButton(
                       heroTag: 'mute',
+                      mini: true,
                       backgroundColor: _isMuted ? Colors.white : Colors.white24,
                       onPressed: _toggleMute,
                       child: Icon(
@@ -506,9 +518,21 @@ class _CallScreenState extends State<CallScreen> {
                         color: _isMuted ? Colors.black : Colors.white,
                       ),
                     ),
+                  if (_callActive || !widget.isIncoming)
+                    FloatingActionButton(
+                      heroTag: 'speaker',
+                      mini: true,
+                      backgroundColor: _isSpeakerOn ? Colors.white : Colors.white24,
+                      onPressed: _toggleSpeaker,
+                      child: Icon(
+                        _isSpeakerOn ? Icons.volume_up : Icons.volume_down,
+                        color: _isSpeakerOn ? Colors.black : Colors.white,
+                      ),
+                    ),
                   if (!widget.isAudioOnly && (_callActive || !widget.isIncoming))
                     FloatingActionButton(
                       heroTag: 'switch_cam',
+                      mini: true,
                       backgroundColor: Colors.white24,
                       onPressed: _switchCamera,
                       child: const Icon(Icons.flip_camera_ios, color: Colors.white),
@@ -516,6 +540,7 @@ class _CallScreenState extends State<CallScreen> {
                   if (!widget.isAudioOnly && (_callActive || !widget.isIncoming))
                     FloatingActionButton(
                       heroTag: 'video',
+                      mini: true,
                       backgroundColor: _isVideoOff ? Colors.white : Colors.white24,
                       onPressed: _toggleVideo,
                       child: Icon(

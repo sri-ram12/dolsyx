@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-import 'dart:math' as math;
 import 'package:audioplayers/audioplayers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -11,123 +9,6 @@ class SoundService {
   final AudioPlayer _notificationPlayer = AudioPlayer();
   final AudioPlayer _ringtonePlayer = AudioPlayer();
   bool _isRingtonePlaying = false;
-
-  /// Generates a 0.25s 16kHz PCM WAV chime audio buffer in memory (100% offline)
-  Uint8List _generateChimeWav(String toneName) {
-    const sampleRate = 16000;
-    const numSamples = (sampleRate * 0.25);
-    final int samplesCount = numSamples.toInt();
-    final buffer = ByteData(44 + samplesCount * 2);
-
-    buffer.setUint32(0, 0x52494646, Endian.big);
-    buffer.setUint32(4, 36 + samplesCount * 2, Endian.little);
-    buffer.setUint32(8, 0x57415645, Endian.big);
-    buffer.setUint32(12, 0x666d7420, Endian.big);
-    buffer.setUint32(16, 16, Endian.little);
-    buffer.setUint16(20, 1, Endian.little);
-    buffer.setUint16(22, 1, Endian.little);
-    buffer.setUint32(24, sampleRate, Endian.little);
-    buffer.setUint32(28, sampleRate * 2, Endian.little);
-    buffer.setUint16(32, 2, Endian.little);
-    buffer.setUint16(34, 16, Endian.little);
-    buffer.setUint32(36, 0x64617461, Endian.big);
-    buffer.setUint32(40, samplesCount * 2, Endian.little);
-
-    double baseFreq = 880.0;
-    double slideFreq = 440.0;
-    if (toneName.contains('Whistle')) {
-      baseFreq = 1200.0; slideFreq = 800.0;
-    } else if (toneName.contains('Bell')) {
-      baseFreq = 660.0; slideFreq = 0.0;
-    } else if (toneName.contains('Digital')) {
-      baseFreq = 1000.0; slideFreq = -500.0;
-    }
-
-    for (int i = 0; i < samplesCount; i++) {
-      double t = i / sampleRate;
-      double freq = baseFreq + (i / samplesCount) * slideFreq;
-      double amplitude = (1.0 - i / samplesCount);
-      double sample = math.sin(2 * math.pi * freq * t) * amplitude;
-      int intSample = (sample * 28000).clamp(-32768, 32767).toInt();
-      buffer.setInt16(44 + i * 2, intSample, Endian.little);
-    }
-    return buffer.buffer.asUint8List();
-  }
-
-  /// Generates a 1.2s 16kHz PCM WAV dual-tone call ringtone buffer in memory (100% offline)
-  Uint8List _generateRingtoneWav(String toneName) {
-    const sampleRate = 16000;
-    const numSamples = (sampleRate * 1.2);
-    final int samplesCount = numSamples.toInt();
-    final buffer = ByteData(44 + samplesCount * 2);
-
-    buffer.setUint32(0, 0x52494646, Endian.big);
-    buffer.setUint32(4, 36 + samplesCount * 2, Endian.little);
-    buffer.setUint32(8, 0x57415645, Endian.big);
-    buffer.setUint32(12, 0x666d7420, Endian.big);
-    buffer.setUint32(16, 16, Endian.little);
-    buffer.setUint16(20, 1, Endian.little);
-    buffer.setUint16(22, 1, Endian.little);
-    buffer.setUint32(24, sampleRate, Endian.little);
-    buffer.setUint32(28, sampleRate * 2, Endian.little);
-    buffer.setUint16(32, 2, Endian.little);
-    buffer.setUint16(34, 16, Endian.little);
-    buffer.setUint32(36, 0x64617461, Endian.big);
-    buffer.setUint32(40, samplesCount * 2, Endian.little);
-
-    double freq1 = 440.0;
-    double freq2 = 480.0;
-    if (toneName.contains('Digital')) {
-      freq1 = 800.0; freq2 = 850.0;
-    } else if (toneName.contains('Classic')) {
-      freq1 = 500.0; freq2 = 600.0;
-    } else if (toneName.contains('Pulse')) {
-      freq1 = 600.0; freq2 = 600.0;
-    }
-
-    for (int i = 0; i < samplesCount; i++) {
-      double t = i / sampleRate;
-      double cycle = (t % 0.6);
-      double envelope = (cycle < 0.4) ? 1.0 : 0.0;
-      double sample = (math.sin(2 * math.pi * freq1 * t) + math.sin(2 * math.pi * freq2 * t)) * 0.5 * envelope;
-      int intSample = (sample * 26000).clamp(-32768, 32767).toInt();
-      buffer.setInt16(44 + i * 2, intSample, Endian.little);
-    }
-    return buffer.buffer.asUint8List();
-  }
-
-  /// Generates a 3s 16kHz PCM WAV Ringback tone (tir... tir...) for outgoing calls
-  Uint8List _generateRingbackWav() {
-    const sampleRate = 16000;
-    const numSamples = (sampleRate * 3.0);
-    final int samplesCount = numSamples.toInt();
-    final buffer = ByteData(44 + samplesCount * 2);
-
-    buffer.setUint32(0, 0x52494646, Endian.big);
-    buffer.setUint32(4, 36 + samplesCount * 2, Endian.little);
-    buffer.setUint32(8, 0x57415645, Endian.big);
-    buffer.setUint32(12, 0x666d7420, Endian.big);
-    buffer.setUint32(16, 16, Endian.little);
-    buffer.setUint16(20, 1, Endian.little);
-    buffer.setUint16(22, 1, Endian.little);
-    buffer.setUint32(24, sampleRate, Endian.little);
-    buffer.setUint32(28, sampleRate * 2, Endian.little);
-    buffer.setUint16(32, 2, Endian.little);
-    buffer.setUint16(34, 16, Endian.little);
-    buffer.setUint32(36, 0x64617461, Endian.big);
-    buffer.setUint32(40, samplesCount * 2, Endian.little);
-
-    for (int i = 0; i < samplesCount; i++) {
-      double t = i / sampleRate;
-      // Ringback pattern: 1 sec on, 2 sec off (tir... tir...)
-      double cycle = (t % 3.0);
-      double envelope = (cycle < 1.0) ? 1.0 : 0.0;
-      double sample = (math.sin(2 * math.pi * 425.0 * t) + math.sin(2 * math.pi * 480.0 * t)) * 0.5 * envelope;
-      int intSample = (sample * 24000).clamp(-32768, 32767).toInt();
-      buffer.setInt16(44 + i * 2, intSample, Endian.little);
-    }
-    return buffer.buffer.asUint8List();
-  }
 
   Future<void> _setNotificationAudioContext() async {
     try {
@@ -164,18 +45,9 @@ class SoundService {
       if (!tonesEnabled) return;
 
       await _setNotificationAudioContext();
-
-      final customPath = prefs.getString('notif_custom_device_path');
-      final toneName = prefs.getString('notif_message_tone') ?? 'Default (Chime)';
-
       await _notificationPlayer.stop();
       await _notificationPlayer.setVolume(1.0);
-
-      if (customPath != null && customPath.isNotEmpty && toneName.contains('Custom')) {
-        await _notificationPlayer.play(DeviceFileSource(customPath));
-      } else {
-        await _notificationPlayer.play(BytesSource(_generateChimeWav(toneName)));
-      }
+      await _notificationPlayer.play(AssetSource('notificationsounds/notification_sound.mp3'));
     } catch (e) {
       print('SoundService notification error: $e');
     }
@@ -183,30 +55,17 @@ class SoundService {
 
   Future<void> playPreviewTone(String toneName, bool isCallRingtone) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final customPath = prefs.getString('notif_custom_device_path');
-
       if (isCallRingtone) {
         await _setRingtoneAudioContext();
         await _ringtonePlayer.stop();
         await _ringtonePlayer.setVolume(1.0);
         await _ringtonePlayer.setReleaseMode(ReleaseMode.stop);
-
-        if (customPath != null && customPath.isNotEmpty && toneName.contains('Custom')) {
-          await _ringtonePlayer.play(DeviceFileSource(customPath));
-        } else {
-          await _ringtonePlayer.play(BytesSource(_generateRingtoneWav(toneName)));
-        }
+        await _ringtonePlayer.play(AssetSource('ringtonesounds/universfield-ringtone-030-437513.mp3'));
       } else {
         await _setNotificationAudioContext();
         await _notificationPlayer.stop();
         await _notificationPlayer.setVolume(1.0);
-
-        if (customPath != null && customPath.isNotEmpty && toneName.contains('Custom')) {
-          await _notificationPlayer.play(DeviceFileSource(customPath));
-        } else {
-          await _notificationPlayer.play(BytesSource(_generateChimeWav(toneName)));
-        }
+        await _notificationPlayer.play(AssetSource('notificationsounds/notification_sound.mp3'));
       }
     } catch (e) {
       print('SoundService preview error: $e');
@@ -218,19 +77,9 @@ class SoundService {
     try {
       _isRingtonePlaying = true;
       await _setRingtoneAudioContext();
-
-      final prefs = await SharedPreferences.getInstance();
-      final customPath = prefs.getString('notif_custom_device_path');
-      final ringtoneName = prefs.getString('notif_call_ringtone') ?? 'Default (DOLSYX Bell)';
-
       await _ringtonePlayer.setReleaseMode(ReleaseMode.loop);
       await _ringtonePlayer.setVolume(1.0);
-
-      if (customPath != null && customPath.isNotEmpty && ringtoneName.contains('Custom')) {
-        await _ringtonePlayer.play(DeviceFileSource(customPath));
-      } else {
-        await _ringtonePlayer.play(BytesSource(_generateRingtoneWav(ringtoneName)));
-      }
+      await _ringtonePlayer.play(AssetSource('ringtonesounds/universfield-ringtone-030-437513.mp3'));
     } catch (e) {
       print('SoundService ringtone error: $e');
     }
@@ -241,12 +90,9 @@ class SoundService {
     try {
       _isRingtonePlaying = true;
       await _setRingtoneAudioContext();
-
       await _ringtonePlayer.setReleaseMode(ReleaseMode.loop);
       await _ringtonePlayer.setVolume(0.8);
-      
-      // Play outgoing caller tune ("tir tir")
-      await _ringtonePlayer.play(BytesSource(_generateRingbackWav()));
+      await _ringtonePlayer.play(AssetSource('ringtonesounds/universfield-ringtone-067-496273.mp3')); // Using another as ringback tone
     } catch (e) {
       print('SoundService ringback error: $e');
     }

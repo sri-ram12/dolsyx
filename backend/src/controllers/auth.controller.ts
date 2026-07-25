@@ -609,9 +609,9 @@ export const getBlockedUsers = async (req: AuthRequest, res: Response): Promise<
     const userId = req.user!.id;
     const blocks = await (prisma as any).userBlock.findMany({
       where: { blockerId: userId },
-      select: { blockedId: true },
+      include: { blocked: true },
     });
-    res.status(200).json({ blockedIds: blocks.map((b: any) => b.blockedId) });
+    res.status(200).json(blocks.map((b: any) => ({ blockedUser: b.blocked })));
   } catch (error) {
     console.error("GetBlockedUsers error:", error);
     res.status(500).json({ message: "Internal server error" });

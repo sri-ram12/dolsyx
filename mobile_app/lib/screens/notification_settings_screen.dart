@@ -153,7 +153,7 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
                       await _pickCustomAudioFile(isCallRingtone);
                     } else {
                       onSelect(opt);
-                      await _playSoundPreview(opt);
+                      await _playSoundPreview(opt, isCallRingtone);
                     }
                   },
                 )),

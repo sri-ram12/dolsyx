@@ -34,4 +34,18 @@ class Chat {
       isArchived: json['isArchived'] ?? false,
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'isGroup': isGroup,
+      'avatarUrl': avatarUrl,
+      'participants': participants,
+      'lastMessage': lastMessage,
+      'unreadCount': unreadCount,
+      'updatedAt': updatedAt?.toIso8601String(),
+      'isArchived': isArchived,
+    };
+  }
 }

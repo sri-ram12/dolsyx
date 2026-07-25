@@ -54,7 +54,8 @@ export const createStatus = async (req: AuthRequest, res: Response): Promise<voi
       // Apply privacy settings: My Contacts, My Contacts Except..., Only Share With...
       const me = await prisma.user.findUnique({ where: { id: userId }, select: { statusPrivacyType: true, statusPrivacyList: true } });
       const privacyType = me?.statusPrivacyType || "MY_CONTACTS";
-      const privacyList = me?.statusPrivacyList || [];
+      let privacyList: string[] = [];
+      try { privacyList = JSON.parse(me?.statusPrivacyList || "[]"); } catch (e) {}
 
       contacts.forEach((contact) => {
         let canSee = true;
@@ -133,10 +134,10 @@ export const getStatuses = async (req: AuthRequest, res: Response): Promise<void
     // Group by user
     const grouped: Record<string, any> = {};
     for (const s of statuses) {
-      // Respect privacy for others' statuses
       if (s.userId !== userId) {
         const pType = s.user.statusPrivacyType;
-        const pList = s.user.statusPrivacyList;
+        let pList: string[] = [];
+        try { pList = JSON.parse(s.user.statusPrivacyList); } catch (e) {}
         if (pType === "EXCEPT" && pList.includes(userId)) continue;
         if (pType === "ONLY_SHARE" && !pList.includes(userId)) continue;
       }

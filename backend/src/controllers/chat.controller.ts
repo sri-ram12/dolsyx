@@ -117,6 +117,7 @@ export const getChats = async (req: AuthRequest, res: Response): Promise<void> =
           updatedAt: chat.updatedAt,
           participants: chat.participants,
           unreadCount,
+          isArchived: chat.participants.find((p) => p.userId === userId)?.isArchived || false,
         };
       })
     );
@@ -174,6 +175,7 @@ export const getMessages = async (req: AuthRequest, res: Response): Promise<void
           },
         },
         receipts: true,
+        reactions: true,
       },
     });
 

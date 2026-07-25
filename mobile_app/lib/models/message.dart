@@ -6,10 +6,14 @@ class Message {
   final String? parentMessageId;
   final bool isEdited;
   final bool isDeleted;
+  final bool isForwarded;
   final String? mediaUrl;
   final String? mediaType;
   final List<dynamic>? receipts;
+  List<dynamic>? reactions;
   final DateTime createdAt;
+
+  final Map<String, dynamic>? parentMessage;
 
   Message({
     required this.id,
@@ -19,10 +23,13 @@ class Message {
     this.parentMessageId,
     this.isEdited = false,
     this.isDeleted = false,
+    this.isForwarded = false,
     this.mediaUrl,
     this.mediaType,
     this.receipts,
+    this.reactions,
     required this.createdAt,
+    this.parentMessage,
   });
 
   factory Message.fromJson(Map<String, dynamic> json) {
@@ -34,10 +41,32 @@ class Message {
       parentMessageId: json['parentMessageId'],
       isEdited: json['isEdited'] ?? false,
       isDeleted: json['isDeleted'] ?? false,
+      isForwarded: json['isForwarded'] ?? false,
       mediaUrl: json['mediaUrl'],
       mediaType: json['mediaType'],
       receipts: json['receipts'],
+      reactions: json['reactions'],
       createdAt: DateTime.parse(json['createdAt'] ?? DateTime.now().toIso8601String()),
+      parentMessage: json['parentMessage'],
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'content': content,
+      'senderId': senderId,
+      'conversationId': conversationId,
+      'parentMessageId': parentMessageId,
+      'isEdited': isEdited,
+      'isDeleted': isDeleted,
+      'isForwarded': isForwarded,
+      'mediaUrl': mediaUrl,
+      'mediaType': mediaType,
+      'receipts': receipts,
+      'reactions': reactions,
+      'createdAt': createdAt.toIso8601String(),
+      'parentMessage': parentMessage,
+    };
   }
 }

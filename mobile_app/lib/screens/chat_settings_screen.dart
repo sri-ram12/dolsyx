@@ -3,6 +3,7 @@ import '../theme/app_theme.dart';
 
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
+import 'theme_settings_screen.dart';
 
 class ChatSettingsScreen extends StatefulWidget {
   const ChatSettingsScreen({super.key});
@@ -33,40 +34,24 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
           ),
           ListTile(
             leading: Icon(Icons.brightness_medium, color: AppTheme.textSecondary),
-            title: Text('Theme', style: TextStyle(color: AppTheme.textPrimary)),
-            subtitle: Text(_selectedTheme, style: TextStyle(color: AppTheme.textSecondary)),
+            title: Text('Theme Engine', style: TextStyle(color: AppTheme.textPrimary)),
+            subtitle: Text(_selectedTheme.name, style: TextStyle(color: AppTheme.textSecondary)),
             onTap: () {
-              showDialog(
-                context: context,
-                builder: (context) {
-                  return AlertDialog(
-                    backgroundColor: AppTheme.surfaceColor,
-                    title: Text('Choose theme', style: TextStyle(color: AppTheme.textPrimary)),
-                    content: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _buildThemeOption('Light', themeProvider, _selectedTheme),
-                        _buildThemeOption('Dark', themeProvider, _selectedTheme),
-                        _buildThemeOption('Aqua Sky Blue', themeProvider, _selectedTheme),
-                        _buildThemeOption('Lime', themeProvider, _selectedTheme),
-                        _buildThemeOption('Violet', themeProvider, _selectedTheme),
-                      ],
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: Text('Cancel', style: TextStyle(color: AppTheme.primaryColor)),
-                      ),
-                    ],
-                  );
-                },
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ThemeSettingsScreen()),
               );
             },
           ),
           ListTile(
             leading: Icon(Icons.wallpaper, color: AppTheme.textSecondary),
             title: Text('Wallpaper', style: TextStyle(color: AppTheme.textPrimary)),
-            onTap: () {},
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ThemeSettingsScreen()),
+              );
+            },
           ),
           const Divider(color: Colors.grey),
           Padding(

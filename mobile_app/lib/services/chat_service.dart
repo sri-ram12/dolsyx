@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
 import '../models/chat.dart';
 
@@ -7,7 +8,7 @@ class ChatService {
   Future<List<Chat>> getChats() async {
     try {
       final token = await ApiService().getToken();
-      if (token == null) return [];
+      if (token == null) return await getCachedChats();
 
       final response = await http.get(
         Uri.parse('${ApiService.baseUrl}/chats'),
@@ -18,16 +19,33 @@ class ChatService {
       );
 
       if (response.statusCode == 200) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('cached_chats', response.body);
+        
         final List<dynamic> data = jsonDecode(response.body);
         return data.map((json) => Chat.fromJson(json)).toList();
       } else {
         print('Error fetching chats: ${response.statusCode}');
-        return [];
+        return await getCachedChats();
       }
     } catch (e) {
       print('Network error fetching chats: $e');
-      return [];
+      return await getCachedChats();
     }
+  }
+
+  Future<List<Chat>> getCachedChats() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final String? cachedData = prefs.getString('cached_chats');
+      if (cachedData != null) {
+        final List<dynamic> data = jsonDecode(cachedData);
+        return data.map((json) => Chat.fromJson(json)).toList();
+      }
+    } catch (e) {
+      print('Error parsing cached chats: $e');
+    }
+    return [];
   }
 
   Future<bool> deleteMessage(String messageId, bool forEveryone) async {

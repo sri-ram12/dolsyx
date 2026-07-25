@@ -1,12 +1,15 @@
 import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:io';
 import 'dart:async';
+import 'forward_message_screen.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import '../models/message.dart';
 import '../services/socket_service.dart';
 import '../services/chat_service.dart';
@@ -57,11 +60,14 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   DateTime? _remoteUserLastSeen;
   Timer? _typingTimer;
   final Set<String> _selectedMessageIds = {};
+  bool _isBlocked = false;
+  Message? _replyingTo;
 
   @override
   void initState() {
     super.initState();
     _checkIfContact();
+    _checkBlockedStatus();
     _fetchMessages();
     
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
@@ -78,6 +84,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     authProvider.socketService.onChatCleared(_handleChatCleared);
     authProvider.socketService.onMessagesRead(_handleMessagesRead);
     authProvider.socketService.onProfileUpdated(_handleProfileUpdated);
+    authProvider.socketService.onReactionAdded(_handleReactionAdded);
+    authProvider.socketService.onReactionRemoved(_handleReactionRemoved);
 
     _messageController.addListener(_onTextChanged);
     
@@ -100,6 +108,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     authProvider.socketService.offChatCleared(_handleChatCleared);
     authProvider.socketService.offMessagesRead(_handleMessagesRead);
     authProvider.socketService.offProfileUpdated(_handleProfileUpdated);
+    authProvider.socketService.offReactionAdded(_handleReactionAdded);
+    authProvider.socketService.offReactionRemoved(_handleReactionRemoved);
     _messageController.removeListener(_onTextChanged);
     _messageController.dispose();
     _scrollController.dispose();
@@ -197,6 +207,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           _messages.add(Message.fromJson(data['message']));
         });
         _scrollToBottom();
+        _updateMessageCache();
         
         // Clear unread count for the new incoming message
         final authProvider = Provider.of<AuthProvider>(context, listen: false);
@@ -209,6 +220,16 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     }
   }
 
+  void _updateMessageCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final encoded = jsonEncode(_messages.map((m) => m.toJson()).toList());
+      await prefs.setString('cached_messages_${widget.conversationId}', encoded);
+    } catch (e) {
+      print('Error updating message cache: $e');
+    }
+  }
+
   void _handleChatCleared(dynamic data) {
     if (mounted && data != null && data['conversationId'] == widget.conversationId) {
       setState(() {
@@ -217,7 +238,28 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     }
   }
 
+  // Load cached messages from local storage instantly
+  Future<void> _loadCachedMessages() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cached = prefs.getString('cached_messages_${widget.conversationId}');
+      if (cached != null && mounted) {
+        final List<dynamic> data = jsonDecode(cached);
+        setState(() {
+          _messages = data.map((json) => Message.fromJson(json)).toList();
+          _isLoading = false;
+        });
+        _scrollToBottom();
+      }
+    } catch (e) {
+      print('Error loading cached messages: $e');
+    }
+  }
+
   Future<void> _fetchMessages() async {
+    // First, show cached messages instantly
+    await _loadCachedMessages();
+
     try {
       final token = await ApiService().getToken();
       final response = await http.get(
@@ -229,17 +271,23 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       );
 
       if (response.statusCode == 200) {
+        // Save to local cache for offline access
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('cached_messages_${widget.conversationId}', response.body);
+
         final List<dynamic> data = jsonDecode(response.body);
         if (mounted) {
           setState(() {
             _messages = data.map((json) => Message.fromJson(json)).toList();
             _isLoading = false;
           });
+          _scrollToBottom();
         }
-        _scrollToBottom();
+      } else if (mounted) {
+        setState(() => _isLoading = false);
       }
     } catch (e) {
-      print('Error fetching messages: $e');
+      print('Error fetching messages (offline?): $e');
       if (mounted) setState(() => _isLoading = false);
     }
   }
@@ -349,6 +397,79 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     }
   }
 
+  void _reactToMessage(String messageId, String emoji) {
+    setState(() => _selectedMessageIds.clear());
+    
+    final msg = _messages.firstWhere((m) => m.id == messageId);
+    final currentUser = Provider.of<AuthProvider>(context, listen: false).user;
+    if (currentUser == null) return;
+    
+    final existingReaction = msg.reactions?.firstWhere(
+      (r) => r['userId'] == currentUser['id'], 
+      orElse: () => null
+    );
+
+    if (existingReaction != null && existingReaction['emoji'] == emoji) {
+      Provider.of<AuthProvider>(context, listen: false).socketService.socket?.emit('remove_reaction', {
+        'messageId': messageId,
+        'conversationId': widget.conversationId,
+      });
+      // Optimistic update
+      setState(() {
+        msg.reactions?.removeWhere((r) => r['userId'] == currentUser['id']);
+      });
+    } else {
+      Provider.of<AuthProvider>(context, listen: false).socketService.socket?.emit('add_reaction', {
+        'messageId': messageId,
+        'conversationId': widget.conversationId,
+        'emoji': emoji,
+      });
+      // Optimistic update
+      setState(() {
+        if (msg.reactions == null) msg.reactions = [];
+        msg.reactions!.removeWhere((r) => r['userId'] == currentUser['id']);
+        msg.reactions!.add({'userId': currentUser['id'], 'emoji': emoji});
+      });
+    }
+  }
+
+  void _handleReactionAdded(dynamic data) {
+    if (data['conversationId'] == widget.conversationId) {
+      if (mounted) {
+        setState(() {
+          final idx = _messages.indexWhere((m) => m.id == data['messageId']);
+          if (idx != -1) {
+            final msg = _messages[idx];
+            List<dynamic> reactions = msg.reactions != null ? List.from(msg.reactions!) : [];
+            final existingIdx = reactions.indexWhere((r) => r['userId'] == data['userId']);
+            if (existingIdx != -1) {
+              reactions[existingIdx]['emoji'] = data['emoji'];
+            } else {
+              reactions.add({'userId': data['userId'], 'emoji': data['emoji']});
+            }
+            msg.reactions = reactions;
+          }
+        });
+      }
+    }
+  }
+
+  void _handleReactionRemoved(dynamic data) {
+    if (data['conversationId'] == widget.conversationId) {
+      if (mounted) {
+        setState(() {
+          final idx = _messages.indexWhere((m) => m.id == data['messageId']);
+          if (idx != -1) {
+            final msg = _messages[idx];
+            if (msg.reactions != null) {
+              msg.reactions!.removeWhere((r) => r['userId'] == data['userId']);
+            }
+          }
+        });
+      }
+    }
+  }
+
   Future<void> _checkIfContact() async {
     // This calls the backend to check if the user is in contacts.
     // For now, we simulate this call.
@@ -416,8 +537,15 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       return;
     }
 
-    authProvider.socketService.sendMessage(widget.conversationId, text);
+    authProvider.socketService.sendMessage(
+      widget.conversationId, 
+      text,
+      parentMessageId: _replyingTo?.id,
+    );
     _messageController.clear();
+    setState(() {
+      _replyingTo = null;
+    });
     if (_isTyping) {
       _isTyping = false;
       authProvider.socketService.emitTyping(widget.conversationId, false);
@@ -520,80 +648,16 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   void _showEmojiPicker() {
-    final emojis = [
-      '😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇',
-      '🙂', '🙃', '😉', '😌', '😍', '🥰', '😘', '😗', '😙', '😚',
-      '😋', '😛', '😝', '😜', '🤪', '🤨', '🧐', '🤓', '😎', '🥸',
-      '🤩', '🥳', '😏', '😒', '😞', '😔', '😟', '😕', '🙁', '☹️',
-      '😣', '😖', '😫', '😩', '🥺', '😢', '😭', '😤', '😠', '😡',
-      '👍', '👎', '👌', '✌️', '🤞', '🤟', '🤘', '🤙', '👈', '👉',
-      '👆', '🖕', '👇', '☝️', '👍', '👋', '🤚', '🖐', '✋', '🖖',
-      '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔'
-    ];
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: AppTheme.surfaceColor,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (sheetContext) {
-        return Container(
-          height: 250,
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Emojis',
-                style: TextStyle(color: AppTheme.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-              SizedBox(height: 12),
-              Expanded(
-                child: GridView.builder(
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 8,
-                    mainAxisSpacing: 8,
-                    crossAxisSpacing: 8,
-                  ),
-                  itemCount: emojis.length,
-                  itemBuilder: (context, index) {
-                    return GestureDetector(
-                      onTap: () {
-                        final text = _messageController.text;
-                        final selection = _messageController.selection;
-                        final newText = text.replaceRange(
-                          selection.start >= 0 ? selection.start : text.length,
-                          selection.end >= 0 ? selection.end : text.length,
-                          emojis[index],
-                        );
-                        _messageController.text = newText;
-                        _messageController.selection = TextSelection.fromPosition(
-                          TextPosition(
-                            offset: (selection.start >= 0 ? selection.start : text.length) + emojis[index].length,
-                          ),
-                        );
-                      },
-                      child: Center(
-                        child: Text(
-                          emojis[index],
-                          style: const TextStyle(fontSize: 24),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _isEmojiVisible = !_isEmojiVisible;
+    });
   }
 
   void _scrollToBottom() {
     if (_scrollController.hasClients) {
       Future.delayed(const Duration(milliseconds: 100), () {
+        if (!mounted || !_scrollController.hasClients) return;
         _scrollController.animateTo(
           _scrollController.position.maxScrollExtent,
           duration: const Duration(milliseconds: 300),
@@ -661,6 +725,54 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     );
   }
 
+  Future<void> _checkBlockedStatus() async {
+    if (widget.remoteUserId != null) {
+      final blockedUsers = await ApiService().getBlockedUsers();
+      if (mounted) {
+        setState(() {
+          _isBlocked = blockedUsers.any((u) {
+            final blockedUser = u['blockedUser'];
+            return blockedUser != null && (blockedUser['_id'] == widget.remoteUserId || blockedUser['id'] == widget.remoteUserId);
+          });
+        });
+      }
+    }
+  }
+
+  void _confirmUnblockUser() {
+    if (widget.remoteUserId == null) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.surfaceColor,
+        title: Text('Unblock ${widget.chatName}?', style: TextStyle(color: AppTheme.textPrimary)),
+        content: Text('Unblocked contacts will be able to call you and send you messages.', style: TextStyle(color: AppTheme.textSecondary)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryColor),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final success = await ApiService().unblockUser(widget.remoteUserId!);
+              if (mounted) {
+                if (success) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${widget.chatName} unblocked')));
+                  _checkBlockedStatus();
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to unblock user')));
+                }
+              }
+            },
+            child: const Text('Unblock', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _confirmBlockUser() {
     if (widget.remoteUserId == null) return;
     showDialog(
@@ -682,7 +794,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               if (mounted) {
                 if (success) {
                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${widget.chatName} blocked')));
-                  Navigator.pop(context);
+                  _checkBlockedStatus();
                 } else {
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to block user')));
                 }
@@ -712,6 +824,52 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               ),
               title: Text('${_selectedMessageIds.length}'),
               actions: [
+                if (_selectedMessageIds.length == 1)
+                  IconButton(
+                    icon: const Icon(Icons.add_reaction_outlined),
+                    onPressed: () {
+                      final msgId = _selectedMessageIds.first;
+                      final emojis = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+                      showModalBottomSheet(
+                        context: context,
+                        backgroundColor: Colors.transparent,
+                        builder: (context) => Container(
+                          margin: const EdgeInsets.all(16),
+                          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                          decoration: BoxDecoration(
+                            color: AppTheme.surfaceColor,
+                            borderRadius: BorderRadius.circular(32),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              ...emojis.map((emoji) => GestureDetector(
+                                onTap: () {
+                                  Navigator.pop(context);
+                                  _reactToMessage(msgId, emoji);
+                                },
+                                child: Text(emoji, style: const TextStyle(fontSize: 32)),
+                              )),
+                              GestureDetector(
+                                onTap: () {
+                                  Navigator.pop(context);
+                                  // Can implement full picker here if wanted, for now just use standard 6
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.backgroundColor,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Icon(Icons.add, color: AppTheme.textPrimary),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
                 IconButton(
                   icon: const Icon(Icons.star_border),
                   onPressed: _starSelectedMessages,
@@ -770,8 +928,14 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 IconButton(
                   icon: const Icon(Icons.forward),
                   onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Forward coming soon')));
+                    final messagesToForward = _messages.where((m) => _selectedMessageIds.contains(m.id)).toList();
                     setState(() => _selectedMessageIds.clear());
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => ForwardMessageScreen(messages: messagesToForward),
+                      ),
+                    );
                   },
                 ),
                 IconButton(
@@ -907,7 +1071,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     } else if (value == 'clear_chat') {
                       _confirmClearChat();
                     } else if (value == 'block_user') {
-                      _confirmBlockUser();
+                      _isBlocked ? _confirmUnblockUser() : _confirmBlockUser();
                     } else if (value == 'mute') {
                       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Mute options coming soon')));
                     } else if (value == 'disappearing') {
@@ -925,9 +1089,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                       child: Text('Clear Chat'),
                     ),
                     if (widget.remoteUserId != null)
-                      const PopupMenuItem(
+                      PopupMenuItem(
                         value: 'block_user',
-                        child: Text('Block User', style: TextStyle(color: Colors.red)),
+                        child: Text(_isBlocked ? 'Unblock User' : 'Block User', style: TextStyle(color: _isBlocked ? AppTheme.primaryColor : Colors.red)),
                       ),
                     const PopupMenuItem(
                       value: 'mute',
@@ -1042,10 +1206,19 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                 });
                               }
                             },
-                            child: Container(
-                              color: isSelected ? AppTheme.primaryColor.withAlpha(50) : Colors.transparent,
-                              child: MessageBubble(message: message, isMe: isMe),
-                            ),
+                              child: Container(
+                                color: isSelected ? AppTheme.primaryColor.withAlpha(50) : Colors.transparent,
+                                child: MessageBubble(
+                                  message: message, 
+                                  isMe: isMe,
+                                  onSwipeReply: (msg) {
+                                    setState(() {
+                                      _replyingTo = msg;
+                                      _focusNode.requestFocus();
+                                    });
+                                  },
+                                ),
+                              ),
                           ),
                         ],
                       );
@@ -1057,6 +1230,42 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               padding: const EdgeInsets.all(8.0),
               child: LinearProgressIndicator(color: AppTheme.primaryColor),
             ),
+          if (_replyingTo != null)
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppTheme.surfaceColor,
+                borderRadius: BorderRadius.circular(12),
+                border: Border(left: BorderSide(color: AppTheme.primaryColor, width: 4)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _replyingTo!.senderId == widget.remoteUserId ? (widget.chatName) : 'You',
+                          style: TextStyle(color: AppTheme.primaryColor, fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          _replyingTo!.content,
+                          style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.close, color: AppTheme.textSecondary, size: 20),
+                    onPressed: () => setState(() => _replyingTo = null),
+                  ),
+                ],
+              ),
+            ),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
             color: Colors.transparent,
@@ -1065,6 +1274,12 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 Expanded(
                   child: TextField(
                     controller: _messageController,
+                    focusNode: _focusNode,
+                    onTap: () {
+                      if (_isEmojiVisible) {
+                        setState(() { _isEmojiVisible = false; });
+                      }
+                    },
                     style: TextStyle(color: AppTheme.textPrimary),
                     decoration: InputDecoration(
                       hintText: 'Message',
@@ -1073,7 +1288,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                       fillColor: AppTheme.surfaceColor,
                       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                       prefixIcon: IconButton(
-                        icon: Icon(Icons.emoji_emotions_outlined, color: AppTheme.textSecondary),
+                        icon: Icon(_isEmojiVisible ? Icons.keyboard : Icons.emoji_emotions_outlined, color: AppTheme.textSecondary),
                         onPressed: _showEmojiPicker,
                       ),
                       suffixIcon: Row(
@@ -1109,6 +1324,33 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               ],
             ),
           ),
+          if (_isEmojiVisible)
+            SizedBox(
+              height: 250,
+              child: EmojiPicker(
+                textEditingController: _messageController,
+                scrollController: ScrollController(),
+                config: Config(
+                  height: 250,
+                  checkPlatformCompatibility: true,
+                  emojiViewConfig: EmojiViewConfig(
+                    backgroundColor: AppTheme.backgroundColor,
+                    columns: 7,
+                    emojiSizeMax: 28 * (Platform.isIOS ? 1.30 : 1.0),
+                  ),
+                  categoryViewConfig: CategoryViewConfig(
+                    backgroundColor: AppTheme.surfaceColor,
+                    indicatorColor: AppTheme.primaryColor,
+                    iconColorSelected: AppTheme.primaryColor,
+                    iconColor: AppTheme.textSecondary,
+                  ),
+                  bottomActionBarConfig: BottomActionBarConfig(showSearchViewButton: false, backgroundColor: AppTheme.surfaceColor),
+                  searchViewConfig: SearchViewConfig(
+                    backgroundColor: AppTheme.backgroundColor,
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );

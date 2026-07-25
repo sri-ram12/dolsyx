@@ -214,10 +214,10 @@ body {
 img.twemoji-img,
 img.emoji {
   display: inline-block;
-  height: 1.2em;
-  width: 1.2em;
+  height: 1.375em;
+  width: 1.375em;
   margin: 0 0.05em 0 0.1em;
-  vertical-align: -0.15em;
+  vertical-align: -0.25em;
   object-fit: contain;
 }
 

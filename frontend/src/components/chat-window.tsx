@@ -7,6 +7,7 @@ import { useTheme } from "@/context/theme-context";
 import { useToast } from "@/context/toast-context";
 import { Chat } from "./chat-sidebar";
 import GroupProfileModal from "./group-profile-modal";
+import { ReactionPopup } from "./reaction-popup";
 import {
   Send,
   Smile,
@@ -63,6 +64,7 @@ interface Message {
     bio?: string | null;
   };
   receipts?: any[];
+  reactions?: any[];
   parentMessage?: {
     id: string;
     content: string;
@@ -223,6 +225,14 @@ function isOnlyEmojis(str: string): boolean {
   const emojiRegex =
     /^[\p{Emoji_Presentation}\p{Extended_Pictographic}\u{1F3FB}-\u{1F3FF}\u{1F9B0}-\u{1F9B3}\uFE0F\u200D\s]+$/u;
   return emojiRegex.test(str.trim()) && str.trim().length > 0 && str.trim().length <= 16;
+}
+
+function getEmojiCount(str: string): number {
+  if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+    const segmenter = new Intl.Segmenter('en', { granularity: 'grapheme' });
+    return Array.from(segmenter.segment(str.trim().replace(/\s/g, ''))).length;
+  }
+  return Array.from(str.trim().replace(/\s/g, '')).length;
 }
 
 function getEmojiAnimationClass(str: string) {
@@ -460,6 +470,7 @@ export default function ChatWindow({
   // Emoji Picker State
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const emojiPickerRef = useRef<HTMLDivElement>(null);
+  const [activeReactionMessageId, setActiveReactionMessageId] = useState<string | null>(null);
 
   // Message Actions state
   const [replyingToMessage, setReplyingToMessage] = useState<Message | null>(null);
@@ -910,6 +921,35 @@ export default function ChatWindow({
       }
     };
 
+    const handleReactionAdded = (data: { messageId: string; conversationId: string; userId: string; emoji: string }) => {
+      if (data.conversationId === chat.id) {
+        setMessages((prev) => prev.map((msg) => {
+          if (msg.id === data.messageId) {
+            const reactions = msg.reactions || [];
+            const existing = reactions.find((r: any) => r.userId === data.userId);
+            if (existing) {
+              return { ...msg, reactions: reactions.map((r: any) => r.userId === data.userId ? { ...r, emoji: data.emoji } : r) };
+            } else {
+              return { ...msg, reactions: [...reactions, { userId: data.userId, emoji: data.emoji }] };
+            }
+          }
+          return msg;
+        }));
+      }
+    };
+
+    const handleReactionRemoved = (data: { messageId: string; conversationId: string; userId: string }) => {
+      if (data.conversationId === chat.id) {
+        setMessages((prev) => prev.map((msg) => {
+          if (msg.id === data.messageId) {
+            const reactions = msg.reactions || [];
+            return { ...msg, reactions: reactions.filter((r: any) => r.userId !== data.userId) };
+          }
+          return msg;
+        }));
+      }
+    };
+
     socket.on("new_message", handleNewMessage);
     socket.on("messages_read", handleMessagesRead);
     socket.on("user_typing", handleUserTyping);
@@ -917,6 +957,8 @@ export default function ChatWindow({
     socket.on("message_deleted", handleMessageDeleted);
     socket.on("message_deleted_for_me", handleMessageDeletedForMe);
     socket.on("chat_cleared", handleChatCleared);
+    socket.on("reaction_added", handleReactionAdded);
+    socket.on("reaction_removed", handleReactionRemoved);
 
     return () => {
       socket.off("new_message", handleNewMessage);
@@ -926,8 +968,41 @@ export default function ChatWindow({
       socket.off("message_deleted", handleMessageDeleted);
       socket.off("message_deleted_for_me", handleMessageDeletedForMe);
       socket.off("chat_cleared", handleChatCleared);
+      socket.off("reaction_added", handleReactionAdded);
+      socket.off("reaction_removed", handleReactionRemoved);
     };
   }, [socket, chat, user]);
+
+  const toggleReaction = (messageId: string, emoji: string) => {
+    if (!socket || !chat) return;
+    
+    const message = messages.find(m => m.id === messageId);
+    if (!message) return;
+
+    const existingReaction = (message.reactions || []).find((r: any) => r.userId === user?.id);
+    
+    if (existingReaction && existingReaction.emoji === emoji) {
+      socket.emit("remove_reaction", { messageId, conversationId: chat.id });
+      // Optimistic update
+      setMessages(prev => prev.map(msg => {
+        if (msg.id === messageId) {
+          return { ...msg, reactions: (msg.reactions || []).filter((r: any) => r.userId !== user?.id) };
+        }
+        return msg;
+      }));
+    } else {
+      socket.emit("add_reaction", { messageId, conversationId: chat.id, emoji });
+      // Optimistic update
+      setMessages(prev => prev.map(msg => {
+        if (msg.id === messageId) {
+          const reactions = msg.reactions || [];
+          const filtered = reactions.filter((r: any) => r.userId !== user?.id);
+          return { ...msg, reactions: [...filtered, { userId: user?.id, emoji }] };
+        }
+        return msg;
+      }));
+    }
+  };
 
   const toggleMessageSelection = (messageId: string) => {
     setSelectedMessageIds((prev) => {
@@ -1897,7 +1972,7 @@ export default function ChatWindow({
                       /* Big emoji-only messages */
                       <div
                         className={`select-none leading-none py-1 ${getEmojiAnimationClass(msg.content)}`}
-                        style={{ fontSize: msg.content.trim().length <= 2 ? "2rem" : msg.content.trim().length <= 5 ? "1.6rem" : "1.25rem" }}
+                        style={{ fontSize: getEmojiCount(msg.content) === 1 ? "35px" : getEmojiCount(msg.content) === 2 ? "29px" : getEmojiCount(msg.content) === 3 ? "23px" : "16px" }}
                       >
                         <TwemojiText text={msg.content} />
                       </div>
@@ -1922,6 +1997,31 @@ export default function ChatWindow({
                         }}
                       >
                         <TwemojiText text={msg.content} />
+                      </div>
+                    )}
+                    
+                    {/* Reactions */}
+                    {msg.reactions && msg.reactions.length > 0 && (
+                      <div className={`absolute -bottom-3 ${isMe ? "right-1" : "left-1"} flex flex-wrap gap-0.5 z-10`}>
+                        {Array.from(new Set(msg.reactions.map(r => r.emoji))).map(emoji => (
+                          <div 
+                            key={emoji} 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleReaction(msg.id, emoji as string);
+                            }}
+                            className="bg-zinc-800/90 border border-zinc-700/50 rounded-full px-1.5 py-0.5 text-xs shadow-sm hover:bg-zinc-700 cursor-pointer transition-colors flex items-center gap-1"
+                          >
+                            <span style={{ fontSize: "13.8px" }}>
+                              <TwemojiText text={emoji as string} />
+                            </span>
+                            {msg.reactions!.filter(r => r.emoji === emoji).length > 1 && (
+                              <span className="text-[10px] text-zinc-300 font-medium">
+                                {msg.reactions!.filter(r => r.emoji === emoji).length}
+                              </span>
+                            )}
+                          </div>
+                        ))}
                       </div>
                     )}
 
@@ -1987,6 +2087,21 @@ export default function ChatWindow({
                       isMe ? "right-0" : "left-0"
                     }`}
                   >
+                    <div className="relative">
+                      <button
+                        onClick={() => setActiveReactionMessageId(activeReactionMessageId === msg.id ? null : msg.id)}
+                        className="p-1 text-zinc-400 hover:text-white hover:bg-zinc-900 rounded-lg transition-colors cursor-pointer"
+                        title="React"
+                      >
+                        <Smile className="h-3.5 w-3.5" />
+                      </button>
+                      {activeReactionMessageId === msg.id && (
+                        <ReactionPopup
+                          onSelect={(emoji) => toggleReaction(msg.id, emoji)}
+                          onClose={() => setActiveReactionMessageId(null)}
+                        />
+                      )}
+                    </div>
                     <button
                       onClick={() => setReplyingToMessage(msg)}
                       className="p-1 text-zinc-400 hover:text-white hover:bg-zinc-900 rounded-lg transition-colors cursor-pointer"

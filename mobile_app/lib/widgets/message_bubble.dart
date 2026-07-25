@@ -7,12 +7,28 @@ import 'package:intl/intl.dart';
 class MessageBubble extends StatelessWidget {
   final Message message;
   final bool isMe;
+  final Function(Message)? onSwipeReply;
 
   const MessageBubble({
     super.key,
     required this.message,
     required this.isMe,
+    this.onSwipeReply,
   });
+
+  bool _isOnlyEmojis(String text) {
+    if (text.trim().isEmpty) return false;
+    final regex = RegExp(r'^[\p{Emoji_Presentation}\p{Extended_Pictographic}\s]+$', unicode: true);
+    return regex.hasMatch(text.trim());
+  }
+
+  double _getEmojiFontSize(String text) {
+    int count = text.characters.where((c) => c.trim().isNotEmpty).length;
+    if (count == 1) return 48.0;
+    if (count == 2) return 40.0;
+    if (count == 3) return 32.0;
+    return 22.0;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -22,122 +38,239 @@ class MessageBubble extends StatelessWidget {
         message.content.isEmpty;
 
     final imageSize = MediaQuery.of(context).size.width * 0.75;
+    
+    final bool emojiOnly = message.mediaUrl == null && _isOnlyEmojis(message.content);
+    final double fontSize = emojiOnly ? _getEmojiFontSize(message.content) : 15.0;
+
+    final Color senderTextColor = AppTheme.bubbleSender.computeLuminance() > 0.5 ? Colors.black87 : Colors.white;
+    final Color receiverTextColor = AppTheme.bubbleReceiver.computeLuminance() > 0.5 ? Colors.black87 : Colors.white;
+    final Color textColor = isMe ? senderTextColor : receiverTextColor;
+    final Color secondaryTextColor = textColor.withOpacity(0.7);
 
     if (message.mediaType == 'CALL_LOG') {
       return _buildCallLogBubble(context);
     }
 
-    return Align(
-      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: isOnlyImage
-            ? EdgeInsets.zero
-            : const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: BoxDecoration(
-          color: isOnlyImage ? Colors.transparent : (isMe ? AppTheme.primaryColor : AppTheme.surfaceColor),
-          borderRadius: BorderRadius.circular(16).copyWith(
-            bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(16),
-            bottomLeft: !isMe ? const Radius.circular(4) : const Radius.circular(16),
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (message.mediaUrl != null && message.mediaUrl!.isNotEmpty) ...[
-              if (message.mediaType == 'IMAGE')
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(isOnlyImage ? 16 : 8).copyWith(
-                    bottomRight: (isMe && isOnlyImage) ? const Radius.circular(4) : null,
-                    bottomLeft: (!isMe && isOnlyImage) ? const Radius.circular(4) : null,
-                  ),
-                  child: CachedNetworkImage(
-                    imageUrl: message.mediaUrl!.startsWith('http')
-                        ? message.mediaUrl!
-                        : 'https://dolsyx-app.onrender.com${message.mediaUrl}',
-                    width: imageSize,
-                    fit: BoxFit.contain,
-                    placeholder: (context, url) => Container(
-                      width: imageSize,
-                      height: imageSize,
-                      color: Colors.black12,
-                      child: const Center(child: CircularProgressIndicator()),
-                    ),
-                    errorWidget: (context, url, error) => const Icon(Icons.broken_image, size: 50, color: Colors.grey),
-                  ),
-                )
-              // Removed inline call log handling because it's handled at the root
-              else 
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.insert_drive_file, color: isMe ? Colors.white : AppTheme.textPrimary),
-                    const SizedBox(width: 8),
-                    Flexible(
-                      child: Text(
-                        'File Attachment',
-                        style: TextStyle(
-                          color: isMe ? Colors.white : AppTheme.textPrimary,
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
-                    ),
-                  ],
+
+    Widget bubbleContent = Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: isOnlyImage
+                  ? EdgeInsets.zero
+                  : const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: isOnlyImage || emojiOnly ? Colors.transparent : (isMe ? AppTheme.bubbleSender : AppTheme.bubbleReceiver),
+                borderRadius: BorderRadius.circular(16).copyWith(
+                  bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(16),
+                  bottomLeft: !isMe ? const Radius.circular(4) : const Radius.circular(16),
                 ),
-              if (message.content.isNotEmpty) const SizedBox(height: 8),
-            ],
-            if (message.content.isNotEmpty && message.mediaType != 'CALL_LOG')
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.end,
-                crossAxisAlignment: CrossAxisAlignment.end,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Flexible(
-                    child: Text(
-                      message.content,
-                      style: TextStyle(
-                        color: isMe ? Colors.white : AppTheme.textPrimary,
-                        fontSize: 15,
+                  if (message.isForwarded)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4.0),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.forward, size: 12, color: secondaryTextColor),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Forwarded',
+                            style: TextStyle(
+                              fontStyle: FontStyle.italic,
+                              fontSize: 12,
+                              color: secondaryTextColor,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    DateFormat('hh:mm a').format(message.createdAt.toLocal()),
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: isMe ? Colors.white70 : AppTheme.textSecondary,
+                  if (message.parentMessage != null)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.black12,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border(left: BorderSide(color: isMe ? Colors.white : AppTheme.primaryColor, width: 4)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            message.parentMessage!['sender']?['username'] ?? 'User',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                              color: textColor,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            message.parentMessage!['content'] ?? 'Message',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: secondaryTextColor,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  if (isMe) ...[
-                    const SizedBox(width: 4),
-                    Builder(
-                      builder: (context) {
-                        bool isRead = false;
-                        bool isDelivered = false;
-                        if (message.receipts != null && message.receipts!.isNotEmpty) {
-                          if (message.receipts!.any((r) => r['status'] == 'READ')) {
-                            isRead = true;
-                          } else if (message.receipts!.any((r) => r['status'] == 'DELIVERED')) {
-                            isDelivered = true;
-                          }
-                        }
-                        
-                        if (isRead) {
-                          return const Icon(Icons.done_all, size: 14, color: Colors.blue);
-                        } else if (isDelivered) {
-                          return const Icon(Icons.done_all, size: 14, color: Colors.white70);
-                        } else {
-                          return const Icon(Icons.check, size: 14, color: Colors.white70);
-                        }
-                      },
-                    ),
+                  if (message.mediaUrl != null && message.mediaUrl!.isNotEmpty) ...[
+                    if (message.mediaType == 'IMAGE')
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(isOnlyImage ? 16 : 8).copyWith(
+                          bottomRight: (isMe && isOnlyImage) ? const Radius.circular(4) : null,
+                          bottomLeft: (!isMe && isOnlyImage) ? const Radius.circular(4) : null,
+                        ),
+                        child: CachedNetworkImage(
+                          imageUrl: message.mediaUrl!.startsWith('http')
+                              ? message.mediaUrl!
+                              : 'https://dolsyx-app.onrender.com${message.mediaUrl}',
+                          width: imageSize,
+                          fit: BoxFit.contain,
+                          placeholder: (context, url) => Container(
+                            width: imageSize,
+                            height: imageSize,
+                            color: Colors.black12,
+                            child: const Center(child: CircularProgressIndicator()),
+                          ),
+                          errorWidget: (context, url, error) => const Icon(Icons.broken_image, size: 50, color: Colors.grey),
+                        ),
+                      )
+                    else 
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.insert_drive_file, color: isMe ? Colors.white : AppTheme.textPrimary),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              'File Attachment',
+                              style: TextStyle(
+                                color: textColor,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    if (message.content.isNotEmpty) const SizedBox(height: 8),
                   ],
+                  if (message.content.isNotEmpty && message.mediaType != 'CALL_LOG')
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Flexible(
+                          child: Text(
+                            message.content,
+                            style: TextStyle(
+                              color: textColor,
+                              fontSize: fontSize,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          DateFormat('hh:mm a').format(message.createdAt.toLocal()),
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: secondaryTextColor,
+                          ),
+                        ),
+                        if (isMe) ...[
+                          const SizedBox(width: 4),
+                          Builder(
+                            builder: (context) {
+                              bool isRead = false;
+                              bool isDelivered = false;
+                              if (message.receipts != null && message.receipts!.isNotEmpty) {
+                                if (message.receipts!.any((r) => r['status'] == 'READ')) {
+                                  isRead = true;
+                                } else if (message.receipts!.any((r) => r['status'] == 'DELIVERED')) {
+                                  isDelivered = true;
+                                }
+                              }
+                              
+                              if (isRead) {
+                                return const Icon(Icons.done_all, size: 14, color: Colors.blue);
+                              } else if (isDelivered) {
+                                return const Icon(Icons.done_all, size: 14, color: Colors.white70);
+                              } else {
+                                return const Icon(Icons.check, size: 14, color: Colors.white70);
+                              }
+                            },
+                          ),
+                        ],
+                      ],
+                    ),
                 ],
               ),
+            ),
+            if (message.reactions != null && message.reactions!.isNotEmpty)
+              Positioned(
+                bottom: -4,
+                right: isMe ? 4 : null,
+                left: !isMe ? 4 : null,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppTheme.surfaceColor,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppTheme.backgroundColor, width: 1.5),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ...message.reactions!.map((r) => r['emoji']).toSet().map((emoji) => Text(
+                        emoji,
+                        style: const TextStyle(fontSize: 12),
+                      )),
+                      if (message.reactions!.length > 1) ...[
+                        const SizedBox(width: 2),
+                        Text(
+                          message.reactions!.length.toString(),
+                          style: TextStyle(
+                            color: AppTheme.textSecondary,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
           ],
-        ),
-      ),
+        );
+
+    return Align(
+      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+      child: onSwipeReply != null
+          ? Dismissible(
+              key: Key('dismiss_${message.id}'),
+              direction: DismissDirection.startToEnd,
+              onDismissed: (_) {},
+              confirmDismiss: (direction) async {
+                onSwipeReply!(message);
+                return false; 
+              },
+              background: Container(
+                alignment: Alignment.centerLeft,
+                padding: const EdgeInsets.only(left: 20),
+                child: const Icon(Icons.reply, color: Colors.white, size: 28),
+              ),
+              child: bubbleContent,
+            )
+          : bubbleContent,
     );
   }
 

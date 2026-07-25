@@ -98,9 +98,9 @@ export const initChatSocket = (io: Server) => {
     });
 
     // Handle real-time messaging
-    socket.on("send_message", async (data: { conversationId: string; content: string; parentMessageId?: string; mediaUrl?: string; mediaType?: string }) => {
+    socket.on("send_message", async (data: { conversationId: string; content: string; parentMessageId?: string; mediaUrl?: string; mediaType?: string; isForwarded?: boolean }) => {
       try {
-        const { conversationId, content, parentMessageId, mediaUrl, mediaType } = data;
+        const { conversationId, content, parentMessageId, mediaUrl, mediaType, isForwarded } = data;
 
         // Allow empty content for media messages
         if (!mediaUrl && (!content || !content.trim())) return;
@@ -111,10 +111,22 @@ export const initChatSocket = (io: Server) => {
           select: { userId: true },
         });
 
-        // Temporarily bypass block check to see if it was causing the silent failure
-        // const recipientIds = participants.filter(p => p.userId !== userId).map(p => p.userId);
-        // if (recipientIds.length > 0) { ... }
-
+        // Check if either user has blocked the other
+        const recipientIds = participants.filter(p => p.userId !== userId).map(p => p.userId);
+        if (recipientIds.length > 0) {
+          const blocks = await (prisma as any).userBlock.findMany({
+            where: {
+              OR: [
+                { blockerId: userId, blockedId: { in: recipientIds } },
+                { blockerId: { in: recipientIds }, blockedId: userId }
+              ]
+            }
+          });
+          if (blocks.length > 0) {
+            console.log(`Message blocked between ${userId} and recipients`);
+            return;
+          }
+        }
         // Save message to database with encrypted content
         const encryptedContent = content ? encryptionService.encrypt(content.trim()) : "";
         const message = await prisma.message.create({
@@ -125,6 +137,7 @@ export const initChatSocket = (io: Server) => {
             parentMessageId: parentMessageId || null,
             mediaUrl: mediaUrl || null,
             mediaType: (mediaType as any) || "TEXT",
+            isForwarded: isForwarded || false,
           },
           include: {
             sender: {
@@ -198,6 +211,74 @@ export const initChatSocket = (io: Server) => {
         });
       } catch (error) {
         console.error("Socket send_message error:", error);
+      }
+    });
+
+    // Handle reactions
+    socket.on("add_reaction", async (data: { messageId: string; conversationId: string; emoji: string }) => {
+      try {
+        const { messageId, conversationId, emoji } = data;
+        if (!messageId || !conversationId || !emoji) return;
+
+        // Upsert reaction (only one per user per message)
+        let reaction = await prisma.messageReaction.findUnique({
+          where: { messageId_userId: { messageId, userId } }
+        });
+
+        if (reaction) {
+          reaction = await prisma.messageReaction.update({
+            where: { id: reaction.id },
+            data: { emoji }
+          });
+        } else {
+          reaction = await prisma.messageReaction.create({
+            data: { messageId, userId, emoji }
+          });
+        }
+
+        // Broadcast to all participants in conversation
+        const participants = await prisma.participant.findMany({
+          where: { conversationId },
+          select: { userId: true },
+        });
+
+        participants.forEach((participant) => {
+          io.to(participant.userId).emit("reaction_added", {
+            messageId,
+            conversationId,
+            userId,
+            emoji
+          });
+        });
+      } catch (error) {
+        console.error("Socket add_reaction error:", error);
+      }
+    });
+
+    socket.on("remove_reaction", async (data: { messageId: string; conversationId: string }) => {
+      try {
+        const { messageId, conversationId } = data;
+        if (!messageId || !conversationId) return;
+
+        await prisma.messageReaction.deleteMany({
+          where: { messageId, userId }
+        });
+
+        // Broadcast removal
+        const participants = await prisma.participant.findMany({
+          where: { conversationId },
+          select: { userId: true },
+        });
+
+        participants.forEach((participant) => {
+          io.to(participant.userId).emit("reaction_removed", {
+            messageId,
+            conversationId,
+            userId
+          });
+        });
+      } catch (error) {
+        console.error("Socket remove_reaction error:", error);
       }
     });
 
@@ -532,11 +613,15 @@ export const initChatSocket = (io: Server) => {
         answer: data.answer,
         answererId: userId,
       });
+      // Notify receiver's other devices that the call was answered elsewhere
+      socket.broadcast.to(userId).emit("call_ended", { status: "answered_elsewhere" });
     });
 
     // Receiver rejects the call
     socket.on("call_reject", (data: { callerId: string; conversationId: string; callType: "audio" | "video" }) => {
       io.to(data.callerId).emit("call_rejected", { rejecterId: userId });
+      // Notify receiver's other devices that the call was handled
+      socket.broadcast.to(userId).emit("call_ended", { status: "answered_elsewhere" });
       if (data.conversationId) {
         saveAndBroadcastCallLog(data.conversationId, data.callerId, data.callType, "declined");
       }
@@ -552,6 +637,8 @@ export const initChatSocket = (io: Server) => {
       callerId?: string;
     }) => {
       io.to(data.peerId).emit("call_ended", { endedBy: userId });
+      // Also notify the sender's other devices to stop ringing/call UI
+      socket.broadcast.to(userId).emit("call_ended", { endedBy: userId });
       if (data.conversationId) {
         const originalCallerId = data.callerId || (data.status === "missed" ? userId : (userId === data.peerId ? userId : data.peerId));
         const logContent = data.status === "connected" ? `connected:${data.duration || 0}` : "missed";

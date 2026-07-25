@@ -1,7 +1,6 @@
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
 }
 
 generator client {
@@ -31,7 +30,7 @@ model User {
   readReceipts     Boolean           @default(true)
   disappearingTimer String           @default("OFF") // OFF, 24H, 7D, 90D
   statusPrivacyType String           @default("MY_CONTACTS") // MY_CONTACTS, EXCEPT, ONLY_SHARE
-  statusPrivacyList String[]         @default([]) // List of user IDs for Except/Only_Share
+  statusPrivacyList String           @default("[]") // JSON string list of user IDs for Except/Only_Share
   // Relations
   messages         Message[]
   participants     Participant[]
@@ -50,6 +49,7 @@ model User {
   contacts         Contact[]         @relation("UserContacts")
   savedBy          Contact[]         @relation("SavedByContacts")
   starredMessages  StarredMessage[]
+  messageReactions MessageReaction[]
 }
 
 model Status {
@@ -156,6 +156,7 @@ model Message {
   isDeleted       Boolean          @default(false)
   mediaUrl        String?
   mediaType       String?          @default("TEXT") // TEXT, IMAGE, VIDEO, FILE, CODE_SNIPPET
+  isForwarded     Boolean          @default(false)
   createdAt       DateTime         @default(now())
   repliedStatusId String?          // For replying to statuses
   
@@ -168,6 +169,20 @@ model Message {
   receipts        MessageReceipt[]
   deletedForUsers DeletedMessage[]
   starredBy       StarredMessage[]
+  reactions       MessageReaction[]
+}
+
+model MessageReaction {
+  id        String   @id @default(uuid())
+  messageId String
+  userId    String
+  emoji     String
+  createdAt DateTime @default(now())
+
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
 }
 
 model MessageReceipt {

@@ -104,7 +104,7 @@ class SocketService {
     }
   }
 
-  void sendMessage(String conversationId, String content, {String? mediaUrl, String? mediaType}) {
+  void sendMessage(String conversationId, String content, {String? mediaUrl, String? mediaType, String? parentMessageId, bool isForwarded = false}) {
     print('Sending message. Socket connected: ${socket?.connected}');
     if (socket != null && socket!.connected) {
       socket!.emit('send_message', {
@@ -112,6 +112,8 @@ class SocketService {
         'content': content,
         if (mediaUrl != null) 'mediaUrl': mediaUrl,
         if (mediaType != null) 'mediaType': mediaType,
+        if (parentMessageId != null) 'parentMessageId': parentMessageId,
+        if (isForwarded) 'isForwarded': true,
       });
       print('Message emitted to socket.');
     } else {
@@ -190,6 +192,22 @@ class SocketService {
 
   void offProfileUpdated(Function(dynamic) callback) {
     if (socket != null) socket!.off('profile_updated', callback);
+  }
+
+  void onReactionAdded(Function(dynamic) callback) {
+    if (socket != null) socket!.on('reaction_added', callback);
+  }
+
+  void offReactionAdded(Function(dynamic) callback) {
+    if (socket != null) socket!.off('reaction_added', callback);
+  }
+
+  void onReactionRemoved(Function(dynamic) callback) {
+    if (socket != null) socket!.on('reaction_removed', callback);
+  }
+
+  void offReactionRemoved(Function(dynamic) callback) {
+    if (socket != null) socket!.off('reaction_removed', callback);
   }
 
   void onCallIncoming(Function(dynamic) callback) {

@@ -33,6 +33,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
   List<Chat> _chats = [];
   bool _isLoading = true;
   int _selectedIndex = 0;
+  late PageController _pageController;
   StreamSubscription? _messageSubscription;
   StreamSubscription? _profileSubscription;
   StreamSubscription? _onlineSubscription;
@@ -44,6 +45,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
   @override
   void initState() {
     super.initState();
+    _pageController = PageController(initialPage: _selectedIndex);
     _fetchChats();
     
     WidgetsBinding.instance.addObserver(this);
@@ -86,6 +88,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
     _profileSubscription?.cancel();
     _onlineSubscription?.cancel();
     _typingSubscription?.cancel();
+    _pageController.dispose();
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     authProvider.socketService.socket?.off('messages_read');
     super.dispose();
@@ -125,12 +128,27 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
   }
 
   Future<void> _fetchChats() async {
-    final chats = await _chatService.getChats();
     if (mounted) {
-      setState(() {
-        _chats = chats;
-        _isLoading = false;
-      });
+      final cachedChats = await _chatService.getCachedChats();
+      if (cachedChats.isNotEmpty) {
+        setState(() {
+          _chats = cachedChats;
+          _isLoading = false;
+        });
+      }
+    }
+
+    try {
+      final chats = await _chatService.getChats();
+      if (mounted) {
+        setState(() {
+          _chats = chats;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('Error fetching chats: $e');
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -719,7 +737,15 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
           ]
         ],
       ),
-      body: pages[_selectedIndex],
+      body: PageView(
+        controller: _pageController,
+        onPageChanged: (index) {
+          setState(() {
+            _selectedIndex = index;
+          });
+        },
+        children: pages,
+      ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
         type: BottomNavigationBarType.fixed,
@@ -729,9 +755,11 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
         selectedFontSize: 12,
         unselectedFontSize: 12,
         onTap: (index) {
-          setState(() {
-            _selectedIndex = index;
-          });
+          _pageController.animateToPage(
+            index,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+          );
         },
         items: const [
           BottomNavigationBarItem(

@@ -111,7 +111,11 @@ class _CallScreenState extends State<CallScreen> {
 
     socket.on('call_ended', (data) {
       if (!mounted) return;
-      _endCallLocally('Call ended');
+      String reason = 'Call ended';
+      if (data != null && data['status'] == 'answered_elsewhere') {
+        reason = 'Answered elsewhere';
+      }
+      _endCallLocally(reason);
     });
 
     socket.on('ice_candidate', (data) async {

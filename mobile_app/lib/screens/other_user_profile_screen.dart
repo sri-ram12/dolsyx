@@ -22,6 +22,43 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
   final ApiService _apiService = ApiService();
   bool _isProcessing = false;
   String? _localNickname;
+  bool _isBlocked = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkBlockedStatus();
+  }
+
+  Future<void> _checkBlockedStatus() async {
+    final userId = widget.user['id'] ?? widget.user['_id'];
+    if (userId != null) {
+      final blockedUsers = await _apiService.getBlockedUsers();
+      if (mounted) {
+        setState(() {
+          _isBlocked = blockedUsers.any((u) {
+            final blockedUser = u['blockedUser'];
+            return blockedUser != null && (blockedUser['_id'] == userId || blockedUser['id'] == userId);
+          });
+        });
+      }
+    }
+  }
+
+  void _unblockUser() async {
+    setState(() => _isProcessing = true);
+    final userId = widget.user['id'] ?? widget.user['_id'];
+    if (userId != null) {
+      final success = await _apiService.unblockUser(userId);
+      if (mounted) {
+        setState(() => _isProcessing = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(success ? 'User unblocked successfully' : 'Failed to unblock user')),
+        );
+        if (success) _checkBlockedStatus();
+      }
+    }
+  }
 
   void _blockUser() async {
     setState(() => _isProcessing = true);
@@ -33,7 +70,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(success ? 'User blocked successfully' : 'Failed to block user')),
         );
-        if (success) Navigator.pop(context);
+        if (success) _checkBlockedStatus();
       }
     }
   }
@@ -313,7 +350,9 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
                   _buildActionItem(Icons.group, 'Add to group', () {}),
                   _buildActionItem(Icons.star, 'Add to favourite', () {}),
                   _buildActionItem(Icons.delete_outline, 'Clear chat', _clearChat, isDestructive: true),
-                  _buildActionItem(Icons.block, 'Block user', _blockUser, isDestructive: true),
+                  _isBlocked 
+                      ? _buildActionItem(Icons.block, 'Unblock user', _unblockUser, isDestructive: false)
+                      : _buildActionItem(Icons.block, 'Block user', _blockUser, isDestructive: true),
                   _buildActionItem(Icons.thumb_down_alt_outlined, 'Report user', () {}, isDestructive: true),
                 ],
               ),

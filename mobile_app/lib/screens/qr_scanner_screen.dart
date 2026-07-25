@@ -158,6 +158,10 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
       body: Stack(
         children: [
           MobileScanner(
+            controller: MobileScannerController(
+              formats: const [BarcodeFormat.qrCode],
+              detectionSpeed: DetectionSpeed.normal,
+            ),
             onDetect: _onDetect,
           ),
           if (_isProcessing)

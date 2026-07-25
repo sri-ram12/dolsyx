@@ -122,14 +122,38 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
     return "Unknown Chat";
   }
 
-  String _getLastMessage(Chat chat) {
+  Widget _buildLastMessageWidget(Chat chat) {
     if (_typingStatus[chat.id] == true) {
-      return "Typing...";
+      return Text("Typing...", style: TextStyle(color: AppTheme.primaryColor), maxLines: 1, overflow: TextOverflow.ellipsis);
     }
+    
     if (chat.lastMessage != null) {
-      return chat.lastMessage!['content'] ?? "Sent a message";
+      final msg = chat.lastMessage!;
+      if (msg['mediaType'] == 'CALL_LOG') {
+        IconData icon = msg['mediaUrl'] == 'video' ? Icons.videocam : Icons.phone;
+        String text = msg['content'] == 'missed' ? 'Missed call' : 
+                      (msg['content'] == 'declined' ? 'Declined call' : 'Call ended');
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: AppTheme.textSecondary),
+            const SizedBox(width: 4),
+            Flexible(child: Text(text, style: TextStyle(color: AppTheme.textSecondary), maxLines: 1, overflow: TextOverflow.ellipsis)),
+          ],
+        );
+      } else if (msg['mediaType'] == 'IMAGE') {
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.photo, size: 14, color: AppTheme.textSecondary),
+            const SizedBox(width: 4),
+            Flexible(child: Text("Photo", style: TextStyle(color: AppTheme.textSecondary), maxLines: 1, overflow: TextOverflow.ellipsis)),
+          ],
+        );
+      }
+      return Text(msg['content'] ?? "Sent a message", style: TextStyle(color: AppTheme.textSecondary), maxLines: 1, overflow: TextOverflow.ellipsis);
     }
-    return "No messages yet";
+    return Text("No messages yet", style: TextStyle(color: AppTheme.textSecondary), maxLines: 1, overflow: TextOverflow.ellipsis);
   }
 
   bool _isChatOnline(Chat chat) {
@@ -287,16 +311,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                               fontSize: 16,
                             ),
                           ),
-                          subtitle: Text(
-                            _getLastMessage(chat),
-                            style: TextStyle(
-                              color: _typingStatus[chat.id] == true 
-                                ? AppTheme.primaryColor 
-                                : AppTheme.textSecondary
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
+                          subtitle: _buildLastMessageWidget(chat),
                           trailing: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             crossAxisAlignment: CrossAxisAlignment.end,

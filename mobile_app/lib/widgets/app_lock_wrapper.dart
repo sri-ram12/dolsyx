@@ -35,9 +35,11 @@ class _GlobalAppLockWrapperState extends State<GlobalAppLockWrapper> with Widget
     final prefs = await SharedPreferences.getInstance();
     final isEnabled = prefs.getBool('app_lock_enabled') ?? false;
     if (isEnabled) {
-      setState(() {
-        _isLocked = true;
-      });
+      if (mounted) {
+        setState(() {
+          _isLocked = true;
+        });
+      }
       _authenticate();
     }
   }
@@ -61,9 +63,11 @@ class _GlobalAppLockWrapperState extends State<GlobalAppLockWrapper> with Widget
 
         final difference = DateTime.now().difference(_pausedTime!);
         if (difference.inMinutes >= timeoutMinutes) {
-          setState(() {
-            _isLocked = true;
-          });
+          if (mounted) {
+            setState(() {
+              _isLocked = true;
+            });
+          }
           _authenticate();
         }
       }
@@ -80,9 +84,11 @@ class _GlobalAppLockWrapperState extends State<GlobalAppLockWrapper> with Widget
 
       if (!canAuthenticate) {
         // Fallback if device doesn't support biometrics
-        setState(() {
-          _isLocked = false;
-        });
+        if (mounted) {
+          setState(() {
+            _isLocked = false;
+          });
+        }
         _isAuthenticating = false;
         return;
       }
@@ -94,9 +100,11 @@ class _GlobalAppLockWrapperState extends State<GlobalAppLockWrapper> with Widget
       );
 
       if (authenticated) {
-        setState(() {
-          _isLocked = false;
-        });
+        if (mounted) {
+          setState(() {
+            _isLocked = false;
+          });
+        }
         _pausedTime = null; // Clear the paused time so it doesn't immediately relock
       }
     } catch (e) {

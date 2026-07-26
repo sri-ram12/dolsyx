@@ -8,8 +8,27 @@ import 'providers/wallpaper_provider.dart';
 import 'widgets/app_lock_wrapper.dart';
 import 'screens/call_screen.dart';
 import 'services/sound_service.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 
-void main() {
+// Background FCM handler
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp();
+  print("Handling a background message: ${message.messageId}");
+}
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  // Try to initialize Firebase (will fail if google-services.json is missing)
+  try {
+    await Firebase.initializeApp();
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+  } catch (e) {
+    print("Firebase initialization skipped (missing config): $e");
+  }
+
   runApp(
     MultiProvider(
       providers: [

@@ -19,8 +19,10 @@ import 'qr_scanner_screen.dart';
 import 'other_user_profile_screen.dart';
 import 'status_screen.dart';
 import 'settings_screen.dart';
+import 'blocked_users_screen.dart';
 import 'archived_chats_screen.dart';
 import 'contacts_screen.dart';
+import 'create_community_screen.dart';
 
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
@@ -477,23 +479,64 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
   }
 
   Widget _buildCommunitiesTab() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.groups_outlined, size: 64, color: AppTheme.textSecondary),
-          const SizedBox(height: 16),
-          Text(
-            'Communities Section',
-            style: TextStyle(color: AppTheme.textPrimary, fontSize: 20, fontWeight: FontWeight.bold),
+    final communityChats = _chats.where((c) => c.isGroup && (c.name?.startsWith('[Community]') ?? false)).toList();
+
+    return ListView(
+      padding: const EdgeInsets.all(16.0),
+      children: [
+        ListTile(
+          leading: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: AppTheme.primaryColor.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(Icons.groups_rounded, color: AppTheme.primaryColor),
           ),
-          const SizedBox(height: 8),
-          Text(
-            'Group communities will appear here.',
-            style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
-          ),
-        ],
-      ),
+          title: Text('New Community', style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
+          subtitle: Text('Add topic-based groups for your neighborhood, school or team', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+          onTap: () async {
+            final res = await Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateCommunityScreen()));
+            if (res == true) {
+              _fetchChats();
+            }
+          },
+        ),
+        const Divider(color: Colors.grey),
+        if (communityChats.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 40.0),
+            child: Column(
+              children: [
+                Icon(Icons.groups_outlined, size: 64, color: AppTheme.textSecondary),
+                const SizedBox(height: 16),
+                Text(
+                  'No Communities Yet',
+                  style: TextStyle(color: AppTheme.textPrimary, fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Tap "New Community" above to build your first community.',
+                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          )
+        else
+          ...communityChats.map((chat) {
+            final cleanName = chat.name?.replaceAll('[Community]', '').trim() ?? 'Community';
+            return ListTile(
+              leading: CircleAvatar(
+                backgroundColor: AppTheme.primaryColor,
+                child: Text(cleanName.isNotEmpty ? cleanName[0].toUpperCase() : 'C', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              ),
+              title: Text(cleanName, style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
+              subtitle: Text(chat.description ?? 'Community Group', style: TextStyle(color: AppTheme.textSecondary)),
+              onTap: () => _openChat(chat),
+            );
+          }),
+      ],
     );
   }
 

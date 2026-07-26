@@ -434,9 +434,10 @@ import bcrypt from "bcryptjs";
 // Register new user after OTP verification
 export const register = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email, username, password } = req.body;
+    const { email, username, password, fcmToken } = req.body;
+
     if (!email || !username) {
-      res.status(400).json({ message: "Email and username are required" });
+      res.status(400).json({ message: "Email and username are required." });
       return;
     }
 
@@ -444,20 +445,14 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     const trimmedUsername = username.trim();
 
     // Check if user already exists
-    const existing = await prisma.user.findUnique({
-      where: { email: trimmedEmail }
+    const existing = await prisma.user.findFirst({
+      where: {
+        OR: [{ email: trimmedEmail }, { username: trimmedUsername }],
+      },
     });
-    if (existing) {
-      res.status(400).json({ message: "Account already exists with this email" });
-      return;
-    }
 
-    // Check if username is taken
-    const existingUsername = await prisma.user.findUnique({
-      where: { username: trimmedUsername }
-    });
-    if (existingUsername) {
-      res.status(400).json({ message: "Username is already taken" });
+    if (existing) {
+      res.status(400).json({ message: "Email or username is already in use." });
       return;
     }
 
@@ -477,6 +472,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
         lastLogin: new Date(),
         lastSeen: new Date(),
         bio: "Hey there, I am using DOLSYX",
+        fcmToken: fcmToken || null,
       }
     });
 
@@ -507,7 +503,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 // Login with password
 export const login = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email, password } = req.body;
+    const { email, password, fcmToken } = req.body;
     if (!email || !password) {
       res.status(400).json({ message: "Email and password are required" });
       return;
@@ -541,6 +537,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
         isOnline: true,
         lastLogin: new Date(),
         lastSeen: new Date(),
+        ...(fcmToken ? { fcmToken } : {})
       }
     });
 
@@ -639,7 +636,7 @@ export const getBlockedUsers = async (req: AuthRequest, res: Response): Promise<
 
 export const loginWithoutOtp = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email } = req.body;
+    const { email, fcmToken } = req.body;
     if (!email) {
       res.status(400).json({ message: "Email is required" });
       return;

@@ -25,6 +25,7 @@ model User {
   lastLogin        DateTime?         @default(now())
   emailVerified    Boolean           @default(false)
   isOnline         Boolean           @default(false)
+  fcmToken         String?           // For Firebase Cloud Messaging Push Notifications
   avatarPrivacy     String            @default("EVERYONE") // EVERYONE, MY_CONTACTS, EXCEPT, NOBODY
   lastSeenPrivacy   String            @default("EVERYONE") // EVERYONE, MY_CONTACTS, EXCEPT, NOBODY
   onlinePrivacy     String            @default("EVERYONE") // EVERYONE, SAME_AS_LAST_SEEN, NOBODY

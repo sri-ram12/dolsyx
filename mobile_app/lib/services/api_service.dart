@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:firebase_core/firebase_core.dart';
 
 class ApiService {
   // Replace with your computer's local Wi-Fi IP address
@@ -11,12 +13,24 @@ class ApiService {
     'Authorization': 'Bearer $token',
   };
 
+  Future<String?> _getFcmToken() async {
+    try {
+      if (Firebase.apps.isNotEmpty) {
+        return await FirebaseMessaging.instance.getToken();
+      }
+    } catch (e) {
+      print("FCM Token error: $e");
+    }
+    return null;
+  }
+
   Future<Map<String, dynamic>> login(String email, String password) async {
     try {
+      final fcmToken = await _getFcmToken();
       final response = await http.post(
         Uri.parse('$baseUrl/auth/login-without-otp'), // Changed to support passwordless OTP accounts
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'email': email}), // Only send email
+        body: jsonEncode({'email': email, 'fcmToken': fcmToken}), // Only send email + token
       );
 
       final data = jsonDecode(response.body);
@@ -38,6 +52,7 @@ class ApiService {
 
   Future<Map<String, dynamic>> register(String email, String username, String password) async {
     try {
+      final fcmToken = await _getFcmToken();
       final response = await http.post(
         Uri.parse('$baseUrl/auth/register'),
         headers: {'Content-Type': 'application/json'},
@@ -45,6 +60,7 @@ class ApiService {
           'email': email,
           'username': username,
           'password': password,
+          'fcmToken': fcmToken,
         }),
       );
 

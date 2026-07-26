@@ -2,6 +2,7 @@ import { Server } from "socket.io";
 import jwt from "jsonwebtoken";
 import { prisma } from "../config/db.js";
 import { encryptionService } from "../services/encryption.service.js";
+import { sendPushNotification } from "../config/firebase.config.js";
 
 const JWT_SECRET = process.env.JWT_SECRET || "dolsyx_super_secret_key_123456";
 
@@ -199,6 +200,28 @@ export const initChatSocket = (io: Server) => {
             },
           });
           receiptsData.push(receipt);
+
+          // If offline, try to send push notification
+          if (status === "SENT") {
+            const recipientUser = await prisma.user.findUnique({
+              where: { id: participant.userId },
+              select: { fcmToken: true, username: true },
+            });
+            
+            if (recipientUser?.fcmToken) {
+              const sender = await prisma.user.findUnique({
+                where: { id: userId },
+                select: { username: true },
+              });
+              const pushTitle = conversation?.isGroup ? `${conversation.name}` : `${sender?.username}`;
+              const pushBody = conversation?.isGroup ? `${sender?.username}: ${decryptedMessage.content || "Media message"}` : `${decryptedMessage.content || "Media message"}`;
+              
+              sendPushNotification(recipientUser.fcmToken, pushTitle, pushBody, {
+                conversationId,
+                messageId: message.id,
+              });
+            }
+          }
         }
         (decryptedMessage as any).receipts = receiptsData;
 

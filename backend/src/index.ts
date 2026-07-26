@@ -19,7 +19,10 @@ import groupRoutes from "./routes/group.routes.js";
 import productivityRoutes from "./routes/productivity.routes.js";
 import statusRoutes from "./routes/status.routes.js";
 import contactRoutes from "./routes/contact.routes.js";
+import uploadRoutes from "./routes/upload.routes.js";
 import { initChatSocket } from "./sockets/chat.socket.js";
+import { initCronJobs } from "./utils/cron.jobs.js";
+import { initFirebase } from "./config/firebase.config.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -58,6 +61,7 @@ const corsOriginFn = (
 app.set("trust proxy", 1);
 app.use(cors({ origin: corsOriginFn, credentials: true }));
 app.use(express.json({ limit: "10mb" }));
+app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 const uploadsDir = path.join(__dirname, "../uploads");
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
@@ -67,10 +71,13 @@ app.use("/uploads", express.static(uploadsDir));
 // ── API Routes ───────────────────────────────────────────────────────────────
 app.use("/api/auth", authRoutes);
 app.use("/api/chats", chatRoutes);
-app.use("/api/groups", groupRoutes);
 app.use("/api/productivity", productivityRoutes);
 app.use("/api/status", statusRoutes);
 app.use("/api/contacts", contactRoutes);
+app.use("/api/upload", uploadRoutes);
+// ── Initialize Background Jobs & SDKs ──────────────────────────────────────────
+initFirebase();
+initCronJobs();
 
 // ── Health Check ─────────────────────────────────────────────────────────────
 app.get("/health", (_req, res) => {

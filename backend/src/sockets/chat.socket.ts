@@ -180,7 +180,11 @@ export const initChatSocket = (io: Server) => {
           data: { updatedAt: new Date() },
         });
 
-        // Create Message Receipts for all other participants (participants already fetched above)
+        // Fetch conversation to determine if group and get name
+        const conversation = await prisma.conversation.findUnique({
+          where: { id: conversationId },
+          select: { isGroup: true, name: true },
+        });
 
         // Create Message Receipts for all other participants
         const receiptsData = [];

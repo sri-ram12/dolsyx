@@ -71,6 +71,7 @@ app.use("/uploads", express.static(uploadsDir));
 // ── API Routes ───────────────────────────────────────────────────────────────
 app.use("/api/auth", authRoutes);
 app.use("/api/chats", chatRoutes);
+app.use("/api/groups", groupRoutes);
 app.use("/api/productivity", productivityRoutes);
 app.use("/api/status", statusRoutes);
 app.use("/api/contacts", contactRoutes);

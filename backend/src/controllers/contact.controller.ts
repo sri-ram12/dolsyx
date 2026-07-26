@@ -2,6 +2,8 @@ import type { Response } from "express";
 import { prisma } from "../config/db.js";
 import type { AuthRequest } from "../middleware/auth.middleware.js";
 
+import { canViewProfilePhoto, canViewAbout, canViewLastSeen, canViewOnline } from "../utils/privacy.engine.js";
+
 // Search user by email or username (before adding as contact)
 export const searchUser = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
@@ -37,6 +39,22 @@ export const searchUser = async (req: AuthRequest, res: Response): Promise<void>
       res.status(404).json({ message: "No user found with that username or email" });
       return;
     }
+
+    // Apply Privacy Engine Filtering
+    const [canViewPhoto, canViewBio, canSeeLastSeen, canSeeOnline] = await Promise.all([
+      canViewProfilePhoto(userId, user.id),
+      canViewAbout(userId, user.id),
+      canViewLastSeen(userId, user.id),
+      canViewOnline(userId, user.id),
+    ]);
+
+    if (!canViewPhoto) user.avatarUrl = null;
+    if (!canViewBio) {
+      user.bio = null;
+      user.statusMessage = null;
+    }
+    if (!canSeeLastSeen) user.lastSeen = null;
+    if (!canSeeOnline) user.isOnline = false;
 
     // Check if already saved as contact
     const existing = await prisma.contact.findUnique({

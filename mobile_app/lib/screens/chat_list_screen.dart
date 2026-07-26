@@ -501,7 +501,6 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
   Widget build(BuildContext context) {
     final List<Widget> pages = [
       _buildChatsTab(),
-      const ContactsScreen(),
       _buildUpdatesTab(),
       _buildCommunitiesTab(),
       _buildCallsTab(),
@@ -770,11 +769,6 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
             label: 'Chats',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.contacts_outlined),
-            activeIcon: Icon(Icons.contacts),
-            label: 'Contacts',
-          ),
-          BottomNavigationBarItem(
             icon: Icon(Icons.blur_circular),
             activeIcon: Icon(Icons.blur_circular),
             label: 'Updates',
@@ -807,7 +801,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                             title: Text('New Direct Chat', style: TextStyle(color: AppTheme.textPrimary)),
                             onTap: () {
                               Navigator.pop(context);
-                              Navigator.push(context, MaterialPageRoute(builder: (_) => const SearchScreen()));
+                              Navigator.push(context, MaterialPageRoute(builder: (_) => const ContactsScreen()));
                             },
                           ),
                           ListTile(

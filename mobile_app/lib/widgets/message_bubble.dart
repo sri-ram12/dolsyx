@@ -8,12 +8,14 @@ class MessageBubble extends StatelessWidget {
   final Message message;
   final bool isMe;
   final Function(Message)? onSwipeReply;
+  final bool showReadReceipts;
 
   const MessageBubble({
     super.key,
     required this.message,
     required this.isMe,
     this.onSwipeReply,
+    this.showReadReceipts = true,
   });
 
   bool _isOnlyEmojis(String text) {

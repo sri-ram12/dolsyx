@@ -344,7 +344,12 @@ export const logout = async (req: AuthRequest, res: Response): Promise<void> => 
 export const updateProfile = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.user!.id;
-    const { username, bio, avatarUrl, coverUrl, statusMessage, avatarPrivacy, lastSeenPrivacy, readReceipts, disappearingTimer } = req.body;
+    const { username, bio, avatarUrl, coverUrl, statusMessage,
+      avatarPrivacy, lastSeenPrivacy, onlinePrivacy, aboutPrivacy,
+      readReceipts, disappearingTimer,
+      statusPrivacyType, statusPrivacyList,
+      avatarPrivacyExceptList, lastSeenPrivacyExceptList, aboutPrivacyExceptList
+    } = req.body;
 
     const dataToUpdate: any = {};
     
@@ -375,8 +380,15 @@ export const updateProfile = async (req: AuthRequest, res: Response): Promise<vo
     if (statusMessage !== undefined) dataToUpdate.statusMessage = statusMessage;
     if (avatarPrivacy !== undefined) dataToUpdate.avatarPrivacy = avatarPrivacy;
     if (lastSeenPrivacy !== undefined) dataToUpdate.lastSeenPrivacy = lastSeenPrivacy;
+    if (onlinePrivacy !== undefined) dataToUpdate.onlinePrivacy = onlinePrivacy;
+    if (aboutPrivacy !== undefined) dataToUpdate.aboutPrivacy = aboutPrivacy;
     if (readReceipts !== undefined) dataToUpdate.readReceipts = readReceipts;
     if (disappearingTimer !== undefined) dataToUpdate.disappearingTimer = disappearingTimer;
+    if (statusPrivacyType !== undefined) dataToUpdate.statusPrivacyType = statusPrivacyType;
+    if (statusPrivacyList !== undefined) dataToUpdate.statusPrivacyList = statusPrivacyList;
+    if (avatarPrivacyExceptList !== undefined) dataToUpdate.avatarPrivacyExceptList = avatarPrivacyExceptList;
+    if (lastSeenPrivacyExceptList !== undefined) dataToUpdate.lastSeenPrivacyExceptList = lastSeenPrivacyExceptList;
+    if (aboutPrivacyExceptList !== undefined) dataToUpdate.aboutPrivacyExceptList = aboutPrivacyExceptList;
 
     const updatedUser = await prisma.user.update({
       where: { id: userId },
@@ -394,8 +406,15 @@ export const updateProfile = async (req: AuthRequest, res: Response): Promise<vo
         streakCount: true,
         avatarPrivacy: true,
         lastSeenPrivacy: true,
+        onlinePrivacy: true,
+        aboutPrivacy: true,
         readReceipts: true,
         disappearingTimer: true,
+        statusPrivacyType: true,
+        statusPrivacyList: true,
+        avatarPrivacyExceptList: true,
+        lastSeenPrivacyExceptList: true,
+        aboutPrivacyExceptList: true,
       },
     });
     const io = (req as any).app.get("io");

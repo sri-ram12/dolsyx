@@ -70,7 +70,7 @@ export const initChatSocket = (io: Server) => {
       // Provide immediate restricted list of online users to the connected client
       socket.emit("online_users_list", onlineContacts);
 
-      if (user?.lastSeenPrivacy === 'PUBLIC' || user?.lastSeenPrivacy === 'CONTACTS') {
+      if (user?.lastSeenPrivacy !== 'NOBODY') {
         const payload = {
           userId,
           status: "online",
@@ -704,7 +704,7 @@ export const initChatSocket = (io: Server) => {
             data: { lastSeen: lastSeenTime },
             select: { lastSeenPrivacy: true },
           }).then(async user => {
-            if (user?.lastSeenPrivacy === 'PUBLIC' || user?.lastSeenPrivacy === 'CONTACTS') {
+            if (user?.lastSeenPrivacy !== 'NOBODY') {
               // Broadcast user offline status change with lastSeen timestamp to relevant contacts only
               const relatedParticipants = await prisma.participant.findMany({
                 where: {

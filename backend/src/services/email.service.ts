@@ -50,11 +50,15 @@ class EmailService {
       // (Render cloud containers may resolve smtp.gmail.com to an IPv6 address that is unreachable)
       const isGmail = host === "smtp.gmail.com";
       const transportConfig: any = isGmail ? {
-        service: "gmail",
+        host: "smtp.gmail.com",
+        port: 465,
+        secure: true,
+        family: 4, // Force IPv4 to prevent ESOCKET IPv6 errors on cloud platforms
         auth: { user, pass },
         connectionTimeout: 20000,
         greetingTimeout: 20000,
         socketTimeout: 20000,
+        tls: { rejectUnauthorized: false },
       } : {
         host: host,
         port: port,

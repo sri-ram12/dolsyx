@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 import { AuthProvider } from "@/context/auth-context";
+import { SocketProvider } from "@/context/socket-context";
 import { ThemeProvider } from "@/context/theme-context";
 import { ToastProvider } from "@/context/toast-context";
 
@@ -50,7 +51,9 @@ export default function RootLayout({
       >
         <ToastProvider>
           <ThemeProvider>
-            <AuthProvider>{children}</AuthProvider>
+            <AuthProvider>
+              <SocketProvider>{children}</SocketProvider>
+            </AuthProvider>
           </ThemeProvider>
         </ToastProvider>
       </body>

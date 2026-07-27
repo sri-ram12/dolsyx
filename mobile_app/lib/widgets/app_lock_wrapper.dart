@@ -17,6 +17,8 @@ class _GlobalAppLockWrapperState extends State<GlobalAppLockWrapper> with Widget
   bool _isLocked = false;
   bool _isAuthenticating = false;
   DateTime? _pausedTime;
+  final TextEditingController _pinController = TextEditingController();
+  String _errorText = '';
 
   @override
   void initState() {
@@ -83,20 +85,13 @@ class _GlobalAppLockWrapperState extends State<GlobalAppLockWrapper> with Widget
       final bool canAuthenticate = canAuthenticateWithBiometrics || await _localAuth.isDeviceSupported();
 
       if (!canAuthenticate) {
-        // Fallback if device doesn't support biometrics
-        if (mounted) {
-          setState(() {
-            _isLocked = false;
-          });
-        }
+        // Just let them use the PIN fallback
         _isAuthenticating = false;
         return;
       }
 
       final authenticated = await _localAuth.authenticate(
         localizedReason: 'Please authenticate to access DOLSYX',
-        biometricOnly: true,
-        persistAcrossBackgrounding: true,
       );
 
       if (authenticated) {
@@ -142,7 +137,47 @@ class _GlobalAppLockWrapperState extends State<GlobalAppLockWrapper> with Widget
                           backgroundColor: AppTheme.primaryColor,
                           padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
                         ),
-                        child: const Text('Unlock', style: TextStyle(color: Colors.white, fontSize: 16)),
+                        child: const Text('Unlock with Biometrics', style: TextStyle(color: Colors.white, fontSize: 16)),
+                      ),
+                      const SizedBox(height: 20),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 60.0),
+                        child: TextField(
+                          controller: _pinController,
+                          keyboardType: TextInputType.number,
+                          maxLength: 4,
+                          obscureText: true,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: AppTheme.textPrimary, letterSpacing: 16, fontSize: 24),
+                          decoration: InputDecoration(
+                            hintText: 'Or enter PIN',
+                            hintStyle: TextStyle(color: AppTheme.textSecondary, letterSpacing: 0, fontSize: 16),
+                            errorText: _errorText.isEmpty ? null : _errorText,
+                          ),
+                          onChanged: (val) async {
+                            if (val.length == 4) {
+                              final prefs = await SharedPreferences.getInstance();
+                              final savedPin = prefs.getString('app_lock_pin');
+                              if (savedPin != null && savedPin.isNotEmpty && savedPin == val) {
+                                if (mounted) {
+                                  setState(() {
+                                    _isLocked = false;
+                                    _errorText = '';
+                                    _pinController.clear();
+                                  });
+                                }
+                                _pausedTime = null;
+                              } else {
+                                if (mounted) {
+                                  setState(() {
+                                    _errorText = 'Incorrect PIN';
+                                    _pinController.clear();
+                                  });
+                                }
+                              }
+                            }
+                          },
+                        ),
                       ),
                     ],
                   ),

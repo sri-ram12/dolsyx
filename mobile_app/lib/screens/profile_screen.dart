@@ -9,6 +9,7 @@ import 'blocked_users_screen.dart';
 import '../providers/theme_provider.dart';
 import '../widgets/color_avatar.dart';
 import '../widgets/full_screen_image_view.dart';
+import 'my_qr_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -181,6 +182,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Consumer<ThemeProvider>(
                     builder: (context, themeProvider, child) {
                       return const SizedBox.shrink();
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  ListTile(
+                    tileColor: AppTheme.surfaceColor,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    leading: Icon(Icons.qr_code, color: AppTheme.primaryColor),
+                    title: Text('My QR Code', style: TextStyle(color: AppTheme.textPrimary)),
+                    trailing: Icon(Icons.chevron_right, color: AppTheme.textSecondary),
+                    onTap: () {
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => const MyQrScreen()));
                     },
                   ),
                   const SizedBox(height: 16),

@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:audioplayers/audioplayers.dart';
+import 'dart:async';
 import '../models/message.dart';
 import '../theme/app_theme.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+import '../providers/theme_provider.dart';
 
 class MessageBubble extends StatelessWidget {
   final Message message;
@@ -42,12 +46,42 @@ class MessageBubble extends StatelessWidget {
     final imageSize = MediaQuery.of(context).size.width * 0.75;
     
     final bool emojiOnly = message.mediaUrl == null && _isOnlyEmojis(message.content);
-    final double fontSize = emojiOnly ? _getEmojiFontSize(message.content) : 15.0;
+    final double userFontSize = Provider.of<ThemeProvider>(context).currentFontSize;
+    final double fontSize = emojiOnly ? _getEmojiFontSize(message.content) : userFontSize;
 
     final Color senderTextColor = AppTheme.bubbleSender.computeLuminance() > 0.5 ? Colors.black87 : Colors.white;
     final Color receiverTextColor = AppTheme.bubbleReceiver.computeLuminance() > 0.5 ? Colors.black87 : Colors.white;
     final Color textColor = isMe ? senderTextColor : receiverTextColor;
     final Color secondaryTextColor = textColor.withOpacity(0.7);
+
+    if (message.isDeleted) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: isMe ? AppTheme.bubbleSender.withOpacity(0.5) : AppTheme.bubbleReceiver.withOpacity(0.5),
+          borderRadius: BorderRadius.circular(16).copyWith(
+            bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(16),
+            bottomLeft: !isMe ? const Radius.circular(4) : const Radius.circular(16),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.block, size: 14, color: secondaryTextColor),
+            const SizedBox(width: 6),
+            Text(
+              'This message was deleted',
+              style: TextStyle(
+                color: secondaryTextColor,
+                fontStyle: FontStyle.italic,
+                fontSize: userFontSize,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
 
     if (message.mediaType == 'CALL_LOG') {
       return _buildCallLogBubble(context);
@@ -146,23 +180,45 @@ class MessageBubble extends StatelessWidget {
                           errorWidget: (context, url, error) => const Icon(Icons.broken_image, size: 50, color: Colors.grey),
                         ),
                       )
-                    else 
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.insert_drive_file, color: isMe ? Colors.white : AppTheme.textPrimary),
-                          const SizedBox(width: 8),
-                          Flexible(
-                            child: Text(
-                              'File Attachment',
-                              style: TextStyle(
-                                color: textColor,
-                                fontStyle: FontStyle.italic,
+                      else if (message.mediaType == 'VIDEO')
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.videocam, color: isMe ? Colors.white : AppTheme.textPrimary),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                'Video Attachment',
+                                style: TextStyle(
+                                  color: textColor,
+                                  fontStyle: FontStyle.italic,
+                                ),
                               ),
                             ),
-                          ),
-                        ],
-                      ),
+                          ],
+                        )
+                      else if (message.mediaType == 'AUDIO')
+                        AudioPlayWidget(
+                          url: message.mediaUrl!,
+                          color: isMe ? Colors.white : AppTheme.textPrimary,
+                        )
+                      else 
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.insert_drive_file, color: isMe ? Colors.white : AppTheme.textPrimary),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                'File Attachment',
+                                style: TextStyle(
+                                  color: textColor,
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                     if (message.content.isNotEmpty) const SizedBox(height: 8),
                   ],
                   if (message.content.isNotEmpty && message.mediaType != 'CALL_LOG')
@@ -347,5 +403,94 @@ class MessageBubble extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class AudioPlayWidget extends StatefulWidget {
+  final String url;
+  final Color color;
+
+  const AudioPlayWidget({super.key, required this.url, required this.color});
+
+  @override
+  State<AudioPlayWidget> createState() => _AudioPlayWidgetState();
+}
+
+class _AudioPlayWidgetState extends State<AudioPlayWidget> {
+  final AudioPlayer _player = AudioPlayer();
+  bool _isPlaying = false;
+  Duration _duration = Duration.zero;
+  Duration _position = Duration.zero;
+  StreamSubscription? _durationSub;
+  StreamSubscription? _positionSub;
+  StreamSubscription? _completeSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _durationSub = _player.onDurationChanged.listen((d) {
+      if (mounted) setState(() => _duration = d);
+    });
+    _positionSub = _player.onPositionChanged.listen((p) {
+      if (mounted) setState(() => _position = p);
+    });
+    _completeSub = _player.onPlayerComplete.listen((_) {
+      if (mounted) {
+        setState(() {
+          _isPlaying = false;
+          _position = Duration.zero;
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _durationSub?.cancel();
+    _positionSub?.cancel();
+    _completeSub?.cancel();
+    _player.dispose();
+    super.dispose();
+  }
+
+  void _togglePlay() async {
+    try {
+      if (_isPlaying) {
+        await _player.pause();
+        if (mounted) setState(() => _isPlaying = false);
+      } else {
+        final fullUrl = widget.url.startsWith('http') ? widget.url : 'https://dolsyx-app.onrender.com${widget.url}';
+        await _player.play(UrlSource(fullUrl));
+        if (mounted) setState(() => _isPlaying = true);
+      }
+    } catch (e) {
+      print('Audio play error: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          constraints: const BoxConstraints(),
+          padding: EdgeInsets.zero,
+          icon: Icon(_isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill, color: widget.color, size: 36),
+          onPressed: _togglePlay,
+        ),
+        const SizedBox(width: 8),
+        Text(
+          _formatDuration(_position) + ' / ' + _formatDuration(_duration),
+          style: TextStyle(color: widget.color, fontSize: 13, fontWeight: FontWeight.bold),
+        ),
+      ],
+    );
+  }
+
+  String _formatDuration(Duration d) {
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$m:$s';
   }
 }

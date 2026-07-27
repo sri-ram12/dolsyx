@@ -2,6 +2,7 @@ import type { Response } from "express";
 import { prisma } from "../config/db.js";
 import type { AuthRequest } from "../middleware/auth.middleware.js";
 import { encryptionService } from "../services/encryption.service.js";
+import { canViewProfilePhoto, canViewAbout, canViewLastSeen, canViewOnline } from "../utils/privacy.engine.js";
 
 export const getChats = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
@@ -15,6 +16,10 @@ export const getChats = async (req: AuthRequest, res: Response): Promise<void> =
             userId,
           },
         },
+        OR: [
+          { isGroup: true },
+          { messages: { some: {} } }
+        ]
       },
       include: {
         participants: {
@@ -102,6 +107,19 @@ export const getChats = async (req: AuthRequest, res: Response): Promise<void> =
             },
           },
         });
+
+        if (recipient) {
+          const [canViewPhoto, canViewBio, canSeeLastSeen, canSeeOnline] = await Promise.all([
+            canViewProfilePhoto(userId, recipient.id),
+            canViewAbout(userId, recipient.id),
+            canViewLastSeen(userId, recipient.id),
+            canViewOnline(userId, recipient.id),
+          ]);
+          if (!canViewPhoto) recipient.avatarUrl = null;
+          if (!canViewBio) recipient.bio = null;
+          if (!canSeeLastSeen) recipient.lastSeen = null;
+          if (!canSeeOnline) recipient.isOnline = false;
+        }
 
         return {
           id: chat.id,
@@ -217,6 +235,17 @@ export const createOrGetDirectChat = async (req: AuthRequest, res: Response): Pr
       res.status(404).json({ message: "Target user not found" });
       return;
     }
+
+    const [canViewPhoto, canViewBio, canSeeLastSeen, canSeeOnline] = await Promise.all([
+      canViewProfilePhoto(currentUserId, targetUser.id),
+      canViewAbout(currentUserId, targetUser.id),
+      canViewLastSeen(currentUserId, targetUser.id),
+      canViewOnline(currentUserId, targetUser.id),
+    ]);
+    if (!canViewPhoto) targetUser.avatarUrl = null;
+    if (!canViewBio) targetUser.bio = null;
+    if (!canSeeLastSeen) targetUser.lastSeen = null;
+    if (!canSeeOnline) targetUser.isOnline = false;
 
     // Find existing conversation between these 2 users
     const existingChat = await prisma.conversation.findFirst({
@@ -657,7 +686,13 @@ export const deleteMessage = async (req: AuthRequest, res: Response): Promise<vo
       
       await prisma.message.update({
         where: { id: messageId },
-        data: { isDeleted: true, content: "This message was deleted" }
+        data: { 
+          isDeleted: true, 
+          content: "This message was deleted",
+          mediaUrl: null,
+          mediaType: null,
+          isForwarded: false
+        }
       });
 
       // Emit socket event

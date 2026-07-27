@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../models/chat.dart';
 import '../services/chat_service.dart';
 import '../providers/auth_provider.dart';
+import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/color_avatar.dart';
 import '../widgets/full_screen_image_view.dart';
@@ -135,7 +136,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
       final cachedChats = await _chatService.getCachedChats();
       if (cachedChats.isNotEmpty) {
         setState(() {
-          _chats = cachedChats;
+          _chats = cachedChats.where((c) => c.isGroup || c.lastMessage != null).toList();
           _isLoading = false;
         });
       }
@@ -145,7 +146,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
       final chats = await _chatService.getChats();
       if (mounted) {
         setState(() {
-          _chats = chats;
+          _chats = chats.where((c) => c.isGroup || c.lastMessage != null).toList();
           _isLoading = false;
         });
       }
@@ -341,15 +342,21 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                                 }
                               }
                             },
-                            child: chat.avatarUrl == null
-                                ? ColorAvatar(name: _getChatName(chat), radius: 24)
-                                : CircleAvatar(
+                            child: chat.avatarUrl != null
+                                ? CircleAvatar(
                                     radius: 24,
                                     backgroundColor: AppTheme.surfaceColor,
                                     backgroundImage: chat.avatarUrl!.startsWith('http')
                                         ? NetworkImage(chat.avatarUrl!)
                                         : NetworkImage('https://dolsyx-app.onrender.com${chat.avatarUrl!}'),
-                                  ),
+                                  )
+                                : (chat.isGroup
+                                    ? CircleAvatar(
+                                        radius: 24,
+                                        backgroundColor: AppTheme.surfaceColor,
+                                        child: Icon(Icons.group, color: AppTheme.textSecondary, size: 28),
+                                      )
+                                    : ColorAvatar(name: _getChatName(chat), radius: 24)),
                           ),
                           title: Text(
                             _getChatName(chat),
@@ -532,12 +539,43 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                 child: Text(cleanName.isNotEmpty ? cleanName[0].toUpperCase() : 'C', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
               ),
               title: Text(cleanName, style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
-              subtitle: Text(chat.description ?? 'Community Group', style: TextStyle(color: AppTheme.textSecondary)),
+              subtitle: Text('Community Group', style: TextStyle(color: AppTheme.textSecondary)),
               onTap: () => _openChat(chat),
             );
           }),
       ],
     );
+  }
+
+  void _openChat(Chat chat) {
+    String? remoteId;
+    Map<String, dynamic>? remoteUser;
+    if (!chat.isGroup && chat.participants != null) {
+      final currentUserId = Provider.of<AuthProvider>(context, listen: false).user?['id'] ?? Provider.of<AuthProvider>(context, listen: false).user?['_id'];
+      final otherParticipant = chat.participants!.firstWhere(
+        (p) => p['user'] != null && (p['user']['id'] != currentUserId && p['user']['_id'] != currentUserId),
+        orElse: () => null,
+      );
+      if (otherParticipant != null) {
+        remoteId = otherParticipant['user']['id'] ?? otherParticipant['user']['_id'];
+        remoteUser = otherParticipant['user'];
+      }
+    }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChatRoomScreen(
+          conversationId: chat.id,
+          chatName: _getChatName(chat),
+          avatarUrl: chat.avatarUrl,
+          remoteUserId: remoteId,
+          remoteUser: remoteUser,
+        ),
+      ),
+    ).then((_) {
+      if (mounted) _fetchChats();
+    });
   }
 
   @override
@@ -633,6 +671,24 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                   await _chatService.updateChatSettings(id, {'isFavorite': true});
                 }
                 setState(() => _selectedChatIds.clear());
+                _fetchChats();
+              } else if (value == 'block') {
+                for (String id in idsToProcess) {
+                  final chat = _chats.firstWhere((c) => c.id == id, orElse: () => _chats.first);
+                  if (!chat.isGroup && chat.participants != null) {
+                    final currentUserId = Provider.of<AuthProvider>(context, listen: false).user?['id'] ?? Provider.of<AuthProvider>(context, listen: false).user?['_id'];
+                    final otherParticipant = chat.participants!.firstWhere(
+                      (p) => p['user'] != null && (p['user']['id'] != currentUserId && p['user']['_id'] != currentUserId),
+                      orElse: () => null,
+                    );
+                    if (otherParticipant != null) {
+                      final remoteId = otherParticipant['user']['id'] ?? otherParticipant['user']['_id'];
+                      await ApiService().blockUser(remoteId);
+                    }
+                  }
+                }
+                setState(() => _selectedChatIds.clear());
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Users blocked')));
                 _fetchChats();
               }
             },
@@ -814,12 +870,12 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
           BottomNavigationBarItem(
             icon: Icon(Icons.blur_circular),
             activeIcon: Icon(Icons.blur_circular),
-            label: 'Updates',
+            label: 'Status',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.groups_outlined),
             activeIcon: Icon(Icons.groups),
-            label: 'Communities',
+            label: 'Groups',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.phone_outlined),

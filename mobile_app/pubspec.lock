@@ -9,6 +9,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.3.75"
+  archive:
+    dependency: transitive
+    description:
+      name: archive
+      sha256: a96e8b390886ee8abb49b7bd3ac8df6f451c621619f52a26e815fdcf568959ff
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.0.9"
   args:
     dependency: transitive
     description:
@@ -342,6 +350,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "6.0.0"
+  flutter_native_video_trimmer:
+    dependency: transitive
+    description:
+      name: flutter_native_video_trimmer
+      sha256: d31159c34fb4e56fe53919b5b9978f75b5fb4b2934ceb05c6b369929139d3b72
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.1.9"
   flutter_plugin_android_lifecycle:
     dependency: transitive
     description:
@@ -368,6 +384,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.5.2"
+  get_thumbnail_video:
+    dependency: transitive
+    description:
+      name: get_thumbnail_video
+      sha256: ff61495b42051765d2a9e93bd14dac7ede5853033837bde71c27575a192c53fc
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.7.3"
   hooks:
     dependency: transitive
     description:
@@ -400,6 +424,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "4.1.2"
+  image:
+    dependency: transitive
+    description:
+      name: image
+      sha256: f9881ff4998044947ec38d098bc7c8316ae1186fa786eddffdb867b9bc94dfce
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.8.0"
   image_picker:
     dependency: "direct main"
     description:
@@ -681,7 +713,7 @@ packages:
     source: hosted
     version: "1.9.1"
   path_provider:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: path_provider
       sha256: a7f4874f987173da295a61c181b8ee71dab59b332a486b391babf26a1b884825
@@ -800,6 +832,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.8"
+  posix:
+    dependency: transitive
+    description:
+      name: posix
+      sha256: bc1bad54ad2b735816e31f8d4600cfde6c7839975085ddfbca48b6c9f7c4044e
+      url: "https://pub.dev"
+    source: hosted
+    version: "6.5.2"
   provider:
     dependency: "direct main"
     description:
@@ -832,6 +872,54 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "4.1.0"
+  record:
+    dependency: "direct main"
+    description:
+      name: record
+      sha256: "82539d1372e23cf51375fdfcba084f39912bcbf9a953b75d56596691f8f11c0f"
+      url: "https://pub.dev"
+    source: hosted
+    version: "7.1.1"
+  record_android:
+    dependency: transitive
+    description:
+      name: record_android
+      sha256: "28f1108626a190e249b01ffa9f639070e31e5157474b64a5ae380bf36aec9559"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.1.2"
+  record_ios:
+    dependency: transitive
+    description:
+      name: record_ios
+      sha256: "21d189f49a598af4697dac4cc9e48389ac0a1fb3e916622b5504a58d9b96313e"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.1.1"
+  record_linux:
+    dependency: transitive
+    description:
+      name: record_linux
+      sha256: b7484fdaf1f6d291543b9cf615e78096662b02df68d7a4728b13f352bde58d27
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.1.1"
+  record_macos:
+    dependency: transitive
+    description:
+      name: record_macos
+      sha256: ced7495abf3d683e8a7dbe8fc96df8ea5722837a26f922b7cb7c5de11661bb46
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.1.1"
+  record_platform_interface:
+    dependency: transitive
+    description:
+      name: record_platform_interface
+      sha256: d94b37cadb8fe203e64b0e9893271c0b71b34f2550ee7fb0c6105d650e00c1f5
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.1.0"
   record_use:
     dependency: transitive
     description:
@@ -840,6 +928,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.6.0"
+  record_web:
+    dependency: transitive
+    description:
+      name: record_web
+      sha256: "7d75ed681b5bf40c3a9b51b6c105fe53705f752284d859d5f030ab5a2bfd49cf"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.1.1"
+  record_windows:
+    dependency: transitive
+    description:
+      name: record_windows
+      sha256: "9cedfacee553a02b48977a5e1d74bf08a36cc5647eba56fb83e57da20552f443"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.2.2"
   rxdart:
     dependency: transitive
     description:
@@ -1021,6 +1125,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.7.11"
+  transparent_image:
+    dependency: transitive
+    description:
+      name: transparent_image
+      sha256: e8991d955a2094e197ca24c645efec2faf4285772a4746126ca12875e54ca02f
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.0.1"
   typed_data:
     dependency: transitive
     description:
@@ -1085,6 +1197,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.4.0"
+  video_trimmer:
+    dependency: "direct main"
+    description:
+      name: video_trimmer
+      sha256: a7e24512ec6bf47c99e3e192264a1c19a2b30e21d92add1b43ecd0995659a0b4
+      url: "https://pub.dev"
+    source: hosted
+    version: "5.0.0"
   vm_service:
     dependency: transitive
     description:

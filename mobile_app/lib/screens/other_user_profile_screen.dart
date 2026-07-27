@@ -5,6 +5,7 @@ import 'dart:convert';
 import '../theme/app_theme.dart';
 import '../services/api_service.dart';
 import '../providers/auth_provider.dart';
+import 'package:intl/intl.dart';
 import '../widgets/color_avatar.dart';
 import '../widgets/full_screen_image_view.dart';
 import '../screens/call_screen.dart';
@@ -163,6 +164,22 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
     }
   }
 
+  String _formatTime(DateTime? time) {
+    if (time == null) return "Unknown";
+    final now = DateTime.now();
+    final difference = now.difference(time);
+    
+    if (difference.inDays == 0 && now.day == time.day) {
+      return 'Today at ${DateFormat('hh:mm a').format(time)}';
+    } else if (difference.inDays == 1 || (difference.inDays == 0 && now.day != time.day)) {
+      return 'Yesterday at ${DateFormat('hh:mm a').format(time)}';
+    } else if (difference.inDays < 7) {
+      return '${DateFormat('EEEE').format(time)} at ${DateFormat('hh:mm a').format(time)}';
+    } else {
+      return '${DateFormat('dd/MM/yyyy').format(time)} at ${DateFormat('hh:mm a').format(time)}';
+    }
+  }
+
   Widget _buildActionItem(IconData icon, String text, VoidCallback onTap, {bool isDestructive = false}) {
     return ListTile(
       leading: Icon(icon, color: isDestructive ? Colors.redAccent : AppTheme.primaryColor),
@@ -263,51 +280,79 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
               color: AppTheme.surfaceColor,
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 24),
-              child: Column(
-                children: [
-                  GestureDetector(
-                    onTap: () {
-                      if (avatarUrl != null) {
-                        String fullUrl = avatarUrl.startsWith('http') 
-                            ? avatarUrl 
-                            : 'https://dolsyx-app.onrender.com$avatarUrl';
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => FullScreenImageView(imageUrl: fullUrl),
-                          ),
-                        );
-                      }
-                    },
-                    child: avatarUrl == null
-                        ? ColorAvatar(name: username, radius: 60, fontSize: 40)
-                        : CircleAvatar(
-                            radius: 60,
-                            backgroundColor: AppTheme.backgroundColor,
-                            backgroundImage: avatarUrl.startsWith('http')
-                                ? NetworkImage(avatarUrl)
-                                : NetworkImage('https://dolsyx-app.onrender.com$avatarUrl'),
-                          ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    username,
-                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
-                  ),
-                  Text(
-                    email,
-                    style: TextStyle(fontSize: 16, color: AppTheme.textSecondary),
-                  ),
-                  const SizedBox(height: 24),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _buildHeaderAction(Icons.call, 'Audio', _startAudioCall),
-                      _buildHeaderAction(Icons.videocam, 'Video', _startVideoCall),
-                      _buildHeaderAction(Icons.search, 'Search', () {}),
-                    ],
-                  ),
-                ],
+              child: SizedBox(
+                height: 300,
+                child: PageView(
+                  children: [
+                    // Page 1: Profile Info
+                    Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        GestureDetector(
+                          onTap: () {
+                            if (avatarUrl != null) {
+                              String fullUrl = avatarUrl.startsWith('http') 
+                                  ? avatarUrl 
+                                  : 'https://dolsyx-app.onrender.com$avatarUrl';
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => FullScreenImageView(imageUrl: fullUrl),
+                                ),
+                              );
+                            }
+                          },
+                          child: avatarUrl == null
+                              ? ColorAvatar(name: username, radius: 60, fontSize: 40)
+                              : CircleAvatar(
+                                  radius: 60,
+                                  backgroundColor: AppTheme.backgroundColor,
+                                  backgroundImage: avatarUrl.startsWith('http')
+                                      ? NetworkImage(avatarUrl)
+                                      : NetworkImage('https://dolsyx-app.onrender.com$avatarUrl'),
+                                ),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          username,
+                          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+                        ),
+                        Text(
+                          email,
+                          style: TextStyle(fontSize: 16, color: AppTheme.textSecondary),
+                        ),
+                        const SizedBox(height: 24),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            _buildHeaderAction(Icons.call, 'Audio', _startAudioCall),
+                            _buildHeaderAction(Icons.videocam, 'Video', _startVideoCall),
+                            _buildHeaderAction(Icons.search, 'Search', () {}),
+                          ],
+                        ),
+                      ],
+                    ),
+                    // Page 2: Last Seen Info
+                    Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.access_time, size: 64, color: AppTheme.primaryColor),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Last Seen',
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          widget.user['lastSeen'] != null 
+                              ? _formatTime(DateTime.tryParse(widget.user['lastSeen'].toString())) 
+                              : 'Hidden or Offline',
+                          style: TextStyle(fontSize: 16, color: AppTheme.textSecondary),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 8),

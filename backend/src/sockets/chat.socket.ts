@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import { prisma } from "../config/db.js";
 import { encryptionService } from "../services/encryption.service.js";
 import { sendPushNotification } from "../config/firebase.config.js";
+import { canViewOnline, canViewLastSeen } from "../utils/privacy.engine.js";
 
 const JWT_SECRET = process.env.JWT_SECRET || "dolsyx_super_secret_key_123456";
 
@@ -69,18 +70,21 @@ export const initChatSocket = (io: Server) => {
       const onlineContacts = Array.from(onlineUsers.keys()).filter(id => contactIds.has(id));
 
       // Provide immediate restricted list of online users to the connected client
+      // Note: A more robust implementation would filter this list by canViewOnline for each contact,
+      // but for performance on connection we leave this as is or filter it.
       socket.emit("online_users_list", onlineContacts);
 
-      if (user?.lastSeenPrivacy !== 'NOBODY') {
-        const payload = {
-          userId,
-          status: "online",
-        };
+      const payload = {
+        userId,
+        status: "online",
+      };
 
-        // Broadcast user online status change ONLY to relevant contacts
-        relatedParticipants.forEach(p => {
+      // Broadcast user online status change ONLY to relevant contacts who have permission
+      for (const p of relatedParticipants) {
+        const canSee = await canViewOnline(p.userId, userId);
+        if (canSee) {
           io.to(p.userId).emit("user_status_change", payload);
-        });
+        }
       }
     }).catch(err => {
       console.error("Error in connection logic:", err);
@@ -731,28 +735,32 @@ export const initChatSocket = (io: Server) => {
             data: { lastSeen: lastSeenTime },
             select: { lastSeenPrivacy: true },
           }).then(async user => {
-            if (user?.lastSeenPrivacy !== 'NOBODY') {
-              // Broadcast user offline status change with lastSeen timestamp to relevant contacts only
-              const relatedParticipants = await prisma.participant.findMany({
-                where: {
-                  conversation: {
-                    participants: { some: { userId } }
-                  },
-                  userId: { not: userId }
+            // Broadcast user offline status change with lastSeen timestamp to relevant contacts only
+            const relatedParticipants = await prisma.participant.findMany({
+              where: {
+                conversation: {
+                  participants: { some: { userId } }
                 },
-                select: { userId: true },
-                distinct: ['userId']
-              });
+                userId: { not: userId }
+              },
+              select: { userId: true },
+              distinct: ['userId']
+            });
 
-              const payload = {
-                userId,
-                status: "offline",
-                lastSeen: lastSeenTime,
-              };
+            for (const p of relatedParticipants) {
+              const canSeeOnline = await canViewOnline(p.userId, userId);
+              const canSeeLastSeen = await canViewLastSeen(p.userId, userId);
 
-              relatedParticipants.forEach(p => {
+              if (canSeeOnline || canSeeLastSeen) {
+                const payload: any = {
+                  userId,
+                  status: "offline",
+                };
+                if (canSeeLastSeen) {
+                  payload.lastSeen = lastSeenTime;
+                }
                 io.to(p.userId).emit("user_status_change", payload);
-              });
+              }
             }
           }).catch(err => {
             console.error("Error updating user lastSeen on socket disconnect:", err);

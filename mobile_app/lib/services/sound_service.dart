@@ -78,7 +78,7 @@ class SoundService {
       final tonesEnabled = prefs.getBool('notif_conversation_tones') ?? true;
       if (!tonesEnabled) return;
 
-      final toneName = prefs.getString('notif_message_tone') ?? 'Default (Chime)';
+      final toneName = prefs.getString('notif_message_tone') ?? 'Pop';
       final customPath = prefs.getString('notif_custom_device_path');
 
       await _setNotificationAudioContext();
@@ -117,7 +117,7 @@ class SoundService {
     try {
       _isRingtonePlaying = true;
       final prefs = await SharedPreferences.getInstance();
-      final toneName = prefs.getString('notif_call_ringtone') ?? 'Default (DOLSYX Bell)';
+      final toneName = prefs.getString('notif_call_ringtone') ?? 'Marimba Melody';
       final customPath = prefs.getString('notif_custom_device_path');
 
       await _setRingtoneAudioContext();

@@ -15,8 +15,8 @@ class NotificationSettingsScreen extends StatefulWidget {
 class _NotificationSettingsScreenState extends State<NotificationSettingsScreen> {
   bool _conversationTones = true;
   bool _vibrate = true;
-  String _messageTone = 'Default (Chime)';
-  String _callRingtone = 'Default (DOLSYX Bell)';
+  String _messageTone = 'Pop';
+  String _callRingtone = 'Marimba Melody';
   bool _highPriorityNotifications = true;
   String? _customDeviceTonePath;
   
@@ -55,8 +55,8 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
     setState(() {
       _conversationTones = prefs.getBool('notif_conversation_tones') ?? true;
       _vibrate = prefs.getBool('notif_vibrate') ?? true;
-      _messageTone = prefs.getString('notif_message_tone') ?? 'Default (Chime)';
-      _callRingtone = prefs.getString('notif_call_ringtone') ?? 'Default (DOLSYX Bell)';
+      _messageTone = prefs.getString('notif_message_tone') ?? 'Pop';
+      _callRingtone = prefs.getString('notif_call_ringtone') ?? 'Marimba Melody';
       _highPriorityNotifications = prefs.getBool('notif_high_priority') ?? true;
       _customDeviceTonePath = prefs.getString('notif_custom_device_path');
     });

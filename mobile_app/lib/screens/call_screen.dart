@@ -150,7 +150,7 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Future<void> _startCall() async {
-    SoundService().startRingbackTone();
+    // No ringback tone - caller will hear silence
     setState(() => _status = 'Calling...');
     _timeoutTimer = Timer(const Duration(minutes: 2), () {
       if (!_callActive && mounted) {
@@ -291,10 +291,14 @@ class _CallScreenState extends State<CallScreen> {
       };
 
       _peerConnection?.onTrack = (RTCTrackEvent event) {
-        if (event.track.kind == 'video') {
-          _remoteRenderer.srcObject = event.streams[0];
-        } else if (widget.isAudioOnly && event.track.kind == 'audio') {
-          _remoteRenderer.srcObject = event.streams[0];
+        // Always bind the full stream to avoid Android track-kind splitting bugs.
+        // Both audio and video tracks arrive via event.streams[0] on Android.
+        if (event.streams.isNotEmpty) {
+          if (mounted) {
+            setState(() {
+              _remoteRenderer.srcObject = event.streams[0];
+            });
+          }
         }
       };
 

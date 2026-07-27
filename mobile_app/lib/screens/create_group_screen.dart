@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../services/group_service.dart';
-import '../services/chat_service.dart';
+import '../services/contact_service.dart';
+import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
 
 class CreateGroupScreen extends StatefulWidget {
@@ -12,27 +14,45 @@ class CreateGroupScreen extends StatefulWidget {
 
 class _CreateGroupScreenState extends State<CreateGroupScreen> {
   final GroupService _groupService = GroupService();
-  final ChatService _chatService = ChatService();
+  final ContactService _contactService = ContactService();
   final _nameController = TextEditingController();
   final _descController = TextEditingController();
   
-  List<dynamic> _users = [];
+  List<dynamic> _contacts = [];
+  List<dynamic> _filteredContacts = [];
   final List<String> _selectedUserIds = [];
   bool _isLoading = false;
+  String _searchQuery = '';
 
   @override
   void initState() {
     super.initState();
-    _searchUsers('');
+    _loadContacts();
   }
-
-  Future<void> _searchUsers(String query) async {
-    final users = await _chatService.searchUsers(query);
+  
+  Future<void> _loadContacts() async {
+    setState(() => _isLoading = true);
+    final token = Provider.of<AuthProvider>(context, listen: false).token ?? '';
+    final contacts = await ContactService.getContacts(token);
     if (mounted) {
       setState(() {
-        _users = users;
+        _contacts = contacts;
+        _filteredContacts = contacts;
+        _isLoading = false;
       });
     }
+  }
+  
+  void _filterContacts(String query) {
+    setState(() {
+      _searchQuery = query;
+      _filteredContacts = _contacts.where((c) {
+        final user = c['contact'];
+        if (user == null) return false;
+        final name = (c['savedName'] ?? user['username'] ?? '').toLowerCase();
+        return name.contains(query.toLowerCase());
+      }).toList();
+    });
   }
 
   Future<void> _createGroup() async {
@@ -98,16 +118,22 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0),
             child: TextField(
-              decoration: const InputDecoration(labelText: 'Search Users', prefixIcon: Icon(Icons.search)),
-              onChanged: _searchUsers,
+              decoration: const InputDecoration(labelText: 'Search Contacts', prefixIcon: Icon(Icons.search)),
+              onChanged: _filterContacts,
             ),
           ),
           Expanded(
             child: ListView.builder(
-              itemCount: _users.length,
+              itemCount: _filteredContacts.length,
               itemBuilder: (context, index) {
-                final user = _users[index];
-                final isSelected = _selectedUserIds.contains(user['_id']);
+                final contactObj = _filteredContacts[index];
+                final user = contactObj['contact'];
+                if (user == null) return const SizedBox.shrink();
+                
+                final userId = user['id'] ?? user['_id'];
+                final isSelected = _selectedUserIds.contains(userId);
+                final displayName = contactObj['savedName'] ?? user['username'] ?? 'Unknown';
+                
                 return ListTile(
                   leading: CircleAvatar(
                     backgroundImage: user['avatarUrl'] != null && user['avatarUrl'].startsWith('http')
@@ -115,15 +141,15 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                         : null,
                     child: user['avatarUrl'] == null ? const Icon(Icons.person) : null,
                   ),
-                  title: Text(user['username'], style: TextStyle(color: AppTheme.textPrimary)),
+                  title: Text(displayName, style: TextStyle(color: AppTheme.textPrimary)),
                   trailing: Checkbox(
                     value: isSelected,
                     onChanged: (val) {
                       setState(() {
                         if (val == true) {
-                          _selectedUserIds.add(user['_id']);
+                          _selectedUserIds.add(userId);
                         } else {
-                          _selectedUserIds.remove(user['_id']);
+                          _selectedUserIds.remove(userId);
                         }
                       });
                     },

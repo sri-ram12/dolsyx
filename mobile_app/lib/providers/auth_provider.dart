@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../services/socket_service.dart';
@@ -23,6 +24,40 @@ class AuthProvider with ChangeNotifier {
   void updateUser(Map<String, dynamic> updatedUser) {
     _user = updatedUser;
     notifyListeners();
+  }
+
+  Future<bool> tryAutoLogin() async {
+    final tkn = await _apiService.getToken();
+    if (tkn == null) return false;
+    
+    try {
+      final parts = tkn.split('.');
+      if (parts.length != 3) return false;
+      
+      String payload = parts[1];
+      int padding = payload.length % 4;
+      if (padding != 0) {
+        payload += '=' * (4 - padding);
+      }
+      
+      final decodedPayload = utf8.decode(base64Url.decode(payload));
+      final payloadMap = jsonDecode(decodedPayload);
+      final userId = payloadMap['id'];
+      
+      final userData = await _apiService.getUserById(userId);
+      if (userData != null) {
+        _isAuthenticated = true;
+        _user = userData;
+        _token = tkn;
+        await _socketService.connect(_user!['id']);
+        _setupSocketListeners();
+        notifyListeners();
+        return true;
+      }
+    } catch (e) {
+      print("Auto login error: $e");
+    }
+    return false;
   }
 
   Future<void> login(String email, String password) async {

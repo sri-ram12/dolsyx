@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "135176717661",
+    "project_id": "dolsyx-dba1f",
+    "storage_bucket": "dolsyx-dba1f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:135176717661:android:4bddfb86adfdd0b6e294b4",
+        "android_client_info": {
+          "package_name": "com.dolsyx.mobile_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBGh4MGmPDIIMrfRlofkjYdd9VQ4SPRGkw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

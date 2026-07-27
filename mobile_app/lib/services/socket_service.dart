@@ -145,6 +145,18 @@ class SocketService {
     }
   }
 
+  void onMessageDeleted(Function(dynamic) callback) {
+    if (socket != null) {
+      socket!.on('message_deleted', callback);
+    }
+  }
+
+  void offMessageDeleted(Function(dynamic) callback) {
+    if (socket != null) {
+      socket!.off('message_deleted', callback);
+    }
+  }
+
   void emitTyping(String conversationId, bool isTyping) {
     if (socket != null && socket!.connected) {
       socket!.emit('typing', {

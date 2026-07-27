@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'theme/app_theme.dart';
 import 'screens/login_screen.dart';
+import 'screens/chat_list_screen.dart';
 import 'package:provider/provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/theme_provider.dart';
@@ -36,7 +37,7 @@ void main() async {
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => WallpaperProvider()),
       ],
-      child: const GlobalAppLockWrapper(child: DolsyxApp()),
+      child: const DolsyxApp(),
     ),
   );
 }
@@ -51,12 +52,25 @@ class DolsyxApp extends StatefulWidget {
 }
 
 class _DolsyxAppState extends State<DolsyxApp> {
+  bool _isInit = true;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _setupGlobalCallListener();
     });
+    _tryAutoLogin();
+  }
+
+  Future<void> _tryAutoLogin() async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    await authProvider.tryAutoLogin();
+    if (mounted) {
+      setState(() {
+        _isInit = false;
+      });
+    }
   }
 
   void _setupGlobalCallListener() {
@@ -109,14 +123,25 @@ class _DolsyxAppState extends State<DolsyxApp> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<ThemeProvider>(
-      builder: (context, themeProvider, child) {
+    return Consumer2<ThemeProvider, AuthProvider>(
+      builder: (context, themeProvider, authProvider, child) {
         return MaterialApp(
           navigatorKey: navigatorKey,
           title: 'DOLSYX Mobile',
           debugShowCheckedModeBanner: false,
           theme: AppTheme.themeData,
-          home: const LoginScreen(),
+          builder: (context, child) {
+            final fontScale = themeProvider.currentFontSize / 18.0; // 18 is default
+            return MediaQuery(
+              data: MediaQuery.of(context).copyWith(
+                textScaler: TextScaler.linear(fontScale),
+              ),
+              child: GlobalAppLockWrapper(child: child!),
+            );
+          },
+          home: _isInit 
+            ? const Scaffold(body: Center(child: CircularProgressIndicator()))
+            : (authProvider.isAuthenticated ? const ChatListScreen() : const LoginScreen()),
         );
       },
     );

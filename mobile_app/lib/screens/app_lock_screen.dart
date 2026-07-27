@@ -13,6 +13,8 @@ class AppLockScreen extends StatefulWidget {
 class _AppLockScreenState extends State<AppLockScreen> {
   bool _isAppLockEnabled = false;
   String _lockTimeout = 'Immediately';
+  String _pin = '';
+  final TextEditingController _pinController = TextEditingController();
 
   @override
   void initState() {
@@ -25,6 +27,8 @@ class _AppLockScreenState extends State<AppLockScreen> {
     setState(() {
       _isAppLockEnabled = prefs.getBool('app_lock_enabled') ?? false;
       _lockTimeout = prefs.getString('app_lock_timeout') ?? 'Immediately';
+      _pin = prefs.getString('app_lock_pin') ?? '';
+      _pinController.text = _pin;
     });
   }
 
@@ -32,6 +36,7 @@ class _AppLockScreenState extends State<AppLockScreen> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('app_lock_enabled', _isAppLockEnabled);
     await prefs.setString('app_lock_timeout', _lockTimeout);
+    await prefs.setString('app_lock_pin', _pin);
   }
 
   @override
@@ -62,8 +67,6 @@ class _AppLockScreenState extends State<AppLockScreen> {
               
               final authenticated = await localAuth.authenticate(
                 localizedReason: val ? 'Please authenticate to enable App Lock' : 'Please authenticate to disable App Lock',
-                biometricOnly: true,
-                persistAcrossBackgrounding: true,
               );
 
               if (authenticated) {
@@ -75,6 +78,26 @@ class _AppLockScreenState extends State<AppLockScreen> {
             },
           ),
           if (_isAppLockEnabled) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+              child: TextField(
+                controller: _pinController,
+                keyboardType: TextInputType.number,
+                maxLength: 4,
+                obscureText: true,
+                style: TextStyle(color: AppTheme.textPrimary),
+                decoration: InputDecoration(
+                  labelText: '4-Digit PIN (Fallback)',
+                  labelStyle: TextStyle(color: AppTheme.textSecondary),
+                  enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: AppTheme.textSecondary)),
+                  focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: AppTheme.primaryColor)),
+                ),
+                onChanged: (val) {
+                  setState(() => _pin = val);
+                  _saveSettings();
+                },
+              ),
+            ),
             Padding(
               padding: const EdgeInsets.all(16.0),
               child: Text('Automatically lock', style: TextStyle(color: AppTheme.textSecondary, fontWeight: FontWeight.bold)),

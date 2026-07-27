@@ -1,7 +1,11 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:io';
+import 'package:provider/provider.dart';
+import '../providers/theme_provider.dart';
 import 'dart:async';
+import 'package:record/record.dart';
+import 'package:path_provider/path_provider.dart';
 import 'forward_message_screen.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter/material.dart';
@@ -26,6 +30,7 @@ import '../widgets/color_avatar.dart';
 import '../widgets/full_screen_image_view.dart';
 import 'call_screen.dart';
 import 'wallpaper_settings_screen.dart';
+import 'group_settings_screen.dart';
 
 class ChatRoomScreen extends StatefulWidget {
   final String conversationId;
@@ -65,6 +70,12 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   final Set<String> _selectedMessageIds = {};
   bool _isBlocked = false;
   Message? _replyingTo;
+  bool _isRecording = false;
+  bool _isRecordingLocked = false;
+  int _recordingDuration = 0;
+  Timer? _recordingTimer;
+  String? _recordingPath;
+  final AudioRecorder _audioRecorder = AudioRecorder();
 
   @override
   void initState() {
@@ -85,6 +96,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     authProvider.socketService.onTypingChange(_handleTypingChange);
     authProvider.socketService.onStatusChange(_handleStatusChange);
     authProvider.socketService.onChatCleared(_handleChatCleared);
+    authProvider.socketService.onMessageDeleted(_handleMessageDeleted);
     authProvider.socketService.onMessagesRead(_handleMessagesRead);
     authProvider.socketService.onProfileUpdated(_handleProfileUpdated);
     authProvider.socketService.onReactionAdded(_handleReactionAdded);
@@ -109,6 +121,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     authProvider.socketService.offTypingChange(_handleTypingChange);
     authProvider.socketService.offStatusChange(_handleStatusChange);
     authProvider.socketService.offChatCleared(_handleChatCleared);
+    authProvider.socketService.offMessageDeleted(_handleMessageDeleted);
     authProvider.socketService.offMessagesRead(_handleMessagesRead);
     authProvider.socketService.offProfileUpdated(_handleProfileUpdated);
     authProvider.socketService.offReactionAdded(_handleReactionAdded);
@@ -117,7 +130,29 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     _messageController.dispose();
     _scrollController.dispose();
     _typingTimer?.cancel();
+    _recordingTimer?.cancel();
+    _audioRecorder.dispose();
     super.dispose();
+  }
+
+  void _startRecordingTimer() {
+    _recordingDuration = 0;
+    _recordingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      setState(() {
+        _recordingDuration++;
+      });
+    });
+  }
+
+  void _stopRecordingTimer() {
+    _recordingTimer?.cancel();
+    _recordingTimer = null;
+  }
+
+  String _formatDuration(int seconds) {
+    final minutes = seconds ~/ 60;
+    final remainingSeconds = seconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${remainingSeconds.toString().padLeft(2, '0')}';
   }
 
   void _onTextChanged() {
@@ -238,6 +273,27 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       setState(() {
         _messages.clear();
       });
+      _updateMessageCache();
+    }
+  }
+
+  void _handleMessageDeleted(dynamic data) {
+    if (mounted && data != null && data['conversationId'] == widget.conversationId) {
+      final String msgId = data['messageId'] ?? '';
+      setState(() {
+        final idx = _messages.indexWhere((m) => m.id == msgId);
+        if (idx != -1) {
+          _messages[idx] = Message(
+            id: _messages[idx].id,
+            content: "This message was deleted",
+            senderId: _messages[idx].senderId,
+            conversationId: _messages[idx].conversationId,
+            createdAt: _messages[idx].createdAt,
+            isDeleted: true,
+          );
+        }
+      });
+      _updateMessageCache();
     }
   }
 
@@ -538,6 +594,47 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     }
   }
 
+  void _openGroupSettings() async {
+    try {
+      List<Chat> chats = await _chatService.getCachedChats();
+      if (chats.isEmpty) {
+        chats = await _chatService.getChats();
+      }
+      Chat? chat;
+      for (var c in chats) {
+        if (c.id == widget.conversationId) {
+          chat = c;
+          break;
+        }
+      }
+      if (chat == null) {
+        chats = await _chatService.getChats();
+        for (var c in chats) {
+          if (c.id == widget.conversationId) {
+            chat = c;
+            break;
+          }
+        }
+      }
+      if (chat != null && mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => GroupSettingsScreen(
+              conversationId: widget.conversationId,
+              groupName: widget.chatName,
+              participants: chat!.participants ?? [],
+            ),
+          ),
+        );
+      } else {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to load group details')));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    }
+  }
+
   Future<void> _pickImage(ImageSource source) async {
     try {
       final picker = ImagePicker();
@@ -552,6 +649,20 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     }
   }
 
+  Future<void> _pickVideo(ImageSource source) async {
+    try {
+      final picker = ImagePicker();
+      final pickedFile = await picker.pickVideo(source: source);
+      if (!mounted) return;
+      if (pickedFile != null) {
+        _uploadAndSendMedia(File(pickedFile.path), 'VIDEO');
+      }
+    } catch (e) {
+      print('Error picking video: $e');
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    }
+  }
+
   Future<void> _pickFile() async {
     try {
       final result = await FilePicker.pickFiles();
@@ -562,6 +673,38 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     } catch (e) {
       print('Error picking file: $e');
     }
+  }
+
+  void _showCameraOptions() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppTheme.surfaceColor,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (sheetContext) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 8),
+          Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey, borderRadius: BorderRadius.circular(2))),
+          ListTile(
+            leading: Icon(Icons.camera_alt, color: AppTheme.primaryColor),
+            title: Text('Take Photo', style: TextStyle(color: AppTheme.textPrimary)),
+            onTap: () {
+              Navigator.pop(sheetContext);
+              _pickImage(ImageSource.camera);
+            },
+          ),
+          ListTile(
+            leading: Icon(Icons.videocam, color: AppTheme.primaryColor),
+            title: Text('Record Video', style: TextStyle(color: AppTheme.textPrimary)),
+            onTap: () {
+              Navigator.pop(sheetContext);
+              _pickVideo(ImageSource.camera);
+            },
+          ),
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
   }
 
   Future<void> _uploadAndSendMedia(File file, String mediaType) async {
@@ -607,6 +750,14 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 onTap: () {
                   Navigator.pop(sheetContext);
                   _pickImage(ImageSource.camera);
+                },
+              ),
+              ListTile(
+                leading: Icon(Icons.videocam, color: AppTheme.primaryColor),
+                title: Text('Record Video', style: TextStyle(color: AppTheme.textPrimary)),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _pickVideo(ImageSource.camera);
                 },
               ),
               ListTile(
@@ -801,6 +952,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Listen to theme changes (including font size) to rebuild the screen
+    Provider.of<ThemeProvider>(context);
+
     final currentUser = Provider.of<AuthProvider>(context).user;
     final wallpaperConfig = Provider.of<WallpaperProvider>(context).getWallpaperForChat(widget.conversationId);
     
@@ -978,6 +1132,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                         builder: (_) => OtherUserProfileScreen(user: userMap),
                       ),
                     );
+                  } else {
+                    _openGroupSettings();
                   }
                 },
                 child: Row(
@@ -1301,60 +1457,165 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
             color: Colors.transparent,
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _messageController,
-                    focusNode: _focusNode,
-                    onTap: () {
-                      if (_isEmojiVisible) {
-                        setState(() { _isEmojiVisible = false; });
-                      }
-                    },
-                    style: TextStyle(color: AppTheme.textPrimary),
-                    decoration: InputDecoration(
-                      hintText: 'Message',
-                      hintStyle: TextStyle(color: AppTheme.textSecondary),
-                      filled: true,
-                      fillColor: AppTheme.surfaceColor,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                      prefixIcon: IconButton(
-                        icon: Icon(_isEmojiVisible ? Icons.keyboard : Icons.emoji_emotions_outlined, color: AppTheme.textSecondary),
-                        onPressed: _showEmojiPicker,
-                      ),
-                      suffixIcon: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            icon: Icon(Icons.attach_file, color: AppTheme.textSecondary),
-                            onPressed: _showAttachmentOptions,
-                          ),
-                          IconButton(
-                            icon: Icon(Icons.camera_alt_outlined, color: AppTheme.textSecondary),
-                            onPressed: () => _pickImage(ImageSource.camera),
-                          ),
-                        ],
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(28),
-                        borderSide: BorderSide.none,
+            child: _isRecordingLocked
+              ? Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.delete, color: Colors.red),
+                      onPressed: () async {
+                        await _audioRecorder.stop();
+                        _stopRecordingTimer();
+                        setState(() {
+                          _isRecording = false;
+                          _isRecordingLocked = false;
+                        });
+                      },
+                    ),
+                    Expanded(
+                      child: Center(
+                        child: Text(
+                          _formatDuration(_recordingDuration),
+                          style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 16),
+                        ),
                       ),
                     ),
-                    onSubmitted: (_) => _sendMessage(),
-                  ),
+                    CircleAvatar(
+                      radius: 24,
+                      backgroundColor: AppTheme.primaryColor,
+                      child: IconButton(
+                        icon: const Icon(Icons.send, color: Colors.white, size: 20),
+                        onPressed: () async {
+                          final path = await _audioRecorder.stop();
+                          _stopRecordingTimer();
+                          setState(() {
+                            _isRecording = false;
+                            _isRecordingLocked = false;
+                          });
+                          if (path != null) {
+                            _uploadAndSendMedia(File(path), 'AUDIO');
+                          }
+                        },
+                      ),
+                    ),
+                  ],
+                )
+              : Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _messageController,
+                        focusNode: _focusNode,
+                        onTap: () {
+                          if (_isEmojiVisible) {
+                            setState(() { _isEmojiVisible = false; });
+                          }
+                        },
+                        style: TextStyle(color: AppTheme.textPrimary),
+                        decoration: InputDecoration(
+                          hintText: _isRecording ? 'Recording... Slide up to lock' : 'Message',
+                          hintStyle: TextStyle(color: _isRecording ? Colors.red : AppTheme.textSecondary),
+                          filled: true,
+                          fillColor: AppTheme.surfaceColor,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          prefixIcon: _isRecording 
+                            ? Padding(
+                                padding: const EdgeInsets.all(12.0),
+                                child: Text(_formatDuration(_recordingDuration), style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                              )
+                            : IconButton(
+                                icon: Icon(_isEmojiVisible ? Icons.keyboard : Icons.emoji_emotions_outlined, color: AppTheme.textSecondary),
+                                onPressed: _showEmojiPicker,
+                              ),
+                          suffixIcon: _isRecording ? null : Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: Icon(Icons.attach_file, color: AppTheme.textSecondary),
+                                onPressed: _showAttachmentOptions,
+                              ),
+                              IconButton(
+                                icon: Icon(Icons.camera_alt_outlined, color: AppTheme.textSecondary),
+                                onPressed: _showCameraOptions,
+                              ),
+                            ],
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(28),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                        onSubmitted: (_) => _sendMessage(),
+                      ),
+                    ),
+                    SizedBox(width: 8),
+                    ValueListenableBuilder<TextEditingValue>(
+                      valueListenable: _messageController,
+                      builder: (context, value, child) {
+                        final hasText = value.text.trim().isNotEmpty;
+                        if (hasText) {
+                          return CircleAvatar(
+                            radius: 24,
+                            backgroundColor: AppTheme.primaryColor,
+                            child: IconButton(
+                              icon: const Icon(Icons.send, color: Colors.white, size: 20),
+                              onPressed: _sendMessage,
+                            ),
+                          );
+                        }
+                        return GestureDetector(
+                          onLongPressStart: (_) async {
+                            if (await _audioRecorder.hasPermission()) {
+                              final directory = await getTemporaryDirectory();
+                              final path = '${directory.path}/audio_${DateTime.now().millisecondsSinceEpoch}.m4a';
+                              await _audioRecorder.start(const RecordConfig(), path: path);
+                              _startRecordingTimer();
+                              setState(() {
+                                _isRecording = true;
+                              });
+                            } else {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Microphone permission denied')),
+                              );
+                            }
+                          },
+                          onLongPressMoveUpdate: (details) {
+                            if (_isRecording && !_isRecordingLocked && details.localOffsetFromOrigin.dy < -50) {
+                              setState(() {
+                                _isRecordingLocked = true;
+                              });
+                            }
+                          },
+                          onLongPressEnd: (_) async {
+                            if (_isRecording && !_isRecordingLocked) {
+                              final path = await _audioRecorder.stop();
+                              _stopRecordingTimer();
+                              setState(() {
+                                _isRecording = false;
+                              });
+                              if (path != null) {
+                                _uploadAndSendMedia(File(path), 'AUDIO');
+                              }
+                            }
+                          },
+                          onTap: () {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Hold to record, release to send')),
+                            );
+                          },
+                          child: CircleAvatar(
+                            radius: 24,
+                            backgroundColor: AppTheme.primaryColor,
+                            child: Icon(
+                              _isRecording ? Icons.mic : Icons.mic_none,
+                              color: Colors.white, 
+                              size: 20,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
                 ),
-                SizedBox(width: 8),
-                CircleAvatar(
-                  radius: 24,
-                  backgroundColor: AppTheme.primaryColor,
-                  child: IconButton(
-                    icon: const Icon(Icons.send, color: Colors.white, size: 20),
-                    onPressed: _sendMessage,
-                  ),
-                ),
-              ],
-            ),
           ),
           if (_isEmojiVisible)
             SizedBox(

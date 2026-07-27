@@ -68,7 +68,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
           ),
           ListTile(
             title: Text('Font size', style: TextStyle(color: AppTheme.textPrimary)),
-            subtitle: Text(_fontSize == 12 ? 'Small' : _fontSize == 15 ? 'Medium' : 'Large', style: TextStyle(color: AppTheme.textSecondary)),
+            subtitle: Text(_fontSize == 14 ? 'Small' : _fontSize == 18 ? 'Medium' : 'Large', style: TextStyle(color: AppTheme.textSecondary)),
             onTap: () {
               showDialog(
                 context: context,
@@ -81,7 +81,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                       children: [
                         RadioListTile<double>(
                           title: Text('Small', style: TextStyle(color: AppTheme.textPrimary)),
-                          value: 12.0,
+                          value: 14.0,
                           groupValue: _fontSize,
                           activeColor: AppTheme.primaryColor,
                           onChanged: (val) {
@@ -91,7 +91,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                         ),
                         RadioListTile<double>(
                           title: Text('Medium', style: TextStyle(color: AppTheme.textPrimary)),
-                          value: 15.0,
+                          value: 18.0,
                           groupValue: _fontSize,
                           activeColor: AppTheme.primaryColor,
                           onChanged: (val) {
@@ -101,7 +101,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                         ),
                         RadioListTile<double>(
                           title: Text('Large', style: TextStyle(color: AppTheme.textPrimary)),
-                          value: 18.0,
+                          value: 24.0,
                           groupValue: _fontSize,
                           activeColor: AppTheme.primaryColor,
                           onChanged: (val) {

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -9,6 +10,7 @@ import '../services/socket_service.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
 import 'status_view_screen.dart';
+import 'video_trimmer_screen.dart';
 
 class StatusScreen extends StatefulWidget {
   const StatusScreen({super.key});
@@ -62,11 +64,24 @@ class _StatusScreenState extends State<StatusScreen> {
       final picker = ImagePicker();
       final pickedFile = type == 'IMAGE' 
           ? await picker.pickImage(source: ImageSource.gallery, imageQuality: 70)
-          : await picker.pickVideo(source: ImageSource.gallery, maxDuration: const Duration(seconds: 90));
+          : await picker.pickVideo(source: ImageSource.gallery);
       
       if (pickedFile != null) {
+        String mediaPath = pickedFile.path;
+        
+        if (type == 'VIDEO') {
+          final trimmedPath = await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => VideoTrimmerScreen(file: File(pickedFile.path)),
+            ),
+          );
+          if (trimmedPath == null) return; // User cancelled trimming
+          mediaPath = trimmedPath;
+        }
+
         setState(() => _isLoading = true);
-        final uploadResponse = await _statusService.uploadStatusMedia(pickedFile.path);
+        final uploadResponse = await _statusService.uploadStatusMedia(mediaPath);
         
         if (uploadResponse != null && uploadResponse['fileUrl'] != null) {
           final success = await _statusService.createStatus(
@@ -233,21 +248,61 @@ class _StatusScreenState extends State<StatusScreen> {
               onRefresh: _fetchStatuses,
               child: ListView(
                 children: [
-                  // My Status
                   ListTile(
+                    onTap: () {
+                      if (myGroup != null && myGroup!.statuses.isNotEmpty) {
+                        _viewStatus(myGroup!);
+                      } else {
+                        // Let user pick a status if none exists
+                        showModalBottomSheet(
+                          context: context,
+                          backgroundColor: AppTheme.surfaceColor,
+                          builder: (context) => Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              ListTile(
+                                leading: Icon(Icons.image, color: AppTheme.primaryColor),
+                                title: Text('Photo', style: TextStyle(color: AppTheme.textPrimary)),
+                                onTap: () { Navigator.pop(context); _addStatus('IMAGE'); },
+                              ),
+                              ListTile(
+                                leading: Icon(Icons.videocam, color: AppTheme.primaryColor),
+                                title: Text('Video', style: TextStyle(color: AppTheme.textPrimary)),
+                                onTap: () { Navigator.pop(context); _addStatus('VIDEO'); },
+                              ),
+                              ListTile(
+                                leading: Icon(Icons.text_fields, color: AppTheme.primaryColor),
+                                title: Text('Text', style: TextStyle(color: AppTheme.textPrimary)),
+                                onTap: () { Navigator.pop(context); _addStatus('TEXT'); },
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+                    },
                     leading: Stack(
                       children: [
-                        CircleAvatar(
-                          radius: 26,
-                          backgroundColor: AppTheme.surfaceColor,
-                          backgroundImage: (myGroup != null && myGroup.statuses.isNotEmpty && myGroup.statuses.last.mediaUrl.isNotEmpty && myGroup.statuses.last.mediaType == 'IMAGE')
-                              ? NetworkImage(myGroup.statuses.last.mediaUrl.startsWith('http') ? myGroup.statuses.last.mediaUrl : 'https://dolsyx-app.onrender.com${myGroup.statuses.last.mediaUrl}')
-                              : null,
-                          child: (myGroup == null || myGroup.statuses.isEmpty || myGroup.statuses.last.mediaUrl.isEmpty || myGroup.statuses.last.mediaType != 'IMAGE')
-                              ? Icon(Icons.person, color: AppTheme.textSecondary)
-                              : null,
+                        Container(
+                          padding: const EdgeInsets.all(2),
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: (myGroup != null && myGroup!.statuses.isNotEmpty) ? Colors.green : Colors.transparent,
+                              width: 2,
+                            ),
+                          ),
+                          child: CircleAvatar(
+                            radius: 26,
+                            backgroundColor: AppTheme.surfaceColor,
+                            backgroundImage: (currentUser != null && currentUser['avatarUrl'] != null)
+                                ? NetworkImage(currentUser['avatarUrl'].startsWith('http') ? currentUser['avatarUrl'] : 'https://dolsyx-app.onrender.com${currentUser['avatarUrl']}')
+                                : null,
+                            child: (currentUser == null || currentUser['avatarUrl'] == null)
+                                ? Icon(Icons.person, color: AppTheme.textSecondary)
+                                : null,
+                          ),
                         ),
-                        if (myGroup == null || myGroup.statuses.isEmpty)
+                        if (myGroup == null || myGroup!.statuses.isEmpty)
                           Positioned(
                             bottom: 0,
                             right: 0,
@@ -294,13 +349,6 @@ class _StatusScreenState extends State<StatusScreen> {
                         );
                       },
                     ) : null,
-                    onTap: () {
-                      if (myGroup == null || myGroup.statuses.isEmpty) {
-                        _addStatus('IMAGE');
-                      } else {
-                        _viewStatus(myGroup);
-                      }
-                    },
                   ),
                   
                   if (recentUpdates.isNotEmpty)

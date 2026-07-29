@@ -26,7 +26,7 @@ class MessageBubble extends StatelessWidget {
 
   bool _isOnlyEmojis(String text) {
     if (text.trim().isEmpty) return false;
-    final regex = RegExp(r'^[\p{Emoji_Presentation}\p{Extended_Pictographic}\s]+$', unicode: true);
+    final regex = RegExp(r'^(?:[\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF]|\s)+$');
     return regex.hasMatch(text.trim());
   }
 

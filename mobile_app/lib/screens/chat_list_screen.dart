@@ -20,7 +20,6 @@ import 'qr_scanner_screen.dart';
 import 'other_user_profile_screen.dart';
 import 'status_screen.dart';
 import 'settings_screen.dart';
-import 'blocked_users_screen.dart';
 import 'archived_chats_screen.dart';
 import 'contacts_screen.dart';
 class ChatListScreen extends StatefulWidget {

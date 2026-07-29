@@ -85,7 +85,9 @@ class _DolsyxAppState extends State<DolsyxApp> {
             AndroidInitializationSettings('@mipmap/ic_launcher');
         const InitializationSettings initializationSettings =
             InitializationSettings(android: initializationSettingsAndroid);
-        await flutterLocalNotificationsPlugin.initialize(initializationSettings);
+        await flutterLocalNotificationsPlugin.initialize(
+          settings: initializationSettings,
+        );
 
         FirebaseMessaging.onMessage.listen((RemoteMessage message) {
           final RemoteNotification? notification = message.notification;
@@ -93,10 +95,10 @@ class _DolsyxAppState extends State<DolsyxApp> {
 
           if (notification != null && android != null) {
             flutterLocalNotificationsPlugin.show(
-              notification.hashCode,
-              notification.title,
-              notification.body,
-              NotificationDetails(
+              id: notification.hashCode,
+              title: notification.title,
+              body: notification.body,
+              notificationDetails: NotificationDetails(
                 android: AndroidNotificationDetails(
                   channel.id,
                   channel.name,

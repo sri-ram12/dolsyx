@@ -16,7 +16,6 @@ class _GlobalAppLockWrapperState extends State<GlobalAppLockWrapper> with Widget
   final LocalAuthentication _localAuth = LocalAuthentication();
   bool _isLocked = false;
   bool _isAuthenticating = false;
-  bool _biometricsFailed = false; // Show PIN directly if biometrics unavailable
   DateTime? _pausedTime;
   final TextEditingController _pinController = TextEditingController();
   String _errorText = '';
@@ -88,7 +87,6 @@ class _GlobalAppLockWrapperState extends State<GlobalAppLockWrapper> with Widget
       final bool canAuthenticate = canAuthenticateWithBiometrics || await _localAuth.isDeviceSupported();
 
       if (!canAuthenticate) {
-        if (mounted) setState(() => _biometricsFailed = true);
         _isAuthenticating = false;
         return;
       }
@@ -101,18 +99,14 @@ class _GlobalAppLockWrapperState extends State<GlobalAppLockWrapper> with Widget
         if (mounted) {
           setState(() {
             _isLocked = false;
-            _biometricsFailed = false;
             _errorText = '';
             _pinController.clear();
           });
         }
         _pausedTime = null;
-      } else {
-        if (mounted) setState(() => _biometricsFailed = true);
       }
-    } catch (e) {
-      print('Authentication error: $e');
-      if (mounted) setState(() => _biometricsFailed = true);
+    } catch (_) {
+      // Authentication error — user can still use PIN
     } finally {
       _isAuthenticating = false;
     }
@@ -133,7 +127,6 @@ class _GlobalAppLockWrapperState extends State<GlobalAppLockWrapper> with Widget
         if (mounted) {
           setState(() {
             _isLocked = false;
-            _biometricsFailed = false;
             _errorText = '';
             _pinController.clear();
           });
@@ -172,7 +165,7 @@ class _GlobalAppLockWrapperState extends State<GlobalAppLockWrapper> with Widget
                           Container(
                             padding: const EdgeInsets.all(24),
                             decoration: BoxDecoration(
-                              color: AppTheme.primaryColor.withOpacity(0.15),
+                              color: AppTheme.primaryColor.withValues(alpha: 0.15),
                               shape: BoxShape.circle,
                             ),
                             child: Icon(Icons.lock_rounded, size: 64, color: AppTheme.primaryColor),
@@ -200,7 +193,7 @@ class _GlobalAppLockWrapperState extends State<GlobalAppLockWrapper> with Widget
                               color: AppTheme.surfaceColor,
                               borderRadius: BorderRadius.circular(16),
                               border: Border.all(
-                                color: _errorText.isNotEmpty ? Colors.red : AppTheme.primaryColor.withOpacity(0.3),
+                                color: _errorText.isNotEmpty ? Colors.red : AppTheme.primaryColor.withValues(alpha: 0.3),
                               ),
                             ),
                             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
@@ -220,7 +213,7 @@ class _GlobalAppLockWrapperState extends State<GlobalAppLockWrapper> with Widget
                               decoration: InputDecoration(
                                 hintText: '• • • •',
                                 hintStyle: TextStyle(
-                                  color: AppTheme.textSecondary.withOpacity(0.5),
+                                  color: AppTheme.textSecondary.withValues(alpha: 0.5),
                                   letterSpacing: 12,
                                   fontSize: 20,
                                 ),

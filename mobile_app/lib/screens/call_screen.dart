@@ -60,9 +60,6 @@ class _CallScreenState extends State<CallScreen> {
   Timer? _timeoutTimer;
   int _callDuration = 0;
 
-  // Local Video Dragging (PiP mode for 1-on-1)
-  double _localVideoX = 20;
-  double _localVideoY = 120;
   
   // Screen Sharing
   bool _isScreenSharing = false;
@@ -170,19 +167,21 @@ class _CallScreenState extends State<CallScreen> {
         final newUserId = data['newUserId'];
         final newUserName = data['newUserName'];
         
+        // Capture provider before async gap
+        final authProvider = Provider.of<AuthProvider>(context, listen: false);
+        
         setState(() {
           _participants[newUserId] = {
             'username': newUserName,
-            'avatarUrl': null, // We don't have avatar here, but that's ok
+            'avatarUrl': null,
           };
         });
         
-        // We act as caller to this new user
         final pc = await _createPeerConnection(newUserId);
         final offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
         
-        final user = Provider.of<AuthProvider>(context, listen: false).user;
+        final user = authProvider.user;
         socket.emit('call_offer', {
           'targetUserId': newUserId,
           'offer': { 'sdp': offer.sdp, 'type': offer.type },
@@ -510,7 +509,9 @@ class _CallScreenState extends State<CallScreen> {
         if (Platform.isAndroid) {
           await _channel.invokeMethod('stopScreenShareService');
         }
-      } catch (e) {}
+      } catch (_) {
+        // Ignore errors stopping the screen share service
+      }
 
       if (_localStream != null) {
         final videoTracks = _localStream!.getVideoTracks();

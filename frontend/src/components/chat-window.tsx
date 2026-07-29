@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import TwemojiText from "./twemoji-text";
 import { useAuth, API_URL } from "@/context/auth-context";
+import { useE2EE } from "@/context/e2ee-context";
 import { useTheme } from "@/context/theme-context";
 import { useToast } from "@/context/toast-context";
 import { Chat } from "./chat-sidebar";
@@ -398,6 +399,7 @@ export default function ChatWindow({
   onStartCall,
 }: ChatWindowProps) {
   const { user, token } = useAuth();
+  const { encryptAndSend, decryptIncoming } = useE2EE();
   const { theme } = useTheme();
   const { toast } = useToast();
 
@@ -691,7 +693,37 @@ export default function ChatWindow({
 
         if (res.ok) {
           const data = await res.json();
-          setMessages(data);
+          
+          let finalMessages = data;
+          if (!chat.isGroup && user) {
+            finalMessages = await Promise.all(data.map(async (msg: any) => {
+              // Try to decrypt incoming messages
+              if (msg.senderId !== user.id && msg.content && msg.content.startsWith("{")) {
+                try {
+                  const payload = JSON.parse(msg.content);
+                  if (payload.ciphertext) {
+                    const plaintext = await decryptIncoming(user.id, payload);
+                    return { ...msg, content: plaintext };
+                  }
+                } catch (e) {
+                  console.warn("Could not decrypt history message", e);
+                }
+              }
+              // For our own sent messages, we can't decrypt them since they were encrypted for the recipient,
+              // unless we dual-encrypted them. For now, display as [Encrypted].
+              if (msg.senderId === user.id && msg.content && msg.content.startsWith("{")) {
+                try {
+                  const payload = JSON.parse(msg.content);
+                  if (payload.ciphertext) {
+                    return { ...msg, content: "[Encrypted Message - Available on Original Device]" };
+                  }
+                } catch (e) {}
+              }
+              return msg;
+            }));
+          }
+
+          setMessages(finalMessages);
           if (socket) {
             socket.emit("mark_read", { conversationId: chat.id });
           }
@@ -829,6 +861,29 @@ export default function ChatWindow({
   useEffect(() => {
     if (!socket || !chat) return;
 
+    const handleEncryptedMessage = async (data: { message: any; conversationId: string }) => {
+      if (data.conversationId === chat.id && user) {
+        try {
+          const payload = JSON.parse(data.message.content);
+          const plaintext = await decryptIncoming(user.id, payload);
+          const decryptedMsg = { ...data.message, content: plaintext };
+          
+          setMessages((prev) => {
+            if (prev.some(m => m.id === decryptedMsg.id)) return prev;
+            return [...prev, decryptedMsg];
+          });
+          
+          setIsRecipientTyping(false);
+          socket.emit("mark_read", { conversationId: chat.id });
+          if (decryptedMsg.senderId !== user?.id) {
+            playNotificationSound();
+          }
+        } catch (err) {
+          console.error("Failed to decrypt incoming message:", err);
+        }
+      }
+    };
+
     const handleNewMessage = (data: { message: Message; conversationId: string }) => {
       if (data.conversationId === chat.id) {
         setMessages((prev) => {
@@ -950,6 +1005,7 @@ export default function ChatWindow({
       }
     };
 
+    socket.on("receive_encrypted_message", handleEncryptedMessage);
     socket.on("new_message", handleNewMessage);
     socket.on("messages_read", handleMessagesRead);
     socket.on("user_typing", handleUserTyping);
@@ -961,6 +1017,7 @@ export default function ChatWindow({
     socket.on("reaction_removed", handleReactionRemoved);
 
     return () => {
+      socket.off("receive_encrypted_message", handleEncryptedMessage);
       socket.off("new_message", handleNewMessage);
       socket.off("messages_read", handleMessagesRead);
       socket.off("user_typing", handleUserTyping);
@@ -1099,12 +1156,20 @@ export default function ChatWindow({
       
       setMessages(prev => [...prev, optimisticMsg]);
 
-      // Send regular message or reply
-      socket.emit("send_message", {
-        conversationId: chat.id,
-        content: newMsgContent,
-        parentMessageId: replyingToMessage?.id || undefined,
-      });
+      // If direct message, try to use E2EE
+      if (!chat.isGroup && chat.recipient?.email && user) {
+        encryptAndSend(user.id, chat.recipient.email, chat.id, newMsgContent, token || "").catch(err => {
+          console.error("Failed to send encrypted message:", err);
+          toast("Failed to encrypt message. Is recipient registered?", "error");
+        });
+      } else {
+        // Send regular message or reply for groups
+        socket.emit("send_message", {
+          conversationId: chat.id,
+          content: newMsgContent,
+          parentMessageId: replyingToMessage?.id || undefined,
+        });
+      }
       setReplyingToMessage(null);
     }
 

@@ -13,6 +13,8 @@ class Message {
   List<dynamic>? reactions;
   final DateTime createdAt;
 
+  final bool isPending;
+
   final Map<String, dynamic>? parentMessage;
 
   Message({
@@ -30,6 +32,7 @@ class Message {
     this.reactions,
     required this.createdAt,
     this.parentMessage,
+    this.isPending = false,
   });
 
   factory Message.fromJson(Map<String, dynamic> json) {
@@ -48,6 +51,7 @@ class Message {
       reactions: json['reactions'],
       createdAt: DateTime.parse(json['createdAt'] ?? DateTime.now().toIso8601String()),
       parentMessage: json['parentMessage'],
+      isPending: json['isPending'] ?? false,
     );
   }
 
@@ -67,6 +71,7 @@ class Message {
       'reactions': reactions,
       'createdAt': createdAt.toIso8601String(),
       'parentMessage': parentMessage,
+      'isPending': isPending,
     };
   }
 }

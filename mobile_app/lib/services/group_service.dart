@@ -18,7 +18,7 @@ class GroupService {
           'name': name,
           'description': description,
           'avatarUrl': avatarUrl,
-          'memberIds': memberIds,
+          'userIds': memberIds,
         }),
       );
 
@@ -66,7 +66,7 @@ class GroupService {
           'Authorization': 'Bearer $token',
         },
         body: jsonEncode({
-          'userId': userId,
+          'targetUserId': userId,
         }),
       );
 

@@ -1,19 +1,30 @@
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:flutter/material.dart';
 import 'dart:async';
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
 import 'sound_service.dart';
 import '../main.dart';
+import '../utils/e2ee/crypto_service.dart';
+import '../utils/e2ee/e2ee_api.dart';
 
 class SocketService {
   IO.Socket? socket;
+  final CryptoService _crypto = CryptoService();
   
   // Stream to broadcast profile updates globally
   final StreamController<Map<String, dynamic>> profileUpdates = StreamController<Map<String, dynamic>>.broadcast();
   final String _socketUrl = 'https://dolsyx-app.onrender.com';
+  
+  bool get isConnected => socket?.connected ?? false;
 
   final _messageStreamController = StreamController<dynamic>.broadcast();
   Stream<dynamic> get onMessageStream => _messageStreamController.stream;
+
+  // Dedicated stream for decrypted E2EE messages
+  final _encryptedMessageController = StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get onEncryptedMessageStream => _encryptedMessageController.stream;
 
   final _statusStreamController = StreamController<dynamic>.broadcast();
   Stream<dynamic> get onStatusStream => _statusStreamController.stream;
@@ -40,12 +51,40 @@ class SocketService {
     socket?.onConnect((_) {
       print('✅ Socket Connected');
       socket?.emit('register', userId);
+      _processOfflineQueue();
     });
 
     socket?.on('new_message', (data) {
       SoundService().playNotificationSound();
       _messageStreamController.add(data);
     });
+
+    // Listen for real-time E2EE encrypted messages and auto-decrypt them
+    socket?.on('receive_encrypted_message', (data) async {
+      try {
+        final message = data['message'] as Map<String, dynamic>;
+        final conversationId = data['conversationId'] as String;
+        final content = message['content'] as String;
+        final senderUserId = message['senderId'] as String;
+        final payloadJson = jsonDecode(content) as Map<String, dynamic>;
+        final payload = MessagePayload.fromJson(payloadJson);
+        final plaintext = await _crypto.decryptMessage(
+          senderUserId: senderUserId,
+          payload: payload,
+        );
+        SoundService().playNotificationSound();
+        _encryptedMessageController.add({
+          'conversationId': conversationId,
+          'message': {
+            ...message,
+            'content': plaintext,
+          }
+        });
+      } catch (e) {
+        print('⚠️ Failed to decrypt incoming message: $e');
+      }
+    });
+
     socket?.on('messages_read', (data) {
       _messageStreamController.add({'type': 'read', 'data': data});
     });
@@ -104,20 +143,95 @@ class SocketService {
     }
   }
 
-  void sendMessage(String conversationId, String content, {String? mediaUrl, String? mediaType, String? parentMessageId, bool isForwarded = false}) {
-    print('Sending message. Socket connected: ${socket?.connected}');
-    if (socket != null && socket!.connected) {
-      socket!.emit('send_message', {
+  Future<void> _processOfflineQueue() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final queueStr = prefs.getString('offline_message_queue');
+      if (queueStr != null && queueStr.isNotEmpty) {
+        final List<dynamic> queue = jsonDecode(queueStr);
+        for (var msg in queue) {
+          if (socket != null && socket!.connected) {
+            socket!.emit('send_message', msg);
+          }
+        }
+        await prefs.remove('offline_message_queue');
+      }
+    } catch (e) {
+      print('Error processing offline queue: $e');
+    }
+  }
+
+  /// Sends an E2EE encrypted message to [recipientEmail] in [conversationId].
+  /// Fetches the recipient's public key bundle, performs X3DH, and POSTs to the backend.
+  Future<void> sendEncryptedMessage({
+    required String conversationId,
+    required String recipientEmail,
+    required String plaintext,
+    required String token,
+    required String myUserId,
+  }) async {
+    try {
+      // Fetch recipient's public key bundle
+      final recipientBundle = await E2EEApi.fetchKeys(recipientEmail, token);
+
+      // Store sender identity key so we can decrypt future messages from them
+      final devices = recipientBundle['devices'] as List<dynamic>;
+      if (devices.isNotEmpty) {
+        final recipientUserId = recipientBundle['userId'] as String;
+        final identityKey = devices.first['identityKeyPublic'] as String;
+        await _crypto.storeSenderIdentityKey(recipientUserId, identityKey);
+      }
+
+      // Encrypt the message
+      final messagePayload = await _crypto.encryptMessage(
+        recipientKeyBundle: recipientBundle,
+        plaintext: plaintext,
+      );
+
+      // Build recipient list and send to server
+      final recipients = devices.map((device) => {
+        'recipientDeviceId': device['id'],
+        'recipientUserId': recipientBundle['userId'],
+        'type': messagePayload.type,
+        'ciphertext': jsonEncode(messagePayload.toJson()),
+      }).toList();
+
+      await E2EEApi.sendEncryptedMessage({
+        'senderDeviceId': 1,
         'conversationId': conversationId,
-        'content': content,
-        if (mediaUrl != null) 'mediaUrl': mediaUrl,
-        if (mediaType != null) 'mediaType': mediaType,
-        if (parentMessageId != null) 'parentMessageId': parentMessageId,
-        if (isForwarded) 'isForwarded': true,
-      });
+        'recipients': recipients,
+      }, token);
+    } catch (e) {
+      print('⚠️ Failed to send encrypted message: $e');
+      rethrow;
+    }
+  }
+
+  void sendMessage(String conversationId, String content, {String? mediaUrl, String? mediaType, String? parentMessageId, bool isForwarded = false}) async {
+    print('Sending message. Socket connected: ${socket?.connected}');
+    final msgData = {
+      'conversationId': conversationId,
+      'content': content,
+      if (mediaUrl != null) 'mediaUrl': mediaUrl,
+      if (mediaType != null) 'mediaType': mediaType,
+      if (parentMessageId != null) 'parentMessageId': parentMessageId,
+      if (isForwarded) 'isForwarded': true,
+    };
+
+    if (socket != null && socket!.connected) {
+      socket!.emit('send_message', msgData);
       print('Message emitted to socket.');
     } else {
-      print('Failed to send: socket is null or disconnected.');
+      print('Socket disconnected. Queuing message for offline sending.');
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final queueStr = prefs.getString('offline_message_queue') ?? '[]';
+        final List<dynamic> queue = jsonDecode(queueStr);
+        queue.add(msgData);
+        await prefs.setString('offline_message_queue', jsonEncode(queue));
+      } catch (e) {
+        print('Error queueing message: $e');
+      }
     }
   }
 
@@ -130,6 +244,18 @@ class SocketService {
   void offMessageReceived(Function(dynamic) callback) {
     if (socket != null) {
       socket!.off('new_message', callback);
+    }
+  }
+
+  void onEncryptedMessageReceived(Function(dynamic) callback) {
+    if (socket != null) {
+      socket!.on('receive_encrypted_message', callback);
+    }
+  }
+
+  void offEncryptedMessageReceived(Function(dynamic) callback) {
+    if (socket != null) {
+      socket!.off('receive_encrypted_message', callback);
     }
   }
 

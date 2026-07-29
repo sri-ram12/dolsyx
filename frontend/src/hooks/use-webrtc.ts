@@ -51,6 +51,7 @@ export const useWebRTC = ({ onIceCandidate }: UseWebRTCOptions) => {
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
   const [isSpeakerOff, setIsSpeakerOff] = useState(false);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
 
   const createPeerConnection = useCallback(() => {
@@ -248,6 +249,56 @@ export const useWebRTC = ({ onIceCandidate }: UseWebRTCOptions) => {
     }
   }, [facingMode]);
 
+  const toggleScreenShare = useCallback(async () => {
+    if (!localStreamRef.current) return;
+    try {
+      if (isScreenSharing) {
+        // Stop screen share
+        const videoTrack = localStreamRef.current.getVideoTracks()[0];
+        const pc = pcRef.current;
+        if (pc && videoTrack) {
+          const senders = pc.getSenders();
+          const videoSender = senders.find((s) => s.track?.kind === "video");
+          if (videoSender) {
+            await videoSender.replaceTrack(videoTrack);
+          }
+        }
+        setIsScreenSharing(false);
+      } else {
+        // Start screen share
+        const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+        const screenTrack = screenStream.getVideoTracks()[0];
+        if (!screenTrack) return;
+
+        const pc = pcRef.current;
+        if (pc) {
+          const senders = pc.getSenders();
+          const videoSender = senders.find((s) => s.track?.kind === "video");
+          if (videoSender) {
+            await videoSender.replaceTrack(screenTrack);
+          }
+        }
+        
+        setIsScreenSharing(true);
+
+        // Listen for OS-level stream stop
+        screenTrack.onended = () => {
+          setIsScreenSharing(false);
+          const videoTrack = localStreamRef.current?.getVideoTracks()[0];
+          if (pc && videoTrack) {
+            const senders = pc.getSenders();
+            const videoSender = senders.find((s) => s.track?.kind === "video");
+            if (videoSender) {
+              videoSender.replaceTrack(videoTrack);
+            }
+          }
+        };
+      }
+    } catch (e) {
+      console.error("Screen sharing error:", e);
+    }
+  }, [isScreenSharing]);
+
   return {
     localStream,
     remoteStream,
@@ -264,5 +315,7 @@ export const useWebRTC = ({ onIceCandidate }: UseWebRTCOptions) => {
     toggleCamera,
     toggleSpeaker,
     switchCallCamera,
+    isScreenSharing,
+    toggleScreenShare,
   };
 };

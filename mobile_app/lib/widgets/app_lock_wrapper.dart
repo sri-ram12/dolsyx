@@ -16,6 +16,7 @@ class _GlobalAppLockWrapperState extends State<GlobalAppLockWrapper> with Widget
   final LocalAuthentication _localAuth = LocalAuthentication();
   bool _isLocked = false;
   bool _isAuthenticating = false;
+  bool _biometricsFailed = false; // Show PIN directly if biometrics unavailable
   DateTime? _pausedTime;
   final TextEditingController _pinController = TextEditingController();
   String _errorText = '';
@@ -30,6 +31,7 @@ class _GlobalAppLockWrapperState extends State<GlobalAppLockWrapper> with Widget
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _pinController.dispose();
     super.dispose();
   }
 
@@ -51,7 +53,7 @@ class _GlobalAppLockWrapperState extends State<GlobalAppLockWrapper> with Widget
     if (state == AppLifecycleState.paused) {
       _pausedTime = DateTime.now();
     } else if (state == AppLifecycleState.resumed) {
-      if (_isLocked) return; // Prevent re-triggering authentication if already locked
+      if (_isLocked) return;
 
       if (_pausedTime != null) {
         final prefs = await SharedPreferences.getInstance();
@@ -68,6 +70,7 @@ class _GlobalAppLockWrapperState extends State<GlobalAppLockWrapper> with Widget
           if (mounted) {
             setState(() {
               _isLocked = true;
+              _biometricsFailed = false;
             });
           }
           _authenticate();
@@ -78,14 +81,14 @@ class _GlobalAppLockWrapperState extends State<GlobalAppLockWrapper> with Widget
 
   Future<void> _authenticate() async {
     if (_isAuthenticating) return;
-    
+
     try {
       _isAuthenticating = true;
       final bool canAuthenticateWithBiometrics = await _localAuth.canCheckBiometrics;
       final bool canAuthenticate = canAuthenticateWithBiometrics || await _localAuth.isDeviceSupported();
 
       if (!canAuthenticate) {
-        // Just let them use the PIN fallback
+        if (mounted) setState(() => _biometricsFailed = true);
         _isAuthenticating = false;
         return;
       }
@@ -98,14 +101,48 @@ class _GlobalAppLockWrapperState extends State<GlobalAppLockWrapper> with Widget
         if (mounted) {
           setState(() {
             _isLocked = false;
+            _biometricsFailed = false;
+            _errorText = '';
+            _pinController.clear();
           });
         }
-        _pausedTime = null; // Clear the paused time so it doesn't immediately relock
+        _pausedTime = null;
+      } else {
+        if (mounted) setState(() => _biometricsFailed = true);
       }
     } catch (e) {
       print('Authentication error: $e');
+      if (mounted) setState(() => _biometricsFailed = true);
     } finally {
       _isAuthenticating = false;
+    }
+  }
+
+  Future<void> _verifyPin(String val) async {
+    if (val.length == 4) {
+      final prefs = await SharedPreferences.getInstance();
+      final savedPin = prefs.getString('app_lock_pin');
+      if (savedPin != null && savedPin.isNotEmpty && savedPin == val) {
+        FocusManager.instance.primaryFocus?.unfocus();
+        // Slight delay to allow keyboard to dismiss cleanly
+        await Future.delayed(const Duration(milliseconds: 150));
+        if (mounted) {
+          setState(() {
+            _isLocked = false;
+            _biometricsFailed = false;
+            _errorText = '';
+            _pinController.clear();
+          });
+        }
+        _pausedTime = null;
+      } else {
+        if (mounted) {
+          setState(() {
+            _errorText = 'Incorrect PIN. Try again.';
+            _pinController.clear();
+          });
+        }
+      }
     }
   }
 
@@ -120,66 +157,103 @@ class _GlobalAppLockWrapperState extends State<GlobalAppLockWrapper> with Widget
             Positioned.fill(
               child: Scaffold(
                 backgroundColor: AppTheme.backgroundColor,
-                body: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.lock, size: 80, color: AppTheme.primaryColor),
-                      const SizedBox(height: 20),
-                      Text(
-                        'DOLSYX is locked',
-                        style: TextStyle(color: AppTheme.textPrimary, fontSize: 24, fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 40),
-                      ElevatedButton(
-                        onPressed: _authenticate,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.primaryColor,
-                          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-                        ),
-                        child: const Text('Unlock with Biometrics', style: TextStyle(color: Colors.white, fontSize: 16)),
-                      ),
-                      const SizedBox(height: 20),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 60.0),
-                        child: TextField(
-                          controller: _pinController,
-                          keyboardType: TextInputType.number,
-                          maxLength: 4,
-                          obscureText: true,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: AppTheme.textPrimary, letterSpacing: 16, fontSize: 24),
-                          decoration: InputDecoration(
-                            hintText: 'Or enter PIN',
-                            hintStyle: TextStyle(color: AppTheme.textSecondary, letterSpacing: 0, fontSize: 16),
-                            errorText: _errorText.isEmpty ? null : _errorText,
+                body: SafeArea(
+                  child: Center(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(horizontal: 32),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          // Lock Icon
+                          Container(
+                            padding: const EdgeInsets.all(24),
+                            decoration: BoxDecoration(
+                              color: AppTheme.primaryColor.withOpacity(0.15),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(Icons.lock_rounded, size: 64, color: AppTheme.primaryColor),
                           ),
-                          onChanged: (val) async {
-                            if (val.length == 4) {
-                              final prefs = await SharedPreferences.getInstance();
-                              final savedPin = prefs.getString('app_lock_pin');
-                              if (savedPin != null && savedPin.isNotEmpty && savedPin == val) {
-                                if (mounted) {
-                                  setState(() {
-                                    _isLocked = false;
-                                    _errorText = '';
-                                    _pinController.clear();
-                                  });
-                                }
-                                _pausedTime = null;
-                              } else {
-                                if (mounted) {
-                                  setState(() {
-                                    _errorText = 'Incorrect PIN';
-                                    _pinController.clear();
-                                  });
-                                }
-                              }
-                            }
-                          },
-                        ),
+                          const SizedBox(height: 24),
+                          Text(
+                            'DOLSYX is Locked',
+                            style: TextStyle(
+                              color: AppTheme.textPrimary,
+                              fontSize: 26,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Enter PIN or use fingerprint to unlock',
+                            style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 40),
+
+                          // PIN Entry — always visible
+                          Container(
+                            decoration: BoxDecoration(
+                              color: AppTheme.surfaceColor,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: _errorText.isNotEmpty ? Colors.red : AppTheme.primaryColor.withOpacity(0.3),
+                              ),
+                            ),
+                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                            child: TextField(
+                              controller: _pinController,
+                              keyboardType: TextInputType.number,
+                              maxLength: 4,
+                              obscureText: true,
+                              autofocus: true,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: AppTheme.textPrimary,
+                                letterSpacing: 20,
+                                fontSize: 28,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              decoration: InputDecoration(
+                                hintText: '• • • •',
+                                hintStyle: TextStyle(
+                                  color: AppTheme.textSecondary.withOpacity(0.5),
+                                  letterSpacing: 12,
+                                  fontSize: 20,
+                                ),
+                                counterText: '',
+                                border: InputBorder.none,
+                              ),
+                              onChanged: _verifyPin,
+                            ),
+                          ),
+
+                          if (_errorText.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            Text(
+                              _errorText,
+                              style: const TextStyle(color: Colors.red, fontSize: 13),
+                            ),
+                          ],
+
+                          const SizedBox(height: 32),
+
+                          // Fingerprint button — always shown so user can tap to trigger biometrics
+                          OutlinedButton.icon(
+                            onPressed: _authenticate,
+                            icon: Icon(Icons.fingerprint, color: AppTheme.primaryColor),
+                            label: Text(
+                              'Use Fingerprint',
+                              style: TextStyle(color: AppTheme.primaryColor),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              side: BorderSide(color: AppTheme.primaryColor),
+                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ),

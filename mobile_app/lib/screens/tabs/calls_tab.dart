@@ -161,6 +161,9 @@ class _CallsTabState extends State<CallsTab> {
                         _selectedCallIds.add(logId);
                       }
                     });
+                  } else {
+                    // Tapping the row starts the same type of call back
+                    _startCall(otherUser, !isVideo, log['conversationId']);
                   }
                 },
                 leading: otherUser['avatarUrl'] != null

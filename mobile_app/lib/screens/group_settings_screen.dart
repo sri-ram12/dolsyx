@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/group_service.dart';
+import '../services/chat_service.dart';
 import '../services/contact_service.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
@@ -183,6 +184,34 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     );
   }
 
+  Future<void> _disbandGroup() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.surfaceColor,
+        title: Text('Disband Group?', style: TextStyle(color: AppTheme.textPrimary)),
+        content: Text('This will permanently delete the group for all members.', style: TextStyle(color: AppTheme.textSecondary)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Disband', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      final success = await ChatService().deleteChat(widget.conversationId);
+      if (success && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Group disbanded')));
+        Navigator.popUntil(context, (route) => route.isFirst);
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to disband group')));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -233,8 +262,24 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
           const SizedBox(height: 16),
           Expanded(
             child: ListView.builder(
-              itemCount: _participants.length,
+              itemCount: _participants.length + (_isAdmin ? 1 : 0),
               itemBuilder: (context, index) {
+                if (index == _participants.length && _isAdmin) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 24.0),
+                    child: ElevatedButton.icon(
+                      onPressed: _disbandGroup,
+                      icon: const Icon(Icons.delete_forever),
+                      label: const Text('Disband Group'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.redAccent,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  );
+                }
+
                 final participant = _participants[index];
                 final user = participant['user'];
                 if (user == null) return const SizedBox.shrink();

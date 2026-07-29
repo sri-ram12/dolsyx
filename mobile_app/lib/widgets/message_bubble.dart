@@ -258,12 +258,14 @@ class MessageBubble extends StatelessWidget {
                                 }
                               }
                               
-                              if (isRead) {
-                                return const Icon(Icons.done_all, size: 14, color: Colors.blue);
+                              if (message.isPending) {
+                                return const Icon(Icons.access_time, size: 15, color: Colors.white70);
+                              } else if (isRead) {
+                                return const Icon(Icons.done_all, size: 16, color: Colors.cyanAccent);
                               } else if (isDelivered) {
-                                return const Icon(Icons.done_all, size: 14, color: Colors.white70);
+                                return const Icon(Icons.done_all, size: 16, color: Colors.white70);
                               } else {
-                                return const Icon(Icons.check, size: 14, color: Colors.white70);
+                                return const Icon(Icons.check, size: 16, color: Colors.white70);
                               }
                             },
                           ),

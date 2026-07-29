@@ -24,11 +24,55 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
   bool _isProcessing = false;
   String? _localNickname;
   bool _isBlocked = false;
+  bool _isOnline = false;
+  bool _isTyping = false;
+  DateTime? _lastSeen;
 
   @override
   void initState() {
     super.initState();
     _checkBlockedStatus();
+    // Initialize from widget data
+    final userId = widget.user['id'] ?? widget.user['_id'];
+    if (widget.user['lastSeen'] != null) {
+      _lastSeen = DateTime.tryParse(widget.user['lastSeen'].toString());
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      _isOnline = authProvider.socketService.onlineUserIds.contains(userId?.toString());
+      setState(() {});
+      authProvider.socketService.onStatusChange(_handleStatusChange);
+      authProvider.socketService.onTypingChange(_handleTypingChange);
+    });
+  }
+
+  @override
+  void dispose() {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    authProvider.socketService.offStatusChange(_handleStatusChange);
+    authProvider.socketService.offTypingChange(_handleTypingChange);
+    super.dispose();
+  }
+
+  void _handleStatusChange(dynamic data) {
+    final userId = widget.user['id'] ?? widget.user['_id'];
+    if (mounted && data['userId']?.toString() == userId?.toString()) {
+      setState(() {
+        _isOnline = data['status'] == 'online';
+        if (data['lastSeen'] != null) {
+          _lastSeen = DateTime.tryParse(data['lastSeen'].toString());
+        }
+      });
+    }
+  }
+
+  void _handleTypingChange(dynamic data) {
+    final userId = widget.user['id'] ?? widget.user['_id'];
+    if (mounted && data['userId']?.toString() == userId?.toString()) {
+      setState(() {
+        _isTyping = data['isTyping'] == true;
+      });
+    }
   }
 
   Future<void> _checkBlockedStatus() async {
@@ -276,83 +320,92 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
       body: SingleChildScrollView(
         child: Column(
           children: [
+            // Profile Header Card
             Container(
               color: AppTheme.surfaceColor,
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 24),
-              child: SizedBox(
-                height: 300,
-                child: PageView(
-                  children: [
-                    // Page 1: Profile Info
-                    Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        GestureDetector(
-                          onTap: () {
-                            if (avatarUrl != null) {
-                              String fullUrl = avatarUrl.startsWith('http') 
-                                  ? avatarUrl 
-                                  : 'https://dolsyx-app.onrender.com$avatarUrl';
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => FullScreenImageView(imageUrl: fullUrl),
-                                ),
-                              );
-                            }
-                          },
-                          child: avatarUrl == null
-                              ? ColorAvatar(name: username, radius: 60, fontSize: 40)
-                              : CircleAvatar(
-                                  radius: 60,
-                                  backgroundColor: AppTheme.backgroundColor,
-                                  backgroundImage: avatarUrl.startsWith('http')
-                                      ? NetworkImage(avatarUrl)
-                                      : NetworkImage('https://dolsyx-app.onrender.com$avatarUrl'),
-                                ),
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          username,
-                          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
-                        ),
-                        Text(
-                          email,
-                          style: TextStyle(fontSize: 16, color: AppTheme.textSecondary),
-                        ),
-                        const SizedBox(height: 24),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            _buildHeaderAction(Icons.call, 'Audio', _startAudioCall),
-                            _buildHeaderAction(Icons.videocam, 'Video', _startVideoCall),
-                            _buildHeaderAction(Icons.search, 'Search', () {}),
-                          ],
-                        ),
-                      ],
-                    ),
-                    // Page 2: Last Seen Info
-                    Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.access_time, size: 64, color: AppTheme.primaryColor),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Last Seen',
-                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          widget.user['lastSeen'] != null 
-                              ? _formatTime(DateTime.tryParse(widget.user['lastSeen'].toString())) 
-                              : 'Hidden or Offline',
-                          style: TextStyle(fontSize: 16, color: AppTheme.textSecondary),
-                        ),
-                      ],
+              padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  // Avatar
+                  GestureDetector(
+                    onTap: () {
+                      if (avatarUrl != null) {
+                        String fullUrl = avatarUrl.startsWith('http')
+                            ? avatarUrl
+                            : 'https://dolsyx-app.onrender.com$avatarUrl';
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => FullScreenImageView(imageUrl: fullUrl),
+                          ),
+                        );
+                      }
+                    },
+                    child: avatarUrl == null
+                        ? ColorAvatar(name: username, radius: 50, fontSize: 36)
+                        : CircleAvatar(
+                            radius: 50,
+                            backgroundColor: AppTheme.backgroundColor,
+                            backgroundImage: avatarUrl.startsWith('http')
+                                ? NetworkImage(avatarUrl)
+                                : NetworkImage('https://dolsyx-app.onrender.com$avatarUrl'),
+                          ),
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    username,
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+                    textAlign: TextAlign.center,
+                  ),
+                  if (email.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      email,
+                      style: TextStyle(fontSize: 14, color: AppTheme.textSecondary),
                     ),
                   ],
-                ),
+                  const SizedBox(height: 10),
+                  // Live presence badge
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: _isTyping
+                          ? AppTheme.primaryColor.withOpacity(0.15)
+                          : _isOnline
+                              ? Colors.green.withOpacity(0.15)
+                              : Colors.grey.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Text(
+                      _isTyping
+                          ? '✏️ Typing...'
+                          : _isOnline
+                              ? '🟢 Online'
+                              : (_lastSeen != null
+                                  ? '🕐 Last seen ${_formatTime(_lastSeen!)}'
+                                  : (widget.user['lastSeen'] != null
+                                      ? '🕐 Last seen ${_formatTime(DateTime.tryParse(widget.user['lastSeen'].toString()))}'
+                                      : '⚫ Offline')),
+                      style: TextStyle(
+                        color: _isTyping || _isOnline ? AppTheme.primaryColor : AppTheme.textSecondary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  // Action Buttons Row
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _buildHeaderAction(Icons.call, 'Audio', _startAudioCall),
+                      _buildHeaderAction(Icons.videocam, 'Video', _startVideoCall),
+                      _buildHeaderAction(Icons.search, 'Search', () {}),
+                    ],
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 8),

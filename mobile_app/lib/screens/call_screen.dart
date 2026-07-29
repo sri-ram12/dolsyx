@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
@@ -57,6 +59,10 @@ class _CallScreenState extends State<CallScreen> {
   
   // Video Swapping
   bool _isLocalMain = false;
+
+  // Screen Sharing
+  bool _isScreenSharing = false;
+  MediaStream? _screenStream;
 
   @override
   void initState() {
@@ -350,6 +356,92 @@ class _CallScreenState extends State<CallScreen> {
     });
   }
 
+  static const _channel = MethodChannel('com.dolsyx/screen_share');
+
+  Future<void> _toggleScreenShare() async {
+    if (widget.isAudioOnly || _hardwareFailed) return;
+
+    if (_isScreenSharing) {
+      // Stop screen sharing
+      _screenStream?.getTracks().forEach((track) => track.stop());
+      _screenStream?.dispose();
+      _screenStream = null;
+      
+      try {
+        if (Platform.isAndroid) {
+          await _channel.invokeMethod('stopScreenShareService');
+        }
+      } catch (e) {
+        print('Error stopping service: $e');
+      }
+
+      // Replace video track back to camera
+      if (_localStream != null && _peerConnection != null) {
+        final videoTracks = _localStream!.getVideoTracks();
+        if (videoTracks.isNotEmpty) {
+          final videoTrack = videoTracks.first;
+          final senders = await _peerConnection!.getSenders();
+          for (var sender in senders) {
+            if (sender.track?.kind == 'video') {
+              await sender.replaceTrack(videoTrack);
+            }
+          }
+        }
+        _localRenderer.srcObject = _localStream;
+      }
+      setState(() {
+        _isScreenSharing = false;
+      });
+    } else {
+      // Start screen sharing
+      try {
+        if (Platform.isAndroid) {
+          await _channel.invokeMethod('startScreenShareService');
+        }
+        
+        // Brief delay to ensure service is fully registered with OS before asking for projection
+        await Future.delayed(const Duration(milliseconds: 300));
+        
+        _screenStream = await navigator.mediaDevices.getDisplayMedia({'video': true, 'audio': false});
+        
+        if (_peerConnection != null && _screenStream != null) {
+          final videoTracks = _screenStream!.getVideoTracks();
+          if (videoTracks.isNotEmpty) {
+            final screenVideoTrack = videoTracks.first;
+            final senders = await _peerConnection!.getSenders();
+            for (var sender in senders) {
+              if (sender.track?.kind == 'video') {
+                await sender.replaceTrack(screenVideoTrack);
+              }
+            }
+            _localRenderer.srcObject = _screenStream;
+            
+            setState(() {
+              _isScreenSharing = true;
+            });
+            
+            // Listen for OS-level stream stop
+            screenVideoTrack.onEnded = () {
+              if (mounted && _isScreenSharing) {
+                _toggleScreenShare();
+              }
+            };
+          }
+        }
+      } catch (e) {
+        print('Screen sharing failed: $e');
+        try {
+          if (Platform.isAndroid) {
+             await _channel.invokeMethod('stopScreenShareService');
+          }
+        } catch (_) {}
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not start screen sharing. Ensure permissions are granted.')));
+        }
+      }
+    }
+  }
+
   void _endCall() {
     final socket = Provider.of<AuthProvider>(context, listen: false).socketService.socket;
     final userId = Provider.of<AuthProvider>(context, listen: false).user?['id'];
@@ -546,6 +638,17 @@ class _CallScreenState extends State<CallScreen> {
                       backgroundColor: Colors.white24,
                       onPressed: _switchCamera,
                       child: const Icon(Icons.flip_camera_ios, color: Colors.white),
+                    ),
+                  if (!widget.isAudioOnly && _callActive)
+                    FloatingActionButton(
+                      heroTag: 'screen_share',
+                      mini: true,
+                      backgroundColor: _isScreenSharing ? Colors.blue : Colors.white24,
+                      onPressed: _toggleScreenShare,
+                      child: Icon(
+                        _isScreenSharing ? Icons.stop_screen_share : Icons.screen_share,
+                        color: Colors.white,
+                      ),
                     ),
                   if (!widget.isAudioOnly && (_callActive || !widget.isIncoming))
                     FloatingActionButton(

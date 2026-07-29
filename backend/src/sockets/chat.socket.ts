@@ -619,7 +619,7 @@ export const initChatSocket = (io: Server) => {
     };
 
     // Caller sends offer → forward to recipient as incoming call notification
-    socket.on("call_offer", (data: {
+    socket.on("call_offer", async (data: {
       targetUserId: string;
       offer: RTCSessionDescriptionInit;
       callType: "audio" | "video";
@@ -636,6 +636,26 @@ export const initChatSocket = (io: Server) => {
         callType: data.callType,
         conversationId: data.conversationId,
       });
+
+      // If user is offline, send push notification
+      if (!onlineUsers.has(data.targetUserId)) {
+        try {
+          const recipientUser = await prisma.user.findUnique({
+            where: { id: data.targetUserId },
+            select: { fcmToken: true },
+          });
+          if (recipientUser?.fcmToken) {
+            const callTypeString = data.callType === "video" ? "Video Call" : "Audio Call";
+            sendPushNotification(recipientUser.fcmToken, `Incoming ${callTypeString}`, `${data.callerName || username} is calling you`, {
+              conversationId: data.conversationId,
+              callType: data.callType,
+              type: "CALL",
+            });
+          }
+        } catch (e) {
+          console.error("Failed to send call push notification:", e);
+        }
+      }
     });
 
     // Receiver accepts the call → send SDP answer back to caller

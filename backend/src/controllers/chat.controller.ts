@@ -453,28 +453,23 @@ export const clearChatMessages = async (req: AuthRequest, res: Response): Promis
       return;
     }
 
-    // Delete all messages in this conversation
-    await prisma.message.deleteMany({
+    // Get all messages in this conversation
+    const messages = await prisma.message.findMany({
       where: { conversationId },
+      select: { id: true },
     });
 
-    // Touch the conversation timestamp
-    await prisma.conversation.update({
-      where: { id: conversationId },
-      data: { updatedAt: new Date() },
+    // Create DeletedMessage records for each message FOR THIS USER ONLY
+    // This is "clear for me" — the other user still sees their messages
+    await prisma.deletedMessage.createMany({
+      data: messages.map((m) => ({ messageId: m.id, userId })),
+      skipDuplicates: true,
     });
 
-    // Emit socket event to all participants so their message list updates in real-time
-    const participants = await prisma.participant.findMany({
-      where: { conversationId },
-      select: { userId: true },
-    });
-
+    // Emit socket event ONLY to the requesting user so their message list clears
     const io = (req as any).app.get("io");
     if (io) {
-      participants.forEach((participant) => {
-        io.to(participant.userId).emit("chat_cleared", { conversationId });
-      });
+      io.to(userId).emit("chat_cleared", { conversationId });
     }
 
     res.json({ message: "Chat messages cleared successfully" });

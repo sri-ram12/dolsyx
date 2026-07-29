@@ -88,6 +88,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     authProvider.socketService.joinConversation(widget.conversationId);
     authProvider.socketService.onMessageReceived(_handleIncomingMessage);
     
+    // Listen for real-time E2EE decrypted messages
+    authProvider.socketService.onEncryptedMessageReceived(_handleEncryptedMessage);
+    
     // Clear unread messages count on entry
     authProvider.socketService.socket?.emit('mark_read', {
       'conversationId': widget.conversationId,
@@ -118,6 +121,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     authProvider.socketService.leaveConversation(widget.conversationId);
     authProvider.socketService.offMessageReceived(_handleIncomingMessage);
+    authProvider.socketService.offEncryptedMessageReceived(_handleEncryptedMessage);
     authProvider.socketService.offTypingChange(_handleTypingChange);
     authProvider.socketService.offStatusChange(_handleStatusChange);
     authProvider.socketService.offChatCleared(_handleChatCleared);
@@ -133,6 +137,13 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     _recordingTimer?.cancel();
     _audioRecorder.dispose();
     super.dispose();
+  }
+
+  @override
+  void setState(fn) {
+    if (mounted) {
+      super.setState(fn);
+    }
   }
 
   void _startRecordingTimer() {
@@ -182,21 +193,29 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   void _handleTypingChange(dynamic data) {
-    if (mounted && data['conversationId'] == widget.conversationId && data['userId'] == widget.remoteUserId) {
-      setState(() {
-        _isRemoteUserTyping = data['isTyping'] == true;
-      });
+    if (mounted && data['conversationId'] == widget.conversationId) {
+      final typingUserId = data['userId']?.toString();
+      final myRemoteId = widget.remoteUserId?.toString();
+      if (myRemoteId == null || typingUserId == myRemoteId) {
+        setState(() {
+          _isRemoteUserTyping = data['isTyping'] == true;
+        });
+      }
     }
   }
 
   void _handleStatusChange(dynamic data) {
-    if (mounted && data['userId'] == widget.remoteUserId) {
-      setState(() {
-        _isRemoteUserOnline = data['status'] == 'online';
-        if (data['lastSeen'] != null) {
-          _remoteUserLastSeen = DateTime.tryParse(data['lastSeen'].toString());
-        }
-      });
+    if (mounted) {
+      final statusUserId = data['userId']?.toString();
+      final myRemoteId = widget.remoteUserId?.toString();
+      if (myRemoteId != null && statusUserId == myRemoteId) {
+        setState(() {
+          _isRemoteUserOnline = data['status'] == 'online';
+          if (data['lastSeen'] != null) {
+            _remoteUserLastSeen = DateTime.tryParse(data['lastSeen'].toString());
+          }
+        });
+      }
     }
   }
 
@@ -241,8 +260,16 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   void _handleIncomingMessage(dynamic data) {
     if (mounted) {
       try {
+        if (data['conversationId'] != widget.conversationId) return;
         setState(() {
-          _messages.add(Message.fromJson(data['message']));
+          final msg = Message.fromJson(data['message']);
+          final tempIndex = _messages.indexWhere((m) =>
+            m.id.startsWith('temp-') && m.content == msg.content);
+          if (tempIndex != -1) {
+            _messages[tempIndex] = msg;
+          } else if (!_messages.any((m) => m.id == msg.id)) {
+            _messages.add(msg);
+          }
         });
         _scrollToBottom();
         _updateMessageCache();
@@ -254,6 +281,39 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         });
       } catch (e) {
         print('Error parsing incoming message: $e');
+      }
+    }
+  }
+
+  /// Handles a real-time E2EE message that has already been decrypted by SocketService.
+  void _handleEncryptedMessage(dynamic data) {
+    if (mounted) {
+      try {
+        final convId = data['conversationId'] as String?;
+        if (convId != widget.conversationId) return;
+
+        final msgData = data['message'] as Map<String, dynamic>;
+        final msg = Message.fromJson(msgData);
+
+        // Replace temp optimistic message if content matches
+        setState(() {
+          final tempIndex = _messages.indexWhere((m) =>
+            m.id.startsWith('temp-') && m.content == msg.content);
+          if (tempIndex != -1) {
+            _messages[tempIndex] = msg;
+          } else if (!_messages.any((m) => m.id == msg.id)) {
+            _messages.add(msg);
+          }
+        });
+        _scrollToBottom();
+        _updateMessageCache();
+
+        final authProvider = Provider.of<AuthProvider>(context, listen: false);
+        authProvider.socketService.socket?.emit('mark_read', {
+          'conversationId': widget.conversationId,
+        });
+      } catch (e) {
+        print('Error handling encrypted message: $e');
       }
     }
   }
@@ -571,18 +631,50 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     if (text.isEmpty) return;
 
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    if (authProvider.socketService.socket?.connected != true) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Socket disconnected. Cannot send message.')),
-      );
-      return;
-    }
+    final isDirectMessage = widget.remoteUser != null;
+    final remoteEmail = widget.remoteUser?['email'] as String?;
 
-    authProvider.socketService.sendMessage(
-      widget.conversationId, 
-      text,
-      parentMessageId: _replyingTo?.id,
+    if (isDirectMessage && remoteEmail != null && authProvider.token != null) {
+      // Send via E2EE pipeline for direct messages
+      authProvider.socketService.sendEncryptedMessage(
+        conversationId: widget.conversationId,
+        recipientEmail: remoteEmail,
+        plaintext: text,
+        token: authProvider.token!,
+        myUserId: authProvider.user?['id'] ?? '',
+      ).catchError((e) {
+        // Fallback to regular socket for resilience
+        print('E2EE send failed, using fallback: $e');
+        authProvider.socketService.sendMessage(
+          widget.conversationId,
+          text,
+          parentMessageId: _replyingTo?.id,
+        );
+      });
+    } else {
+      // Groups still use regular socket
+      authProvider.socketService.sendMessage(
+        widget.conversationId,
+        text,
+        parentMessageId: _replyingTo?.id,
+      );
+    }
+    
+    // Optimistic UI update
+    final authUser = authProvider.user;
+    final newMsg = Message(
+      id: 'temp-${DateTime.now().millisecondsSinceEpoch}',
+      content: text,
+      senderId: authUser?['id'] ?? authUser?['_id'] ?? '',
+      conversationId: widget.conversationId,
+      createdAt: DateTime.now(),
+      isPending: authProvider.socketService.socket?.connected != true,
     );
+    setState(() {
+      _messages.add(newMsg);
+    });
+    _scrollToBottom();
+
     _messageController.clear();
     setState(() {
       _replyingTo = null;

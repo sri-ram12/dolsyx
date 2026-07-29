@@ -89,7 +89,14 @@ class WallpaperProvider extends ChangeNotifier {
 
   Future<void> setGlobalWallpaper(WallpaperConfig config) async {
     _globalWallpaper = config;
+    // Clear all per-chat overrides so the global applies to ALL chats
+    _chatWallpapers.clear();
     final prefs = await SharedPreferences.getInstance();
+    // Remove all per-chat entries
+    final chatKeys = prefs.getKeys().where((k) => k.startsWith('wallpaper_chat_')).toList();
+    for (final key in chatKeys) {
+      await prefs.remove(key);
+    }
     await prefs.setString('wallpaper_global', jsonEncode(config.toJson()));
     notifyListeners();
   }

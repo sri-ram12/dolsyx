@@ -23,6 +23,8 @@ interface CallModalProps {
   onToggleCamera: () => void;
   onToggleSpeaker: () => void;
   onSwitchCamera: () => void;
+  isScreenSharing?: boolean;
+  onToggleScreenShare?: () => void;
   duration: number;
 }
 
@@ -80,6 +82,8 @@ export default function CallModal({
   onToggleCamera,
   onToggleSpeaker,
   onSwitchCamera,
+  isScreenSharing,
+  onToggleScreenShare,
   duration
 }: CallModalProps) {
   const [localVideoPosition, setLocalVideoPosition] = useState({ x: 16, y: 96 });
@@ -227,7 +231,24 @@ export default function CallModal({
               <>
                 <div className="flex items-center gap-7">
                   <CtrlBtn onClick={onToggleMute} active={isMuted} title={isMuted ? "Unmute" : "Mute"}>{isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}</CtrlBtn>
-                  {callType === "video" && <CtrlBtn onClick={onToggleCamera} active={isCameraOff} title={isCameraOff ? "Cam On" : "Cam Off"}>{isCameraOff ? <VideoOff className="w-5 h-5" /> : <Camera className="w-5 h-5" />}</CtrlBtn>}
+                  {callType === "video" && (
+                    <>
+                      <CtrlBtn
+                        active={isScreenSharing}
+                        onClick={() => onToggleScreenShare?.()}
+                        title={isScreenSharing ? "Stop Sharing" : "Share Screen"}
+                      >
+                        <RefreshCw className="h-6 w-6" />
+                      </CtrlBtn>
+                      <CtrlBtn
+                        active={isCameraOff}
+                        onClick={onToggleCamera}
+                        title={isCameraOff ? "Camera Off" : "Camera On"}
+                      >
+                        {isCameraOff ? <VideoOff className="h-6 w-6" /> : <Video className="h-6 w-6" />}
+                      </CtrlBtn>
+                    </>
+                  )}
                   <CtrlBtn onClick={onToggleSpeaker} active={isSpeakerOff} title={isSpeakerOff ? "Speaker On" : "Speaker"}>{isSpeakerOff ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}</CtrlBtn>
                 </div>
                 <button onClick={onHangup} className="flex items-center justify-center w-16 h-16 rounded-full bg-red-600 hover:bg-red-500 active:scale-95 transition-all shadow-xl cursor-pointer"><PhoneOff className="w-7 h-7 text-white" /></button>

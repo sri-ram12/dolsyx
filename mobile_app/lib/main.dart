@@ -59,8 +59,22 @@ class _DolsyxAppState extends State<DolsyxApp> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _setupGlobalCallListener();
+      _setupForegroundFCM();
     });
     _tryAutoLogin();
+  }
+
+  void _setupForegroundFCM() {
+    try {
+      if (Firebase.apps.isNotEmpty) {
+        FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+          print("Foreground message received: \${message.notification?.title}");
+          // In a real app, we could show a local notification here using flutter_local_notifications
+        });
+      }
+    } catch (e) {
+      print("FCM foreground setup error: $e");
+    }
   }
 
   Future<void> _tryAutoLogin() async {
@@ -131,7 +145,7 @@ class _DolsyxAppState extends State<DolsyxApp> {
           debugShowCheckedModeBanner: false,
           theme: AppTheme.themeData,
           builder: (context, child) {
-            final fontScale = themeProvider.currentFontSize / 18.0; // 18 is default
+            final fontScale = themeProvider.currentFontSize / 16.0; // 16px = Medium (1.0x)
             return MediaQuery(
               data: MediaQuery.of(context).copyWith(
                 textScaler: TextScaler.linear(fontScale),

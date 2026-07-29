@@ -5,6 +5,7 @@ import { AuthProvider } from "@/context/auth-context";
 import { SocketProvider } from "@/context/socket-context";
 import { ThemeProvider } from "@/context/theme-context";
 import { ToastProvider } from "@/context/toast-context";
+import { E2EEProvider } from "@/context/e2ee-context";
 
 const geistSans = {
   variable: "font-sans",
@@ -52,7 +53,9 @@ export default function RootLayout({
         <ToastProvider>
           <ThemeProvider>
             <AuthProvider>
-              <SocketProvider>{children}</SocketProvider>
+              <E2EEProvider>
+                <SocketProvider>{children}</SocketProvider>
+              </E2EEProvider>
             </AuthProvider>
           </ThemeProvider>
         </ToastProvider>

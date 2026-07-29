@@ -56,6 +56,10 @@ model User {
   savedBy          Contact[]         @relation("SavedByContacts")
   starredMessages  StarredMessage[]
   messageReactions MessageReaction[]
+  
+  // E2EE Relations
+  devices          Device[]          @relation("UserDevices")
+  encryptedBackups EncryptedBackup[] @relation("UserEncryptedBackups")
 }
 
 model Status {
@@ -304,4 +308,60 @@ model StarredMessage {
   message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
   @@unique([userId, messageId])
+}
+
+// ----------------------------------------------------------------------
+// END-TO-END ENCRYPTION (E2EE) MODELS
+// ----------------------------------------------------------------------
+
+model Device {
+  id                      String           @id @default(uuid())
+  userId                  String
+  deviceId                Int
+  identityKeyPublic       String           // Base64 public Ed25519 identity key
+  signedPreKeyPublic      String           // Base64 public X25519 signed pre-key
+  signedPreKeySignature   String           // Signature of the pre-key
+  createdAt               DateTime         @default(now())
+
+  user                    User             @relation("UserDevices", fields: [userId], references: [id], onDelete: Cascade)
+  oneTimePreKeys          OneTimePreKey[]
+  sentEncryptedMessages     EncryptedMessage[] @relation("SentEncryptedMessages")
+  receivedEncryptedMessages EncryptedMessage[] @relation("ReceivedEncryptedMessages")
+
+  @@unique([userId, deviceId])
+}
+
+model OneTimePreKey {
+  id          String   @id @default(uuid())
+  deviceId    String
+  keyId       Int
+  publicKey   String   // Base64 public X25519 key
+  
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, keyId])
+}
+
+model EncryptedBackup {
+  id             String   @id @default(uuid())
+  userId         String
+  encryptedData  String   // AES-GCM encrypted backup of local state
+  salt           String   // Argon2id salt
+  nonce          String
+  updatedAt      DateTime @default(now()) @updatedAt
+
+  user           User     @relation("UserEncryptedBackups", fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model EncryptedMessage {
+  id                  String   @id @default(uuid())
+  senderDeviceId      String
+  recipientDeviceId   String
+  type                Int      // 1 = PreKeyWhisperMessage, 2 = WhisperMessage
+  ciphertext          String   // Base64 encrypted payload
+  timestamp           DateTime @default(now())
+  delivered           Boolean  @default(false)
+
+  senderDevice        Device   @relation("SentEncryptedMessages", fields: [senderDeviceId], references: [id], onDelete: Cascade)
+  recipientDevice     Device   @relation("ReceivedEncryptedMessages", fields: [recipientDeviceId], references: [id], onDelete: Cascade)
 }

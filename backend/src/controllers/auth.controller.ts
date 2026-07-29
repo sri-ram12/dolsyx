@@ -654,13 +654,18 @@ export const loginWithoutOtp = async (req: Request, res: Response): Promise<void
       JWT_SECRET,
       { expiresIn: "7d" }
     );
+    const dataToUpdate: any = {
+      isOnline: true,
+      lastLogin: new Date(),
+      lastSeen: new Date(),
+    };
+    if (fcmToken) {
+      dataToUpdate.fcmToken = fcmToken;
+    }
+
     const updatedUser = await prisma.user.update({
       where: { id: user.id },
-      data: {
-        isOnline: true,
-        lastLogin: new Date(),
-        lastSeen: new Date(),
-      }
+      data: dataToUpdate
     });
     res.status(200).json({
       message: "Login successful",

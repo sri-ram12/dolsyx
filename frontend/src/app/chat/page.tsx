@@ -16,12 +16,14 @@ import { MessageSquare, Phone, Circle, Settings as SettingsIcon } from "lucide-r
 import SettingsPanel from "@/components/settings-panel";
 import CallsSidebar from "@/components/calls-sidebar";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
+import { useE2EEInit } from "@/hooks/use-e2ee-init";
 
 export default function ChatPage() {
   const { user, token, isAuthenticated, isLoading: authLoading, updateUser } = useAuth();
   const router = useRouter();
   const { socket } = useSocket(token);
   usePushNotifications();
+  const { isInitialized: e2eeReady } = useE2EEInit();
 
   const [chats, setChats] = useState<Chat[]>([]);
   const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
@@ -195,6 +197,8 @@ export default function ChatPage() {
     toggleCamera,
     toggleSpeaker,
     switchCallCamera,
+    isScreenSharing,
+    toggleScreenShare,
   } = useWebRTC({
     onIceCandidate: (candidate) => {
       if (socket && callStateRef.current.peerId) {
@@ -858,6 +862,8 @@ export default function ChatPage() {
         onToggleCamera={toggleCamera}
         onToggleSpeaker={toggleSpeaker}
         onSwitchCamera={switchCallCamera}
+        isScreenSharing={isScreenSharing}
+        onToggleScreenShare={toggleScreenShare}
         duration={callDuration}
       />
 

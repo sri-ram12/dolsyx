@@ -68,7 +68,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
           ),
           ListTile(
             title: Text('Font size', style: TextStyle(color: AppTheme.textPrimary)),
-            subtitle: Text(_fontSize == 14 ? 'Small' : _fontSize == 18 ? 'Medium' : 'Large', style: TextStyle(color: AppTheme.textSecondary)),
+            subtitle: Text(_fontSize <= 14 ? 'Small (14px)' : _fontSize <= 16 ? 'Medium (16px)' : 'Large (18px)', style: TextStyle(color: AppTheme.textSecondary)),
             onTap: () {
               showDialog(
                 context: context,
@@ -80,7 +80,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         RadioListTile<double>(
-                          title: Text('Small', style: TextStyle(color: AppTheme.textPrimary)),
+                          title: Text('Small (14px)', style: TextStyle(color: AppTheme.textPrimary)),
                           value: 14.0,
                           groupValue: _fontSize,
                           activeColor: AppTheme.primaryColor,
@@ -90,8 +90,8 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                           },
                         ),
                         RadioListTile<double>(
-                          title: Text('Medium', style: TextStyle(color: AppTheme.textPrimary)),
-                          value: 18.0,
+                          title: Text('Medium (16px)', style: TextStyle(color: AppTheme.textPrimary)),
+                          value: 16.0,
                           groupValue: _fontSize,
                           activeColor: AppTheme.primaryColor,
                           onChanged: (val) {
@@ -100,8 +100,8 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                           },
                         ),
                         RadioListTile<double>(
-                          title: Text('Large', style: TextStyle(color: AppTheme.textPrimary)),
-                          value: 24.0,
+                          title: Text('Large (18px)', style: TextStyle(color: AppTheme.textPrimary)),
+                          value: 18.0,
                           groupValue: _fontSize,
                           activeColor: AppTheme.primaryColor,
                           onChanged: (val) {

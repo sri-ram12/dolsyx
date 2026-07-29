@@ -23,8 +23,6 @@ import 'settings_screen.dart';
 import 'blocked_users_screen.dart';
 import 'archived_chats_screen.dart';
 import 'contacts_screen.dart';
-import 'create_community_screen.dart';
-
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
 
@@ -96,6 +94,13 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     authProvider.socketService.socket?.off('messages_read');
     super.dispose();
+  }
+
+  @override
+  void setState(fn) {
+    if (mounted) {
+      super.setState(fn);
+    }
   }
 
   void _handleSocketUpdate(dynamic event) {
@@ -485,8 +490,8 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
     return const StatusScreen();
   }
 
-  Widget _buildCommunitiesTab() {
-    final communityChats = _chats.where((c) => c.isGroup && (c.name?.startsWith('[Community]') ?? false)).toList();
+  Widget _buildGroupsTab() {
+    final groupChats = _chats.where((c) => c.isGroup).toList();
 
     return ListView(
       padding: const EdgeInsets.all(16.0),
@@ -500,17 +505,17 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
             ),
             child: Icon(Icons.groups_rounded, color: AppTheme.primaryColor),
           ),
-          title: Text('New Community', style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
-          subtitle: Text('Add topic-based groups for your neighborhood, school or team', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+          title: Text('New Group', style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
+          subtitle: Text('Create a new group for your friends, family or team', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
           onTap: () async {
-            final res = await Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateCommunityScreen()));
+            final res = await Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateGroupScreen()));
             if (res == true) {
               _fetchChats();
             }
           },
         ),
         const Divider(color: Colors.grey),
-        if (communityChats.isEmpty)
+        if (groupChats.isEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 40.0),
             child: Column(
@@ -518,12 +523,12 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                 Icon(Icons.groups_outlined, size: 64, color: AppTheme.textSecondary),
                 const SizedBox(height: 16),
                 Text(
-                  'No Communities Yet',
+                  'No Groups Yet',
                   style: TextStyle(color: AppTheme.textPrimary, fontSize: 18, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Tap "New Community" above to build your first community.',
+                  'Tap "New Group" above to build your first group.',
                   style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
                   textAlign: TextAlign.center,
                 ),
@@ -531,15 +536,15 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
             ),
           )
         else
-          ...communityChats.map((chat) {
-            final cleanName = chat.name?.replaceAll('[Community]', '').trim() ?? 'Community';
+          ...groupChats.map((chat) {
+            final cleanName = chat.name ?? 'Group';
             return ListTile(
               leading: CircleAvatar(
                 backgroundColor: AppTheme.primaryColor,
-                child: Text(cleanName.isNotEmpty ? cleanName[0].toUpperCase() : 'C', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                child: Text(cleanName.isNotEmpty ? cleanName[0].toUpperCase() : 'G', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
               ),
               title: Text(cleanName, style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
-              subtitle: Text('Community Group', style: TextStyle(color: AppTheme.textSecondary)),
+              subtitle: Text('Group', style: TextStyle(color: AppTheme.textSecondary)),
               onTap: () => _openChat(chat),
             );
           }),
@@ -583,9 +588,11 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
     final List<Widget> pages = [
       _buildChatsTab(),
       _buildUpdatesTab(),
-      _buildCommunitiesTab(),
+      _buildGroupsTab(),
       _buildCallsTab(),
     ];
+
+    final isSocketConnected = Provider.of<AuthProvider>(context).socketService.isConnected;
 
     return Scaffold(
       appBar: _selectedChatIds.isNotEmpty ? AppBar(
@@ -801,16 +808,14 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
                 } else if (value == 'logout') {
                   _handleLogout();
+                } else if (value == 'new_group') {
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateGroupScreen()));
                 }
               },
               itemBuilder: (context) => [
                 const PopupMenuItem(
                   value: 'new_group',
                   child: Text('New Group'),
-                ),
-                const PopupMenuItem(
-                  value: 'new_community',
-                  child: Text('New Community'),
                 ),
                 const PopupMenuItem(
                   value: 'linked_devices',
@@ -837,14 +842,32 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
           ]
         ],
       ),
-      body: PageView(
-        controller: _pageController,
-        onPageChanged: (index) {
-          setState(() {
-            _selectedIndex = index;
-          });
-        },
-        children: pages,
+      backgroundColor: AppTheme.backgroundColor,
+      body: Column(
+        children: [
+          if (!isSocketConnected)
+            Container(
+              width: double.infinity,
+              color: Colors.redAccent.withOpacity(0.9),
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: const Text(
+                'Waiting for network...',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+              ),
+            ),
+          Expanded(
+            child: PageView(
+              controller: _pageController,
+              onPageChanged: (index) {
+                setState(() {
+                  _selectedIndex = index;
+                });
+              },
+              children: pages,
+            ),
+          ),
+        ],
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,

@@ -1495,9 +1495,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                       _focusNode.requestFocus();
                                     });
                                   },
-                                  onTapCall: () {
+                                  onTapCall: (isVideo) {
                                     if (widget.remoteUserId != null) {
-                                      final isVideo = message.content.toLowerCase().contains('video');
                                       Navigator.push(
                                         context,
                                         MaterialPageRoute(

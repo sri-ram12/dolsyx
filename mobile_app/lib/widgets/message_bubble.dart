@@ -13,7 +13,7 @@ class MessageBubble extends StatelessWidget {
   final bool isMe;
   final Function(Message)? onSwipeReply;
   final bool showReadReceipts;
-  final VoidCallback? onTapCall;
+  final Function(bool isVideo)? onTapCall;
 
   const MessageBubble({
     super.key,
@@ -357,7 +357,7 @@ class MessageBubble extends StatelessWidget {
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: GestureDetector(
-        onTap: onTapCall,
+        onTap: () => onTapCall?.call(isVideo),
         child: Container(
           margin: const EdgeInsets.only(bottom: 8),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),

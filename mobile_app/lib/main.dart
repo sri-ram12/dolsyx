@@ -11,23 +11,32 @@ import 'screens/call_screen.dart';
 import 'services/sound_service.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 // Background FCM handler
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
-  print("Handling a background message: ${message.messageId}");
 }
+
+final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+    FlutterLocalNotificationsPlugin();
+
+const AndroidNotificationChannel channel = AndroidNotificationChannel(
+  'high_importance_channel',
+  'High Importance Notifications',
+  description: 'This channel is used for important notifications.',
+  importance: Importance.max,
+);
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // Try to initialize Firebase (will fail if google-services.json is missing)
   try {
     await Firebase.initializeApp();
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
   } catch (e) {
-    print("Firebase initialization skipped (missing config): $e");
+    // Firebase initialization skipped (missing config)
   }
 
   runApp(
@@ -64,16 +73,45 @@ class _DolsyxAppState extends State<DolsyxApp> {
     _tryAutoLogin();
   }
 
-  void _setupForegroundFCM() {
+  Future<void> _setupForegroundFCM() async {
     try {
       if (Firebase.apps.isNotEmpty) {
+        await flutterLocalNotificationsPlugin
+            .resolvePlatformSpecificImplementation<
+                AndroidFlutterLocalNotificationsPlugin>()
+            ?.createNotificationChannel(channel);
+
+        const AndroidInitializationSettings initializationSettingsAndroid =
+            AndroidInitializationSettings('@mipmap/ic_launcher');
+        const InitializationSettings initializationSettings =
+            InitializationSettings(android: initializationSettingsAndroid);
+        await flutterLocalNotificationsPlugin.initialize(initializationSettings);
+
         FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-          print("Foreground message received: \${message.notification?.title}");
-          // In a real app, we could show a local notification here using flutter_local_notifications
+          final RemoteNotification? notification = message.notification;
+          final AndroidNotification? android = message.notification?.android;
+
+          if (notification != null && android != null) {
+            flutterLocalNotificationsPlugin.show(
+              notification.hashCode,
+              notification.title,
+              notification.body,
+              NotificationDetails(
+                android: AndroidNotificationDetails(
+                  channel.id,
+                  channel.name,
+                  channelDescription: channel.description,
+                  icon: '@mipmap/ic_launcher',
+                  priority: Priority.high,
+                  importance: Importance.max,
+                ),
+              ),
+            );
+          }
         });
       }
     } catch (e) {
-      print("FCM foreground setup error: $e");
+      // FCM foreground setup error
     }
   }
 
@@ -90,11 +128,8 @@ class _DolsyxAppState extends State<DolsyxApp> {
   void _setupGlobalCallListener() {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     
-    // We add a listener to authProvider so that when a socket is connected,
-    // we attach the call_invite listener.
     authProvider.addListener(() {
       if (authProvider.isAuthenticated && authProvider.socketService.socket != null) {
-        // Ensure we don't attach multiple listeners
         authProvider.socketService.offCallIncoming(_handleCallIncoming);
         authProvider.socketService.onCallIncoming(_handleCallIncoming);
       }
@@ -110,14 +145,14 @@ class _DolsyxAppState extends State<DolsyxApp> {
     final String callerName = data['callerName'] ?? 'Incoming Call';
     final String? callerAvatarUrl = data['callerAvatarUrl'] ?? data['callerAvatar'];
     
-    // WebRTC offer from caller
     final Map<String, dynamic>? initialOffer = data['offer'];
 
-    // Start caller ringtone loop
     SoundService().startRingtone();
 
-    // Only navigate if we're not already on a call screen
-    // For simplicity, we just push it. In a real app we'd check current route.
+    if (CallScreen.activeConversationId == conversationId) {
+      return;
+    }
+
     if (navigatorKey.currentState != null) {
       navigatorKey.currentState!.push(
         MaterialPageRoute(
@@ -145,7 +180,7 @@ class _DolsyxAppState extends State<DolsyxApp> {
           debugShowCheckedModeBanner: false,
           theme: AppTheme.themeData,
           builder: (context, child) {
-            final fontScale = themeProvider.currentFontSize / 16.0; // 16px = Medium (1.0x)
+            final fontScale = themeProvider.currentFontSize / 16.0;
             return MediaQuery(
               data: MediaQuery.of(context).copyWith(
                 textScaler: TextScaler.linear(fontScale),

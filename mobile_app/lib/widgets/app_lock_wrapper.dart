@@ -120,12 +120,16 @@ class _GlobalAppLockWrapperState extends State<GlobalAppLockWrapper> with Widget
 
   Future<void> _verifyPin(String val) async {
     if (val.length == 4) {
+      // Capture FocusScope before async gap to avoid BuildContext error
+      final focusScope = FocusScope.of(context);
+      
       final prefs = await SharedPreferences.getInstance();
       final savedPin = prefs.getString('app_lock_pin');
+      
+      // Force keyboard to dismiss immediately
+      focusScope.unfocus();
+      
       if (savedPin != null && savedPin.isNotEmpty && savedPin == val) {
-        FocusManager.instance.primaryFocus?.unfocus();
-        // Slight delay to allow keyboard to dismiss cleanly
-        await Future.delayed(const Duration(milliseconds: 150));
         if (mounted) {
           setState(() {
             _isLocked = false;

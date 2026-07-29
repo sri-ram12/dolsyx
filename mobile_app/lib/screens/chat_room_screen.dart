@@ -1497,6 +1497,24 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                       _focusNode.requestFocus();
                                     });
                                   },
+                                  onTapCall: () {
+                                    if (widget.remoteUserId != null) {
+                                      final isVideo = message.content.toLowerCase().contains('video');
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => CallScreen(
+                                            conversationId: widget.conversationId,
+                                            remoteUserId: widget.remoteUserId!,
+                                            remoteUserName: widget.chatName,
+                                            remoteAvatarUrl: widget.avatarUrl,
+                                            isAudioOnly: !isVideo,
+                                            isIncoming: false,
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                  },
                                 ),
                               ),
                           ),

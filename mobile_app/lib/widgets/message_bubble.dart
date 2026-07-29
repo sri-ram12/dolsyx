@@ -13,6 +13,7 @@ class MessageBubble extends StatelessWidget {
   final bool isMe;
   final Function(Message)? onSwipeReply;
   final bool showReadReceipts;
+  final VoidCallback? onTapCall;
 
   const MessageBubble({
     super.key,
@@ -20,6 +21,7 @@ class MessageBubble extends StatelessWidget {
     required this.isMe,
     this.onSwipeReply,
     this.showReadReceipts = true,
+    this.onTapCall,
   });
 
   bool _isOnlyEmojis(String text) {
@@ -354,54 +356,57 @@ class MessageBubble extends StatelessWidget {
 
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: AppTheme.surfaceColor, // Always surface color for call logs
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            CircleAvatar(
-              backgroundColor: iconColor.withOpacity(0.15),
-              radius: 20,
-              child: Icon(
-                isVideo ? Icons.videocam : Icons.phone,
-                color: iconColor,
-                size: 22,
+      child: GestureDetector(
+        onTap: onTapCall,
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: AppTheme.surfaceColor, // Always surface color for call logs
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              CircleAvatar(
+                backgroundColor: iconColor.withOpacity(0.15),
+                radius: 20,
+                child: Icon(
+                  isVideo ? Icons.videocam : Icons.phone,
+                  color: iconColor,
+                  size: 22,
+                ),
               ),
-            ),
-            const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(iconData, color: iconColor, size: 16),
-                    const SizedBox(width: 4),
-                    Text(
-                      title,
-                      style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold, fontSize: 15),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  'Tap to call back',
-                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
-                ),
-              ],
-            ),
-            const SizedBox(width: 16),
-            Text(
-              DateFormat('h:mm a').format(message.createdAt.toLocal()),
-              style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
-            ),
-          ],
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(iconData, color: iconColor, size: 16),
+                      const SizedBox(width: 4),
+                      Text(
+                        title,
+                        style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold, fontSize: 15),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Tap to call back',
+                    style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 16),
+              Text(
+                DateFormat('h:mm a').format(message.createdAt.toLocal()),
+                style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+              ),
+            ],
+          ),
         ),
       ),
     );

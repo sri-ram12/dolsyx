@@ -705,6 +705,16 @@ export const initChatSocket = (io: Server) => {
       });
     });
 
+    // Mesh Group Call: Notify an existing participant to connect to a newly added user
+    socket.on("user_added_to_call", (data: { targetUserId: string; newUserId: string; newUserName: string; conversationId: string; callType: "audio" | "video" }) => {
+      io.to(data.targetUserId).emit("user_added_to_call", {
+        newUserId: data.newUserId,
+        newUserName: data.newUserName,
+        conversationId: data.conversationId,
+        callType: data.callType,
+      });
+    });
+
     // Handle typing indicator
 
     socket.on("typing", async (data: { conversationId: string; isTyping: boolean }) => {

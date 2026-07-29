@@ -1156,19 +1156,27 @@ export default function ChatWindow({
       
       setMessages(prev => [...prev, optimisticMsg]);
 
-      // If direct message, try to use E2EE
+      // If direct message, try to use E2EE; fall back to standard socket messaging if recipient has no E2EE device registered (e.g. mobile user)
       if (!chat.isGroup && chat.recipient?.email && user) {
         encryptAndSend(user.id, chat.recipient.email, chat.id, newMsgContent, token || "").catch(err => {
-          console.error("Failed to send encrypted message:", err);
-          toast("Failed to encrypt message. Is recipient registered?", "error");
+          console.warn("E2EE encryption unavailable for recipient, falling back to socket messaging:", err);
+          if (socket) {
+            socket.emit("send_message", {
+              conversationId: chat.id,
+              content: newMsgContent,
+              parentMessageId: replyingToMessage?.id || undefined,
+            });
+          }
         });
       } else {
         // Send regular message or reply for groups
-        socket.emit("send_message", {
-          conversationId: chat.id,
-          content: newMsgContent,
-          parentMessageId: replyingToMessage?.id || undefined,
-        });
+        if (socket) {
+          socket.emit("send_message", {
+            conversationId: chat.id,
+            content: newMsgContent,
+            parentMessageId: replyingToMessage?.id || undefined,
+          });
+        }
       }
       setReplyingToMessage(null);
     }

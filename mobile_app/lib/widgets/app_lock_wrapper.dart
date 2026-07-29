@@ -69,7 +69,6 @@ class _GlobalAppLockWrapperState extends State<GlobalAppLockWrapper> with Widget
           if (mounted) {
             setState(() {
               _isLocked = true;
-              _biometricsFailed = false;
             });
           }
           _authenticate();

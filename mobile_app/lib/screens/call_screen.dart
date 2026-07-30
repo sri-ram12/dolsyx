@@ -643,28 +643,6 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         });
       }
     }
-
-    // Also notify the new user about each existing participant so they connect back
-    for (final existingPeerId in _peerConnections.keys) {
-      if (existingPeerId != newUserId) {
-        final peerInfo = _participants[existingPeerId];
-        socket?.emit('user_added_to_call', {
-          'targetUserId': newUserId,
-          'newUserId': existingPeerId,
-          'newUserName': peerInfo?['username'] ?? 'User',
-          'conversationId': widget.conversationId,
-          'callType': widget.isAudioOnly ? 'audio' : 'video',
-        });
-        // Also tell new user about myself
-        socket?.emit('user_added_to_call', {
-          'targetUserId': newUserId,
-          'newUserId': myUserId,
-          'newUserName': myUserName,
-          'conversationId': widget.conversationId,
-          'callType': widget.isAudioOnly ? 'audio' : 'video',
-        });
-      }
-    }
   }
 
   @override

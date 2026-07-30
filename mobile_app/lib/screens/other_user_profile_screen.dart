@@ -363,13 +363,17 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
         final linkRegex = RegExp(r'https?://[^\s]+');
 
         for (final m in messages) {
-          final mediaUrl = (m['mediaUrl'] ?? '').toString();
-          final mediaType = (m['mediaType'] ?? '').toString();
+          final mediaUrl = (m['mediaUrl'] ?? m['fileUrl'] ?? m['url'] ?? '').toString();
+          final mediaType = (m['mediaType'] ?? m['type'] ?? '').toString().toUpperCase();
           final contentStr = (m['content'] ?? '').toString();
 
-          if (mediaType == 'IMAGE' || mediaType == 'VIDEO' || RegExp(r'\.(jpg|jpeg|png|gif|webp|mp4|mov)$', caseSensitive: false).hasMatch(mediaUrl)) {
+          final isImage = mediaType == 'IMAGE' || RegExp(r'\.(jpg|jpeg|png|gif|webp)($|\?)', caseSensitive: false).hasMatch(mediaUrl) || RegExp(r'\.(jpg|jpeg|png|gif|webp)($|\?)', caseSensitive: false).hasMatch(contentStr);
+          final isVideo = mediaType == 'VIDEO' || RegExp(r'\.(mp4|mov|avi|mkv|webm|3gp)($|\?)', caseSensitive: false).hasMatch(mediaUrl) || RegExp(r'\.(mp4|mov|avi|mkv|webm|3gp)($|\?)', caseSensitive: false).hasMatch(contentStr);
+          final isDoc = mediaType == 'DOCUMENT' || mediaType == 'FILE' || RegExp(r'\.(pdf|doc|docx|txt|zip|xls|xlsx|ppt|pptx)($|\?)', caseSensitive: false).hasMatch(mediaUrl) || RegExp(r'\.(pdf|doc|docx|txt|zip|xls|xlsx|ppt|pptx)($|\?)', caseSensitive: false).hasMatch(contentStr);
+
+          if (isImage || isVideo) {
             media.add(m);
-          } else if (mediaType == 'DOCUMENT' || mediaType == 'FILE' || RegExp(r'\.(pdf|doc|docx|txt|zip|xls|xlsx)$', caseSensitive: false).hasMatch(mediaUrl)) {
+          } else if (isDoc) {
             docs.add(m);
           }
 

@@ -1223,65 +1223,52 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       );
     }
 
-    return Scaffold(
-      appBar: _selectedMessageIds.isNotEmpty
+    return Scaffold(      appBar: _selectedMessageIds.isNotEmpty
           ? AppBar(
               leading: IconButton(
                 icon: const Icon(Icons.close),
-                onPressed: () {
-                  setState(() {
-                    _selectedMessageIds.clear();
-                  });
-                },
+                onPressed: () => setState(() => _selectedMessageIds.clear()),
               ),
               title: Text('${_selectedMessageIds.length}'),
               actions: [
                 if (_selectedMessageIds.length == 1)
                   IconButton(
-                    icon: const Icon(Icons.add_reaction_outlined),
+                    icon: const Icon(Icons.reply),
                     onPressed: () {
-                      final msgId = _selectedMessageIds.first;
-                      final emojis = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
-                      showModalBottomSheet(
-                        context: context,
-                        backgroundColor: Colors.transparent,
-                        builder: (context) => Container(
-                          margin: const EdgeInsets.all(16),
-                          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                          decoration: BoxDecoration(
-                            color: AppTheme.surfaceColor,
-                            borderRadius: BorderRadius.circular(32),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              ...emojis.map((emoji) => GestureDetector(
-                                onTap: () {
-                                  Navigator.pop(context);
-                                  _reactToMessage(msgId, emoji);
-                                },
-                                child: Text(emoji, style: const TextStyle(fontSize: 32)),
-                              )),
-                              GestureDetector(
-                                onTap: () {
-                                  Navigator.pop(context);
-                                  // Can implement full picker here if wanted, for now just use standard 6
-                                },
-                                child: Container(
-                                  padding: const EdgeInsets.all(8),
-                                  decoration: BoxDecoration(
-                                    color: AppTheme.backgroundColor,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: Icon(Icons.add, color: AppTheme.textPrimary),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
+                      final msg = _messages.firstWhere((m) => m.id == _selectedMessageIds.first);
+                      setState(() {
+                        _replyingTo = msg;
+                        _selectedMessageIds.clear();
+                        _focusNode.requestFocus();
+                      });
                     },
                   ),
+                IconButton(
+                  icon: const Icon(Icons.add_reaction_outlined),
+                  onPressed: () {
+                    final msgId = _selectedMessageIds.first;
+                    showModalBottomSheet(
+                      context: context,
+                      backgroundColor: AppTheme.surfaceColor,
+                      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+                      builder: (context) => Container(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            ...'👍❤️😂😮😢🙏'.split('').map((emoji) => GestureDetector(
+                              onTap: () {
+                                Navigator.pop(context);
+                                _reactToMessage(msgId, emoji);
+                              },
+                              child: Text(emoji, style: const TextStyle(fontSize: 32)),
+                            )),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
                 IconButton(
                   icon: const Icon(Icons.star_border),
                   onPressed: _starSelectedMessages,
@@ -1331,13 +1318,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                   },
                 ),
                 IconButton(
-                  icon: const Icon(Icons.reply),
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Reply coming soon')));
-                    setState(() => _selectedMessageIds.clear());
-                  },
-                ),
-                IconButton(
                   icon: const Icon(Icons.forward),
                   onPressed: () {
                     final messagesToForward = _messages.where((m) => _selectedMessageIds.contains(m.id)).toList();
@@ -1356,7 +1336,56 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 ),
               ],
             )
-          : AppBar(
+          : _isSearching
+              ? AppBar(
+                  backgroundColor: AppTheme.surfaceColor,
+                  leading: IconButton(
+                    icon: const Icon(Icons.arrow_back),
+                    onPressed: _stopSearch,
+                  ),
+                  title: TextField(
+                    controller: _searchController,
+                    autofocus: true,
+                    style: TextStyle(color: AppTheme.textPrimary, fontSize: 16),
+                    decoration: InputDecoration(
+                      hintText: 'Search in chat...',
+                      hintStyle: TextStyle(color: AppTheme.textSecondary),
+                      border: InputBorder.none,
+                    ),
+                    onChanged: _performSearch,
+                  ),
+                  actions: [
+                    if (_matchingIndices.isNotEmpty)
+                      Center(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          child: Text(
+                            '${_currentSearchMatchIndex + 1} of ${_matchingIndices.length}',
+                            style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                          ),
+                        ),
+                      ),
+                    IconButton(
+                      icon: const Icon(Icons.keyboard_arrow_up),
+                      onPressed: _matchingIndices.isEmpty ? null : () {
+                        if (_currentSearchMatchIndex > 0) {
+                          setState(() => _currentSearchMatchIndex--);
+                          _scrollToMatch(_currentSearchMatchIndex);
+                        }
+                      },
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.keyboard_arrow_down),
+                      onPressed: _matchingIndices.isEmpty ? null : () {
+                        if (_currentSearchMatchIndex < _matchingIndices.length - 1) {
+                          setState(() => _currentSearchMatchIndex++);
+                          _scrollToMatch(_currentSearchMatchIndex);
+                        }
+                      },
+                    ),
+                  ],
+                )
+              : AppBar(
               titleSpacing: 0,
               title: GestureDetector(
                 onTap: () {
@@ -1435,6 +1464,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               ),
               actions: [
                 if (widget.remoteUserId != null) ...[
+                  IconButton(
+                    icon: Icon(Icons.search, color: AppTheme.textPrimary),
+                    onPressed: _startSearch,
+                  ),
                   IconButton(
                     icon: Icon(Icons.videocam, color: AppTheme.textPrimary),
                     onPressed: () {
@@ -1547,80 +1580,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         decoration: wallpaperDecoration,
         child: Column(
         children: [
-          // WhatsApp-style inline search bar
-          if (_isSearching)
-            Container(
-              color: AppTheme.surfaceColor,
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _searchController,
-                      autofocus: true,
-                      style: TextStyle(color: AppTheme.textPrimary, fontSize: 14),
-                      decoration: InputDecoration(
-                        hintText: 'Search in chat...',
-                        hintStyle: TextStyle(color: AppTheme.textSecondary),
-                        prefixIcon: Icon(Icons.search, color: AppTheme.primaryColor, size: 20),
-                        suffixIcon: _searchController.text.isNotEmpty
-                            ? IconButton(
-                                icon: const Icon(Icons.clear, size: 18),
-                                onPressed: () {
-                                  _searchController.clear();
-                                  _performSearch('');
-                                },
-                              )
-                            : null,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
-                          borderSide: BorderSide.none,
-                        ),
-                        filled: true,
-                        fillColor: AppTheme.backgroundColor,
-                        contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-                        isDense: true,
-                      ),
-                      onChanged: _performSearch,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  if (_matchingIndices.isNotEmpty)
-                    Text(
-                      '${_currentSearchMatchIndex + 1}/${_matchingIndices.length}',
-                      style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-                    ),
-                  IconButton(
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                    icon: const Icon(Icons.keyboard_arrow_up, size: 22),
-                    onPressed: _matchingIndices.isEmpty ? null : () {
-                      if (_currentSearchMatchIndex > 0) {
-                        setState(() => _currentSearchMatchIndex--);
-                        _scrollToMatch(_currentSearchMatchIndex);
-                      }
-                    },
-                  ),
-                  IconButton(
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                    icon: const Icon(Icons.keyboard_arrow_down, size: 22),
-                    onPressed: _matchingIndices.isEmpty ? null : () {
-                      if (_currentSearchMatchIndex < _matchingIndices.length - 1) {
-                        setState(() => _currentSearchMatchIndex++);
-                        _scrollToMatch(_currentSearchMatchIndex);
-                      }
-                    },
-                  ),
-                  IconButton(
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                    icon: const Icon(Icons.close, size: 20),
-                    onPressed: _stopSearch,
-                  ),
-                ],
-              ),
-            ),
           if (!_isContact && widget.remoteUserId != null)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),

@@ -187,9 +187,7 @@ class _DolsyxAppState extends State<DolsyxApp> {
               data: MediaQuery.of(context).copyWith(
                 textScaler: TextScaler.linear(fontScale),
               ),
-              child: GlobalAppLockWrapper(
-                child: GlobalCallBannerWrapper(child: child!),
-              ),
+              child: GlobalAppLockWrapper(child: child!),
             );
           },
           home: _isInit 
@@ -197,88 +195,6 @@ class _DolsyxAppState extends State<DolsyxApp> {
             : (authProvider.isAuthenticated ? const ChatListScreen() : const LoginScreen()),
         );
       },
-    );
-  }
-}
-
-class GlobalCallBannerWrapper extends StatelessWidget {
-  final Widget child;
-
-  const GlobalCallBannerWrapper({super.key, required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        child,
-        ValueListenableBuilder<bool>(
-          valueListenable: CallScreen.isCallActiveNotifier,
-          builder: (context, isActive, _) {
-            if (!isActive || CallScreen.activeCallState == null) return const SizedBox.shrink();
-            final callState = CallScreen.activeCallState!;
-            return Positioned(
-              top: MediaQuery.of(context).padding.top + 8,
-              left: 12, right: 12,
-              child: Material(
-                elevation: 10,
-                borderRadius: BorderRadius.circular(16),
-                color: const Color(0xFF1B5E20),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(16),
-                  onTap: () {
-                    if (navigatorKey.currentContext != null) {
-                      Navigator.push(
-                        navigatorKey.currentContext!,
-                        MaterialPageRoute(builder: (_) => callState.widget),
-                      );
-                    }
-                  },
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: const BoxDecoration(
-                            color: Colors.greenAccent,
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            callState.widget.isAudioOnly ? Icons.phone : Icons.videocam,
-                            color: Colors.black, size: 18,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                callState.widget.remoteUserName,
-                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              Text(
-                                'Ongoing call (${callState.formattedDuration}) • Tap to return',
-                                style: const TextStyle(color: Colors.white70, fontSize: 11),
-                              ),
-                            ],
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.call_end, color: Colors.redAccent, size: 22),
-                          onPressed: () => callState.endCallFromBanner(),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            );
-          },
-        ),
-      ],
     );
   }
 }

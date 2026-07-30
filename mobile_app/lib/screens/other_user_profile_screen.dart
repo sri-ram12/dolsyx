@@ -20,6 +20,7 @@ class OtherUserProfileScreen extends StatefulWidget {
 
 class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
   final ApiService _apiService = ApiService();
+  bool _isProcessing = false;
   String? _localNickname;
   bool _isBlocked = false;
   bool _isOnline = false;

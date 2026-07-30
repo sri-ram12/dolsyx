@@ -250,32 +250,38 @@ export const useWebRTC = ({ onIceCandidate }: UseWebRTCOptions) => {
   }, [facingMode]);
 
   const toggleScreenShare = useCallback(async () => {
-    if (!localStreamRef.current) return;
     try {
       if (isScreenSharing) {
         // Stop screen share
-        const videoTrack = localStreamRef.current.getVideoTracks()[0];
+        const videoTrack = localStreamRef.current?.getVideoTracks()[0];
         const pc = pcRef.current;
-        if (pc && videoTrack) {
+        if (pc) {
           const senders = pc.getSenders();
-          const videoSender = senders.find((s) => s.track?.kind === "video");
-          if (videoSender) {
+          const videoSender = senders.find((s) => s.track?.kind === "video" || s.track === null);
+          if (videoSender && videoTrack) {
             await videoSender.replaceTrack(videoTrack);
           }
         }
         setIsScreenSharing(false);
       } else {
         // Start screen share
-        const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+        const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
         const screenTrack = screenStream.getVideoTracks()[0];
         if (!screenTrack) return;
 
         const pc = pcRef.current;
         if (pc) {
           const senders = pc.getSenders();
-          const videoSender = senders.find((s) => s.track?.kind === "video");
+          const videoSender = senders.find((s) => s.track?.kind === "video" || (s.track && s.track.kind === "video"));
           if (videoSender) {
             await videoSender.replaceTrack(screenTrack);
+          } else {
+            // Audio call converted to screen share: add track
+            if (localStreamRef.current) {
+              pc.addTrack(screenTrack, localStreamRef.current);
+            } else {
+              pc.addTrack(screenTrack, screenStream);
+            }
           }
         }
         
@@ -285,11 +291,11 @@ export const useWebRTC = ({ onIceCandidate }: UseWebRTCOptions) => {
         screenTrack.onended = () => {
           setIsScreenSharing(false);
           const videoTrack = localStreamRef.current?.getVideoTracks()[0];
-          if (pc && videoTrack) {
+          if (pc) {
             const senders = pc.getSenders();
             const videoSender = senders.find((s) => s.track?.kind === "video");
             if (videoSender) {
-              videoSender.replaceTrack(videoTrack);
+              videoSender.replaceTrack(videoTrack || null);
             }
           }
         };

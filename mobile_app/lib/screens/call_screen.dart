@@ -204,10 +204,47 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       _flushIceCandidates(callerId);
       final answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
+      if (!mounted) return;
       Provider.of<AuthProvider>(context, listen: false).socketService.socket?.emit('call_answer', {
         'callerId': callerId,
         'answer': {'sdp': answer.sdp, 'type': answer.type},
       });
+    });
+
+    // Screen Share Request event
+    socket.on('screen_share_request', (data) {
+      if (!mounted) return;
+      final senderName = data['senderName'] ?? 'User';
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: AppTheme.surfaceColor,
+          title: Text('$senderName wants to share screen', style: TextStyle(color: AppTheme.textPrimary, fontSize: 16)),
+          content: Text('Do you accept incoming screen share?', style: TextStyle(color: AppTheme.textSecondary, fontSize: 14)),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                socket.emit('screen_share_decline', {
+                  'targetUserId': data['senderId'],
+                  'conversationId': widget.conversationId,
+                });
+              },
+              child: const Text('Decline', style: TextStyle(color: Colors.red)),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                socket.emit('screen_share_accept', {
+                  'targetUserId': data['senderId'],
+                  'conversationId': widget.conversationId,
+                });
+              },
+              child: const Text('Accept', style: TextStyle(color: Colors.green)),
+            ),
+          ],
+        ),
+      );
     });
   }
 
@@ -585,7 +622,9 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     _screenStream?.dispose();
     for (final pc in _peerConnections.values) { pc.close(); pc.dispose(); }
     _localRenderer.dispose();
-    for (final r in _remoteRenderers.values) r.dispose();
+    for (final r in _remoteRenderers.values) {
+      r.dispose();
+    }
     super.dispose();
   }
 
@@ -728,15 +767,12 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    return WillPopScope(
-      onWillPop: () async {
-        // When user presses back, keep the call going (just minimise screen)
-        // Only actually pop if call is not active
+    return PopScope(
+      canPop: true,
+      onPopInvokedWithResult: (didPop, result) {
         if (_callActive) {
           // Show ongoing call bar instead of full pop
-          return true;
         }
-        return true;
       },
       child: Scaffold(
         backgroundColor: Colors.black,

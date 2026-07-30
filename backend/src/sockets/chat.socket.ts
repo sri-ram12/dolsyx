@@ -715,6 +715,29 @@ export const initChatSocket = (io: Server) => {
       });
     });
 
+    // Screen Share Request Signaling (Accept / Decline flow)
+    socket.on("screen_share_request", (data: { targetUserId: string; conversationId: string; senderName: string }) => {
+      io.to(data.targetUserId).emit("screen_share_request", {
+        senderId: userId,
+        senderName: data.senderName || username,
+        conversationId: data.conversationId,
+      });
+    });
+
+    socket.on("screen_share_accept", (data: { targetUserId: string; conversationId: string }) => {
+      io.to(data.targetUserId).emit("screen_share_accept", {
+        accepterId: userId,
+        conversationId: data.conversationId,
+      });
+    });
+
+    socket.on("screen_share_decline", (data: { targetUserId: string; conversationId: string }) => {
+      io.to(data.targetUserId).emit("screen_share_decline", {
+        declinerId: userId,
+        conversationId: data.conversationId,
+      });
+    });
+
     // Handle typing indicator
 
     socket.on("typing", async (data: { conversationId: string; isTyping: boolean }) => {

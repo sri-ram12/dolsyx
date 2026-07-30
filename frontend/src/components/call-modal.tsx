@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { Phone, Video, PhoneOff, Mic, MicOff, VideoOff, Volume2, VolumeX, Camera, User, RefreshCw } from "lucide-react";
+import { Phone, Video, PhoneOff, Mic, MicOff, VideoOff, Volume2, VolumeX, Camera, User, RefreshCw, Monitor } from "lucide-react";
 import { getAvatarUrl } from "@/utils/avatar";
 import { SoundEngine } from "@/utils/sound";
 
@@ -31,7 +31,10 @@ interface CallModalProps {
 function VideoPlayer({ stream, muted, mirror, className }: { stream: MediaStream | null; muted?: boolean; mirror?: boolean; className?: string; }) {
   const ref = useRef<HTMLVideoElement>(null);
   useEffect(() => {
-    if (ref.current) ref.current.srcObject = stream;
+    if (ref.current && stream) {
+      ref.current.srcObject = stream;
+      ref.current.play().catch(() => {});
+    }
   }, [stream]);
   if (!stream) return null;
   return <video ref={ref} autoPlay playsInline muted={muted} className={className} style={mirror ? { transform: "scaleX(-1)" } : undefined} />;
@@ -41,8 +44,9 @@ function VideoPlayer({ stream, muted, mirror, className }: { stream: MediaStream
 function RemoteAudio({ stream, muted }: { stream: MediaStream | null; muted: boolean }) {
   const ref = useRef<HTMLAudioElement>(null);
   useEffect(() => {
-    if (ref.current) {
+    if (ref.current && stream) {
       ref.current.srcObject = stream;
+      ref.current.play().catch(() => {});
     }
   }, [stream]);
   useEffect(() => {
@@ -130,9 +134,9 @@ export default function CallModal({
       {isVideoConnected ? (
         <div className="relative flex-1 bg-black overflow-hidden">
           {isLocalFullScreen ? (
-            <VideoPlayer stream={localStream} muted mirror className="absolute inset-0 w-full h-full object-cover" />
+            <VideoPlayer stream={localStream} muted mirror className="absolute inset-0 w-full h-full object-contain" />
           ) : remoteStream ? (
-            <VideoPlayer stream={remoteStream} className="absolute inset-0 w-full h-full object-cover" />
+            <VideoPlayer stream={remoteStream} className="absolute inset-0 w-full h-full object-contain bg-black" />
           ) : (
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950">
               <div className="w-28 h-28 rounded-full overflow-hidden bg-slate-800 border-2 border-slate-600 mb-4 flex items-center justify-center">
@@ -238,7 +242,7 @@ export default function CallModal({
                         onClick={() => onToggleScreenShare?.()}
                         title={isScreenSharing ? "Stop Sharing" : "Share Screen"}
                       >
-                        <RefreshCw className="h-6 w-6" />
+                        <Monitor className="h-5 w-5" />
                       </CtrlBtn>
                       <CtrlBtn
                         active={isCameraOff}

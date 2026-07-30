@@ -397,12 +397,259 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
                   ),
                   const SizedBox(height: 20),
                   // Action Buttons Row
+  int _selectedMediaTab = 0; // 0: Media, 1: Docs, 2: Links
+
+  void _openSearchChatDialog() {
+    final searchController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: AppTheme.surfaceColor,
+          title: Text('Search Conversation', style: TextStyle(color: AppTheme.textPrimary, fontSize: 18, fontWeight: FontWeight.bold)),
+          content: TextField(
+            controller: searchController,
+            autofocus: true,
+            style: TextStyle(color: AppTheme.textPrimary),
+            decoration: InputDecoration(
+              hintText: 'Search messages...',
+              hintStyle: TextStyle(color: AppTheme.textSecondary),
+              prefixIcon: Icon(Icons.search, color: AppTheme.primaryColor),
+              filled: true,
+              fillColor: AppTheme.backgroundColor,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Cancel', style: TextStyle(color: AppTheme.textSecondary)),
+            ),
+            TextButton(
+              onPressed: () {
+                final query = searchController.text.trim();
+                Navigator.pop(context);
+                if (query.isNotEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Searching for "$query"...')),
+                  );
+                }
+              },
+              child: Text('Search', style: TextStyle(color: AppTheme.primaryColor, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildCategorizedMediaSection() {
+    return Container(
+      color: AppTheme.surfaceColor,
+      padding: const EdgeInsets.all(16),
+      width: double.infinity,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Media, Docs & Links', style: TextStyle(color: AppTheme.textPrimary, fontSize: 16, fontWeight: FontWeight.bold)),
+              Icon(Icons.chevron_right, color: AppTheme.textSecondary),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // 3 Categorized Segmented Tabs
+          Row(
+            children: [
+              _buildTabChip(0, '🖼️ Media'),
+              const SizedBox(width: 8),
+              _buildTabChip(1, '📄 Docs'),
+              const SizedBox(width: 8),
+              _buildTabChip(2, '🔗 Links'),
+            ],
+          ),
+          const SizedBox(height: 16),
+          // Media / Docs / Links Content Container
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppTheme.backgroundColor,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: _selectedMediaTab == 0
+                ? Row(
+                    children: [
+                      Icon(Icons.photo_library, color: AppTheme.primaryColor, size: 24),
+                      const SizedBox(width: 12),
+                      Text('No photos or videos shared yet', style: TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
+                    ],
+                  )
+                : _selectedMediaTab == 1
+                    ? Row(
+                        children: [
+                          Icon(Icons.insert_drive_file, color: AppTheme.primaryColor, size: 24),
+                          const SizedBox(width: 12),
+                          Text('No documents shared yet', style: TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
+                        ],
+                      )
+                    : Row(
+                        children: [
+                          Icon(Icons.link, color: AppTheme.primaryColor, size: 24),
+                          const SizedBox(width: 12),
+                          Text('No links shared yet', style: TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
+                        ],
+                      ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTabChip(int index, String label) {
+    final isSelected = _selectedMediaTab == index;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => setState(() => _selectedMediaTab = index),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: isSelected ? AppTheme.primaryColor : AppTheme.backgroundColor,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: isSelected ? Colors.white : AppTheme.textPrimary,
+              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+              fontSize: 13,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final avatarUrl = widget.user['avatarUrl'];
+    final username = _localNickname ?? widget.user['username'] ?? 'User';
+    final email = widget.user['email'] ?? '';
+    final bio = widget.user['bio'] ?? 'Hey there, I am using DOLSYX';
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Contact Info'),
+        backgroundColor: AppTheme.surfaceColor,
+        actions: [
+          IconButton(
+            icon: Icon(Icons.search),
+            onPressed: _openSearchChatDialog,
+          ),
+          PopupMenuButton<String>(
+            icon: Icon(Icons.more_vert),
+            onSelected: (value) {
+              if (value == 'edit_name') {
+                _editName();
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'edit_name',
+                child: Text('Edit Name'),
+              ),
+            ],
+          ),
+        ],
+      ),
+      backgroundColor: AppTheme.backgroundColor,
+      body: SingleChildScrollView(
+        child: Column(
+          children: [
+            // Profile Header Card
+            Container(
+              color: AppTheme.surfaceColor,
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  // Avatar
+                  GestureDetector(
+                    onTap: () {
+                      if (avatarUrl != null) {
+                        String fullUrl = avatarUrl.startsWith('http')
+                            ? avatarUrl
+                            : 'https://dolsyx-app.onrender.com$avatarUrl';
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => FullScreenImageView(imageUrl: fullUrl),
+                          ),
+                        );
+                      }
+                    },
+                    child: avatarUrl == null
+                        ? ColorAvatar(name: username, radius: 50, fontSize: 36)
+                        : CircleAvatar(
+                            radius: 50,
+                            backgroundColor: AppTheme.backgroundColor,
+                            backgroundImage: avatarUrl.startsWith('http')
+                                ? NetworkImage(avatarUrl)
+                                : NetworkImage('https://dolsyx-app.onrender.com$avatarUrl'),
+                          ),
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    username,
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+                    textAlign: TextAlign.center,
+                  ),
+                  if (email.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      email,
+                      style: TextStyle(fontSize: 14, color: AppTheme.textSecondary),
+                    ),
+                  ],
+                  const SizedBox(height: 10),
+                  // Live presence badge
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: _isTyping
+                          ? AppTheme.primaryColor.withOpacity(0.15)
+                          : _isOnline
+                              ? Colors.green.withOpacity(0.15)
+                              : Colors.grey.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Text(
+                      _isTyping
+                          ? '✏️ Typing...'
+                          : _isOnline
+                              ? '🟢 Online'
+                              : (_lastSeen != null
+                                  ? '🕐 Last seen ${_formatTime(_lastSeen!)}'
+                                  : (widget.user['lastSeen'] != null
+                                      ? '🕐 Last seen ${_formatTime(DateTime.tryParse(widget.user['lastSeen'].toString()))}'
+                                      : '⚫ Offline')),
+                      style: TextStyle(
+                        color: _isTyping || _isOnline ? AppTheme.primaryColor : AppTheme.textSecondary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  // Action Buttons Row
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
                       _buildHeaderAction(Icons.call, 'Audio', _startAudioCall),
                       _buildHeaderAction(Icons.videocam, 'Video', _startVideoCall),
-                      _buildHeaderAction(Icons.search, 'Search', () {}),
+                      _buildHeaderAction(Icons.search, 'Search', _openSearchChatDialog),
                     ],
                   ),
                 ],
@@ -423,6 +670,10 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
                 ],
               ),
             ),
+            const SizedBox(height: 8),
+
+            // Categorized Media Section (Media, Docs, Links)
+            _buildCategorizedMediaSection(),
             const SizedBox(height: 8),
 
             Container(

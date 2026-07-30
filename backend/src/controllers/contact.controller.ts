@@ -15,11 +15,14 @@ export const searchUser = async (req: AuthRequest, res: Response): Promise<void>
       return;
     }
 
+    const cleanQuery = query.trim();
     const user = await prisma.user.findFirst({
       where: {
         OR: [
-          { email: { equals: query.trim(), mode: "insensitive" } },
-          { username: { equals: query.trim(), mode: "insensitive" } },
+          { email: { equals: cleanQuery, mode: "insensitive" } },
+          { username: { equals: cleanQuery, mode: "insensitive" } },
+          { email: { contains: cleanQuery, mode: "insensitive" } },
+          { username: { contains: cleanQuery, mode: "insensitive" } },
         ],
         NOT: { id: userId },
       },
@@ -79,11 +82,14 @@ export const addContact = async (req: AuthRequest, res: Response): Promise<void>
       return;
     }
 
+    const cleanQuery = query.trim();
     const contactUser = await prisma.user.findFirst({
       where: {
         OR: [
-          { email: { equals: query.trim(), mode: "insensitive" } },
-          { username: { equals: query.trim(), mode: "insensitive" } },
+          { email: { equals: cleanQuery, mode: "insensitive" } },
+          { username: { equals: cleanQuery, mode: "insensitive" } },
+          { email: { contains: cleanQuery, mode: "insensitive" } },
+          { username: { contains: cleanQuery, mode: "insensitive" } },
         ],
       },
     });

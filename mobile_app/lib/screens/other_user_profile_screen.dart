@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
 import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
 import '../theme/app_theme.dart';
@@ -27,11 +28,16 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
   bool _isTyping = false;
   DateTime? _lastSeen;
   int _selectedMediaTab = 0; // 0: Media, 1: Docs, 2: Links
+  List<dynamic> _mediaItems = [];
+  List<dynamic> _docItems = [];
+  List<dynamic> _linkItems = [];
+  bool _isLoadingMedia = true;
 
   @override
   void initState() {
     super.initState();
     _checkBlockedStatus();
+    _fetchMediaMessages();
     final userId = widget.user['id'] ?? widget.user['_id'];
     if (widget.user['lastSeen'] != null) {
       _lastSeen = DateTime.tryParse(widget.user['lastSeen'].toString());
@@ -323,6 +329,59 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
     );
   }
 
+    Future<void> _fetchMediaMessages() async {
+    final conversationId = widget.user['conversationId'] ?? '';
+    if (conversationId.isEmpty) {
+      if (mounted) setState(() => _isLoadingMedia = false);
+      return;
+    }
+    try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final token = authProvider.token ?? '';
+      final res = await http.get(
+        Uri.parse('${ApiService.baseUrl}/chat/$conversationId/messages'),
+        headers: ApiService.authHeaders(token),
+      );
+      if (res.statusCode == 200) {
+        final List<dynamic> messages = jsonDecode(res.body);
+        final List<dynamic> media = [];
+        final List<dynamic> docs = [];
+        final List<dynamic> links = [];
+        final linkRegex = RegExp(r'https?://[^\s]+');
+
+        for (final m in messages) {
+          final mediaUrl = (m['mediaUrl'] ?? '').toString();
+          final mediaType = (m['mediaType'] ?? '').toString();
+          final contentStr = (m['content'] ?? '').toString();
+
+          if (mediaType == 'IMAGE' || mediaType == 'VIDEO' || RegExp(r'\.(jpg|jpeg|png|gif|webp|mp4|mov)$', caseSensitive: false).hasMatch(mediaUrl)) {
+            media.add(m);
+          } else if (mediaType == 'DOCUMENT' || RegExp(r'\.(pdf|doc|docx|txt|zip|xls|xlsx)$', caseSensitive: false).hasMatch(mediaUrl)) {
+            docs.add(m);
+          }
+
+          if (linkRegex.hasMatch(contentStr)) {
+            final matches = linkRegex.allMatches(contentStr);
+            for (final match in matches) {
+              links.add({'url': match.group(0), 'message': m});
+            }
+          }
+        }
+
+        if (mounted) {
+          setState(() {
+            _mediaItems = media;
+            _docItems = docs;
+            _linkItems = links;
+            _isLoadingMedia = false;
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoadingMedia = false);
+    }
+  }
+
   Widget _buildCategorizedMediaSection() {
     return Container(
       color: AppTheme.surfaceColor,
@@ -350,34 +409,92 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
           ),
           const SizedBox(height: 16),
           Container(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: AppTheme.backgroundColor,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: _selectedMediaTab == 0
-                ? Row(
-                    children: [
-                      Icon(Icons.photo_library, color: AppTheme.primaryColor, size: 24),
-                      const SizedBox(width: 12),
-                      Text('No photos or videos shared yet', style: TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
-                    ],
-                  )
-                : _selectedMediaTab == 1
-                    ? Row(
-                        children: [
-                          Icon(Icons.insert_drive_file, color: AppTheme.primaryColor, size: 24),
-                          const SizedBox(width: 12),
-                          Text('No documents shared yet', style: TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
-                        ],
-                      )
-                    : Row(
-                        children: [
-                          Icon(Icons.link, color: AppTheme.primaryColor, size: 24),
-                          const SizedBox(width: 12),
-                          Text('No links shared yet', style: TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
-                        ],
-                      ),
+            child: _isLoadingMedia
+                ? Center(child: CircularProgressIndicator(color: AppTheme.primaryColor, strokeWidth: 2))
+                : _selectedMediaTab == 0
+                    ? (_mediaItems.isEmpty
+                        ? Padding(
+                            padding: const EdgeInsets.all(8.0),
+                            child: Row(
+                              children: [
+                                Icon(Icons.photo_library, color: AppTheme.primaryColor, size: 24),
+                                const SizedBox(width: 12),
+                                Text('No photos or videos shared yet', style: TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
+                              ],
+                            ),
+                          )
+                        : SizedBox(
+                            height: 85,
+                            child: ListView.builder(
+                              scrollDirection: Axis.horizontal,
+                              itemCount: _mediaItems.length,
+                              itemBuilder: (ctx, idx) {
+                                final url = _mediaItems[idx]['mediaUrl'] ?? '';
+                                final fullUrl = url.startsWith('http') ? url : 'https://dolsyx-app.onrender.com$url';
+                                return GestureDetector(
+                                  onTap: () {
+                                    Navigator.push(ctx, MaterialPageRoute(builder: (_) => FullScreenImageView(imageUrl: fullUrl)));
+                                  },
+                                  child: Container(
+                                    margin: const EdgeInsets.only(right: 8),
+                                    width: 85, height: 85,
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(8),
+                                      image: DecorationImage(image: NetworkImage(fullUrl), fit: BoxFit.cover),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ))
+                    : _selectedMediaTab == 1
+                        ? (_docItems.isEmpty
+                            ? Padding(
+                                padding: const EdgeInsets.all(8.0),
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.insert_drive_file, color: AppTheme.primaryColor, size: 24),
+                                    const SizedBox(width: 12),
+                                    Text('No documents shared yet', style: TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
+                                  ],
+                                ),
+                              )
+                            : Column(
+                                children: _docItems.map((doc) {
+                                  final name = doc['content'] ?? 'Document';
+                                  return ListTile(
+                                    dense: true,
+                                    leading: Icon(Icons.description, color: AppTheme.primaryColor),
+                                    title: Text(name, style: TextStyle(color: AppTheme.textPrimary, fontSize: 13)),
+                                  );
+                                }).toList(),
+                              ))
+                        : (_linkItems.isEmpty
+                            ? Padding(
+                                padding: const EdgeInsets.all(8.0),
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.link, color: AppTheme.primaryColor, size: 24),
+                                    const SizedBox(width: 12),
+                                    Text('No links shared yet', style: TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
+                                  ],
+                                ),
+                              )
+                            : Column(
+                                children: _linkItems.map((link) {
+                                  final urlStr = link['url'] ?? '';
+                                  return ListTile(
+                                    dense: true,
+                                    leading: Icon(Icons.link, color: AppTheme.primaryColor),
+                                    title: Text(urlStr, style: TextStyle(color: AppTheme.primaryColor, fontSize: 13, decoration: TextDecoration.underline)),
+                                  );
+                                }).toList(),
+                              )),
           ),
         ],
       ),

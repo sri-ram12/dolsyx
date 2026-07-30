@@ -157,6 +157,14 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
   void _startCommunication(String userId, String chatName) async {
     setState(() => _isProcessing = true);
     try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final token = authProvider.token ?? '';
+      
+      // Auto save contact by ID so name is preserved instantly
+      try {
+        await ContactService.addContactById(token, userId, savedName: chatName);
+      } catch (_) {}
+
       final chat = await _chatService.createDirectChat(userId);
       if (mounted && chat != null) {
         Navigator.pushReplacement(

@@ -75,6 +75,63 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   String? _recordingPath;
   final AudioRecorder _audioRecorder = AudioRecorder();
 
+  // In-Chat Search State
+  bool _isSearching = false;
+  final TextEditingController _searchController = TextEditingController();
+  List<int> _matchingIndices = [];
+  int _currentSearchMatchIndex = 0;
+
+  void _startSearch() {
+    setState(() {
+      _isSearching = true;
+      _matchingIndices = [];
+      _currentSearchMatchIndex = 0;
+    });
+  }
+
+  void _stopSearch() {
+    setState(() {
+      _isSearching = false;
+      _searchController.clear();
+      _matchingIndices = [];
+      _currentSearchMatchIndex = 0;
+    });
+  }
+
+  void _performSearch(String query) {
+    if (query.trim().isEmpty) {
+      setState(() {
+        _matchingIndices = [];
+        _currentSearchMatchIndex = 0;
+      });
+      return;
+    }
+    final q = query.trim().toLowerCase();
+    final List<int> matches = [];
+    for (int i = 0; i < _messages.length; i++) {
+      if (_messages[i].content.toLowerCase().contains(q)) {
+        matches.add(i);
+      }
+    }
+    setState(() {
+      _matchingIndices = matches;
+      _currentSearchMatchIndex = matches.isNotEmpty ? 0 : 0;
+    });
+    if (matches.isNotEmpty) {
+      _scrollToMatch(0);
+    }
+  }
+
+  void _scrollToMatch(int matchIdx) {
+    if (_matchingIndices.isEmpty || matchIdx < 0 || matchIdx >= _matchingIndices.length) return;
+    final msgIndex = _matchingIndices[matchIdx];
+    _scrollController.animateTo(
+      msgIndex * 60.0,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1282,6 +1339,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               ),
               actions: [
                 if (widget.remoteUserId != null) ...[
+                  IconButton(
+                    icon: Icon(Icons.search, color: AppTheme.textPrimary),
+                    onPressed: _startSearch,
+                  ),
                   IconButton(
                     icon: Icon(Icons.videocam, color: AppTheme.textPrimary),
                     onPressed: () {

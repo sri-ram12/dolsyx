@@ -434,10 +434,15 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   }
 
   void _endCallLocally(String reason) {
+    CallScreen.activeConversationId = null;
     SoundService().stopRingtone();
+    _callTimer?.cancel();
+    _timeoutTimer?.cancel();
+    _localStream?.getTracks().forEach((t) => t.stop());
+    _screenStream?.getTracks().forEach((t) => t.stop());
     if (!mounted) return;
     setState(() => _status = reason);
-    Future.delayed(const Duration(seconds: 1), () {
+    Future.delayed(const Duration(milliseconds: 500), () {
       if (mounted) Navigator.pop(context);
     });
   }
@@ -678,7 +683,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     );
   }
 
-  // Group call: 2x2 grid layout
+  // Group call: Responsive 3 & 4 member grid layout (Matching reference UI)
   Widget _buildGroupVideoGrid() {
     final List<Widget> views = [];
 
@@ -688,24 +693,26 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         fit: StackFit.expand,
         children: [
           renderer != null
-            ? RTCVideoView(renderer, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain)
+            ? RTCVideoView(
+                renderer,
+                objectFit: _isScreenSharing ? RTCVideoViewObjectFit.RTCVideoViewObjectFitContain : RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+              )
             : Container(color: Colors.grey[900], child: Center(child: ColorAvatar(name: data['username'] ?? '?', radius: 36, fontSize: 22))),
           Positioned(
-            bottom: 6, left: 6,
+            bottom: 8, left: 8,
             child: Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(10)),
-                  child: Text(data['username'] ?? 'User', style: const TextStyle(color: Colors.white, fontSize: 11)),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(12)),
+                  child: Text(data['username'] ?? 'User', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
                 ),
-                const SizedBox(width: 4),
-                // End call with specific participant button
+                const SizedBox(width: 6),
                 GestureDetector(
                   onTap: () => _showEndCallWithDialog(id, data['username'] ?? 'User'),
                   child: Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(color: Colors.red.withValues(alpha: 0.8), borderRadius: BorderRadius.circular(8)),
+                    padding: const EdgeInsets.all(5),
+                    decoration: BoxDecoration(color: Colors.red.withValues(alpha: 0.85), borderRadius: BorderRadius.circular(10)),
                     child: const Icon(Icons.call_end, color: Colors.white, size: 14),
                   ),
                 ),
@@ -721,13 +728,17 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       views.add(Stack(
         fit: StackFit.expand,
         children: [
-          RTCVideoView(_localRenderer, mirror: true, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain),
+          RTCVideoView(
+            _localRenderer,
+            mirror: !_isScreenSharing,
+            objectFit: _isScreenSharing ? RTCVideoViewObjectFit.RTCVideoViewObjectFitContain : RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+          ),
           Positioned(
-            bottom: 6, left: 6,
+            bottom: 8, left: 8,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(10)),
-              child: const Text('You', style: TextStyle(color: Colors.white, fontSize: 11)),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(12)),
+              child: const Text('You', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
             ),
           ),
         ],
@@ -737,14 +748,50 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     if (views.isEmpty) return const SizedBox.shrink();
     if (views.length == 1) return views.first;
     if (views.length == 2) {
-      return Column(children: [Expanded(child: views[0]), const Divider(height: 1, color: Colors.black), Expanded(child: views[1])]);
+      return Column(children: [Expanded(child: views[0]), const SizedBox(height: 2), Expanded(child: views[1])]);
     }
-    return GridView.count(
-      crossAxisCount: 2,
-      childAspectRatio: 0.75,
-      mainAxisSpacing: 2,
-      crossAxisSpacing: 2,
-      children: views,
+    if (views.length == 3) {
+      // 3 Members Layout (Matches Picture 1): Top half 2 tiles side-by-side, Bottom half 1 large tile
+      return Column(
+        children: [
+          Expanded(
+            child: Row(
+              children: [
+                Expanded(child: views[0]),
+                const SizedBox(width: 2),
+                Expanded(child: views[1]),
+              ],
+            ),
+          ),
+          const SizedBox(height: 2),
+          Expanded(child: views[2]),
+        ],
+      );
+    }
+
+    // 4 Members Layout (Matches Picture 2): 2x2 grid filling screen
+    return Column(
+      children: [
+        Expanded(
+          child: Row(
+            children: [
+              Expanded(child: views[0]),
+              const SizedBox(width: 2),
+              Expanded(child: views[1]),
+            ],
+          ),
+        ),
+        const SizedBox(height: 2),
+        Expanded(
+          child: Row(
+            children: [
+              Expanded(child: views[2]),
+              const SizedBox(width: 2),
+              Expanded(child: views[3]),
+            ],
+          ),
+        ),
+      ],
     );
   }
 

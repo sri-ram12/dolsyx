@@ -16,6 +16,7 @@ class _SignupScreenState extends State<SignupScreen> with SingleTickerProviderSt
   final _emailController = TextEditingController();
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
+  String? _emailError;
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
@@ -36,6 +37,22 @@ class _SignupScreenState extends State<SignupScreen> with SingleTickerProviderSt
     _animationController.forward();
   }
 
+  bool _isValidEmail(String email) {
+    return RegExp(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$').hasMatch(email.trim());
+  }
+
+  void _onEmailChanged(String value) {
+    setState(() {
+      if (value.trim().isEmpty) {
+        _emailError = null;
+      } else if (!_isValidEmail(value)) {
+        _emailError = 'Please enter a valid email address';
+      } else {
+        _emailError = null;
+      }
+    });
+  }
+
   @override
   void dispose() {
     _animationController.dispose();
@@ -52,7 +69,16 @@ class _SignupScreenState extends State<SignupScreen> with SingleTickerProviderSt
     
     if (email.isEmpty || username.isEmpty || password.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter all fields')),
+        const SnackBar(content: Text('Please fill in all fields')),
+      );
+      return;
+    }
+
+    // Strict email-only validation
+    if (!_isValidEmail(email)) {
+      setState(() => _emailError = 'Please enter a valid email address (e.g. name@example.com)');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a valid email address')),
       );
       return;
     }
@@ -125,9 +151,20 @@ class _SignupScreenState extends State<SignupScreen> with SingleTickerProviderSt
                   TextField(
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    onChanged: _onEmailChanged,
                     decoration: InputDecoration(
-                      hintText: 'Email address',
-                      prefixIcon: Icon(Icons.email_outlined, color: AppTheme.textSecondary),
+                      hintText: 'Email address (e.g. name@example.com)',
+                      prefixIcon: Icon(Icons.email_outlined, color: _emailError != null ? Colors.red : AppTheme.textSecondary),
+                      errorText: _emailError,
+                      suffixIcon: _emailController.text.isNotEmpty
+                          ? Icon(
+                              _emailError == null ? Icons.check_circle : Icons.cancel,
+                              color: _emailError == null ? Colors.green : Colors.red,
+                              size: 20,
+                            )
+                          : null,
                     ),
                   ),
                   const SizedBox(height: 16),

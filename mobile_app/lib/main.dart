@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'theme/app_theme.dart';
 import 'screens/login_screen.dart';
@@ -187,7 +188,64 @@ class _DolsyxAppState extends State<DolsyxApp> {
               data: MediaQuery.of(context).copyWith(
                 textScaler: TextScaler.linear(fontScale),
               ),
-              child: GlobalAppLockWrapper(child: child!),
+              child: GlobalAppLockWrapper(
+                child: Column(
+                  children: [
+                    // ── Ongoing Call Banner ──
+                    ValueListenableBuilder<bool>(
+                      valueListenable: CallScreen.isCallActiveNotifier,
+                      builder: (ctx, isActive, _) {
+                        if (!isActive) return const SizedBox.shrink();
+                        return GestureDetector(
+                          onTap: () {
+                            final state = CallScreen.activeCallState;
+                            if (state != null && navigatorKey.currentState != null) {
+                              navigatorKey.currentState!.push(
+                                MaterialPageRoute(
+                                  builder: (_) => CallScreen(
+                                    conversationId: CallScreen.activeConversationId ?? '',
+                                    remoteUserId: state.widget.remoteUserId,
+                                    remoteUserName: state.widget.remoteUserName,
+                                    remoteAvatarUrl: state.widget.remoteAvatarUrl,
+                                    isAudioOnly: state.widget.isAudioOnly,
+                                    isIncoming: false,
+                                  ),
+                                ),
+                              );
+                            }
+                          },
+                          child: Material(
+                            child: Container(
+                              width: double.infinity,
+                              color: Colors.green,
+                              padding: EdgeInsets.only(
+                                top: MediaQuery.of(ctx).padding.top + 4,
+                                bottom: 6,
+                                left: 16,
+                                right: 16,
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.call, color: Colors.white, size: 18),
+                                  const SizedBox(width: 8),
+                                  const Expanded(
+                                    child: Text(
+                                      'Tap to return to call',
+                                      style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600, decoration: TextDecoration.none),
+                                    ),
+                                  ),
+                                  _OngoingCallTimer(),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                    Expanded(child: child!),
+                  ],
+                ),
+              ),
             );
           },
           home: _isInit 
@@ -195,6 +253,40 @@ class _DolsyxAppState extends State<DolsyxApp> {
             : (authProvider.isAuthenticated ? const ChatListScreen() : const LoginScreen()),
         );
       },
+    );
+  }
+}
+
+/// Tiny widget that ticks every second to show ongoing call duration
+class _OngoingCallTimer extends StatefulWidget {
+  @override
+  State<_OngoingCallTimer> createState() => _OngoingCallTimerState();
+}
+
+class _OngoingCallTimerState extends State<_OngoingCallTimer> {
+  late Timer _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = CallScreen.activeCallState;
+    final text = state != null ? state.formattedDuration : '';
+    return Text(
+      text,
+      style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold, decoration: TextDecoration.none),
     );
   }
 }

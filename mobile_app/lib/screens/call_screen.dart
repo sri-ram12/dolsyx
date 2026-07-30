@@ -284,7 +284,23 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
 
   Future<RTCPeerConnection> _createPeerConnection(String targetUserId) async {
     final configuration = {
-      'iceServers': [{'urls': 'stun:stun.l.google.com:19302'}]
+      'iceServers': [
+        {'urls': 'stun:stun.l.google.com:19302'},
+        {'urls': 'stun:stun1.l.google.com:19302'},
+        {
+          'urls': 'turn:openrelay.metered.ca:80',
+          'username': 'openrelayproject',
+          'credential': 'openrelayproject',
+        },
+        {
+          'urls': 'turn:openrelay.metered.ca:443',
+          'username': 'openrelayproject',
+          'credential': 'openrelayproject',
+        },
+      ],
+      'sdpSemantics': 'unified-plan',
+      'bundlePolicy': 'max-bundle',
+      'iceTransportPolicy': 'all',
     };
     final pc = await createPeerConnection(configuration);
     _peerConnections[targetUserId] = pc;
@@ -404,13 +420,15 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   }
 
   void _rejectCall() {
+    SoundService().stopRingtone();
+    _timeoutTimer?.cancel();
     final socket = Provider.of<AuthProvider>(context, listen: false).socketService.socket;
     socket?.emit('call_reject', {
       'callerId': widget.remoteUserId,
       'conversationId': widget.conversationId,
       'callType': widget.isAudioOnly ? 'audio' : 'video',
     });
-    _endCallLocally('Call rejected');
+    _endCallLocally('Call declined');
   }
 
   void _endCall() {
@@ -453,9 +471,14 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     _timeoutTimer?.cancel();
     _localStream?.getTracks().forEach((t) => t.stop());
     _screenStream?.getTracks().forEach((t) => t.stop());
+    // Dispose all peer connections
+    for (final pc in _peerConnections.values) {
+      pc.close();
+    }
+    _peerConnections.clear();
     if (!mounted) return;
     setState(() => _status = reason);
-    Future.delayed(const Duration(milliseconds: 500), () {
+    Future.delayed(const Duration(milliseconds: 300), () {
       if (mounted) Navigator.pop(context);
     });
   }
@@ -853,10 +876,14 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      canPop: true,
+      // During an active call, intercept back button so user doesn't accidentally kill the call.
+      // They should use the red hang-up button.
+      canPop: !_callActive,
       onPopInvokedWithResult: (didPop, result) {
-        if (_callActive) {
-          // Show ongoing call bar instead of full pop
+        if (!didPop && _callActive) {
+          // Minimize: pop back to previous screen, call remains active.
+          // The floating banner in main.dart will let them return.
+          Navigator.of(context).pop();
         }
       },
       child: Scaffold(

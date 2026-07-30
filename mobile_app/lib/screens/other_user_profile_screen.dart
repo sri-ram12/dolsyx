@@ -330,6 +330,23 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
     );
   }
 
+  /// Resolve the best URL for a message (covers mediaUrl, fileUrl, url, or content field)
+  String _resolveMediaUrl(dynamic m) {
+    for (final key in ['mediaUrl', 'fileUrl', 'url']) {
+      final v = m[key];
+      if (v != null && v.toString().trim().isNotEmpty) return v.toString().trim();
+    }
+    // fall back to content if it looks like a URL
+    final content = (m['content'] ?? '').toString().trim();
+    if (content.startsWith('http')) return content;
+    return '';
+  }
+
+  bool _isVideoUrl(String url, String mediaType) {
+    if (mediaType == 'VIDEO') return true;
+    return RegExp(r'\.(mp4|mov|avi|mkv|webm|3gp)($|\?)', caseSensitive: false).hasMatch(url);
+  }
+
   Future<void> _fetchMediaMessages() async {
     String conversationId = widget.user['conversationId'] ?? '';
     final userId = widget.user['id'] ?? widget.user['_id'];
@@ -363,23 +380,29 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
         final linkRegex = RegExp(r'https?://[^\s]+');
 
         for (final m in messages) {
-          final mediaUrl = (m['mediaUrl'] ?? m['fileUrl'] ?? m['url'] ?? '').toString();
+          final rawUrl = _resolveMediaUrl(m);
           final mediaType = (m['mediaType'] ?? m['type'] ?? '').toString().toUpperCase();
           final contentStr = (m['content'] ?? '').toString();
 
-          final isImage = mediaType == 'IMAGE' || RegExp(r'\.(jpg|jpeg|png|gif|webp)($|\?)', caseSensitive: false).hasMatch(mediaUrl) || RegExp(r'\.(jpg|jpeg|png|gif|webp)($|\?)', caseSensitive: false).hasMatch(contentStr);
-          final isVideo = mediaType == 'VIDEO' || RegExp(r'\.(mp4|mov|avi|mkv|webm|3gp)($|\?)', caseSensitive: false).hasMatch(mediaUrl) || RegExp(r'\.(mp4|mov|avi|mkv|webm|3gp)($|\?)', caseSensitive: false).hasMatch(contentStr);
-          final isDoc = mediaType == 'DOCUMENT' || mediaType == 'FILE' || RegExp(r'\.(pdf|doc|docx|txt|zip|xls|xlsx|ppt|pptx)($|\?)', caseSensitive: false).hasMatch(mediaUrl) || RegExp(r'\.(pdf|doc|docx|txt|zip|xls|xlsx|ppt|pptx)($|\?)', caseSensitive: false).hasMatch(contentStr);
+          final isImage = mediaType == 'IMAGE' ||
+              RegExp(r'\.(jpg|jpeg|png|gif|webp)($|\?)', caseSensitive: false).hasMatch(rawUrl) ||
+              RegExp(r'\.(jpg|jpeg|png|gif|webp)($|\?)', caseSensitive: false).hasMatch(contentStr);
+          final isVideo = mediaType == 'VIDEO' ||
+              RegExp(r'\.(mp4|mov|avi|mkv|webm|3gp)($|\?)', caseSensitive: false).hasMatch(rawUrl) ||
+              RegExp(r'\.(mp4|mov|avi|mkv|webm|3gp)($|\?)', caseSensitive: false).hasMatch(contentStr);
+          final isDoc = mediaType == 'DOCUMENT' || mediaType == 'FILE' ||
+              RegExp(r'\.(pdf|doc|docx|txt|zip|xls|xlsx|ppt|pptx)($|\?)', caseSensitive: false).hasMatch(rawUrl) ||
+              RegExp(r'\.(pdf|doc|docx|txt|zip|xls|xlsx|ppt|pptx)($|\?)', caseSensitive: false).hasMatch(contentStr);
 
-          if (isImage || isVideo) {
-            media.add(m);
-          } else if (isDoc) {
-            docs.add(m);
+          if ((isImage || isVideo) && rawUrl.isNotEmpty) {
+            // Store resolved URL alongside original message
+            media.add({...m, '_resolvedUrl': rawUrl, '_isVideo': isVideo});
+          } else if (isDoc && rawUrl.isNotEmpty) {
+            docs.add({...m, '_resolvedUrl': rawUrl});
           }
 
           if (linkRegex.hasMatch(contentStr)) {
-            final matches = linkRegex.allMatches(contentStr);
-            for (final match in matches) {
+            for (final match in linkRegex.allMatches(contentStr)) {
               links.add({'url': match.group(0), 'message': m});
             }
           }
@@ -453,19 +476,65 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
                               scrollDirection: Axis.horizontal,
                               itemCount: _mediaItems.length,
                               itemBuilder: (ctx, idx) {
-                                final url = _mediaItems[idx]['mediaUrl'] ?? '';
-                                final fullUrl = url.startsWith('http') ? url : 'https://dolsyx-app.onrender.com$url';
+                                final item = _mediaItems[idx];
+                                final rawUrl = (item['_resolvedUrl'] ?? item['mediaUrl'] ?? item['fileUrl'] ?? item['url'] ?? item['content'] ?? '').toString().trim();
+                                final isVideo = item['_isVideo'] == true;
+                                final fullUrl = rawUrl.startsWith('http') ? rawUrl : 'https://dolsyx-app.onrender.com$rawUrl';
                                 return GestureDetector(
                                   onTap: () {
                                     Navigator.push(ctx, MaterialPageRoute(builder: (_) => FullScreenImageView(imageUrl: fullUrl)));
                                   },
-                                  child: Container(
-                                    margin: const EdgeInsets.only(right: 8),
-                                    width: 85, height: 85,
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(8),
-                                      image: DecorationImage(image: NetworkImage(fullUrl), fit: BoxFit.cover),
-                                    ),
+                                  child: Stack(
+                                    children: [
+                                      Container(
+                                        margin: const EdgeInsets.only(right: 8),
+                                        width: 85, height: 85,
+                                        decoration: BoxDecoration(
+                                          borderRadius: BorderRadius.circular(8),
+                                          color: AppTheme.surfaceColor,
+                                        ),
+                                        child: ClipRRect(
+                                          borderRadius: BorderRadius.circular(8),
+                                          child: isVideo
+                                            ? Container(
+                                                color: Colors.black,
+                                                child: const Center(
+                                                  child: Icon(Icons.videocam, color: Colors.white54, size: 32),
+                                                ),
+                                              )
+                                            : Image.network(
+                                                fullUrl,
+                                                width: 85, height: 85,
+                                                fit: BoxFit.cover,
+                                                errorBuilder: (_, __, ___) => Container(
+                                                  color: AppTheme.backgroundColor,
+                                                  child: Icon(Icons.broken_image, color: AppTheme.textSecondary),
+                                                ),
+                                                loadingBuilder: (ctx, child, progress) {
+                                                  if (progress == null) return child;
+                                                  return Center(
+                                                    child: CircularProgressIndicator(
+                                                      value: progress.expectedTotalBytes != null
+                                                          ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
+                                                          : null,
+                                                      strokeWidth: 2,
+                                                      color: AppTheme.primaryColor,
+                                                    ),
+                                                  );
+                                                },
+                                              ),
+                                        ),
+                                      ),
+                                      if (isVideo)
+                                        Positioned(
+                                          bottom: 4, right: 12,
+                                          child: Container(
+                                            padding: const EdgeInsets.all(2),
+                                            decoration: const BoxDecoration(color: Colors.black45, shape: BoxShape.circle),
+                                            child: const Icon(Icons.play_arrow, color: Colors.white, size: 16),
+                                          ),
+                                        ),
+                                    ],
                                   ),
                                 );
                               },

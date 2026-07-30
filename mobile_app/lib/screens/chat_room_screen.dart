@@ -1542,10 +1542,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                         child: Text('View Contact'),
                       ),
                     const PopupMenuItem(
-                      value: 'search',
-                      child: Row(children: [Icon(Icons.search, size: 18), SizedBox(width: 8), Text('Search')]),
-                    ),
-                    const PopupMenuItem(
                       value: 'clear_chat',
                       child: Text('Clear Chat'),
                     ),

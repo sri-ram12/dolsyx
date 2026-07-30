@@ -27,12 +27,12 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
   bool _isOnline = false;
   bool _isTyping = false;
   DateTime? _lastSeen;
+  int _selectedMediaTab = 0; // 0: Media, 1: Docs, 2: Links
 
   @override
   void initState() {
     super.initState();
     _checkBlockedStatus();
-    // Initialize from widget data
     final userId = widget.user['id'] ?? widget.user['_id'];
     if (widget.user['lastSeen'] != null) {
       _lastSeen = DateTime.tryParse(widget.user['lastSeen'].toString());
@@ -40,7 +40,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       _isOnline = authProvider.socketService.onlineUserIds.contains(userId?.toString());
-      setState(() {});
+      if (mounted) setState(() {});
       authProvider.socketService.onStatusChange(_handleStatusChange);
       authProvider.socketService.onTypingChange(_handleTypingChange);
     });
@@ -98,306 +98,121 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
       if (mounted) {
         setState(() => _isProcessing = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(success ? 'User unblocked successfully' : 'Failed to unblock user')),
+          SnackBar(content: Text(success ? 'User unblocked' : 'Failed to unblock user')),
         );
-        if (success) _checkBlockedStatus();
+        if (success) setState(() => _isBlocked = false);
       }
     }
   }
 
   void _blockUser() async {
-    setState(() => _isProcessing = true);
-    final userId = widget.user['id'] ?? widget.user['_id'];
-    if (userId != null) {
-      final success = await _apiService.blockUser(userId);
-      if (mounted) {
-        setState(() => _isProcessing = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(success ? 'User blocked successfully' : 'Failed to block user')),
-        );
-        if (success) _checkBlockedStatus();
-      }
-    }
-  }
-
-  void _editName() {
-    final TextEditingController controller = TextEditingController(text: _localNickname ?? widget.user['username']);
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          backgroundColor: AppTheme.surfaceColor,
-          title: Text('Edit Name', style: TextStyle(color: AppTheme.textPrimary)),
-          content: TextField(
-            controller: controller,
-            style: TextStyle(color: AppTheme.textPrimary),
-            decoration: InputDecoration(
-              hintText: 'Enter name',
-              hintStyle: TextStyle(color: AppTheme.textSecondary),
-              enabledBorder: const UnderlineInputBorder(borderSide: BorderSide(color: Colors.grey)),
-              focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: AppTheme.primaryColor)),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('Cancel', style: TextStyle(color: AppTheme.textSecondary)),
-            ),
-            TextButton(
-              onPressed: () {
-                setState(() {
-                  _localNickname = controller.text;
-                });
-                Navigator.pop(context);
-              },
-              child: Text('Save', style: TextStyle(color: AppTheme.primaryColor)),
-            ),
-          ],
-        );
-      }
-    );
-  }
-
-  void _startAudioCall() => _startCall(false);
-  void _startVideoCall() => _startCall(true);
-
-  Future<void> _startCall(bool isVideo) async {
-    final remoteUserId = widget.user['id'] ?? widget.user['_id'];
-    if (remoteUserId == null) return;
-
-    String conversationId = widget.user['conversationId'] ?? '';
-    
-    if (conversationId.isEmpty) {
-      setState(() => _isProcessing = true);
-      try {
-        final authProvider = Provider.of<AuthProvider>(context, listen: false);
-        final response = await http.post(
-          Uri.parse('https://dolsyx-app.onrender.com/api/chats/direct'),
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ${authProvider.token}',
-          },
-          body: jsonEncode({'targetUserId': remoteUserId}),
-        );
-        if (response.statusCode == 200 || response.statusCode == 201) {
-          final data = jsonDecode(response.body);
-          conversationId = data['id'];
-        }
-      } catch (e) {
-        print(e);
-      }
-      setState(() => _isProcessing = false);
-    }
-
-    if (conversationId.isNotEmpty) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => CallScreen(
-            conversationId: conversationId,
-            remoteUserId: remoteUserId,
-            remoteUserName: _localNickname ?? widget.user['username'] ?? 'User',
-            remoteAvatarUrl: widget.user['avatarUrl'],
-            isAudioOnly: !isVideo,
-            isIncoming: false,
-          ),
-        ),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to start call')));
-    }
-  }
-
-  String _formatTime(DateTime? time) {
-    if (time == null) return "Unknown";
-    final now = DateTime.now();
-    final difference = now.difference(time);
-    
-    if (difference.inDays == 0 && now.day == time.day) {
-      return 'Today at ${DateFormat('hh:mm a').format(time)}';
-    } else if (difference.inDays == 1 || (difference.inDays == 0 && now.day != time.day)) {
-      return 'Yesterday at ${DateFormat('hh:mm a').format(time)}';
-    } else if (difference.inDays < 7) {
-      return '${DateFormat('EEEE').format(time)} at ${DateFormat('hh:mm a').format(time)}';
-    } else {
-      return '${DateFormat('dd/MM/yyyy').format(time)} at ${DateFormat('hh:mm a').format(time)}';
-    }
-  }
-
-  Widget _buildActionItem(IconData icon, String text, VoidCallback onTap, {bool isDestructive = false}) {
-    return ListTile(
-      leading: Icon(icon, color: isDestructive ? Colors.redAccent : AppTheme.primaryColor),
-      title: Text(text, style: TextStyle(color: isDestructive ? Colors.redAccent : AppTheme.textPrimary)),
-      onTap: onTap,
-    );
-  }
-
-  Widget _buildHeaderAction(IconData icon, String label, VoidCallback onTap) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.all(12.0),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: AppTheme.primaryColor, size: 28),
-            SizedBox(height: 8),
-            Text(label, style: TextStyle(color: AppTheme.primaryColor, fontSize: 14)),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _clearChat() async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: AppTheme.surfaceColor,
-        title: Text('Clear this chat?', style: TextStyle(color: AppTheme.textPrimary)),
-        content: Text('Messages will be removed for you on this device.', style: TextStyle(color: AppTheme.textSecondary)),
+        title: Text('Block user?', style: TextStyle(color: AppTheme.textPrimary)),
+        content: Text('Blocked contacts will no longer be able to call you or send you messages.', style: TextStyle(color: AppTheme.textSecondary)),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Clear chat', style: TextStyle(color: Colors.red))),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Block', style: TextStyle(color: Colors.red))),
         ],
       ),
     );
 
     if (confirmed == true) {
-      try {
-        final authProvider = Provider.of<AuthProvider>(context, listen: false);
-        final token = authProvider.token;
-        final conversationId = widget.user['conversationId'] ?? '';
-        if (conversationId.isEmpty) return;
-
-        final response = await http.delete(
-          Uri.parse('https://dolsyx-app.onrender.com/api/chat/$conversationId/messages'),
-          headers: {'Authorization': 'Bearer $token'},
-        );
-
-        if (response.statusCode == 200) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Chat cleared')));
-          Navigator.pop(context); // Go back to chat screen
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to clear chat')));
+      setState(() => _isProcessing = true);
+      final userId = widget.user['id'] ?? widget.user['_id'];
+      if (userId != null) {
+        final success = await _apiService.blockUser(userId);
+        if (mounted) {
+          setState(() => _isProcessing = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(success ? 'User blocked' : 'Failed to block user')),
+          );
+          if (success) setState(() => _isBlocked = true);
         }
-      } catch (e) {
-        print(e);
       }
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final avatarUrl = widget.user['avatarUrl'];
-    final username = _localNickname ?? widget.user['username'] ?? 'User';
-    final email = widget.user['email'] ?? '';
-    final bio = widget.user['bio'] ?? 'Hey there, I am using DOLSYX';
-
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Contact Info'),
+  void _editName() {
+    final controller = TextEditingController(text: _localNickname ?? widget.user['username']);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
         backgroundColor: AppTheme.surfaceColor,
+        title: Text('Edit Contact Name', style: TextStyle(color: AppTheme.textPrimary)),
+        content: TextField(
+          controller: controller,
+          style: TextStyle(color: AppTheme.textPrimary),
+          decoration: InputDecoration(
+            hintText: 'Enter name',
+            hintStyle: TextStyle(color: AppTheme.textSecondary),
+          ),
+        ),
         actions: [
-          PopupMenuButton<String>(
-            icon: Icon(Icons.more_vert),
-            onSelected: (value) {
-              if (value == 'edit_name') {
-                _editName();
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () {
+              if (controller.text.trim().isNotEmpty) {
+                setState(() {
+                  _localNickname = controller.text.trim();
+                });
               }
+              Navigator.pop(context);
             },
-            itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: 'edit_name',
-                child: Text('Edit Name'),
-              ),
-            ],
+            child: const Text('Save'),
           ),
         ],
       ),
-      backgroundColor: AppTheme.backgroundColor,
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            // Profile Header Card
-            Container(
-              color: AppTheme.surfaceColor,
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 24),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  // Avatar
-                  GestureDetector(
-                    onTap: () {
-                      if (avatarUrl != null) {
-                        String fullUrl = avatarUrl.startsWith('http')
-                            ? avatarUrl
-                            : 'https://dolsyx-app.onrender.com$avatarUrl';
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => FullScreenImageView(imageUrl: fullUrl),
-                          ),
-                        );
-                      }
-                    },
-                    child: avatarUrl == null
-                        ? ColorAvatar(name: username, radius: 50, fontSize: 36)
-                        : CircleAvatar(
-                            radius: 50,
-                            backgroundColor: AppTheme.backgroundColor,
-                            backgroundImage: avatarUrl.startsWith('http')
-                                ? NetworkImage(avatarUrl)
-                                : NetworkImage('https://dolsyx-app.onrender.com$avatarUrl'),
-                          ),
-                  ),
-                  const SizedBox(height: 14),
-                  Text(
-                    username,
-                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
-                    textAlign: TextAlign.center,
-                  ),
-                  if (email.isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      email,
-                      style: TextStyle(fontSize: 14, color: AppTheme.textSecondary),
-                    ),
-                  ],
-                  const SizedBox(height: 10),
-                  // Live presence badge
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
-                    decoration: BoxDecoration(
-                      color: _isTyping
-                          ? AppTheme.primaryColor.withOpacity(0.15)
-                          : _isOnline
-                              ? Colors.green.withOpacity(0.15)
-                              : Colors.grey.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Text(
-                      _isTyping
-                          ? '✏️ Typing...'
-                          : _isOnline
-                              ? '🟢 Online'
-                              : (_lastSeen != null
-                                  ? '🕐 Last seen ${_formatTime(_lastSeen!)}'
-                                  : (widget.user['lastSeen'] != null
-                                      ? '🕐 Last seen ${_formatTime(DateTime.tryParse(widget.user['lastSeen'].toString()))}'
-                                      : '⚫ Offline')),
-                      style: TextStyle(
-                        color: _isTyping || _isOnline ? AppTheme.primaryColor : AppTheme.textSecondary,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  // Action Buttons Row
-  int _selectedMediaTab = 0; // 0: Media, 1: Docs, 2: Links
+    );
+  }
+
+  void _startAudioCall() {
+    final userId = widget.user['id'] ?? widget.user['_id'];
+    final conversationId = widget.user['conversationId'] ?? '';
+    final name = _localNickname ?? widget.user['username'] ?? 'User';
+    final avatar = widget.user['avatarUrl'];
+
+    if (userId == null || conversationId.isEmpty) return;
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CallScreen(
+          conversationId: conversationId,
+          remoteUserId: userId,
+          remoteUserName: name,
+          remoteAvatarUrl: avatar,
+          isAudioOnly: true,
+          isIncoming: false,
+        ),
+      ),
+    );
+  }
+
+  void _startVideoCall() {
+    final userId = widget.user['id'] ?? widget.user['_id'];
+    final conversationId = widget.user['conversationId'] ?? '';
+    final name = _localNickname ?? widget.user['username'] ?? 'User';
+    final avatar = widget.user['avatarUrl'];
+
+    if (userId == null || conversationId.isEmpty) return;
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CallScreen(
+          conversationId: conversationId,
+          remoteUserId: userId,
+          remoteUserName: name,
+          remoteAvatarUrl: avatar,
+          isAudioOnly: false,
+          isIncoming: false,
+        ),
+      ),
+    );
+  }
 
   void _openSearchChatDialog() {
     final searchController = TextEditingController();
@@ -443,6 +258,72 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
     );
   }
 
+  Future<void> _clearChat() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppTheme.surfaceColor,
+        title: Text('Clear this chat?', style: TextStyle(color: AppTheme.textPrimary)),
+        content: Text('Messages will be removed for you on this device.', style: TextStyle(color: AppTheme.textSecondary)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Clear chat', style: TextStyle(color: Colors.red))),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        final authProvider = Provider.of<AuthProvider>(context, listen: false);
+        final token = authProvider.token;
+        final conversationId = widget.user['conversationId'] ?? '';
+        if (conversationId.isEmpty) return;
+
+        final response = await http.delete(
+          Uri.parse('https://dolsyx-app.onrender.com/api/chat/$conversationId/messages'),
+          headers: {'Authorization': 'Bearer $token'},
+        );
+
+        if (mounted && response.statusCode == 200) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Chat cleared')));
+          Navigator.pop(context);
+        }
+      } catch (_) {}
+    }
+  }
+
+  String _formatTime(DateTime dt) {
+    final now = DateTime.now();
+    if (dt.day == now.day && dt.month == now.month && dt.year == now.year) {
+      return DateFormat('h:mm a').format(dt);
+    }
+    return DateFormat('MMM d, h:mm a').format(dt);
+  }
+
+  Widget _buildHeaderAction(IconData icon, String label, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppTheme.backgroundColor,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: AppTheme.primaryColor, size: 24),
+            ),
+            const SizedBox(height: 6),
+            Text(label, style: TextStyle(color: AppTheme.primaryColor, fontSize: 12, fontWeight: FontWeight.w500)),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildCategorizedMediaSection() {
     return Container(
       color: AppTheme.surfaceColor,
@@ -459,7 +340,6 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
             ],
           ),
           const SizedBox(height: 12),
-          // 3 Categorized Segmented Tabs
           Row(
             children: [
               _buildTabChip(0, '🖼️ Media'),
@@ -470,7 +350,6 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
             ],
           ),
           const SizedBox(height: 16),
-          // Media / Docs / Links Content Container
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -531,6 +410,20 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
     );
   }
 
+  Widget _buildActionItem(IconData icon, String title, VoidCallback onTap, {bool isDestructive = false}) {
+    return ListTile(
+      leading: Icon(icon, color: isDestructive ? Colors.red : AppTheme.textSecondary),
+      title: Text(
+        title,
+        style: TextStyle(
+          color: isDestructive ? Colors.red : AppTheme.textPrimary,
+          fontSize: 16,
+        ),
+      ),
+      onTap: onTap,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final avatarUrl = widget.user['avatarUrl'];
@@ -540,25 +433,20 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Contact Info'),
+        title: const Text('Contact Info'),
         backgroundColor: AppTheme.surfaceColor,
         actions: [
           IconButton(
-            icon: Icon(Icons.search),
+            icon: const Icon(Icons.search),
             onPressed: _openSearchChatDialog,
           ),
           PopupMenuButton<String>(
-            icon: Icon(Icons.more_vert),
+            icon: const Icon(Icons.more_vert),
             onSelected: (value) {
-              if (value == 'edit_name') {
-                _editName();
-              }
+              if (value == 'edit_name') _editName();
             },
             itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: 'edit_name',
-                child: Text('Edit Name'),
-              ),
+              const PopupMenuItem(value: 'edit_name', child: Text('Edit Name')),
             ],
           ),
         ],
@@ -567,7 +455,6 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
       body: SingleChildScrollView(
         child: Column(
           children: [
-            // Profile Header Card
             Container(
               color: AppTheme.surfaceColor,
               width: double.infinity,
@@ -575,7 +462,6 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // Avatar
                   GestureDetector(
                     onTap: () {
                       if (avatarUrl != null) {
@@ -584,9 +470,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
                             : 'https://dolsyx-app.onrender.com$avatarUrl';
                         Navigator.push(
                           context,
-                          MaterialPageRoute(
-                            builder: (_) => FullScreenImageView(imageUrl: fullUrl),
-                          ),
+                          MaterialPageRoute(builder: (_) => FullScreenImageView(imageUrl: fullUrl)),
                         );
                       }
                     },
@@ -601,28 +485,20 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
                           ),
                   ),
                   const SizedBox(height: 14),
-                  Text(
-                    username,
-                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
-                    textAlign: TextAlign.center,
-                  ),
+                  Text(username, style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppTheme.textPrimary), textAlign: TextAlign.center),
                   if (email.isNotEmpty) ...[
                     const SizedBox(height: 4),
-                    Text(
-                      email,
-                      style: TextStyle(fontSize: 14, color: AppTheme.textSecondary),
-                    ),
+                    Text(email, style: TextStyle(fontSize: 14, color: AppTheme.textSecondary)),
                   ],
                   const SizedBox(height: 10),
-                  // Live presence badge
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
                     decoration: BoxDecoration(
                       color: _isTyping
-                          ? AppTheme.primaryColor.withOpacity(0.15)
+                          ? AppTheme.primaryColor.withValues(alpha: 0.15)
                           : _isOnline
-                              ? Colors.green.withOpacity(0.15)
-                              : Colors.grey.withOpacity(0.15),
+                              ? Colors.green.withValues(alpha: 0.15)
+                              : Colors.grey.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(14),
                     ),
                     child: Text(
@@ -633,7 +509,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
                               : (_lastSeen != null
                                   ? '🕐 Last seen ${_formatTime(_lastSeen!)}'
                                   : (widget.user['lastSeen'] != null
-                                      ? '🕐 Last seen ${_formatTime(DateTime.tryParse(widget.user['lastSeen'].toString()))}'
+                                      ? '🕐 Last seen ${_formatTime(DateTime.tryParse(widget.user['lastSeen'].toString())!)}'
                                       : '⚫ Offline')),
                       style: TextStyle(
                         color: _isTyping || _isOnline ? AppTheme.primaryColor : AppTheme.textSecondary,
@@ -643,7 +519,6 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
                     ),
                   ),
                   const SizedBox(height: 20),
-                  // Action Buttons Row
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
@@ -672,7 +547,6 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
             ),
             const SizedBox(height: 8),
 
-            // Categorized Media Section (Media, Docs, Links)
             _buildCategorizedMediaSection(),
             const SizedBox(height: 8),
 
@@ -693,7 +567,6 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
               child: Column(
                 children: [
                   _buildActionItem(Icons.group_add, 'Create group with user', () {
-                    // Navigate to group creation with this user pre-selected if supported
                     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Select other participants in the New Group screen.')));
                   }),
                   _buildActionItem(Icons.group, 'Add to group', () {}),

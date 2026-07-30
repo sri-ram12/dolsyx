@@ -98,7 +98,9 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
   @override
   void setState(fn) {
     if (mounted) {
-      super.setState(fn);
+      try {
+        super.setState(fn);
+      } catch (_) {}
     }
   }
 

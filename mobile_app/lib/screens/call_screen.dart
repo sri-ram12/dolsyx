@@ -492,12 +492,19 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
 
       if (_localStream != null) {
         final videoTracks = _localStream!.getVideoTracks();
+        final micAudioTracks = _localStream!.getAudioTracks();
         if (videoTracks.isNotEmpty) {
           final videoTrack = videoTracks.first;
           for (final pc in _peerConnections.values) {
             final senders = await pc.getSenders();
             for (final sender in senders) {
               if (sender.track?.kind == 'video') await sender.replaceTrack(videoTrack);
+            }
+            // Restore mic audio
+            if (micAudioTracks.isNotEmpty) {
+              for (final sender in await pc.getSenders()) {
+                if (sender.track?.kind == 'audio') await sender.replaceTrack(micAudioTracks.first);
+              }
             }
           }
         }
@@ -508,20 +515,28 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       try {
         if (Platform.isAndroid) await _channel.invokeMethod('startScreenShareService');
         await Future.delayed(const Duration(milliseconds: 300));
-        _screenStream = await navigator.mediaDevices.getDisplayMedia({'video': true, 'audio': false});
+        _screenStream = await navigator.mediaDevices.getDisplayMedia({'video': true, 'audio': true});
         if (_screenStream != null) {
           final videoTracks = _screenStream!.getVideoTracks();
+          final audioTracks = _screenStream!.getAudioTracks();
           if (videoTracks.isNotEmpty) {
-            final screenTrack = videoTracks.first;
+            final screenVideoTrack = videoTracks.first;
             for (final pc in _peerConnections.values) {
               final senders = await pc.getSenders();
               for (final sender in senders) {
-                if (sender.track?.kind == 'video') await sender.replaceTrack(screenTrack);
+                if (sender.track?.kind == 'video') await sender.replaceTrack(screenVideoTrack);
+              }
+              // Also inject screen audio so remote user hears device media
+              if (audioTracks.isNotEmpty) {
+                final screenAudioTrack = audioTracks.first;
+                for (final sender in await pc.getSenders()) {
+                  if (sender.track?.kind == 'audio') await sender.replaceTrack(screenAudioTrack);
+                }
               }
             }
             _localRenderer.srcObject = _screenStream;
             setState(() => _isScreenSharing = true);
-            screenTrack.onEnded = () {
+            screenVideoTrack.onEnded = () {
               if (mounted && _isScreenSharing) _toggleScreenShare();
             };
           }
@@ -576,30 +591,58 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   }
 
   void _addParticipant(dynamic contact) async {
-    final userId = contact['contact']['id'] ?? contact['contact']['_id'];
-    final username = contact['savedName'] ?? contact['contact']['username'];
-    final avatarUrl = contact['contact']['avatarUrl'];
-    setState(() => _participants[userId] = {'username': username, 'avatarUrl': avatarUrl});
+    final newUserId = contact['contact']['id'] ?? contact['contact']['_id'];
+    final newUserName = contact['savedName'] ?? contact['contact']['username'];
+    final newUserAvatar = contact['contact']['avatarUrl'];
+    setState(() => _participants[newUserId] = {'username': newUserName, 'avatarUrl': newUserAvatar});
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final myUser = authProvider.user;
+    final myUserId = myUser?['id'];
+    final myUserName = myUser?['username'] ?? 'User';
     final socket = authProvider.socketService.socket;
-    final pc = await _createPeerConnection(userId);
+
+    // Create offer from me (caller) to new user
+    final pc = await _createPeerConnection(newUserId);
     final offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     socket?.emit('call_offer', {
-      'targetUserId': userId,
+      'targetUserId': newUserId,
       'offer': {'sdp': offer.sdp, 'type': offer.type},
       'callType': widget.isAudioOnly ? 'audio' : 'video',
       'conversationId': widget.conversationId,
-      'callerName': myUser?['username'] ?? 'User',
+      'callerName': myUserName,
       'callerAvatar': myUser?['avatarUrl'],
     });
+
+    // Notify all existing participants to connect to new user
     for (final existingPeerId in _peerConnections.keys) {
-      if (existingPeerId != userId) {
+      if (existingPeerId != newUserId) {
         socket?.emit('user_added_to_call', {
           'targetUserId': existingPeerId,
-          'newUserId': userId,
-          'newUserName': username,
+          'newUserId': newUserId,
+          'newUserName': newUserName,
+          'conversationId': widget.conversationId,
+          'callType': widget.isAudioOnly ? 'audio' : 'video',
+        });
+      }
+    }
+
+    // Also notify the new user about each existing participant so they connect back
+    for (final existingPeerId in _peerConnections.keys) {
+      if (existingPeerId != newUserId) {
+        final peerInfo = _participants[existingPeerId];
+        socket?.emit('user_added_to_call', {
+          'targetUserId': newUserId,
+          'newUserId': existingPeerId,
+          'newUserName': peerInfo?['username'] ?? 'User',
+          'conversationId': widget.conversationId,
+          'callType': widget.isAudioOnly ? 'audio' : 'video',
+        });
+        // Also tell new user about myself
+        socket?.emit('user_added_to_call', {
+          'targetUserId': newUserId,
+          'newUserId': myUserId,
+          'newUserName': myUserName,
           'conversationId': widget.conversationId,
           'callType': widget.isAudioOnly ? 'audio' : 'video',
         });

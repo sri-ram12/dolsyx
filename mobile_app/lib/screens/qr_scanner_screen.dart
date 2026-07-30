@@ -31,7 +31,7 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
     });
     _scannerController = MobileScannerController(
       formats: const [BarcodeFormat.qrCode],
-      detectionSpeed: DetectionSpeed.normal,
+      detectionSpeed: DetectionSpeed.noDuplicates,
     );
   }
 
@@ -72,10 +72,10 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
 
       setState(() => _isProcessing = true);
 
-      // If user details are embedded in QR code, show dialog INSTANTLY without waiting for API!
+      // If user details are embedded in QR code, go directly to chat INSTANTLY
       if (inlineUser != null && mounted) {
-        setState(() => _isProcessing = false);
-        _showUserDialog(inlineUser, scannedUserId);
+        final name = inlineUser['username'] ?? 'User';
+        _startCommunication(scannedUserId, name, userMap: inlineUser);
         return;
       }
       
@@ -155,7 +155,7 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
     );
   }
 
-  void _startCommunication(String userId, String chatName) async {
+  void _startCommunication(String userId, String chatName, {Map<String, dynamic>? userMap}) async {
     setState(() => _isProcessing = true);
     try {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
@@ -175,6 +175,8 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
               conversationId: chat.id,
               chatName: chatName,
               remoteUserId: userId,
+              remoteUser: userMap,
+              avatarUrl: userMap?['avatarUrl'],
             ),
           ),
         );

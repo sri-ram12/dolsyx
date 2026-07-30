@@ -14,6 +14,7 @@ class MessageBubble extends StatelessWidget {
   final Function(Message)? onSwipeReply;
   final bool showReadReceipts;
   final Function(bool isVideo)? onTapCall;
+  final String? searchQuery;
 
   const MessageBubble({
     super.key,
@@ -22,7 +23,39 @@ class MessageBubble extends StatelessWidget {
     this.onSwipeReply,
     this.showReadReceipts = true,
     this.onTapCall,
+    this.searchQuery,
   });
+
+  Widget _buildMessageText(String text, Color textColor, double fontSize) {
+    final query = searchQuery?.trim() ?? '';
+    if (query.isEmpty) {
+      return Text(text, style: TextStyle(color: textColor, fontSize: fontSize));
+    }
+    final lowerText = text.toLowerCase();
+    final lowerQuery = query.toLowerCase();
+    final List<TextSpan> spans = [];
+    int start = 0;
+    int index;
+    while ((index = lowerText.indexOf(lowerQuery, start)) != -1) {
+      if (index > start) {
+        spans.add(TextSpan(text: text.substring(start, index), style: TextStyle(color: textColor, fontSize: fontSize)));
+      }
+      spans.add(TextSpan(
+        text: text.substring(index, index + query.length),
+        style: TextStyle(
+          color: Colors.black,
+          fontSize: fontSize,
+          fontWeight: FontWeight.bold,
+          backgroundColor: const Color(0xFFFFD700),
+        ),
+      ));
+      start = index + query.length;
+    }
+    if (start < text.length) {
+      spans.add(TextSpan(text: text.substring(start), style: TextStyle(color: textColor, fontSize: fontSize)));
+    }
+    return RichText(text: TextSpan(children: spans));
+  }
 
   bool _isOnlyEmojis(String text) {
     if (text.trim().isEmpty) return false;
@@ -230,13 +263,7 @@ class MessageBubble extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
                         Flexible(
-                          child: Text(
-                            message.content,
-                            style: TextStyle(
-                              color: textColor,
-                              fontSize: fontSize,
-                            ),
-                          ),
+                          child: _buildMessageText(message.content, textColor, fontSize),
                         ),
                         const SizedBox(width: 8),
                         Text(

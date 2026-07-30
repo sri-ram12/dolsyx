@@ -785,40 +785,78 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   Future<void> _pickImage(ImageSource source) async {
     try {
       final picker = ImagePicker();
-      final pickedFile = await picker.pickImage(source: source, imageQuality: 70);
-      if (!mounted) return;
-      if (pickedFile != null) {
-        _uploadAndSendMedia(File(pickedFile.path), 'IMAGE');
+      if (source == ImageSource.camera) {
+        final pickedFile = await picker.pickImage(source: ImageSource.camera, imageQuality: 70);
+        if (!mounted) return;
+        if (pickedFile != null) {
+          await _uploadAndSendMedia(File(pickedFile.path), 'IMAGE');
+        }
+      } else {
+        // Gallery: pick MULTIPLE images
+        final pickedFiles = await picker.pickMultiImage(imageQuality: 70);
+        if (!mounted) return;
+        if (pickedFiles.isNotEmpty) {
+          await _uploadAndSendMultipleMedia(
+            pickedFiles.map((f) => MapEntry(File(f.path), 'IMAGE')).toList(),
+          );
+        }
       }
     } catch (e) {
-      print('Error picking image: $e');
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error picking image: $e')));
     }
   }
 
   Future<void> _pickVideo(ImageSource source) async {
     try {
       final picker = ImagePicker();
-      final pickedFile = await picker.pickVideo(source: source);
-      if (!mounted) return;
-      if (pickedFile != null) {
-        _uploadAndSendMedia(File(pickedFile.path), 'VIDEO');
+      if (source == ImageSource.camera) {
+        final pickedFile = await picker.pickVideo(source: ImageSource.camera);
+        if (!mounted) return;
+        if (pickedFile != null) {
+          await _uploadAndSendMedia(File(pickedFile.path), 'VIDEO');
+        }
+      } else {
+        // Gallery: pick MULTIPLE videos via FilePicker
+        final result = await FilePicker.pickFiles(
+          allowMultiple: true,
+          type: FileType.video,
+        );
+        if (!mounted) return;
+        if (result != null && result.files.isNotEmpty) {
+          await _uploadAndSendMultipleMedia(
+            result.files
+                .where((f) => f.path != null)
+                .map((f) => MapEntry(File(f.path!), 'VIDEO'))
+                .toList(),
+          );
+        }
       }
     } catch (e) {
-      print('Error picking video: $e');
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error picking video: $e')));
     }
   }
 
   Future<void> _pickFile() async {
     try {
-      final result = await FilePicker.pickFiles();
+      final result = await FilePicker.pickFiles(
+        allowMultiple: true,
+        type: FileType.any,
+      );
       if (!mounted) return;
-      if (result != null && result.files.single.path != null) {
-        _uploadAndSendMedia(File(result.files.single.path!), 'FILE');
+      if (result != null && result.files.isNotEmpty) {
+        final entries = result.files
+            .where((f) => f.path != null)
+            .map((f) {
+          final ext = f.extension?.toLowerCase() ?? '';
+          String type = 'FILE';
+          if (['jpg', 'jpeg', 'png', 'gif', 'webp'].contains(ext)) type = 'IMAGE';
+          else if (['mp4', 'mov', 'avi', 'mkv', 'webm'].contains(ext)) type = 'VIDEO';
+          return MapEntry(File(f.path!), type);
+        }).toList();
+        await _uploadAndSendMultipleMedia(entries);
       }
     } catch (e) {
-      print('Error picking file: $e');
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error picking file: $e')));
     }
   }
 
@@ -870,13 +908,48 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           mediaType: mediaType
         );
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload failed.')));
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload failed.')));
       }
     } catch (e) {
-      print('Upload error: $e');
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload error: $e')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload error: $e')));
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _uploadAndSendMultipleMedia(List<MapEntry<File, String>> files) async {
+    if (!mounted || files.isEmpty) return;
+    int sent = 0;
+    int failed = 0;
+    setState(() => _isLoading = true);
+    for (final entry in files) {
+      if (!mounted) break;
+      try {
+        final apiService = ApiService();
+        final response = await apiService.uploadMedia(entry.key.path);
+        if (response != null && response['fileUrl'] != null) {
+          final authProvider = Provider.of<AuthProvider>(context, listen: false);
+          authProvider.socketService.sendMessage(
+            widget.conversationId,
+            '',
+            mediaUrl: response['fileUrl'],
+            mediaType: entry.value,
+          );
+          sent++;
+        } else {
+          failed++;
+        }
+      } catch (_) {
+        failed++;
+      }
+    }
+    if (mounted) {
+      setState(() => _isLoading = false);
+      if (failed > 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$sent sent, $failed failed.')),
+        );
+      }
     }
   }
 
@@ -893,7 +966,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             children: [
               ListTile(
                 leading: Icon(Icons.camera_alt, color: AppTheme.primaryColor),
-                title: Text('Camera', style: TextStyle(color: AppTheme.textPrimary)),
+                title: Text('Camera Photo', style: TextStyle(color: AppTheme.textPrimary)),
+                subtitle: Text('Take a single photo', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
                 onTap: () {
                   Navigator.pop(sheetContext);
                   _pickImage(ImageSource.camera);
@@ -902,22 +976,34 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               ListTile(
                 leading: Icon(Icons.videocam, color: AppTheme.primaryColor),
                 title: Text('Record Video', style: TextStyle(color: AppTheme.textPrimary)),
+                subtitle: Text('Record a single video', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
                 onTap: () {
                   Navigator.pop(sheetContext);
                   _pickVideo(ImageSource.camera);
                 },
               ),
               ListTile(
-                leading: Icon(Icons.photo, color: AppTheme.primaryColor),
-                title: Text('Gallery', style: TextStyle(color: AppTheme.textPrimary)),
+                leading: Icon(Icons.photo_library, color: AppTheme.primaryColor),
+                title: Text('Gallery — Photos', style: TextStyle(color: AppTheme.textPrimary)),
+                subtitle: Text('Select multiple images', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
                 onTap: () {
                   Navigator.pop(sheetContext);
                   _pickImage(ImageSource.gallery);
                 },
               ),
               ListTile(
+                leading: Icon(Icons.video_library, color: AppTheme.primaryColor),
+                title: Text('Gallery — Videos', style: TextStyle(color: AppTheme.textPrimary)),
+                subtitle: Text('Select multiple videos', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _pickVideo(ImageSource.gallery);
+                },
+              ),
+              ListTile(
                 leading: Icon(Icons.insert_drive_file, color: AppTheme.primaryColor),
-                title: Text('Document', style: TextStyle(color: AppTheme.textPrimary)),
+                title: Text('Documents & Files', style: TextStyle(color: AppTheme.textPrimary)),
+                subtitle: Text('Select multiple files (PDF, DOC, ZIP…)', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
                 onTap: () {
                   Navigator.pop(sheetContext);
                   _pickFile();
@@ -1268,11 +1354,14 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               title: GestureDetector(
                 onTap: () {
                   if (widget.remoteUserId != null) {
-                    final userMap = widget.remoteUser ?? {
-                      'id': widget.remoteUserId,
-                      'username': widget.chatName,
-                      'avatarUrl': widget.avatarUrl,
-                    };
+                    final userMap = widget.remoteUser != null
+                        ? {...widget.remoteUser!, 'conversationId': widget.conversationId}
+                        : {
+                            'id': widget.remoteUserId,
+                            'username': widget.chatName,
+                            'avatarUrl': widget.avatarUrl,
+                            'conversationId': widget.conversationId,
+                          };
                     Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -1340,10 +1429,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               actions: [
                 if (widget.remoteUserId != null) ...[
                   IconButton(
-                    icon: Icon(Icons.search, color: AppTheme.textPrimary),
-                    onPressed: _startSearch,
-                  ),
-                  IconButton(
                     icon: Icon(Icons.videocam, color: AppTheme.textPrimary),
                     onPressed: () {
                       Navigator.push(
@@ -1383,12 +1468,17 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 PopupMenuButton<String>(
                   icon: Icon(Icons.more_vert, color: AppTheme.textPrimary),
                   onSelected: (value) {
-                    if (value == 'view_contact' && widget.remoteUserId != null) {
-                      final userMap = widget.remoteUser ?? {
-                        'id': widget.remoteUserId,
-                        'username': widget.chatName,
-                        'avatarUrl': widget.avatarUrl,
-                      };
+                    if (value == 'search') {
+                      _startSearch();
+                    } else if (value == 'view_contact' && widget.remoteUserId != null) {
+                      final userMap = widget.remoteUser != null
+                          ? {...widget.remoteUser!, 'conversationId': widget.conversationId}
+                          : {
+                              'id': widget.remoteUserId,
+                              'username': widget.chatName,
+                              'avatarUrl': widget.avatarUrl,
+                              'conversationId': widget.conversationId,
+                            };
                       Navigator.push(
                         context,
                         MaterialPageRoute(builder: (_) => OtherUserProfileScreen(user: userMap)),
@@ -1411,6 +1501,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                         value: 'view_contact',
                         child: Text('View Contact'),
                       ),
+                    const PopupMenuItem(
+                      value: 'search',
+                      child: Row(children: [Icon(Icons.search, size: 18), SizedBox(width: 8), Text('Search')]),
+                    ),
                     const PopupMenuItem(
                       value: 'clear_chat',
                       child: Text('Clear Chat'),
@@ -1446,6 +1540,80 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         decoration: wallpaperDecoration,
         child: Column(
         children: [
+          // WhatsApp-style inline search bar
+          if (_isSearching)
+            Container(
+              color: AppTheme.surfaceColor,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _searchController,
+                      autofocus: true,
+                      style: TextStyle(color: AppTheme.textPrimary, fontSize: 14),
+                      decoration: InputDecoration(
+                        hintText: 'Search in chat...',
+                        hintStyle: TextStyle(color: AppTheme.textSecondary),
+                        prefixIcon: Icon(Icons.search, color: AppTheme.primaryColor, size: 20),
+                        suffixIcon: _searchController.text.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear, size: 18),
+                                onPressed: () {
+                                  _searchController.clear();
+                                  _performSearch('');
+                                },
+                              )
+                            : null,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(24),
+                          borderSide: BorderSide.none,
+                        ),
+                        filled: true,
+                        fillColor: AppTheme.backgroundColor,
+                        contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                        isDense: true,
+                      ),
+                      onChanged: _performSearch,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  if (_matchingIndices.isNotEmpty)
+                    Text(
+                      '${_currentSearchMatchIndex + 1}/${_matchingIndices.length}',
+                      style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                    ),
+                  IconButton(
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                    icon: const Icon(Icons.keyboard_arrow_up, size: 22),
+                    onPressed: _matchingIndices.isEmpty ? null : () {
+                      if (_currentSearchMatchIndex > 0) {
+                        setState(() => _currentSearchMatchIndex--);
+                        _scrollToMatch(_currentSearchMatchIndex);
+                      }
+                    },
+                  ),
+                  IconButton(
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                    icon: const Icon(Icons.keyboard_arrow_down, size: 22),
+                    onPressed: _matchingIndices.isEmpty ? null : () {
+                      if (_currentSearchMatchIndex < _matchingIndices.length - 1) {
+                        setState(() => _currentSearchMatchIndex++);
+                        _scrollToMatch(_currentSearchMatchIndex);
+                      }
+                    },
+                  ),
+                  IconButton(
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                    icon: const Icon(Icons.close, size: 20),
+                    onPressed: _stopSearch,
+                  ),
+                ],
+              ),
+            ),
           if (!_isContact && widget.remoteUserId != null)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -1550,6 +1718,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                 child: MessageBubble(
                                   message: message, 
                                   isMe: isMe,
+                                  searchQuery: _isSearching && _searchController.text.trim().isNotEmpty ? _searchController.text.trim() : null,
                                   onSwipeReply: (msg) {
                                     setState(() {
                                       _replyingTo = msg;

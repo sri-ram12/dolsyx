@@ -671,9 +671,10 @@ export const initChatSocket = (io: Server) => {
     // Receiver rejects the call
     socket.on("call_reject", (data: { callerId: string; conversationId: string; callType: "audio" | "video" }) => {
       io.to(data.callerId).emit("call_rejected", { rejecterId: userId });
-      // Notify receiver's other devices that the call was handled
-      socket.broadcast.to(userId).emit("call_ended", { status: "answered_elsewhere" });
+      io.to(data.callerId).emit("call_ended", { status: "rejected", endedBy: userId });
+      io.to(userId).emit("call_ended", { status: "rejected", endedBy: userId });
       if (data.conversationId) {
+        io.to(data.conversationId).emit("call_ended", { status: "rejected", endedBy: userId });
         saveAndBroadcastCallLog(data.conversationId, data.callerId, data.callType, "declined");
       }
     });
@@ -687,10 +688,12 @@ export const initChatSocket = (io: Server) => {
       duration?: number;
       callerId?: string;
     }) => {
-      io.to(data.peerId).emit("call_ended", { endedBy: userId });
-      // Also notify the sender's other devices to stop ringing/call UI
-      socket.broadcast.to(userId).emit("call_ended", { endedBy: userId });
+      if (data.peerId) {
+        io.to(data.peerId).emit("call_ended", { endedBy: userId });
+      }
+      io.to(userId).emit("call_ended", { endedBy: userId });
       if (data.conversationId) {
+        io.to(data.conversationId).emit("call_ended", { endedBy: userId });
         const originalCallerId = data.callerId || (data.status === "missed" ? userId : (userId === data.peerId ? userId : data.peerId));
         const logContent = data.status === "connected" ? `connected:${data.duration || 0}` : "missed";
         saveAndBroadcastCallLog(data.conversationId, originalCallerId, data.callType, logContent);

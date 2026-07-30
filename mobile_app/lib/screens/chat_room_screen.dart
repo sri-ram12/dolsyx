@@ -966,43 +966,25 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             children: [
               ListTile(
                 leading: Icon(Icons.camera_alt, color: AppTheme.primaryColor),
-                title: Text('Camera Photo', style: TextStyle(color: AppTheme.textPrimary)),
-                subtitle: Text('Take a single photo', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+                title: Text('Camera', style: TextStyle(color: AppTheme.textPrimary)),
+                subtitle: Text('Take photo or record video', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
                 onTap: () {
                   Navigator.pop(sheetContext);
-                  _pickImage(ImageSource.camera);
-                },
-              ),
-              ListTile(
-                leading: Icon(Icons.videocam, color: AppTheme.primaryColor),
-                title: Text('Record Video', style: TextStyle(color: AppTheme.textPrimary)),
-                subtitle: Text('Record a single video', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
-                onTap: () {
-                  Navigator.pop(sheetContext);
-                  _pickVideo(ImageSource.camera);
+                  _showCameraOptions();
                 },
               ),
               ListTile(
                 leading: Icon(Icons.photo_library, color: AppTheme.primaryColor),
-                title: Text('Gallery — Photos', style: TextStyle(color: AppTheme.textPrimary)),
-                subtitle: Text('Select multiple images', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+                title: Text('Gallery', style: TextStyle(color: AppTheme.textPrimary)),
+                subtitle: Text('Select multiple photos & videos', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
                 onTap: () {
                   Navigator.pop(sheetContext);
-                  _pickImage(ImageSource.gallery);
-                },
-              ),
-              ListTile(
-                leading: Icon(Icons.video_library, color: AppTheme.primaryColor),
-                title: Text('Gallery — Videos', style: TextStyle(color: AppTheme.textPrimary)),
-                subtitle: Text('Select multiple videos', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
-                onTap: () {
-                  Navigator.pop(sheetContext);
-                  _pickVideo(ImageSource.gallery);
+                  _pickGalleryMedia();
                 },
               ),
               ListTile(
                 leading: Icon(Icons.insert_drive_file, color: AppTheme.primaryColor),
-                title: Text('Documents & Files', style: TextStyle(color: AppTheme.textPrimary)),
+                title: Text('Document', style: TextStyle(color: AppTheme.textPrimary)),
                 subtitle: Text('Select multiple files (PDF, DOC, ZIP…)', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
                 onTap: () {
                   Navigator.pop(sheetContext);

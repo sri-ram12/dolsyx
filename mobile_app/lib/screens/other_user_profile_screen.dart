@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
 import '../theme/app_theme.dart';
 import '../services/api_service.dart';
+import '../services/chat_service.dart';
 import '../providers/auth_provider.dart';
 import 'package:intl/intl.dart';
 import '../widgets/color_avatar.dart';
@@ -329,12 +330,24 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
     );
   }
 
-    Future<void> _fetchMediaMessages() async {
-    final conversationId = widget.user['conversationId'] ?? '';
+  Future<void> _fetchMediaMessages() async {
+    String conversationId = widget.user['conversationId'] ?? '';
+    final userId = widget.user['id'] ?? widget.user['_id'];
+
+    if (conversationId.isEmpty && userId != null) {
+      try {
+        final chat = await ChatService().createDirectChat(userId);
+        if (chat != null) {
+          conversationId = chat.id;
+        }
+      } catch (_) {}
+    }
+
     if (conversationId.isEmpty) {
       if (mounted) setState(() => _isLoadingMedia = false);
       return;
     }
+
     try {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       final token = authProvider.token ?? '';
@@ -356,7 +369,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
 
           if (mediaType == 'IMAGE' || mediaType == 'VIDEO' || RegExp(r'\.(jpg|jpeg|png|gif|webp|mp4|mov)$', caseSensitive: false).hasMatch(mediaUrl)) {
             media.add(m);
-          } else if (mediaType == 'DOCUMENT' || RegExp(r'\.(pdf|doc|docx|txt|zip|xls|xlsx)$', caseSensitive: false).hasMatch(mediaUrl)) {
+          } else if (mediaType == 'DOCUMENT' || mediaType == 'FILE' || RegExp(r'\.(pdf|doc|docx|txt|zip|xls|xlsx)$', caseSensitive: false).hasMatch(mediaUrl)) {
             docs.add(m);
           }
 
@@ -376,6 +389,8 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
             _isLoadingMedia = false;
           });
         }
+      } else {
+        if (mounted) setState(() => _isLoadingMedia = false);
       }
     } catch (e) {
       if (mounted) setState(() => _isLoadingMedia = false);

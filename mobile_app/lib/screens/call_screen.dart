@@ -32,6 +32,10 @@ class CallScreen extends StatefulWidget {
     this.initialOffer,
   });
 
+  static String? activeConversationId;
+  static ValueNotifier<bool> isCallActiveNotifier = ValueNotifier<bool>(false);
+  static _CallScreenState? activeCallState;
+
   @override
   State<CallScreen> createState() => _CallScreenState();
 }
@@ -58,6 +62,9 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   Timer? _timeoutTimer;
   int _callDuration = 0;
 
+  String get formattedDuration => _formatDuration(_callDuration);
+  void endCallFromBanner() => _endCall();
+
   // 1-on-1 PiP dragging
   double _localVideoRight = 20;
   double _localVideoBottom = 140;
@@ -73,6 +80,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     CallScreen.activeConversationId = widget.conversationId;
+    CallScreen.activeCallState = this;
     _participants[widget.remoteUserId] = {
       'username': widget.remoteUserName,
       'avatarUrl': widget.remoteAvatarUrl,
@@ -115,6 +123,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       setState(() {
         _status = 'Connected';
         _callActive = true;
+        CallScreen.isCallActiveNotifier.value = true;
       });
       final answererId = data['answererId'] ?? widget.remoteUserId;
       if (data['answer'] != null) {
@@ -371,7 +380,11 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     }
 
     _timeoutTimer?.cancel();
-    setState(() { _callActive = true; _status = 'Connected'; });
+    setState(() {
+      _callActive = true;
+      _status = 'Connected';
+      CallScreen.isCallActiveNotifier.value = true;
+    });
 
     if (widget.initialOffer != null) {
       try {
@@ -435,6 +448,8 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
 
   void _endCallLocally(String reason) {
     CallScreen.activeConversationId = null;
+    CallScreen.activeCallState = null;
+    CallScreen.isCallActiveNotifier.value = false;
     SoundService().stopRingtone();
     _callTimer?.cancel();
     _timeoutTimer?.cancel();
@@ -515,7 +530,11 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       try {
         if (Platform.isAndroid) await _channel.invokeMethod('startScreenShareService');
         await Future.delayed(const Duration(milliseconds: 300));
-        _screenStream = await navigator.mediaDevices.getDisplayMedia({'video': true, 'audio': true});
+        try {
+          _screenStream = await navigator.mediaDevices.getDisplayMedia({'video': true, 'audio': true});
+        } catch (_) {
+          _screenStream = await navigator.mediaDevices.getDisplayMedia({'video': true, 'audio': false});
+        }
         if (_screenStream != null) {
           final videoTracks = _screenStream!.getVideoTracks();
           final audioTracks = _screenStream!.getAudioTracks();

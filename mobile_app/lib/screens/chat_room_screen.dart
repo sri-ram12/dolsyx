@@ -953,6 +953,31 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     }
   }
 
+  Future<void> _pickGalleryMedia() async {
+    try {
+      final result = await FilePicker.pickFiles(
+        allowMultiple: true,
+        type: FileType.media,
+      );
+      if (!mounted) return;
+      if (result != null && result.files.isNotEmpty) {
+        final entries = result.files
+            .where((f) => f.path != null)
+            .map((f) {
+          final ext = f.extension?.toLowerCase() ?? '';
+          String type = 'IMAGE';
+          if (['mp4', 'mov', 'avi', 'mkv', 'webm', '3gp'].contains(ext)) {
+            type = 'VIDEO';
+          }
+          return MapEntry(File(f.path!), type);
+        }).toList();
+        await _uploadAndSendMultipleMedia(entries);
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error picking media: $e')));
+    }
+  }
+
   void _showAttachmentOptions() {
     showModalBottomSheet(
       context: context,

@@ -19,8 +19,6 @@ class CallScreen extends StatefulWidget {
   final bool isIncoming;
   final Map<String, dynamic>? initialOffer;
 
-  static String? activeConversationId;
-
   const CallScreen({
     super.key,
     required this.conversationId,

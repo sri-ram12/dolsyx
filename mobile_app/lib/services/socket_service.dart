@@ -217,6 +217,8 @@ class SocketService {
     }
   }
 
+
+
   Future<void> _processOfflineQueue() async {
     try {
       final prefs = await SharedPreferences.getInstance();

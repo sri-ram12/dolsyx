@@ -230,9 +230,10 @@ class _DolsyxAppState extends State<DolsyxApp> {
                 if ((details.actionId == 'reply_msg' || details.input != null) && data['conversationId'] != null) {
                   final replyText = details.input ?? '';
                   if (replyText.trim().isNotEmpty) {
-                    ApiService().sendMessage(
-                      conversationId: data['conversationId'],
-                      content: replyText.trim(),
+                    final auth = Provider.of<AuthProvider>(context, listen: false);
+                    auth.socketService.sendMessage(
+                      data['conversationId'],
+                      replyText.trim(),
                     );
                   }
                   return;

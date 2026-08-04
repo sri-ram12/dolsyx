@@ -29,6 +29,8 @@ import '../widgets/full_screen_image_view.dart';
 import 'call_screen.dart';
 import 'wallpaper_settings_screen.dart';
 import 'group_settings_screen.dart';
+import '../utils/e2ee/crypto_service.dart';
+import '../utils/e2ee/e2ee_api.dart';
 
 class ChatRoomScreen extends StatefulWidget {
   final String conversationId;
@@ -902,19 +904,55 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     if (!mounted) return;
     setState(() => _isLoading = true);
     try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final isDirectMessage = widget.remoteUser != null;
+      final remoteEmail = widget.remoteUser?['email'] as String?;
       final apiService = ApiService();
-      final response = await apiService.uploadMedia(file.path);
-      
-      if (response != null && response['fileUrl'] != null) {
-        final authProvider = Provider.of<AuthProvider>(context, listen: false);
-        authProvider.socketService.sendMessage(
-          widget.conversationId, 
-          '', 
-          mediaUrl: response['fileUrl'], 
-          mediaType: mediaType
-        );
+
+      if (isDirectMessage && remoteEmail != null && authProvider.token != null) {
+        // 🟢 100% E2EE Media Upload: Pre-encrypt file bytes on-device before uploading
+        final rawBytes = await file.readAsBytes();
+        final encResult = await CryptoService().encryptFileBytes(rawBytes);
+
+        final tempDir = await getTemporaryDirectory();
+        final tempEncFile = File('${tempDir.path}/${DateTime.now().millisecondsSinceEpoch}.enc');
+        await tempEncFile.writeAsBytes(encResult['encryptedBytes'] as List<int>);
+
+        final uploadRes = await apiService.uploadMedia(tempEncFile.path);
+        await tempEncFile.delete().catchError((_) => tempEncFile);
+
+        if (uploadRes != null && uploadRes['fileUrl'] != null) {
+          final mediaPayloadJson = jsonEncode({
+            'encryptedMedia': true,
+            'mediaUrl': uploadRes['fileUrl'],
+            'mediaKey': encResult['mediaKeyB64'],
+            'nonce': encResult['nonceB64'],
+            'mediaType': mediaType,
+          });
+
+          await authProvider.socketService.sendEncryptedMessage(
+            conversationId: widget.conversationId,
+            recipientEmail: remoteEmail,
+            plaintext: mediaPayloadJson,
+            token: authProvider.token!,
+            myUserId: authProvider.user?['id'] ?? '',
+          );
+        } else {
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload failed.')));
+        }
       } else {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload failed.')));
+        // Fallback or group media upload
+        final response = await apiService.uploadMedia(file.path);
+        if (response != null && response['fileUrl'] != null) {
+          authProvider.socketService.sendMessage(
+            widget.conversationId, 
+            '', 
+            mediaUrl: response['fileUrl'], 
+            mediaType: mediaType
+          );
+        } else {
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload failed.')));
+        }
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload error: $e')));
@@ -931,20 +969,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     for (final entry in files) {
       if (!mounted) break;
       try {
-        final apiService = ApiService();
-        final response = await apiService.uploadMedia(entry.key.path);
-        if (response != null && response['fileUrl'] != null) {
-          final authProvider = Provider.of<AuthProvider>(context, listen: false);
-          authProvider.socketService.sendMessage(
-            widget.conversationId,
-            '',
-            mediaUrl: response['fileUrl'],
-            mediaType: entry.value,
-          );
-          sent++;
-        } else {
-          failed++;
-        }
+        await _uploadAndSendMedia(entry.key, entry.value);
+        sent++;
       } catch (_) {
         failed++;
       }

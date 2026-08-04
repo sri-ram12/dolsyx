@@ -295,6 +295,51 @@ class CryptoService {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+  // Client-Side Media Pre-Encryption (Photos, Videos, Files)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// Encrypts raw [fileBytes] using a randomly generated 256-bit symmetric media key.
+  /// Returns a map containing encrypted bytes, nonce, MAC tag, and the base64-encoded media key.
+  Future<Map<String, dynamic>> encryptFileBytes(Uint8List fileBytes) async {
+    final mediaKeyBytes = _generateNonce(32);
+    final nonce = _generateNonce(16);
+    final secretKey = SecretKey(mediaKeyBytes);
+
+    final secretBox = await _aesCbc.encrypt(
+      fileBytes,
+      secretKey: secretKey,
+      nonce: nonce,
+    );
+
+    return {
+      'encryptedBytes': Uint8List.fromList([...secretBox.cipherText, ...secretBox.mac.bytes]),
+      'nonceB64': _bytesToBase64(nonce),
+      'mediaKeyB64': _bytesToBase64(mediaKeyBytes),
+    };
+  }
+
+  /// Decrypts raw [encryptedBytes] using [mediaKeyB64] and [nonceB64].
+  Future<Uint8List> decryptFileBytes({
+    required Uint8List encryptedBytes,
+    required String mediaKeyB64,
+    required String nonceB64,
+  }) async {
+    final mediaKeyBytes = base64Decode(mediaKeyB64);
+    final nonceBytes = base64Decode(nonceB64);
+
+    // MAC tag is the last 32 bytes (HMAC-SHA256)
+    final macLength = 32;
+    final cipherText = encryptedBytes.sublist(0, encryptedBytes.length - macLength);
+    final macBytes = encryptedBytes.sublist(encryptedBytes.length - macLength);
+
+    final secretKey = SecretKey(mediaKeyBytes);
+    final secretBox = SecretBox(cipherText, nonce: nonceBytes, mac: Mac(macBytes));
+
+    final decrypted = await _aesCbc.decrypt(secretBox, secretKey: secretKey);
+    return Uint8List.fromList(decrypted);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
   // Private Helpers
   // ─────────────────────────────────────────────────────────────────────────
 

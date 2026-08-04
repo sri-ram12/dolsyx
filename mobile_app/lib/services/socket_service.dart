@@ -128,12 +128,27 @@ class SocketService {
           payload: payload,
         );
         SoundService().playNotificationSound();
+
+        Map<String, dynamic> updatedMsg = {
+          ...message,
+          'content': plaintext,
+        };
+
+        try {
+          final decodedJson = jsonDecode(plaintext);
+          if (decodedJson is Map<String, dynamic> && decodedJson['encryptedMedia'] == true) {
+            updatedMsg['content'] = '';
+            updatedMsg['mediaUrl'] = decodedJson['mediaUrl'];
+            updatedMsg['mediaType'] = decodedJson['mediaType'];
+            updatedMsg['mediaKey'] = decodedJson['mediaKey'];
+            updatedMsg['nonce'] = decodedJson['nonce'];
+            updatedMsg['isE2EEMedia'] = true;
+          }
+        } catch (_) {}
+
         _encryptedMessageController.add({
           'conversationId': conversationId,
-          'message': {
-            ...message,
-            'content': plaintext,
-          }
+          'message': updatedMsg,
         });
         
         // Don't show popups for outgoing messages

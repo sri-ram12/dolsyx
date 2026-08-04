@@ -269,6 +269,42 @@ async function aesGcmDecrypt(ciphertext: Uint8Array, key: Uint8Array, nonce: Uin
   return new TextDecoder().decode(decrypted);
 }
 
+/** Pre-encrypts a raw file (ArrayBuffer) with a random 256-bit media key for 100% E2EE media uploads */
+export async function encryptFileBytes(fileBuffer: ArrayBuffer): Promise<{ encryptedBuffer: ArrayBuffer; mediaKeyB64: string; nonceB64: string }> {
+  await _sodium.ready;
+  const sodium = _sodium;
+  const rawMediaKey = crypto.getRandomValues(new Uint8Array(32));
+  const nonce = crypto.getRandomValues(new Uint8Array(12));
+
+  const cryptoKey = await crypto.subtle.importKey('raw', rawMediaKey.buffer as ArrayBuffer, { name: 'AES-GCM' }, false, ['encrypt']);
+  const encryptedBuffer = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: nonce },
+    cryptoKey,
+    fileBuffer
+  );
+
+  return {
+    encryptedBuffer,
+    mediaKeyB64: sodium.to_base64(rawMediaKey),
+    nonceB64: sodium.to_base64(nonce)
+  };
+}
+
+/** Decrypts an encrypted file (ArrayBuffer) downloaded from the server using mediaKeyB64 and nonceB64 */
+export async function decryptFileBytes(encryptedBuffer: ArrayBuffer, mediaKeyB64: string, nonceB64: string): Promise<ArrayBuffer> {
+  await _sodium.ready;
+  const sodium = _sodium;
+  const rawMediaKey = sodium.from_base64(mediaKeyB64);
+  const nonce = sodium.from_base64(nonceB64);
+
+  const cryptoKey = await crypto.subtle.importKey('raw', rawMediaKey.buffer as ArrayBuffer, { name: 'AES-GCM' }, false, ['decrypt']);
+  return await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: nonce.buffer as ArrayBuffer },
+    cryptoKey,
+    encryptedBuffer
+  );
+}
+
 /** Check if we need to upload more one-time prekeys */
 export async function checkAndReplenishPreKeys(
   userId: string,

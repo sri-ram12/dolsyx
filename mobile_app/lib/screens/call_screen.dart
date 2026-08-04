@@ -90,6 +90,8 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   late final Function(dynamic) _onUserAddedToCall;
   late final Function(dynamic) _onCallIncoming;
   late final Function(dynamic) _onScreenShareRequest;
+  late final Function(dynamic) _onRequestCallOffer;
+  late final Function(dynamic) _onCallOffer;
 
   @override
   void initState() {
@@ -214,6 +216,65 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       }
     };
     socket.on('ice_candidate', _onIceCandidate);
+
+    // Dynamic offer request handler: if receiver answered without initial offer, receiver asks caller for SDP offer
+    _onRequestCallOffer = (data) async {
+      if (_isDisposed || !mounted || data == null) return;
+      final requesterId = data['requesterId'] as String? ?? widget.remoteUserId;
+      try {
+        final pc = _peerConnections[requesterId] ?? await _createPeerConnection(requesterId);
+        final offerConstraints = <String, dynamic>{
+          'offerToReceiveAudio': 1,
+          'offerToReceiveVideo': widget.isAudioOnly ? 0 : 1,
+        };
+        final offer = await pc.createOffer(offerConstraints);
+        await pc.setLocalDescription(offer);
+        _socket?.emit('call_offer', {
+          'targetUserId': requesterId,
+          'offer': {'sdp': offer.sdp, 'type': offer.type},
+          'callType': widget.isAudioOnly ? 'audio' : 'video',
+          'conversationId': widget.conversationId,
+        });
+      } catch (e) {
+        debugPrint('[WebRTC] _onRequestCallOffer error: $e');
+      }
+    };
+    socket.on('request_call_offer', _onRequestCallOffer);
+
+    // Incoming offer handler (for dynamic offer handshake)
+    _onCallOffer = (data) async {
+      if (_isDisposed || !mounted || data == null) return;
+      final callerId = data['callerId'] ?? widget.remoteUserId;
+      final offerData = data['offer'];
+      if (offerData == null) return;
+      try {
+        final pc = _peerConnections[callerId] ?? await _createPeerConnection(callerId);
+        final offer = RTCSessionDescription(offerData['sdp'], offerData['type']);
+        await pc.setRemoteDescription(offer);
+        await _flushIceCandidates(callerId);
+        final answerConstraints = <String, dynamic>{
+          'offerToReceiveAudio': 1,
+          'offerToReceiveVideo': widget.isAudioOnly ? 0 : 1,
+        };
+        final answer = await pc.createAnswer(answerConstraints);
+        await pc.setLocalDescription(answer);
+        _socket?.emit('call_answer', {
+          'callerId': callerId,
+          'answer': {'sdp': answer.sdp, 'type': answer.type},
+        });
+        if (mounted && !_isDisposed) {
+          setState(() {
+            _callActive = true;
+            _status = 'Connected';
+            CallScreen.isCallActiveNotifier.value = true;
+          });
+          _startTimer();
+        }
+      } catch (e) {
+        debugPrint('[WebRTC] _onCallOffer error: $e');
+      }
+    };
+    socket.on('call_offer', _onCallOffer);
 
     // Group call: someone added a new user — we initiate to them
     _onUserAddedToCall = (data) async {
@@ -362,13 +423,18 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       'iceServers': [
         {'urls': 'stun:stun.l.google.com:19302'},
         {'urls': 'stun:stun1.l.google.com:19302'},
+        {'urls': 'stun:stun2.l.google.com:19302'},
+        {'urls': 'stun:stun3.l.google.com:19302'},
+        {'urls': 'stun:stun4.l.google.com:19302'},
+        {'urls': 'stun:stun.services.mozilla.com:3478'},
+        {'urls': 'stun:global.stun.twilio.com:3478'},
         {
-          'urls': 'turn:openrelay.metered.ca:80',
+          'urls': 'turn:relay.metered.ca:80',
           'username': 'openrelayproject',
           'credential': 'openrelayproject',
         },
         {
-          'urls': 'turn:openrelay.metered.ca:443',
+          'urls': 'turn:relay.metered.ca:443',
           'username': 'openrelayproject',
           'credential': 'openrelayproject',
         },
@@ -624,6 +690,17 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         _startTimer();
       } catch (e) {
         debugPrint('[WebRTC] _acceptCall error: $e');
+      }
+    } else {
+      // initialOffer was null (e.g. launched from FCM push notification) -> request SDP offer from caller
+      try {
+        await _createPeerConnection(widget.remoteUserId);
+        authProvider.socketService.socket?.emit('request_call_offer', {
+          'callerId': widget.remoteUserId,
+          'conversationId': widget.conversationId,
+        });
+      } catch (e) {
+        debugPrint('[WebRTC] _acceptCall offer request error: $e');
       }
     }
   }
@@ -910,6 +987,8 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     _socket?.off('user_added_to_call', _onUserAddedToCall);
     _socket?.off('call_incoming', _onCallIncoming);
     _socket?.off('screen_share_request', _onScreenShareRequest);
+    _socket?.off('request_call_offer', _onRequestCallOffer);
+    _socket?.off('call_offer', _onCallOffer);
     _localStream?.getTracks().forEach((t) => t.stop());
     _localStream?.dispose();
     _screenStream?.getTracks().forEach((t) => t.stop());
@@ -936,7 +1015,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         Positioned.fill(
           child: RTCVideoView(
             mainRenderer,
-            objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+            objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
             mirror: false,
           ),
         ),

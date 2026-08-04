@@ -225,6 +225,19 @@ class _DolsyxAppState extends State<DolsyxApp> {
             if (details.payload != null && details.payload!.isNotEmpty) {
               try {
                 final data = jsonDecode(details.payload!);
+                
+                // Handle quick reply for message notifications from top notification banner
+                if ((details.actionId == 'reply_msg' || details.input != null) && data['conversationId'] != null) {
+                  final replyText = details.input ?? '';
+                  if (replyText.trim().isNotEmpty) {
+                    ApiService().sendMessage(
+                      conversationId: data['conversationId'],
+                      content: replyText.trim(),
+                    );
+                  }
+                  return;
+                }
+
                 _incomingCallData = {
                   'conversationId': data['conversationId'] ?? '',
                   'callerId': data['callerId'] ?? '',
@@ -480,106 +493,109 @@ class _DolsyxAppState extends State<DolsyxApp> {
                     if (_incomingCallData != null)
                       Material(
                         color: Colors.transparent,
-                        child: Container(
-                          margin: EdgeInsets.only(
-                            top: MediaQuery.of(context).padding.top + 10,
-                            left: 14,
-                            right: 14,
-                            bottom: 10,
-                          ),
-                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                          decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFF141E30), Color(0xFF243B55)],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
+                        child: GestureDetector(
+                          onTap: _acceptIncomingCall,
+                          child: Container(
+                            margin: EdgeInsets.only(
+                              top: MediaQuery.of(context).padding.top + 10,
+                              left: 14,
+                              right: 14,
+                              bottom: 10,
                             ),
-                            borderRadius: BorderRadius.circular(24),
-                            boxShadow: const [
-                              BoxShadow(color: Colors.black87, blurRadius: 20, offset: Offset(0, 8)),
-                            ],
-                            border: Border.all(color: Colors.white24, width: 1.2),
-                          ),
-                          child: Row(
-                            children: [
-                              Container(
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  border: Border.all(color: AppTheme.primaryColor, width: 2),
-                                ),
-                                child: CircleAvatar(
-                                  radius: 26,
-                                  backgroundColor: AppTheme.surfaceColor,
-                                  backgroundImage: _incomingCallData!['callerAvatarUrl'] != null && _incomingCallData!['callerAvatarUrl'].toString().isNotEmpty
-                                      ? NetworkImage(_incomingCallData!['callerAvatarUrl'].toString().startsWith('http') ? _incomingCallData!['callerAvatarUrl'] : '${ApiService.baseUrl.replaceAll('/api', '')}${_incomingCallData!['callerAvatarUrl']}')
-                                      : null,
-                                  child: _incomingCallData!['callerAvatarUrl'] == null ? const Icon(Icons.person, color: Colors.white, size: 30) : null,
-                                ),
+                            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2C5364)],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
                               ),
-                              const SizedBox(width: 14),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(
-                                      _incomingCallData!['callerName'],
-                                      style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold, decoration: TextDecoration.none),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Row(
-                                      children: [
-                                        Icon(
-                                          _incomingCallData!['isAudioOnly'] ? Icons.phone_in_talk : Icons.videocam,
-                                          color: Colors.greenAccent,
-                                          size: 15,
-                                        ),
-                                        const SizedBox(width: 5),
-                                        Flexible(
-                                          child: Text(
-                                            _incomingCallData!['isAudioOnly'] ? 'Audio call...' : 'Video call...',
-                                            style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w500, decoration: TextDecoration.none),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
+                              borderRadius: BorderRadius.circular(24),
+                              boxShadow: const [
+                                BoxShadow(color: Colors.black87, blurRadius: 20, offset: Offset(0, 8)),
+                              ],
+                              border: Border.all(color: Colors.greenAccent.withValues(alpha: 0.6), width: 1.5),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: AppTheme.primaryColor, width: 2),
+                                  ),
+                                  child: CircleAvatar(
+                                    radius: 26,
+                                    backgroundColor: AppTheme.surfaceColor,
+                                    backgroundImage: _incomingCallData!['callerAvatarUrl'] != null && _incomingCallData!['callerAvatarUrl'].toString().isNotEmpty
+                                        ? NetworkImage(_incomingCallData!['callerAvatarUrl'].toString().startsWith('http') ? _incomingCallData!['callerAvatarUrl'] : '${ApiService.baseUrl.replaceAll('/api', '')}${_incomingCallData!['callerAvatarUrl']}')
+                                        : null,
+                                    child: _incomingCallData!['callerAvatarUrl'] == null ? const Icon(Icons.person, color: Colors.white, size: 30) : null,
+                                  ),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        _incomingCallData!['callerName'],
+                                        style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold, decoration: TextDecoration.none),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Row(
+                                        children: [
+                                          Icon(
+                                            _incomingCallData!['isAudioOnly'] ? Icons.phone_in_talk : Icons.videocam,
+                                            color: Colors.greenAccent,
+                                            size: 15,
                                           ),
+                                          const SizedBox(width: 5),
+                                          Flexible(
+                                            child: Text(
+                                              _incomingCallData!['isAudioOnly'] ? 'Incoming Audio Call...' : 'Incoming Video Call...',
+                                              style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w500, decoration: TextDecoration.none),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Row(
+                                  children: [
+                                    GestureDetector(
+                                      onTap: _declineIncomingCall,
+                                      child: Container(
+                                        padding: const EdgeInsets.all(12),
+                                        decoration: const BoxDecoration(
+                                          gradient: LinearGradient(colors: [Color(0xFFFF416C), Color(0xFFFF4B2B)]),
+                                          shape: BoxShape.circle,
+                                          boxShadow: [BoxShadow(color: Colors.redAccent, blurRadius: 10)],
                                         ),
-                                      ],
+                                        child: const Icon(Icons.call_end, color: Colors.white, size: 24),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 14),
+                                    GestureDetector(
+                                      onTap: _acceptIncomingCall,
+                                      child: Container(
+                                        padding: const EdgeInsets.all(12),
+                                        decoration: const BoxDecoration(
+                                          gradient: LinearGradient(colors: [Color(0xFF11998E), Color(0xFF38EF7D)]),
+                                          shape: BoxShape.circle,
+                                          boxShadow: [BoxShadow(color: Colors.greenAccent, blurRadius: 10)],
+                                        ),
+                                        child: const Icon(Icons.call, color: Colors.white, size: 24),
+                                      ),
                                     ),
                                   ],
                                 ),
-                              ),
-                              Row(
-                                children: [
-                                  GestureDetector(
-                                    onTap: _declineIncomingCall,
-                                    child: Container(
-                                      padding: const EdgeInsets.all(12),
-                                      decoration: const BoxDecoration(
-                                        gradient: LinearGradient(colors: [Color(0xFFFF416C), Color(0xFFFF4B2B)]),
-                                        shape: BoxShape.circle,
-                                        boxShadow: [BoxShadow(color: Colors.redAccent, blurRadius: 10)],
-                                      ),
-                                      child: const Icon(Icons.call_end, color: Colors.white, size: 24),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 14),
-                                  GestureDetector(
-                                    onTap: _acceptIncomingCall,
-                                    child: Container(
-                                      padding: const EdgeInsets.all(12),
-                                      decoration: const BoxDecoration(
-                                        gradient: LinearGradient(colors: [Color(0xFF11998E), Color(0xFF38EF7D)]),
-                                        shape: BoxShape.circle,
-                                        boxShadow: [BoxShadow(color: Colors.greenAccent, blurRadius: 10)],
-                                      ),
-                                      child: const Icon(Icons.call, color: Colors.white, size: 24),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
                       ),

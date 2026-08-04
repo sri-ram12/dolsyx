@@ -83,6 +83,10 @@ class SocketService {
             id: DateTime.now().millisecondsSinceEpoch ~/ 1000,
             title: senderName.toString(),
             body: content.toString(),
+            payload: jsonEncode({
+              'conversationId': message['conversationId'],
+              'senderId': senderId,
+            }),
             notificationDetails: NotificationDetails(
               android: AndroidNotificationDetails(
                 channel.id,
@@ -91,6 +95,17 @@ class SocketService {
                 icon: '@mipmap/ic_launcher',
                 priority: Priority.max,
                 importance: Importance.max,
+                sound: const RawResourceAndroidNotificationSound('dolsyx_message'),
+                playSound: true,
+                actions: <AndroidNotificationAction>[
+                  const AndroidNotificationAction(
+                    'reply_msg',
+                    'Reply',
+                    inputs: <AndroidNotificationActionInput>[
+                      AndroidNotificationActionInput(label: 'Type a message...'),
+                    ],
+                  ),
+                ],
               ),
             ),
           );

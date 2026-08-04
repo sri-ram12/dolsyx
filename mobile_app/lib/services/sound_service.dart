@@ -147,6 +147,18 @@ class SoundService {
     try {
       _isRingtonePlaying = false;
       await _ringtonePlayer.stop();
+      // Restore standard speech audio context so WebRTC voice audio is audible
+      try {
+        await AudioPlayer.global.setAudioContext(AudioContext(
+          android: const AudioContextAndroid(
+            isSpeakerphoneOn: true,
+            stayAwake: true,
+            contentType: AndroidContentType.speech,
+            usageType: AndroidUsageType.voiceCommunication,
+            audioFocus: AndroidAudioFocus.none,
+          ),
+        ));
+      } catch (_) {}
     } catch (e) {
       print('SoundService stop ringtone error: $e');
     }

@@ -664,6 +664,14 @@ export const initChatSocket = (io: Server) => {
       }
     });
 
+    // Receiver requests SDP offer if launched without initial offer (e.g. from background push notification)
+    socket.on("request_call_offer", (data: { callerId: string; conversationId: string }) => {
+      io.to(data.callerId).emit("request_call_offer", {
+        requesterId: userId,
+        conversationId: data.conversationId,
+      });
+    });
+
     // Receiver accepts the call → send SDP answer back to caller
     socket.on("call_answer", (data: { callerId: string; answer: RTCSessionDescriptionInit }) => {
       io.to(data.callerId).emit("call_answered", {

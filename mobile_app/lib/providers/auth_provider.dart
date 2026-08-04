@@ -81,7 +81,8 @@ class AuthProvider with ChangeNotifier {
         _isAuthenticated = true;
         _user = cachedUser;
         _token = tkn;
-        // Don't connect socket (no network), just restore the session
+        await _socketService.connect(_user!['id']);
+        _setupSocketListeners();
         notifyListeners();
         return true;
       }
@@ -97,6 +98,8 @@ class AuthProvider with ChangeNotifier {
           _isAuthenticated = true;
           _user = cachedUser;
           _token = tkn2;
+          await _socketService.connect(_user!['id']);
+          _setupSocketListeners();
           notifyListeners();
           return true;
         }

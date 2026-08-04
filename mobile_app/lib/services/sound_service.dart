@@ -31,7 +31,7 @@ class SoundService {
           isSpeakerphoneOn: true,
           stayAwake: true,
           contentType: AndroidContentType.sonification,
-          usageType: AndroidUsageType.alarm,
+          usageType: AndroidUsageType.notificationRingtone,
           audioFocus: AndroidAudioFocus.gain,
         ),
       ));

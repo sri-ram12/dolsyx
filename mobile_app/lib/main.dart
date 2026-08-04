@@ -33,10 +33,21 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     final String callType = data['callType'] ?? 'audio';
     final bool isAudioOnly = callType == 'audio';
 
+    final payloadMap = {
+      'conversationId': data['conversationId'] ?? '',
+      'callerId': data['callerId'] ?? '',
+      'callerName': callerName,
+      'callerAvatarUrl': data['callerAvatarUrl'],
+      'isAudioOnly': isAudioOnly,
+      'callType': callType,
+      'initialOffer': null,
+    };
+
     await flutterLocalNotificationsPlugin.show(
       id: 8888,
       title: 'Incoming ${isAudioOnly ? 'Audio' : 'Video'} Call',
       body: '$callerName is calling you...',
+      payload: jsonEncode(payloadMap),
       notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
           callChannel.id,
@@ -48,6 +59,9 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
           importance: Importance.max,
           fullScreenIntent: true,
           category: AndroidNotificationCategory.call,
+          audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
+          playSound: true,
+          enableVibration: true,
           ongoing: true,
           autoCancel: false,
           actions: <AndroidNotificationAction>[
@@ -75,7 +89,8 @@ const AndroidNotificationChannel callChannel = AndroidNotificationChannel(
   'Incoming Calls',
   description: 'Full-screen incoming call notifications',
   importance: Importance.max,
-  playSound: false, // Ringtone handled by SoundService
+  playSound: true,
+  enableVibration: true,
 );
 
 void main() async {
@@ -118,10 +133,36 @@ class _DolsyxAppState extends State<DolsyxApp> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       _setupGlobalCallListener();
       _setupForegroundFCM();
       _handleFCMCallbacks();
+      
+      // Check if app was opened/launched from a call notification action or click
+      try {
+        final launchDetails = await flutterLocalNotificationsPlugin.getNotificationAppLaunchDetails();
+        if (launchDetails?.didNotificationLaunchApp == true && launchDetails?.notificationResponse != null) {
+          final response = launchDetails!.notificationResponse!;
+          if (response.payload != null && response.payload!.isNotEmpty) {
+            final data = jsonDecode(response.payload!);
+            setState(() {
+              _incomingCallData = {
+                'conversationId': data['conversationId'] ?? '',
+                'callerId': data['callerId'] ?? '',
+                'callerName': data['callerName'] ?? 'Incoming Call',
+                'callerAvatarUrl': data['callerAvatarUrl'],
+                'isAudioOnly': (data['callType'] ?? 'audio') == 'audio' || data['isAudioOnly'] == true,
+                'initialOffer': data['initialOffer'],
+              };
+            });
+            if (response.actionId == 'decline') {
+              _declineIncomingCall();
+            } else {
+              _acceptIncomingCall();
+            }
+          }
+        }
+      } catch (_) {}
     });
     _tryAutoLogin();
   }
@@ -175,17 +216,24 @@ class _DolsyxAppState extends State<DolsyxApp> {
         await flutterLocalNotificationsPlugin.initialize(
           settings: initializationSettings,
           onDidReceiveNotificationResponse: (details) {
+            if (details.payload != null && details.payload!.isNotEmpty) {
+              try {
+                final data = jsonDecode(details.payload!);
+                _incomingCallData = {
+                  'conversationId': data['conversationId'] ?? '',
+                  'callerId': data['callerId'] ?? '',
+                  'callerName': data['callerName'] ?? 'Incoming Call',
+                  'callerAvatarUrl': data['callerAvatarUrl'],
+                  'isAudioOnly': (data['callType'] ?? 'audio') == 'audio' || data['isAudioOnly'] == true,
+                  'initialOffer': data['initialOffer'],
+                };
+              } catch (_) {}
+            }
             final actionId = details.actionId;
-            if (actionId == 'accept') {
-              if (_incomingCallData != null && navigatorKey.currentState != null) {
-                _acceptIncomingCall();
-              }
-            } else if (actionId == 'decline') {
+            if (actionId == 'decline') {
               _declineIncomingCall();
             } else {
-              if (_incomingCallData != null && navigatorKey.currentState != null) {
-                _acceptIncomingCall();
-              }
+              _acceptIncomingCall();
             }
           },
         );
@@ -328,6 +376,14 @@ class _DolsyxAppState extends State<DolsyxApp> {
           id: 8888,
           title: 'Incoming ${isAudioOnly ? 'Audio' : 'Video'} Call',
           body: '$callerName is calling you...',
+          payload: jsonEncode({
+            'conversationId': conversationId,
+            'callerId': callerId,
+            'callerName': callerName,
+            'callerAvatarUrl': callerAvatarUrl,
+            'isAudioOnly': isAudioOnly,
+            'initialOffer': initialOffer,
+          }),
           notificationDetails: NotificationDetails(
             android: AndroidNotificationDetails(
               callChannel.id,
@@ -339,6 +395,9 @@ class _DolsyxAppState extends State<DolsyxApp> {
               importance: Importance.max,
               fullScreenIntent: true,
               category: AndroidNotificationCategory.call,
+              audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
+              playSound: true,
+              enableVibration: true,
               ongoing: true,
               autoCancel: false,
               actions: <AndroidNotificationAction>[

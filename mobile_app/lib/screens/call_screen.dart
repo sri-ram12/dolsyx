@@ -504,7 +504,11 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       if (!_callActive && mounted) _endCallLocally('No answer');
     });
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    if (authProvider.socketService.socket == null || authProvider.user == null) return;
+    final userId = authProvider.user?['id'];
+    if (userId == null) return;
+    if (authProvider.socketService.socket == null || !authProvider.socketService.isConnected) {
+      await authProvider.socketService.connect(userId);
+    }
 
     final success = await _initWebRTC();
     if (!mounted) return;
@@ -540,6 +544,10 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     SoundService().stopRingtone();
     setState(() => _status = 'Connecting...');
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final userId = authProvider.user?['id'];
+    if (userId != null && (authProvider.socketService.socket == null || !authProvider.socketService.isConnected)) {
+      await authProvider.socketService.connect(userId);
+    }
     if (authProvider.socketService.socket == null) return;
 
     final success = await _initWebRTC();

@@ -43,10 +43,17 @@ class SocketService {
 
     if (socket != null && socket!.connected) return;
 
+    if (socket != null) {
+      socket!.connect();
+      return;
+    }
+
     socket = IO.io(_socketUrl, <String, dynamic>{
       'transports': ['websocket'],
-      'autoConnect': false,
-      'forceNew': true,
+      'autoConnect': true,
+      'reconnection': true,
+      'reconnectionAttempts': 20,
+      'reconnectionDelay': 1000,
       'auth': {'token': token},
     });
 

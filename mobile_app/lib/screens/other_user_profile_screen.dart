@@ -10,6 +10,7 @@ import 'package:intl/intl.dart';
 import '../widgets/color_avatar.dart';
 import '../widgets/full_screen_image_view.dart';
 import '../screens/call_screen.dart';
+import '../screens/chat_room_screen.dart';
 
 class OtherUserProfileScreen extends StatefulWidget {
   final Map<String, dynamic> user;
@@ -182,9 +183,18 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
 
     if (userId == null || conversationId.isEmpty) return;
 
+    if (CallScreen.isCallActiveNotifier.value && CallScreen.activeConversationId == conversationId) {
+      final state = CallScreen.activeCallState;
+      if (state != null && state.mounted) {
+        Navigator.popUntil(context, (route) => route.isFirst || route.settings.name == 'CallScreen');
+        return;
+      }
+    }
+
     Navigator.push(
       context,
       MaterialPageRoute(
+        settings: const RouteSettings(name: 'CallScreen'),
         builder: (_) => CallScreen(
           conversationId: conversationId,
           remoteUserId: userId,
@@ -205,9 +215,18 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
 
     if (userId == null || conversationId.isEmpty) return;
 
+    if (CallScreen.isCallActiveNotifier.value && CallScreen.activeConversationId == conversationId) {
+      final state = CallScreen.activeCallState;
+      if (state != null && state.mounted) {
+        Navigator.popUntil(context, (route) => route.isFirst || route.settings.name == 'CallScreen');
+        return;
+      }
+    }
+
     Navigator.push(
       context,
       MaterialPageRoute(
+        settings: const RouteSettings(name: 'CallScreen'),
         builder: (_) => CallScreen(
           conversationId: conversationId,
           remoteUserId: userId,
@@ -220,48 +239,28 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
     );
   }
 
-  void _openSearchChatDialog() {
-    final searchController = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          backgroundColor: AppTheme.surfaceColor,
-          title: Text('Search Conversation', style: TextStyle(color: AppTheme.textPrimary, fontSize: 18, fontWeight: FontWeight.bold)),
-          content: TextField(
-            controller: searchController,
-            autofocus: true,
-            style: TextStyle(color: AppTheme.textPrimary),
-            decoration: InputDecoration(
-              hintText: 'Search messages...',
-              hintStyle: TextStyle(color: AppTheme.textSecondary),
-              prefixIcon: Icon(Icons.search, color: AppTheme.primaryColor),
-              filled: true,
-              fillColor: AppTheme.backgroundColor,
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-            ),
+  void _triggerDirectChatSearch() {
+    if (Navigator.canPop(context)) {
+      Navigator.pop(context, 'start_search');
+    } else {
+      final userId = widget.user['id'] ?? widget.user['_id'];
+      final conversationId = widget.user['conversationId'] ?? '';
+      final name = _localNickname ?? widget.user['username'] ?? 'Chat';
+      final avatar = widget.user['avatarUrl'];
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ChatRoomScreen(
+            conversationId: conversationId,
+            chatName: name,
+            avatarUrl: avatar,
+            remoteUserId: userId,
+            remoteUser: widget.user,
+            autoStartSearch: true,
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('Cancel', style: TextStyle(color: AppTheme.textSecondary)),
-            ),
-            TextButton(
-              onPressed: () {
-                final query = searchController.text.trim();
-                Navigator.pop(context);
-                if (query.isNotEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Searching for "$query"...')),
-                  );
-                }
-              },
-              child: Text('Search', style: TextStyle(color: AppTheme.primaryColor, fontWeight: FontWeight.bold)),
-            ),
-          ],
-        );
-      },
-    );
+        ),
+      );
+    }
   }
 
   Future<void> _clearChat() async {
@@ -286,7 +285,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
         if (conversationId.isEmpty) return;
 
         final response = await http.delete(
-          Uri.parse('https://dolsyx-app.onrender.com/api/chat/$conversationId/messages'),
+          Uri.parse('${ApiService.baseUrl}/chats/$conversationId/messages'),
           headers: {'Authorization': 'Bearer $token'},
         );
 
@@ -368,42 +367,28 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
     try {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       final token = authProvider.token ?? '';
+      // Use dedicated /media endpoint — much faster & targeted
       final res = await http.get(
-        Uri.parse('${ApiService.baseUrl}/chat/$conversationId/messages'),
+        Uri.parse('${ApiService.baseUrl}/chats/$conversationId/media'),
         headers: ApiService.authHeaders(token),
       );
       if (res.statusCode == 200) {
-        final List<dynamic> messages = jsonDecode(res.body);
+        final List<dynamic> mediaMessages = jsonDecode(res.body);
         final List<dynamic> media = [];
         final List<dynamic> docs = [];
-        final List<dynamic> links = [];
-        final linkRegex = RegExp(r'https?://[^\s]+');
 
-        for (final m in messages) {
-          final rawUrl = _resolveMediaUrl(m);
-          final mediaType = (m['mediaType'] ?? m['type'] ?? '').toString().toUpperCase();
-          final contentStr = (m['content'] ?? '').toString();
-
-          final isImage = mediaType == 'IMAGE' ||
-              RegExp(r'\.(jpg|jpeg|png|gif|webp)($|\?)', caseSensitive: false).hasMatch(rawUrl) ||
-              RegExp(r'\.(jpg|jpeg|png|gif|webp)($|\?)', caseSensitive: false).hasMatch(contentStr);
+        for (final m in mediaMessages) {
+          final rawUrl = (m['mediaUrl'] ?? '').toString().trim();
+          final mediaType = (m['mediaType'] ?? '').toString().toUpperCase();
           final isVideo = mediaType == 'VIDEO' ||
-              RegExp(r'\.(mp4|mov|avi|mkv|webm|3gp)($|\?)', caseSensitive: false).hasMatch(rawUrl) ||
-              RegExp(r'\.(mp4|mov|avi|mkv|webm|3gp)($|\?)', caseSensitive: false).hasMatch(contentStr);
-          final isDoc = mediaType == 'DOCUMENT' || mediaType == 'FILE' ||
-              RegExp(r'\.(pdf|doc|docx|txt|zip|xls|xlsx|ppt|pptx)($|\?)', caseSensitive: false).hasMatch(rawUrl) ||
-              RegExp(r'\.(pdf|doc|docx|txt|zip|xls|xlsx|ppt|pptx)($|\?)', caseSensitive: false).hasMatch(contentStr);
+              RegExp(r'\.(mp4|mov|avi|mkv|webm|3gp)($|\?)', caseSensitive: false).hasMatch(rawUrl);
+          final isDoc = mediaType == 'FILE' || mediaType == 'DOCUMENT';
 
-          if ((isImage || isVideo) && rawUrl.isNotEmpty) {
-            // Store resolved URL alongside original message
-            media.add({...m, '_resolvedUrl': rawUrl, '_isVideo': isVideo});
-          } else if (isDoc && rawUrl.isNotEmpty) {
-            docs.add({...m, '_resolvedUrl': rawUrl});
-          }
-
-          if (linkRegex.hasMatch(contentStr)) {
-            for (final match in linkRegex.allMatches(contentStr)) {
-              links.add({'url': match.group(0), 'message': m});
+          if (rawUrl.isNotEmpty) {
+            if (isDoc) {
+              docs.add({...m, '_resolvedUrl': rawUrl});
+            } else {
+              media.add({...m, '_resolvedUrl': rawUrl, '_isVideo': isVideo});
             }
           }
         }
@@ -412,7 +397,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
           setState(() {
             _mediaItems = media;
             _docItems = docs;
-            _linkItems = links;
+            _linkItems = [];   // links not returned by media endpoint
             _isLoadingMedia = false;
           });
         }
@@ -642,7 +627,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.search),
-            onPressed: _openSearchChatDialog,
+            onPressed: _triggerDirectChatSearch,
           ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
@@ -694,32 +679,21 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
                     const SizedBox(height: 4),
                     Text(email, style: TextStyle(fontSize: 14, color: AppTheme.textSecondary)),
                   ],
-                  const SizedBox(height: 10),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
-                    decoration: BoxDecoration(
-                      color: _isTyping
-                          ? AppTheme.primaryColor.withValues(alpha: 0.15)
-                          : _isOnline
-                              ? Colors.green.withValues(alpha: 0.15)
-                              : Colors.grey.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Text(
-                      _isTyping
-                          ? '✏️ Typing...'
-                          : _isOnline
-                              ? '🟢 Online'
-                              : (_lastSeen != null
-                                  ? '🕐 Last seen ${_formatTime(_lastSeen!)}'
-                                  : (widget.user['lastSeen'] != null
-                                      ? '🕐 Last seen ${_formatTime(DateTime.tryParse(widget.user['lastSeen'].toString())!)}'
-                                      : '⚫ Offline')),
-                      style: TextStyle(
-                        color: _isTyping || _isOnline ? AppTheme.primaryColor : AppTheme.textSecondary,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _isTyping
+                        ? '✏️ Typing...'
+                        : _isOnline
+                            ? '🟢 Online'
+                            : (_lastSeen != null
+                                ? '🕐 Last seen ${_formatTime(_lastSeen!)}'
+                                : (widget.user['lastSeen'] != null
+                                    ? '🕐 Last seen ${_formatTime(DateTime.tryParse(widget.user['lastSeen'].toString())!)}'
+                                    : '⚫ Offline')),
+                    style: TextStyle(
+                      color: _isTyping || _isOnline ? AppTheme.primaryColor : AppTheme.textSecondary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                   const SizedBox(height: 20),
@@ -728,7 +702,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
                     children: [
                       _buildHeaderAction(Icons.call, 'Audio', _startAudioCall),
                       _buildHeaderAction(Icons.videocam, 'Video', _startVideoCall),
-                      _buildHeaderAction(Icons.search, 'Search', _openSearchChatDialog),
+                      _buildHeaderAction(Icons.search, 'Search', _triggerDirectChatSearch),
                     ],
                   ),
                 ],

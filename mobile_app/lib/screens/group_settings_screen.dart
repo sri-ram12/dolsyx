@@ -1,20 +1,24 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../services/group_service.dart';
 import '../services/chat_service.dart';
 import '../services/contact_service.dart';
 import '../providers/auth_provider.dart';
+import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 
 class GroupSettingsScreen extends StatefulWidget {
   final String conversationId;
   final String groupName;
+  final String? groupAvatarUrl;
   final List<dynamic> participants;
 
   const GroupSettingsScreen({
     super.key,
     required this.conversationId,
     required this.groupName,
+    this.groupAvatarUrl,
     required this.participants,
   });
 
@@ -26,14 +30,17 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   final GroupService _groupService = GroupService();
   late List<dynamic> _participants;
   late String _groupName;
+  String? _groupAvatarUrl;
   bool _isAdmin = false;
   String? _myUserId;
+  bool _isUploadingAvatar = false;
 
   @override
   void initState() {
     super.initState();
     _participants = List.from(widget.participants);
     _groupName = widget.groupName;
+    _groupAvatarUrl = widget.groupAvatarUrl;
     _checkAdminStatus();
   }
 
@@ -212,6 +219,34 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     }
   }
 
+  Future<void> _pickGroupAvatar() async {
+    if (!_isAdmin) return;
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
+    if (pickedFile == null) return;
+
+    setState(() => _isUploadingAvatar = true);
+    try {
+      final uploadRes = await ApiService().uploadMedia(pickedFile.path);
+      final uploadedUrl = uploadRes?['url'];
+      if (uploadedUrl != null) {
+        final ok = await _groupService.updateGroup(widget.conversationId, _groupName, null, uploadedUrl);
+        if (ok && mounted) {
+          setState(() {
+            _groupAvatarUrl = uploadedUrl;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Group photo updated!')));
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to upload image')));
+      }
+    } finally {
+      if (mounted) setState(() => _isUploadingAvatar = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -235,10 +270,44 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
             width: double.infinity,
             child: Column(
               children: [
-                CircleAvatar(
-                  radius: 50,
-                  backgroundColor: AppTheme.primaryColor,
-                  child: const Icon(Icons.group, size: 50, color: Colors.white),
+                GestureDetector(
+                  onTap: _isAdmin ? _pickGroupAvatar : null,
+                  child: Stack(
+                    children: [
+                      _isUploadingAvatar
+                          ? const CircleAvatar(
+                              radius: 50,
+                              backgroundColor: Colors.black26,
+                              child: CircularProgressIndicator(color: Colors.white),
+                            )
+                          : CircleAvatar(
+                              radius: 50,
+                              backgroundColor: AppTheme.primaryColor,
+                              backgroundImage: _groupAvatarUrl != null && _groupAvatarUrl!.isNotEmpty
+                                  ? (_groupAvatarUrl!.startsWith('http')
+                                      ? NetworkImage(_groupAvatarUrl!)
+                                      : NetworkImage('https://dolsyx-app.onrender.com$_groupAvatarUrl'))
+                                  : null,
+                              child: _groupAvatarUrl == null || _groupAvatarUrl!.isEmpty
+                                  ? const Icon(Icons.group, size: 50, color: Colors.white)
+                                  : null,
+                            ),
+                      if (_isAdmin && !_isUploadingAvatar)
+                        Positioned(
+                          bottom: 0,
+                          right: 0,
+                          child: Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: AppTheme.primaryColor,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: AppTheme.surfaceColor, width: 2),
+                            ),
+                            child: const Icon(Icons.camera_alt, size: 16, color: Colors.white),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 16),
                 Text(_groupName, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),
@@ -285,7 +354,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                 if (user == null) return const SizedBox.shrink();
 
                 final userId = user['id'] ?? user['_id'];
-                final role = participant['role'].toString().toUpperCase();
+                final role = participant['role']?.toString().toUpperCase() ?? 'MEMBER';
                 final isOwner = role == 'OWNER' || role == 'ADMIN';
                 final isMe = userId == _myUserId;
                 

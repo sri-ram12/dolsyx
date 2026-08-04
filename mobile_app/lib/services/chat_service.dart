@@ -67,6 +67,77 @@ class ChatService {
     }
   }
 
+  Future<bool> clearCallLogs() async {
+    try {
+      final token = await ApiService().getToken();
+      if (token == null) return false;
+
+      final response = await http.delete(
+        Uri.parse('${ApiService.baseUrl}/chats/calls/clear'),
+        headers: {
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      return response.statusCode == 200;
+    } catch (e) {
+      print('Network error clearing call logs: $e');
+      return false;
+    }
+  }
+
+  Future<bool> deleteCallLog(String callId) async {
+    try {
+      final token = await ApiService().getToken();
+      if (token == null) return false;
+
+      final response = await http.delete(
+        Uri.parse('${ApiService.baseUrl}/chats/calls/$callId'),
+        headers: {
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode != 200) {
+        print('Delete call log failed: HTTP ${response.statusCode} - ${response.body}');
+        return false;
+      }
+      return true;
+    } catch (e) {
+      print('Network error deleting call log: $e');
+      return false;
+    }
+  }
+
+  Future<bool> deleteBulkCallLogs(List<String> callIds) async {
+    if (callIds.isEmpty) return true;
+    try {
+      final token = await ApiService().getToken();
+      if (token == null) return false;
+
+      // Call the single-delete endpoint for each ID.
+      // Falls back gracefully if the /bulk route isn't deployed yet.
+      bool allOk = true;
+      for (final id in callIds) {
+        final response = await http.delete(
+          Uri.parse('${ApiService.baseUrl}/chats/calls/$id'),
+          headers: {
+            'Authorization': 'Bearer $token',
+          },
+        );
+        if (response.statusCode != 200) {
+          print('Delete call log $id failed: HTTP ${response.statusCode} - ${response.body}');
+          allOk = false;
+        }
+      }
+      return allOk;
+    } catch (e) {
+      print('Network error bulk deleting call logs: $e');
+      return false;
+    }
+  }
+
+
   Future<bool> starMessage(String messageId) async {
     try {
       final token = await ApiService().getToken();
@@ -202,21 +273,7 @@ class ChatService {
     }
   }
 
-  Future<bool> clearCallLogs() async {
-    try {
-      final token = await ApiService().getToken();
-      if (token == null) return false;
 
-      final response = await http.delete(
-        Uri.parse('${ApiService.baseUrl}/chats/calls/clear'),
-        headers: {'Authorization': 'Bearer $token'},
-      );
-      return response.statusCode == 200;
-    } catch (e) {
-      print('Error clearing call logs: $e');
-      return false;
-    }
-  }
 
   Future<List<dynamic>> getCallLogs() async {
     try {

@@ -210,6 +210,57 @@ export const getMessages = async (req: AuthRequest, res: Response): Promise<void
   }
 };
 
+export const getMediaMessages = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const conversationId = req.params["conversationId"];
+    const userId = req.user!.id;
+
+    if (!conversationId || typeof conversationId !== "string") {
+      res.status(400).json({ message: "Conversation ID is required" });
+      return;
+    }
+
+    // Verify participant
+    const isParticipant = await prisma.participant.findFirst({
+      where: { conversationId, userId },
+    });
+
+    if (!isParticipant) {
+      res.status(403).json({ message: "You are not a participant in this conversation" });
+      return;
+    }
+
+    // Fetch only media messages (IMAGE, VIDEO, FILE/DOCUMENT)
+    const mediaMessages = await prisma.message.findMany({
+      where: {
+        conversationId,
+        mediaUrl: { not: null },
+        mediaType: { in: ["IMAGE", "VIDEO", "FILE", "DOCUMENT"] },
+        isDeleted: false,
+        deletedForUsers: { none: { userId } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+      select: {
+        id: true,
+        mediaUrl: true,
+        mediaType: true,
+        content: true,
+        createdAt: true,
+        senderId: true,
+        sender: {
+          select: { id: true, username: true, avatarUrl: true },
+        },
+      },
+    });
+
+    res.json(mediaMessages);
+  } catch (error) {
+    console.error("GetMediaMessages error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
 export const createOrGetDirectChat = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { targetUserId } = req.body;
@@ -483,10 +534,16 @@ export const getCallHistory = async (req: AuthRequest, res: Response): Promise<v
   try {
     const userId = req.user!.id;
 
-    // Find all messages across all conversations the user is part of that are CALL_LOG
+    // Find all messages across all conversations the user is part of that are CALL_LOG and not deleted for user
     const callLogs = await prisma.message.findMany({
       where: {
         mediaType: "CALL_LOG",
+        isDeleted: false,
+        deletedForUsers: {
+          none: {
+            userId,
+          }
+        },
         conversation: {
           participants: {
             some: {
@@ -570,44 +627,8 @@ export const updateParticipantSettings = async (req: AuthRequest, res: Response)
   }
 };
 
-export const clearCallLogs = async (req: AuthRequest, res: Response): Promise<void> => {
-  try {
-    const userId = req.user!.id;
-    
-    // We can just soft-delete the call logs for this specific user.
-    // First, find all call logs for this user.
-    const callLogs = await prisma.message.findMany({
-      where: {
-        mediaType: "CALL_LOG",
-        conversation: {
-          participants: {
-            some: { userId }
-          }
-        }
-      },
-      select: { id: true }
-    });
 
-    const callLogIds = callLogs.map(log => log.id);
 
-    if (callLogIds.length > 0) {
-      // For each call log, create a DeletedMessage entry for this user
-      const deletedEntries = callLogIds.map(messageId => ({
-        messageId,
-        userId
-      }));
-
-      await prisma.deletedMessage.createMany({
-        data: deletedEntries
-      });
-    }
-
-    res.json({ message: "Call logs cleared" });
-  } catch (error) {
-    console.error("clearCallLogs error:", error);
-    res.status(500).json({ message: "Internal server error" });
-  }
-};
 
 export const starMessage = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
@@ -714,3 +735,99 @@ export const deleteMessage = async (req: AuthRequest, res: Response): Promise<vo
     res.status(500).json({ message: "Internal server error" });
   }
 };
+
+export const clearCallLogs = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.id;
+
+    // A call log is a message of type CALL.
+    // Instead of deleting from DB, we insert into DeletedMessage to hide it for this user.
+    const callMessages = await prisma.message.findMany({
+      where: {
+        mediaType: "CALL_LOG",
+        conversation: {
+          participants: {
+            some: { userId }
+          }
+        },
+        deletedForUsers: {
+          none: { userId }
+        }
+      },
+      select: { id: true }
+    });
+
+    if (callMessages.length > 0) {
+      const deletedData = callMessages.map(msg => ({
+        userId,
+        messageId: msg.id
+      }));
+
+      await prisma.deletedMessage.createMany({
+        data: deletedData,
+        skipDuplicates: true
+      });
+    }
+
+    res.json({ message: "Call logs cleared" });
+  } catch (error) {
+    console.error("Clear call logs error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+export const deleteSingleCallLog = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.id;
+    const callId = req.params["callId"] as string;
+
+    if (!callId) {
+      res.status(400).json({ message: "Call ID is required" });
+      return;
+    }
+
+    await prisma.deletedMessage.createMany({
+      data: [
+        {
+          userId,
+          messageId: callId,
+        },
+      ],
+      skipDuplicates: true,
+    });
+
+    res.json({ message: "Call log deleted" });
+  } catch (error) {
+    console.error("Delete single call log error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+export const deleteBulkCallLogs = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.id;
+    const { callIds } = req.body;
+
+    if (!Array.isArray(callIds) || callIds.length === 0) {
+      res.status(400).json({ message: "callIds array is required" });
+      return;
+    }
+
+    const data = callIds.map((id: string) => ({
+      userId,
+      messageId: id,
+    }));
+
+    await prisma.deletedMessage.createMany({
+      data,
+      skipDuplicates: true,
+    });
+
+    res.json({ message: "Call logs deleted successfully" });
+  } catch (error) {
+    console.error("Delete bulk call logs error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+

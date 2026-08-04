@@ -4,6 +4,7 @@ import path from "path";
 import {
   getChats,
   getMessages,
+  getMediaMessages,
   createOrGetDirectChat,
   searchUsers,
   deleteConversation,
@@ -11,6 +12,8 @@ import {
   getCallHistory,
   updateParticipantSettings,
   clearCallLogs,
+  deleteSingleCallLog,
+  deleteBulkCallLogs,
   starMessage,
   pinMessage,
   deleteMessage,
@@ -51,13 +54,16 @@ router.use(authenticateToken as any);
 
 router.get("/", getChats as any);
 router.get("/calls", getCallHistory as any);
+router.delete("/calls/clear", clearCallLogs as any);
+router.delete("/calls/bulk", deleteBulkCallLogs as any);
+router.delete("/calls/:callId", deleteSingleCallLog as any);
 router.get("/search", searchUsers as any);
+router.get("/:conversationId/media", getMediaMessages as any);
 router.get("/:conversationId/messages", getMessages as any);
 router.post("/direct", createOrGetDirectChat as any);
 router.delete("/:conversationId", deleteConversation as any);
 router.delete("/:conversationId/messages", clearChatMessages as any);
 router.patch("/:conversationId/participant", updateParticipantSettings as any);
-router.delete("/calls/clear", clearCallLogs as any);
 
 // Message management routes
 router.post("/messages/:messageId/star", starMessage as any);

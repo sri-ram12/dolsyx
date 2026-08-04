@@ -69,7 +69,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
     if (mounted) {
       setState(() => _isLoading = false);
       if (group != null) {
-        Navigator.pop(context); // Go back to chat list
+        Navigator.pop(context, true); // Go back to chat list and signal success
       } else {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to create group')));
       }

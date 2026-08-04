@@ -637,24 +637,30 @@ export const initChatSocket = (io: Server) => {
         conversationId: data.conversationId,
       });
 
-      // If user is offline, send push notification
-      if (!onlineUsers.has(data.targetUserId)) {
-        try {
-          const recipientUser = await prisma.user.findUnique({
-            where: { id: data.targetUserId },
-            select: { fcmToken: true },
-          });
-          if (recipientUser?.fcmToken) {
-            const callTypeString = data.callType === "video" ? "Video Call" : "Audio Call";
-            sendPushNotification(recipientUser.fcmToken, `Incoming ${callTypeString}`, `${data.callerName || username} is calling you`, {
+      // ALWAYS send FCM push notification for incoming calls to guarantee arrival on backgrounded/killed/locked devices
+      try {
+        const recipientUser = await prisma.user.findUnique({
+          where: { id: data.targetUserId },
+          select: { fcmToken: true },
+        });
+        if (recipientUser?.fcmToken) {
+          const callTypeString = data.callType === "video" ? "Video Call" : "Audio Call";
+          sendPushNotification(
+            recipientUser.fcmToken,
+            `Incoming ${callTypeString}`,
+            `${data.callerName || username} is calling you`,
+            {
               conversationId: data.conversationId,
               callType: data.callType,
+              callerId: userId,
+              callerName: data.callerName || username,
+              callerAvatarUrl: data.callerAvatar || "",
               type: "CALL",
-            });
-          }
-        } catch (e) {
-          console.error("Failed to send call push notification:", e);
+            }
+          );
         }
+      } catch (e) {
+        console.error("Failed to send call push notification:", e);
       }
     });
 

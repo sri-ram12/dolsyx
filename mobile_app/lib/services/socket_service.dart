@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
 import 'sound_service.dart';
 import '../main.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import '../utils/e2ee/crypto_service.dart';
 import '../utils/e2ee/e2ee_api.dart';
 
@@ -33,7 +34,10 @@ class SocketService {
   final StreamController<Set<String>> onlineUsersStream = StreamController<Set<String>>.broadcast();
   final StreamController<Map<String, dynamic>> typingUpdates = StreamController<Map<String, dynamic>>.broadcast();
 
+  String? _currentUserId;
+
   Future<void> connect(String userId) async {
+    _currentUserId = userId;
     final token = await ApiService().getToken();
     if (token == null) return;
 
@@ -57,6 +61,34 @@ class SocketService {
     socket?.on('new_message', (data) {
       SoundService().playNotificationSound();
       _messageStreamController.add(data);
+      
+      try {
+        final message = data['message'] ?? data;
+        final senderId = message['senderId'] ?? message['sender']?['id'];
+        
+        // Don't show popups for outgoing messages
+        if (senderId != null && senderId == _currentUserId) return;
+
+        final senderName = message['sender']?['username'] ?? 'New Message';
+        final content = message['content'] ?? (message['mediaType'] != null ? 'Shared ${message['mediaType']}' : 'New message');
+        if (content.toString().isNotEmpty) {
+          flutterLocalNotificationsPlugin.show(
+            id: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+            title: senderName.toString(),
+            body: content.toString(),
+            notificationDetails: NotificationDetails(
+              android: AndroidNotificationDetails(
+                channel.id,
+                channel.name,
+                channelDescription: channel.description,
+                icon: '@mipmap/ic_launcher',
+                priority: Priority.max,
+                importance: Importance.max,
+              ),
+            ),
+          );
+        }
+      } catch (_) {}
     });
 
     // Listen for real-time E2EE encrypted messages and auto-decrypt them
@@ -66,6 +98,7 @@ class SocketService {
         final conversationId = data['conversationId'] as String;
         final content = message['content'] as String;
         final senderUserId = message['senderId'] as String;
+        
         final payloadJson = jsonDecode(content) as Map<String, dynamic>;
         final payload = MessagePayload.fromJson(payloadJson);
         final plaintext = await _crypto.decryptMessage(
@@ -80,6 +113,25 @@ class SocketService {
             'content': plaintext,
           }
         });
+        
+        // Don't show popups for outgoing messages
+        if (senderUserId == _currentUserId) return;
+
+        flutterLocalNotificationsPlugin.show(
+          id: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+          title: 'Encrypted Message',
+          body: plaintext,
+          notificationDetails: NotificationDetails(
+            android: AndroidNotificationDetails(
+              channel.id,
+              channel.name,
+              channelDescription: channel.description,
+              icon: '@mipmap/ic_launcher',
+              priority: Priority.max,
+              importance: Importance.max,
+            ),
+          ),
+        );
       } catch (e) {
         print('⚠️ Failed to decrypt incoming message: $e');
       }

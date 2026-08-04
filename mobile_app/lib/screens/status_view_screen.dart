@@ -11,9 +11,10 @@ import '../theme/app_theme.dart';
 import 'chat_room_screen.dart';
 
 class StatusViewScreen extends StatefulWidget {
-  final UserStatusGroup group;
+  final List<UserStatusGroup> groups;
+  final int initialGroupIndex;
 
-  const StatusViewScreen({super.key, required this.group});
+  const StatusViewScreen({super.key, required this.groups, required this.initialGroupIndex});
 
   @override
   State<StatusViewScreen> createState() => _StatusViewScreenState();
@@ -33,12 +34,16 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
   final TextEditingController _replyController = TextEditingController();
 
   late String _currentUserId;
+  late int _currentGroupIndex;
+
+  UserStatusGroup get currentGroup => widget.groups[_currentGroupIndex];
 
   @override
   void initState() {
     super.initState();
     final currentUser = Provider.of<AuthProvider>(context, listen: false).user;
     _currentUserId = currentUser?['id'] ?? '';
+    _currentGroupIndex = widget.initialGroupIndex;
 
     _loadStatus(_currentIndex);
   }
@@ -59,12 +64,23 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
     _isPaused = false;
     _isLoading = true;
 
-    if (index >= widget.group.statuses.length) {
-      if (mounted) WidgetsBinding.instance.addPostFrameCallback((_) => Navigator.pop(context));
+    if (index >= currentGroup.statuses.length) {
+      if (_currentGroupIndex < widget.groups.length - 1) {
+        // Move to next group
+        if (mounted) {
+          setState(() {
+            _currentGroupIndex++;
+            _currentIndex = 0;
+            _loadStatus(0);
+          });
+        }
+      } else {
+        if (mounted) WidgetsBinding.instance.addPostFrameCallback((_) => Navigator.pop(context));
+      }
       return;
     }
 
-    final status = widget.group.statuses[index];
+    final status = currentGroup.statuses[index];
     
     // View it!
     if (status.userId != _currentUserId && !status.isViewed) {
@@ -136,13 +152,21 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
   }
 
   void _nextStatus() {
-    if (_currentIndex < widget.group.statuses.length - 1) {
+    if (_currentIndex < currentGroup.statuses.length - 1) {
       setState(() {
         _currentIndex++;
         _loadStatus(_currentIndex);
       });
     } else {
-      if (mounted) WidgetsBinding.instance.addPostFrameCallback((_) => Navigator.pop(context));
+      if (_currentGroupIndex < widget.groups.length - 1) {
+        setState(() {
+          _currentGroupIndex++;
+          _currentIndex = 0;
+          _loadStatus(0);
+        });
+      } else {
+        if (mounted) WidgetsBinding.instance.addPostFrameCallback((_) => Navigator.pop(context));
+      }
     }
   }
 
@@ -153,8 +177,16 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
         _loadStatus(_currentIndex);
       });
     } else {
-      _progress = 0.0;
-      // Restart current
+      if (_currentGroupIndex > 0) {
+        setState(() {
+          _currentGroupIndex--;
+          _currentIndex = widget.groups[_currentGroupIndex].statuses.length - 1;
+          _loadStatus(_currentIndex);
+        });
+      } else {
+        _progress = 0.0;
+        // Restart current
+      }
     }
   }
 
@@ -179,7 +211,7 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
   }
 
   Widget _buildTopBars() {
-    final total = widget.group.statuses.length;
+    final total = currentGroup.statuses.length;
     return Row(
       children: List.generate(total, (index) {
         double val = 0.0;
@@ -207,7 +239,7 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
     // In a real implementation, we'd navigate to the chat room or send via socket right here
     // Let's just simulate sending via SocketService or API. 
     // Usually WhatsApp replies just show up in the chat.
-    final status = widget.group.statuses[_currentIndex];
+    final status = currentGroup.statuses[_currentIndex];
     
     // For now we'll just close and show a toast
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Reply sent!')));
@@ -226,7 +258,7 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
     });
     _videoController?.pause();
 
-    final status = widget.group.statuses[_currentIndex];
+    final status = currentGroup.statuses[_currentIndex];
     final views = status.views ?? [];
 
     showModalBottomSheet(
@@ -295,10 +327,10 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.group.statuses.isEmpty) return const Scaffold(backgroundColor: Colors.black);
+    if (currentGroup.statuses.isEmpty) return const Scaffold(backgroundColor: Colors.black);
 
-    final status = widget.group.statuses[_currentIndex];
-    final user = widget.group.user;
+    final status = currentGroup.statuses[_currentIndex];
+    final user = currentGroup.user;
     final username = user['username'] ?? 'User';
     final avatarUrl = user['avatarUrl'];
     final isMine = user['id'] == _currentUserId;
@@ -311,6 +343,33 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
           onLongPressDown: _onLongPressDown,
           onLongPressUp: _onLongPressUp,
           onLongPressCancel: _onLongPressUp,
+          onHorizontalDragEnd: (details) {
+            if (details.primaryVelocity != null) {
+              if (details.primaryVelocity! > 0) {
+                // Swipe right -> Previous group
+                if (_currentGroupIndex > 0) {
+                  setState(() {
+                    _currentGroupIndex--;
+                    _currentIndex = 0;
+                    _loadStatus(0);
+                  });
+                } else {
+                  _progress = 0.0;
+                }
+              } else if (details.primaryVelocity! < 0) {
+                // Swipe left -> Next group
+                if (_currentGroupIndex < widget.groups.length - 1) {
+                  setState(() {
+                    _currentGroupIndex++;
+                    _currentIndex = 0;
+                    _loadStatus(0);
+                  });
+                } else {
+                  Navigator.pop(context);
+                }
+              }
+            }
+          },
           onVerticalDragEnd: (details) {
             if (details.primaryVelocity! > 0) {
               Navigator.pop(context); // Swipe down to exit

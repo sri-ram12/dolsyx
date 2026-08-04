@@ -13,11 +13,51 @@ import 'services/sound_service.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'services/api_service.dart';
+
 
 // Background FCM handler
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
+  final data = message.data;
+
+  // Handle incoming call notifications in background/killed state
+  if (data['type'] == 'CALL' || data['type'] == 'call' || data['callType'] != null) {
+    await flutterLocalNotificationsPlugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(callChannel);
+
+    final String callerName = data['callerName'] ?? 'Incoming Call';
+    final String callType = data['callType'] ?? 'audio';
+    final bool isAudioOnly = callType == 'audio';
+
+    await flutterLocalNotificationsPlugin.show(
+      id: 8888,
+      title: 'Incoming ${isAudioOnly ? 'Audio' : 'Video'} Call',
+      body: '$callerName is calling you...',
+      notificationDetails: NotificationDetails(
+        android: AndroidNotificationDetails(
+          callChannel.id,
+          callChannel.name,
+          channelDescription: callChannel.description,
+          icon: '@mipmap/ic_launcher',
+          largeIcon: const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
+          priority: Priority.max,
+          importance: Importance.max,
+          fullScreenIntent: true,
+          category: AndroidNotificationCategory.call,
+          ongoing: true,
+          autoCancel: false,
+          actions: <AndroidNotificationAction>[
+            const AndroidNotificationAction('decline', 'Decline', cancelNotification: true),
+            const AndroidNotificationAction('accept', 'Accept', cancelNotification: true),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
@@ -28,6 +68,14 @@ const AndroidNotificationChannel channel = AndroidNotificationChannel(
   'High Importance Notifications',
   description: 'This channel is used for important notifications.',
   importance: Importance.max,
+);
+
+const AndroidNotificationChannel callChannel = AndroidNotificationChannel(
+  'call_channel',
+  'Incoming Calls',
+  description: 'Full-screen incoming call notifications',
+  importance: Importance.max,
+  playSound: false, // Ringtone handled by SoundService
 );
 
 void main() async {
@@ -63,6 +111,9 @@ class DolsyxApp extends StatefulWidget {
 
 class _DolsyxAppState extends State<DolsyxApp> {
   bool _isInit = true;
+  String? _currentFcmUserId;
+  Map<String, dynamic>? _incomingCallData;
+
 
   @override
   void initState() {
@@ -70,8 +121,38 @@ class _DolsyxAppState extends State<DolsyxApp> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _setupGlobalCallListener();
       _setupForegroundFCM();
+      _handleFCMCallbacks();
     });
     _tryAutoLogin();
+  }
+
+  /// Handle FCM notification taps (app was in background and user tapped the notification)
+  void _handleFCMCallbacks() {
+    try {
+      if (Firebase.apps.isEmpty) return;
+      // When user taps a notification and app is brought to foreground
+      FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+        final data = message.data;
+        if (data['type'] == 'CALL' || data['type'] == 'call' || data['callType'] != null) {
+          if (_incomingCallData != null) {
+            _acceptIncomingCall();
+          } else {
+            // Construct incoming call data from push payload
+            setState(() {
+              _incomingCallData = {
+                'conversationId': data['conversationId'] ?? '',
+                'callerId': data['callerId'] ?? '',
+                'callerName': data['callerName'] ?? 'Incoming Call',
+                'callerAvatarUrl': data['callerAvatarUrl'],
+                'isAudioOnly': (data['callType'] ?? 'audio') == 'audio',
+                'initialOffer': null,
+              };
+            });
+            SoundService().startRingtone();
+          }
+        }
+      });
+    } catch (_) {}
   }
 
   Future<void> _setupForegroundFCM() async {
@@ -82,19 +163,58 @@ class _DolsyxAppState extends State<DolsyxApp> {
                 AndroidFlutterLocalNotificationsPlugin>()
             ?.createNotificationChannel(channel);
 
+        await flutterLocalNotificationsPlugin
+            .resolvePlatformSpecificImplementation<
+                AndroidFlutterLocalNotificationsPlugin>()
+            ?.createNotificationChannel(callChannel);
+
         const AndroidInitializationSettings initializationSettingsAndroid =
             AndroidInitializationSettings('@mipmap/ic_launcher');
         const InitializationSettings initializationSettings =
             InitializationSettings(android: initializationSettingsAndroid);
         await flutterLocalNotificationsPlugin.initialize(
           settings: initializationSettings,
+          onDidReceiveNotificationResponse: (details) {
+            final actionId = details.actionId;
+            if (actionId == 'accept') {
+              if (_incomingCallData != null && navigatorKey.currentState != null) {
+                _acceptIncomingCall();
+              }
+            } else if (actionId == 'decline') {
+              _declineIncomingCall();
+            } else {
+              if (_incomingCallData != null && navigatorKey.currentState != null) {
+                _acceptIncomingCall();
+              }
+            }
+          },
         );
 
         FirebaseMessaging.onMessage.listen((RemoteMessage message) {
           final RemoteNotification? notification = message.notification;
           final AndroidNotification? android = message.notification?.android;
+          final data = message.data;
+
+          // If incoming call arrives via FCM in foreground (fallback if socket delayed)
+          if (data['type'] == 'CALL' || data['type'] == 'call' || data['callType'] != null) {
+            if (_incomingCallData == null) {
+              _handleCallIncoming({
+                'conversationId': data['conversationId'] ?? '',
+                'callerId': data['callerId'] ?? '',
+                'callerName': data['callerName'] ?? 'Incoming Call',
+                'callerAvatarUrl': data['callerAvatarUrl'],
+                'callType': data['callType'] ?? 'audio',
+              });
+            }
+            return;
+          }
+
+          // Skip notifications for messages sent by current user
+          if (data['senderId'] != null && data['senderId'] == _currentFcmUserId) return;
 
           if (notification != null && android != null) {
+            // Play in-app notification sound
+            SoundService().playNotificationSound();
             flutterLocalNotificationsPlugin.show(
               id: notification.hashCode,
               title: notification.title,
@@ -107,6 +227,9 @@ class _DolsyxAppState extends State<DolsyxApp> {
                   icon: '@mipmap/ic_launcher',
                   priority: Priority.high,
                   importance: Importance.max,
+                  enableVibration: true,
+                  playSound: true,
+                  enableLights: true,
                 ),
               ),
             );
@@ -125,6 +248,25 @@ class _DolsyxAppState extends State<DolsyxApp> {
       setState(() {
         _isInit = false;
       });
+      _bindSocketListeners();
+    }
+  }
+
+  void _bindSocketListeners() {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    if (authProvider.isAuthenticated && authProvider.socketService.socket != null) {
+      authProvider.socketService.offCallIncoming(_handleCallIncoming);
+      authProvider.socketService.onCallIncoming(_handleCallIncoming);
+      authProvider.socketService.offCallEnded(_handleCallEndedGlobal);
+      authProvider.socketService.onCallEnded(_handleCallEndedGlobal);
+    }
+  }
+
+  void _handleCallEndedGlobal(dynamic data) {
+    if (mounted && _incomingCallData != null) {
+      setState(() => _incomingCallData = null);
+      SoundService().stopRingtone();
+      try { flutterLocalNotificationsPlugin.cancelAll(); } catch (_) {}
     }
   }
 
@@ -132,9 +274,18 @@ class _DolsyxAppState extends State<DolsyxApp> {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     
     authProvider.addListener(() {
-      if (authProvider.isAuthenticated && authProvider.socketService.socket != null) {
-        authProvider.socketService.offCallIncoming(_handleCallIncoming);
-        authProvider.socketService.onCallIncoming(_handleCallIncoming);
+      _bindSocketListeners();
+    });
+    _bindSocketListeners();
+
+    // When call ends (from any side), cancel the OS notification and clear banner
+    CallScreen.isCallActiveNotifier.addListener(() {
+      if (!CallScreen.isCallActiveNotifier.value) {
+        try { flutterLocalNotificationsPlugin.cancelAll(); } catch (_) {}
+        if (mounted && _incomingCallData != null) {
+          setState(() => _incomingCallData = null);
+          SoundService().stopRingtone();
+        }
       }
     });
   }
@@ -147,30 +298,100 @@ class _DolsyxAppState extends State<DolsyxApp> {
     final String callerId = data['callerId'] ?? '';
     final String callerName = data['callerName'] ?? 'Incoming Call';
     final String? callerAvatarUrl = data['callerAvatarUrl'] ?? data['callerAvatar'];
-    
     final Map<String, dynamic>? initialOffer = data['offer'];
 
+    // Don't show another incoming call UI if we're already on a call with this person
+    if (CallScreen.activeConversationId == conversationId) return;
+
+    // Always store banner data (so it's available when user returns to app)
+    if (mounted) {
+      setState(() {
+        _incomingCallData = {
+          'conversationId': conversationId,
+          'callerId': callerId,
+          'callerName': callerName,
+          'callerAvatarUrl': callerAvatarUrl,
+          'isAudioOnly': isAudioOnly,
+          'initialOffer': initialOffer,
+        };
+      });
+    }
+
+    // Play ringtone
     SoundService().startRingtone();
 
-    if (CallScreen.activeConversationId == conversationId) {
-      return;
+    // If app is in background/closed, ALSO fire a fullscreen OS notification
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    if (lifecycle != AppLifecycleState.resumed) {
+      try {
+        flutterLocalNotificationsPlugin.show(
+          id: 8888,
+          title: 'Incoming ${isAudioOnly ? 'Audio' : 'Video'} Call',
+          body: '$callerName is calling you...',
+          notificationDetails: NotificationDetails(
+            android: AndroidNotificationDetails(
+              callChannel.id,
+              callChannel.name,
+              channelDescription: callChannel.description,
+              icon: '@mipmap/ic_launcher',
+              largeIcon: const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
+              priority: Priority.max,
+              importance: Importance.max,
+              fullScreenIntent: true,
+              category: AndroidNotificationCategory.call,
+              ongoing: true,
+              autoCancel: false,
+              actions: <AndroidNotificationAction>[
+                const AndroidNotificationAction('decline', 'Decline', cancelNotification: true),
+                const AndroidNotificationAction('accept', 'Accept', cancelNotification: true),
+              ],
+            ),
+          ),
+        );
+      } catch (_) {}
     }
+  }
+
+  void _acceptIncomingCall() {
+    if (_incomingCallData == null) return;
+    final data = _incomingCallData!;
+    setState(() => _incomingCallData = null);
+    SoundService().stopRingtone();
+    // Cancel the OS fullscreen notification
+    flutterLocalNotificationsPlugin.cancelAll();
 
     if (navigatorKey.currentState != null) {
       navigatorKey.currentState!.push(
         MaterialPageRoute(
+          settings: const RouteSettings(name: 'CallScreen'),
           builder: (_) => CallScreen(
-            conversationId: conversationId,
-            remoteUserId: callerId,
-            remoteUserName: callerName,
-            remoteAvatarUrl: callerAvatarUrl,
-            isAudioOnly: isAudioOnly,
+            conversationId: data['conversationId'],
+            remoteUserId: data['callerId'],
+            remoteUserName: data['callerName'],
+            remoteAvatarUrl: data['callerAvatarUrl'],
+            isAudioOnly: data['isAudioOnly'],
             isIncoming: true,
-            initialOffer: initialOffer,
+            initialOffer: data['initialOffer'],
           ),
         ),
       );
     }
+  }
+
+  void _declineIncomingCall() {
+    if (_incomingCallData == null) return;
+    final data = _incomingCallData!;
+    if (mounted) setState(() => _incomingCallData = null);
+    SoundService().stopRingtone();
+    // Cancel the OS fullscreen notification
+    flutterLocalNotificationsPlugin.cancelAll();
+
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    authProvider.socketService.socket?.emit('call_reject', {
+      'callerId': data['callerId'],
+      'conversationId': data['conversationId'],
+      'callType': data['isAudioOnly'] ? 'audio' : 'video',
+    });
   }
 
   @override
@@ -191,6 +412,113 @@ class _DolsyxAppState extends State<DolsyxApp> {
               child: GlobalAppLockWrapper(
                 child: Column(
                   children: [
+                    // ── Modern Floating Incoming Call Alert Popup ──
+                    if (_incomingCallData != null)
+                      Material(
+                        color: Colors.transparent,
+                        child: Container(
+                          margin: EdgeInsets.only(
+                            top: MediaQuery.of(context).padding.top + 10,
+                            left: 14,
+                            right: 14,
+                            bottom: 10,
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF141E30), Color(0xFF243B55)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(24),
+                            boxShadow: const [
+                              BoxShadow(color: Colors.black87, blurRadius: 20, offset: Offset(0, 8)),
+                            ],
+                            border: Border.all(color: Colors.white24, width: 1.2),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: AppTheme.primaryColor, width: 2),
+                                ),
+                                child: CircleAvatar(
+                                  radius: 26,
+                                  backgroundColor: AppTheme.surfaceColor,
+                                  backgroundImage: _incomingCallData!['callerAvatarUrl'] != null && _incomingCallData!['callerAvatarUrl'].toString().isNotEmpty
+                                      ? NetworkImage(_incomingCallData!['callerAvatarUrl'].toString().startsWith('http') ? _incomingCallData!['callerAvatarUrl'] : '${ApiService.baseUrl.replaceAll('/api', '')}${_incomingCallData!['callerAvatarUrl']}')
+                                      : null,
+                                  child: _incomingCallData!['callerAvatarUrl'] == null ? const Icon(Icons.person, color: Colors.white, size: 30) : null,
+                                ),
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      _incomingCallData!['callerName'],
+                                      style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold, decoration: TextDecoration.none),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      children: [
+                                        Icon(
+                                          _incomingCallData!['isAudioOnly'] ? Icons.phone_in_talk : Icons.videocam,
+                                          color: Colors.greenAccent,
+                                          size: 15,
+                                        ),
+                                        const SizedBox(width: 5),
+                                        Flexible(
+                                          child: Text(
+                                            _incomingCallData!['isAudioOnly'] ? 'Audio call...' : 'Video call...',
+                                            style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w500, decoration: TextDecoration.none),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Row(
+                                children: [
+                                  GestureDetector(
+                                    onTap: _declineIncomingCall,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: const BoxDecoration(
+                                        gradient: LinearGradient(colors: [Color(0xFFFF416C), Color(0xFFFF4B2B)]),
+                                        shape: BoxShape.circle,
+                                        boxShadow: [BoxShadow(color: Colors.redAccent, blurRadius: 10)],
+                                      ),
+                                      child: const Icon(Icons.call_end, color: Colors.white, size: 24),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 14),
+                                  GestureDetector(
+                                    onTap: _acceptIncomingCall,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: const BoxDecoration(
+                                        gradient: LinearGradient(colors: [Color(0xFF11998E), Color(0xFF38EF7D)]),
+                                        shape: BoxShape.circle,
+                                        boxShadow: [BoxShadow(color: Colors.greenAccent, blurRadius: 10)],
+                                      ),
+                                      child: const Icon(Icons.call, color: Colors.white, size: 24),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                     // ── Ongoing Call Banner ──
                     ValueListenableBuilder<bool>(
                       valueListenable: CallScreen.isCallActiveNotifier,
@@ -198,20 +526,26 @@ class _DolsyxAppState extends State<DolsyxApp> {
                         if (!isActive) return const SizedBox.shrink();
                         return GestureDetector(
                           onTap: () {
-                            final state = CallScreen.activeCallState;
-                            if (state != null && navigatorKey.currentState != null) {
-                              navigatorKey.currentState!.push(
-                                MaterialPageRoute(
-                                  builder: (_) => CallScreen(
-                                    conversationId: CallScreen.activeConversationId ?? '',
-                                    remoteUserId: state.widget.remoteUserId,
-                                    remoteUserName: state.widget.remoteUserName,
-                                    remoteAvatarUrl: state.widget.remoteAvatarUrl,
-                                    isAudioOnly: state.widget.isAudioOnly,
-                                    isIncoming: false,
-                                  ),
-                                ),
-                              );
+                            if (navigatorKey.currentState == null) return;
+                            
+                            // Pop routes until we reach 'CallScreen'.
+                            // After minimize, the stack is:
+                            //   root → CallScreen → ChatListScreen
+                            // popUntil pops ChatListScreen and stops at CallScreen.
+                            bool found = false;
+                            navigatorKey.currentState!.popUntil((route) {
+                              if (route.settings.name == 'CallScreen') {
+                                found = true;
+                                return true; // stop here
+                              }
+                              return route.isFirst; // fallback: pop to root
+                            });
+
+                            // If not found, reset the notifier (call likely ended)
+                            if (!found) {
+                              if (CallScreen.activeCallState == null) {
+                                CallScreen.isCallActiveNotifier.value = false;
+                              }
                             }
                           },
                           child: Material(

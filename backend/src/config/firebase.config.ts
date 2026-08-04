@@ -47,6 +47,9 @@ export const sendPushNotification = async (fcmToken: string, title: string, body
 
   if (getApps().length > 0) {
     try {
+      const isCall = data?.type === "CALL" || data?.callType != null;
+      const channelId = isCall ? "call_channel" : "dolsyx_messages";
+
       await getMessaging().send({
         token: fcmToken,
         notification: {
@@ -58,13 +61,27 @@ export const sendPushNotification = async (fcmToken: string, title: string, body
         ) : {},
         android: {
           priority: 'high',
+          ttl: 0,
           notification: {
-            channelId: 'dolsyx_messages',
+            channelId,
             sound: 'default',
+            priority: 'high',
+            visibility: 'public',
+          },
+        },
+        apns: {
+          headers: {
+            'apns-priority': '10',
+          },
+          payload: {
+            aps: {
+              contentAvailable: true,
+              sound: 'default',
+            },
           },
         },
       });
-      console.log(`📲 Push notification sent successfully`);
+      console.log(`📲 Push notification sent successfully (${isCall ? 'CALL' : 'MESSAGE'})`);
     } catch (error: any) {
       if (error?.code === 'messaging/registration-token-not-registered') {
         console.log(`🗑️ Stale FCM token, should be cleaned up`);

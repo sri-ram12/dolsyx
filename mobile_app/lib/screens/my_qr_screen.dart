@@ -3,6 +3,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
+import '../widgets/color_avatar.dart';
 
 class MyQrScreen extends StatelessWidget {
   const MyQrScreen({super.key});
@@ -16,6 +17,7 @@ class MyQrScreen extends StatelessWidget {
 
     final userId = user['id'] ?? user['_id'];
     final username = user['username'] ?? 'User';
+    final avatarUrl = user['avatarUrl'];
 
     return Scaffold(
       appBar: AppBar(
@@ -33,10 +35,20 @@ class MyQrScreen extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(username, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black)),
-              const SizedBox(height: 8),
+              // Profile avatar
+              avatarUrl != null && avatarUrl.toString().isNotEmpty
+                  ? CircleAvatar(
+                      radius: 40,
+                      backgroundImage: avatarUrl.toString().startsWith('http')
+                          ? NetworkImage(avatarUrl)
+                          : NetworkImage('https://dolsyx-app.onrender.com$avatarUrl'),
+                    )
+                  : ColorAvatar(name: username, radius: 40, fontSize: 24),
+              const SizedBox(height: 12),
+              Text(username, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black)),
+              const SizedBox(height: 4),
               const Text('Scan to chat', style: TextStyle(color: Colors.grey)),
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
               QrImageView(
                 data: '{"id":"$userId","username":"$username","email":"${user['email'] ?? ''}","avatarUrl":"${user['avatarUrl'] ?? ''}"}',
                 version: QrVersions.auto,

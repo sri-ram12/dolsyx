@@ -4,11 +4,13 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:provider/provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/color_avatar.dart';
 import '../services/sound_service.dart';
 import '../services/contact_service.dart';
+import 'chat_list_screen.dart';
 
 class CallScreen extends StatefulWidget {
   final String conversationId;
@@ -45,6 +47,9 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   final Map<String, List<RTCIceCandidate>> _iceCandidateQueues = {};
   final Map<String, Map<String, dynamic>> _participants = {};
 
+  // Persistent remote stream per peer — tracks are ADDED to this, never replaced
+  final Map<String, MediaStream> _remoteStreams = {};
+
   MediaStream? _localStream;
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
 
@@ -73,10 +78,31 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
 
   static const _channel = MethodChannel('com.dolsyx/screen_share');
 
+  // Named socket handlers so we can selectively remove only OUR listeners in dispose()
+  late final Function(dynamic) _onCallAnswered;
+  late final Function(dynamic) _onCallRejected;
+  late final Function(dynamic) _onCallEnded;
+  late final Function(dynamic) _onIceCandidate;
+  late final Function(dynamic) _onUserAddedToCall;
+  late final Function(dynamic) _onCallIncoming;
+  late final Function(dynamic) _onScreenShareRequest;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+
+    // If a call is already active on a DIFFERENT conversation, this instance is a
+    // stale shell pushed accidentally — pop it so we don't fire a duplicate call_offer.
+    if (CallScreen.isCallActiveNotifier.value &&
+        CallScreen.activeConversationId != null &&
+        CallScreen.activeConversationId != widget.conversationId) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) Navigator.of(context).pop();
+      });
+      return;
+    }
+
     CallScreen.activeConversationId = widget.conversationId;
     CallScreen.activeCallState = this;
     _participants[widget.remoteUserId] = {
@@ -95,16 +121,18 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _initRenderers() async {
-    _isSpeakerOn = !widget.isAudioOnly;
-    Helper.setSpeakerphoneOn(_isSpeakerOn);
     await _localRenderer.initialize();
     _setupSocketListeners();
 
     if (widget.isIncoming) {
-      setState(() => _status = 'Ringing...');
-      _timeoutTimer = Timer(const Duration(minutes: 2), () {
-        if (!_callActive && mounted) _rejectCall();
-      });
+      if (widget.initialOffer != null) {
+        _acceptCall();
+      } else {
+        setState(() => _status = 'Ringing...');
+        _timeoutTimer = Timer(const Duration(minutes: 2), () {
+          if (!_callActive && mounted) _rejectCall();
+        });
+      }
     } else {
       _startCall();
     }
@@ -114,7 +142,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     final socket = Provider.of<AuthProvider>(context, listen: false).socketService.socket;
     if (socket == null) return;
 
-    socket.on('call_answered', (data) async {
+    _onCallAnswered = (data) async {
       if (!mounted) return;
       SoundService().stopRingtone();
       _timeoutTimer?.cancel();
@@ -130,14 +158,16 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         _flushIceCandidates(answererId);
       }
       if (_callTimer == null || !_callTimer!.isActive) _startTimer();
-    });
+    };
+    socket.on('call_answered', _onCallAnswered);
 
-    socket.on('call_rejected', (data) {
+    _onCallRejected = (data) {
       if (!mounted) return;
       _endCallLocally('Call rejected');
-    });
+    };
+    socket.on('call_rejected', _onCallRejected);
 
-    socket.on('call_ended', (data) {
+    _onCallEnded = (data) {
       if (!mounted) return;
       if (data?['status'] == 'answered_elsewhere') {
         _endCallLocally('Answered elsewhere');
@@ -150,9 +180,10 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       } else {
         _endCallLocally('Call ended');
       }
-    });
+    };
+    socket.on('call_ended', _onCallEnded);
 
-    socket.on('ice_candidate', (data) async {
+    _onIceCandidate = (data) async {
       if (!mounted) return;
       final fromUserId = data['fromUserId'];
       if (data['candidate'] != null) {
@@ -168,10 +199,11 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           await pc.addCandidate(candidate);
         }
       }
-    });
+    };
+    socket.on('ice_candidate', _onIceCandidate);
 
     // Group call: someone added a new user — we initiate to them
-    socket.on('user_added_to_call', (data) async {
+    _onUserAddedToCall = (data) async {
       if (!mounted) return;
       if (data['conversationId'] != widget.conversationId) return;
       final newUserId = data['newUserId'];
@@ -192,10 +224,11 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         'callerName': user?['username'] ?? 'User',
         'callerAvatar': user?['avatarUrl'],
       });
-    });
+    };
+    socket.on('user_added_to_call', _onUserAddedToCall);
 
     // Group call: a new participant calls us (auto-answer)
-    socket.on('call_incoming', (data) async {
+    _onCallIncoming = (data) async {
       if (!mounted) return;
       if (data['conversationId'] != widget.conversationId) return;
       final callerId = data['callerId'];
@@ -216,10 +249,11 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         'callerId': callerId,
         'answer': {'sdp': answer.sdp, 'type': answer.type},
       });
-    });
+    };
+    socket.on('call_incoming', _onCallIncoming);
 
     // Screen Share Request event
-    socket.on('screen_share_request', (data) {
+    _onScreenShareRequest = (data) {
       if (!mounted) return;
       final senderName = data['senderName'] ?? 'User';
       showDialog(
@@ -252,15 +286,20 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           ],
         ),
       );
-    });
+    };
+    socket.on('screen_share_request', _onScreenShareRequest);
   }
 
   void _removeParticipant(String userId) {
     _peerConnections[userId]?.close();
     _peerConnections[userId]?.dispose();
     _peerConnections.remove(userId);
+    _remoteRenderers[userId]?.srcObject = null;
     _remoteRenderers[userId]?.dispose();
     _remoteRenderers.remove(userId);
+    _remoteStreams[userId]?.getTracks().forEach((t) => t.stop());
+    _remoteStreams[userId]?.dispose();
+    _remoteStreams.remove(userId);
     _iceCandidateQueues.remove(userId);
     if (mounted) setState(() => _participants.remove(userId));
   }
@@ -320,31 +359,116 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       });
     };
 
-    pc.onTrack = (event) {
-      if (event.streams.isNotEmpty && mounted) {
-        setState(() => _remoteRenderers[targetUserId]?.srcObject = event.streams[0]);
+    pc.onConnectionState = (state) {
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected && mounted) {
+        // Ensure speaker is set correctly when connection is established
+        Helper.setSpeakerphoneOn(_isSpeakerOn);
+        // Make sure all local audio tracks are enabled and unmuted
+        _localStream?.getAudioTracks().forEach((t) { t.enabled = !_isMuted; });
+        // Force a UI rebuild so remote video appears immediately
+        if (mounted) setState(() {});
+      }
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed && mounted) {
+        // Try ICE restart on failure
+        pc.restartIce();
       }
     };
 
-    _localStream?.getTracks().forEach((track) => pc.addTrack(track, _localStream!));
+    // onTrack fires once per track (audio + video) in Unified Plan.
+    // We maintain ONE persistent MediaStream per peer so both audio and video
+    // tracks end up in the same stream and neither overwrites the other.
+    pc.onTrack = (event) async {
+      if (!mounted) return;
+
+      // Get or lazily create a persistent stream for this peer
+      if (!_remoteStreams.containsKey(targetUserId)) {
+        _remoteStreams[targetUserId] = await createLocalMediaStream('remote_$targetUserId');
+      }
+      final stream = _remoteStreams[targetUserId]!;
+
+      // Add the incoming track; always enable it so audio/video flows immediately
+      await stream.addTrack(event.track);
+      event.track.enabled = true;
+
+      // Also pull from event.streams if available (Plan B servers)
+      if (event.streams.isNotEmpty) {
+        for (final t in event.streams[0].getTracks()) {
+          t.enabled = true;
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _remoteRenderers[targetUserId]?.srcObject = stream;
+        });
+      }
+    };
+
+    // onAddStream: Plan B fallback — route into the same persistent stream
+    pc.onAddStream = (stream) async {
+      if (!mounted) return;
+      if (!_remoteStreams.containsKey(targetUserId)) {
+        _remoteStreams[targetUserId] = stream;
+      } else {
+        for (final t in stream.getTracks()) {
+          await _remoteStreams[targetUserId]!.addTrack(t);
+          t.enabled = true;
+        }
+      }
+      stream.getTracks().forEach((t) { t.enabled = true; });
+      if (mounted) {
+        setState(() {
+          _remoteRenderers[targetUserId]?.srcObject = _remoteStreams[targetUserId];
+        });
+      }
+    };
+
+    if (_localStream != null) {
+      for (final track in _localStream!.getTracks()) {
+        await pc.addTrack(track, _localStream!);
+      }
+    }
+
+    _flushIceCandidates(targetUserId);
     return pc;
   }
 
   Future<bool> _initWebRTC() async {
     try {
+      final micStatus = await Permission.microphone.request();
+      if (micStatus != PermissionStatus.granted) {
+        debugPrint('Microphone permission denied');
+        return false;
+      }
+      if (!widget.isAudioOnly) {
+        await Permission.camera.request();
+      }
+
       _localStream = await navigator.mediaDevices.getUserMedia({
-        'audio': true,
-        'video': widget.isAudioOnly ? false : {'facingMode': 'user'},
+        'audio': {
+          'echoCancellation': true,
+          'noiseSuppression': true,
+          'autoGainControl': true,
+        },
+        'video': widget.isAudioOnly ? false : {'facingMode': 'user', 'width': {'ideal': 1280}, 'height': {'ideal': 720}},
       });
       _localRenderer.srcObject = _localStream;
       if (widget.isAudioOnly) _isVideoOff = true;
+      
+      _isSpeakerOn = !widget.isAudioOnly;
+      Helper.setSpeakerphoneOn(_isSpeakerOn);
+      _localStream?.getAudioTracks().forEach((track) {
+        track.enabled = true;
+      });
       return true;
     } catch (e) {
+      debugPrint('getUserMedia error: $e');
       return false;
     }
   }
 
   Future<void> _startCall() async {
+    if (_callActive) return; // guard against double-init on this instance only
     setState(() => _status = 'Calling...');
     _timeoutTimer = Timer(const Duration(minutes: 2), () {
       if (!_callActive && mounted) _endCallLocally('No answer');
@@ -469,13 +593,30 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     SoundService().stopRingtone();
     _callTimer?.cancel();
     _timeoutTimer?.cancel();
+    _callActive = false;
     _localStream?.getTracks().forEach((t) => t.stop());
+    _localStream = null;
     _screenStream?.getTracks().forEach((t) => t.stop());
-    // Dispose all peer connections
+    _screenStream = null;
+    // Dispose all remote renderers
+    for (final r in _remoteRenderers.values) {
+      r.srcObject = null;
+      r.dispose();
+    }
+    _remoteRenderers.clear();
+    // Dispose all persistent remote streams
+    for (final s in _remoteStreams.values) {
+      s.getTracks().forEach((t) => t.stop());
+      s.dispose();
+    }
+    _remoteStreams.clear();
+    // Close and dispose all peer connections
     for (final pc in _peerConnections.values) {
       pc.close();
+      pc.dispose();
     }
     _peerConnections.clear();
+    _iceCandidateQueues.clear();
     if (!mounted) return;
     setState(() => _status = reason);
     Future.delayed(const Duration(milliseconds: 300), () {
@@ -637,7 +778,6 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     setState(() => _participants[newUserId] = {'username': newUserName, 'avatarUrl': newUserAvatar});
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final myUser = authProvider.user;
-    final myUserId = myUser?['id'];
     final myUserName = myUser?['username'] ?? 'User';
     final socket = authProvider.socketService.socket;
 
@@ -675,13 +815,15 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     SoundService().stopRingtone();
     _callTimer?.cancel();
     _timeoutTimer?.cancel();
-    final socketService = Provider.of<AuthProvider>(context, listen: false).socketService;
-    socketService.socket?.off('call_answered');
-    socketService.socket?.off('call_rejected');
-    socketService.socket?.off('call_ended');
-    socketService.socket?.off('ice_candidate');
-    socketService.socket?.off('user_added_to_call');
-    socketService.socket?.off('call_incoming');
+    final socket = Provider.of<AuthProvider>(context, listen: false).socketService.socket;
+    // Remove ONLY this screen's specific handlers — preserves global listeners in main.dart
+    socket?.off('call_answered', _onCallAnswered);
+    socket?.off('call_rejected', _onCallRejected);
+    socket?.off('call_ended', _onCallEnded);
+    socket?.off('ice_candidate', _onIceCandidate);
+    socket?.off('user_added_to_call', _onUserAddedToCall);
+    socket?.off('call_incoming', _onCallIncoming);
+    socket?.off('screen_share_request', _onScreenShareRequest);
     _localStream?.getTracks().forEach((t) => t.stop());
     _localStream?.dispose();
     _screenStream?.getTracks().forEach((t) => t.stop());
@@ -876,16 +1018,9 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      // During an active call, intercept back button so user doesn't accidentally kill the call.
-      // They should use the red hang-up button.
+      // Block ALL back-button pops during an active call.
+      // User must use the red hang-up button to end, or the minimize button to go home.
       canPop: !_callActive,
-      onPopInvokedWithResult: (didPop, result) {
-        if (!didPop && _callActive) {
-          // Minimize: pop back to previous screen, call remains active.
-          // The floating banner in main.dart will let them return.
-          Navigator.of(context).pop();
-        }
-      },
       child: Scaffold(
         backgroundColor: Colors.black,
         body: SafeArea(
@@ -951,6 +1086,29 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
                     ),
                   ),
                 ),
+
+              // === MINIMIZE BUTTON ===
+              Positioned(
+                top: 12, left: 16,
+                child: GestureDetector(
+                  onTap: () {
+                    // Push the home screen ON TOP of CallScreen so CallScreen
+                    // stays alive in the navigation stack. The green banner in
+                    // main.dart lets the user tap back into this CallScreen.
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        settings: const RouteSettings(name: 'ChatListScreen'),
+                        builder: (_) => const ChatListScreen(),
+                      ),
+                    );
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(24)),
+                    child: const Icon(Icons.keyboard_arrow_down, color: Colors.white, size: 24),
+                  ),
+                ),
+              ),
 
               // === ADD PARTICIPANT BUTTON ===
               if (_callActive && _participants.length < 3)

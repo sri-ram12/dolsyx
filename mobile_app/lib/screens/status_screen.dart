@@ -139,10 +139,46 @@ class _StatusScreenState extends State<StatusScreen> {
   }
 
   void _viewStatus(UserStatusGroup group) {
+    final currentUser = Provider.of<AuthProvider>(context, listen: false).user;
+    final currentUserId = currentUser?['id'];
+    
+    // Compute the ordered list of groups just like in build()
+    UserStatusGroup? myGroup;
+    List<UserStatusGroup> recentUpdates = [];
+    List<UserStatusGroup> viewedUpdates = [];
+    List<UserStatusGroup> mutedUpdates = [];
+
+    for (var g in _groups) {
+      if (g.user['id'] == currentUserId) {
+        myGroup = g;
+      } else if (g.isMuted) {
+        mutedUpdates.add(g);
+      } else if (g.hasUnread) {
+        recentUpdates.add(g);
+      } else {
+        viewedUpdates.add(g);
+      }
+    }
+    
+    List<UserStatusGroup> allViewableGroups = [];
+    if (myGroup != null && myGroup.statuses.isNotEmpty) allViewableGroups.add(myGroup);
+    allViewableGroups.addAll(recentUpdates);
+    allViewableGroups.addAll(viewedUpdates);
+    allViewableGroups.addAll(mutedUpdates);
+    
+    int initialIndex = allViewableGroups.indexWhere((g) => g.user['id'] == group.user['id']);
+    if (initialIndex == -1) {
+      allViewableGroups = [group];
+      initialIndex = 0;
+    }
+
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => StatusViewScreen(group: group),
+        builder: (_) => StatusViewScreen(
+          groups: allViewableGroups,
+          initialGroupIndex: initialIndex,
+        ),
       ),
     ).then((_) => _fetchStatuses());
   }

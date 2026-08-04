@@ -774,18 +774,21 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
           ] else if (_selectedIndex == 3) ...[
             PopupMenuButton<String>(
               icon: const Icon(Icons.more_vert),
-              onSelected: (value) async {
-                if (value == 'clear_logs') {
-                  final success = await _chatService.clearCallLogs();
-                  if (success) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Call logs cleared')));
-                  }
+              onSelected: (value) {
+                if (value == 'clear_all_calls') {
+                  CallsTab.clearAllCallsGlobal?.call();
                 }
               },
               itemBuilder: (context) => [
                 const PopupMenuItem(
-                  value: 'clear_logs',
-                  child: Text('Clear call logs'),
+                  value: 'clear_all_calls',
+                  child: Row(
+                    children: [
+                      Icon(Icons.delete_sweep, color: Colors.redAccent, size: 20),
+                      SizedBox(width: 8),
+                      Text('Clear all call logs'),
+                    ],
+                  ),
                 ),
               ],
             )
@@ -804,13 +807,16 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
             ),
             PopupMenuButton<String>(
               icon: const Icon(Icons.more_vert),
-              onSelected: (value) {
+              onSelected: (value) async {
                 if (value == 'settings') {
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
                 } else if (value == 'logout') {
                   _handleLogout();
                 } else if (value == 'new_group') {
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateGroupScreen()));
+                  final res = await Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateGroupScreen()));
+                  if (res == true) {
+                    _fetchChats();
+                  }
                 }
               },
               itemBuilder: (context) => [
@@ -930,9 +936,12 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                           ListTile(
                             leading: Icon(Icons.group, color: AppTheme.primaryColor),
                             title: Text('New Group Chat', style: TextStyle(color: AppTheme.textPrimary)),
-                            onTap: () {
+                            onTap: () async {
                               Navigator.pop(context);
-                              Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateGroupScreen()));
+                              final res = await Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateGroupScreen()));
+                              if (res == true) {
+                                _fetchChats();
+                              }
                             },
                           ),
                         ],

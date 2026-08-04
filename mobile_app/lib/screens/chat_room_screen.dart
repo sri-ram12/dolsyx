@@ -36,6 +36,7 @@ class ChatRoomScreen extends StatefulWidget {
   final String? avatarUrl;
   final String? remoteUserId;
   final Map<String, dynamic>? remoteUser;
+  final bool autoStartSearch;
 
   const ChatRoomScreen({
     super.key,
@@ -44,6 +45,7 @@ class ChatRoomScreen extends StatefulWidget {
     this.avatarUrl,
     this.remoteUserId,
     this.remoteUser,
+    this.autoStartSearch = false,
   });
 
   @override
@@ -135,6 +137,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.autoStartSearch) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _startSearch());
+    }
     _checkIfContact();
     _checkBlockedStatus();
     _fetchMessages();
@@ -770,6 +775,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             builder: (_) => GroupSettingsScreen(
               conversationId: widget.conversationId,
               groupName: widget.chatName,
+              groupAvatarUrl: chat!.avatarUrl,
               participants: chat!.participants ?? [],
             ),
           ),
@@ -1388,7 +1394,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               : AppBar(
               titleSpacing: 0,
               title: GestureDetector(
-                onTap: () {
+                onTap: () async {
                   if (widget.remoteUserId != null) {
                     final userMap = widget.remoteUser != null
                         ? {...widget.remoteUser!, 'conversationId': widget.conversationId}
@@ -1398,12 +1404,15 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                             'avatarUrl': widget.avatarUrl,
                             'conversationId': widget.conversationId,
                           };
-                    Navigator.push(
+                    final res = await Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (_) => OtherUserProfileScreen(user: userMap),
                       ),
                     );
+                    if (res == 'start_search') {
+                      _startSearch();
+                    }
                   } else {
                     _openGroupSettings();
                   }
@@ -1465,15 +1474,19 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               actions: [
                 if (widget.remoteUserId != null) ...[
                   IconButton(
-                    icon: Icon(Icons.search, color: AppTheme.textPrimary),
-                    onPressed: _startSearch,
-                  ),
-                  IconButton(
                     icon: Icon(Icons.videocam, color: AppTheme.textPrimary),
                     onPressed: () {
+                      if (CallScreen.isCallActiveNotifier.value && CallScreen.activeConversationId == widget.conversationId) {
+                        final state = CallScreen.activeCallState;
+                        if (state != null && state.mounted) {
+                          Navigator.popUntil(context, (route) => route.isFirst || route.settings.name == 'CallScreen');
+                          return;
+                        }
+                      }
                       Navigator.push(
                         context,
                         MaterialPageRoute(
+                          settings: const RouteSettings(name: 'CallScreen'),
                           builder: (_) => CallScreen(
                             conversationId: widget.conversationId,
                             remoteUserId: widget.remoteUserId!,
@@ -1489,9 +1502,17 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                   IconButton(
                     icon: Icon(Icons.call, color: AppTheme.textPrimary),
                     onPressed: () {
+                      if (CallScreen.isCallActiveNotifier.value && CallScreen.activeConversationId == widget.conversationId) {
+                        final state = CallScreen.activeCallState;
+                        if (state != null && state.mounted) {
+                          Navigator.popUntil(context, (route) => route.isFirst || route.settings.name == 'CallScreen');
+                          return;
+                        }
+                      }
                       Navigator.push(
                         context,
                         MaterialPageRoute(
+                          settings: const RouteSettings(name: 'CallScreen'),
                           builder: (_) => CallScreen(
                             conversationId: widget.conversationId,
                             remoteUserId: widget.remoteUserId!,
@@ -1507,7 +1528,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 ],
                 PopupMenuButton<String>(
                   icon: Icon(Icons.more_vert, color: AppTheme.textPrimary),
-                  onSelected: (value) {
+                  onSelected: (value) async {
                     if (value == 'search') {
                       _startSearch();
                     } else if (value == 'view_contact' && widget.remoteUserId != null) {
@@ -1519,10 +1540,13 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                               'avatarUrl': widget.avatarUrl,
                               'conversationId': widget.conversationId,
                             };
-                      Navigator.push(
+                      final res = await Navigator.push(
                         context,
                         MaterialPageRoute(builder: (_) => OtherUserProfileScreen(user: userMap)),
                       );
+                      if (res == 'start_search') {
+                        _startSearch();
+                      }
                     } else if (value == 'clear_chat') {
                       _confirmClearChat();
                     } else if (value == 'block_user') {

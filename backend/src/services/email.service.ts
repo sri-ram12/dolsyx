@@ -246,7 +246,7 @@ class EmailService {
       });
 
       console.log(`[EmailService] OTP email sent to ${options.to}. MessageID: ${info.messageId}`);
-      
+
       // If Ethereal test transport, log the preview URL
       const previewUrl = nodemailer.getTestMessageUrl(info);
       if (previewUrl) {
@@ -265,3 +265,4 @@ class EmailService {
 }
 
 export const emailService = new EmailService();
+

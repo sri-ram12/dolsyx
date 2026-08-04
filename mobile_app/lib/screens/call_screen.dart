@@ -419,13 +419,15 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         }
       } else {
         // Fallback if event.streams is empty
-        _remoteStreams.putIfAbsent(targetUserId, () => MediaStream(event.track.id, 'remote_$targetUserId'));
-        _remoteStreams[targetUserId]?.addTrack(event.track);
-        if (mounted) {
-          setState(() {
-            _remoteRenderers[targetUserId]?.srcObject = _remoteStreams[targetUserId];
-          });
-        }
+        createLocalMediaStream('remote_$targetUserId').then((stream) {
+          stream.addTrack(event.track);
+          _remoteStreams[targetUserId] = stream;
+          if (mounted) {
+            setState(() {
+              _remoteRenderers[targetUserId]?.srcObject = stream;
+            });
+          }
+        });
       }
       
       // Ensure speakerphone is enabled so incoming voice plays loudly

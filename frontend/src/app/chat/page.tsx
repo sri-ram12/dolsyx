@@ -248,14 +248,21 @@ export default function ChatPage() {
   };
 
   const handleAcceptCall = async () => {
-    if (!callState.offer || !callState.peerId) return;
+    if (!callState.peerId) return;
     setCallState((prev) => ({ ...prev, status: "connected" }));
     try {
-      const answer = await handleOffer(callState.offer, callState.type);
-      socket?.emit("call_answer", {
-        callerId: callState.peerId,
-        answer,
-      });
+      if (callState.offer) {
+        const answer = await handleOffer(callState.offer, callState.type);
+        socket?.emit("call_answer", {
+          callerId: callState.peerId,
+          answer,
+        });
+      } else {
+        socket?.emit("request_call_offer", {
+          callerId: callState.peerId,
+          conversationId: callState.conversationId,
+        });
+      }
     } catch (e) {
       console.error("Failed to accept call:", e);
       handleDeclineCall();
@@ -630,6 +637,23 @@ export default function ChatPage() {
       });
     });
 
+    socket.on("request_call_offer", async (data: { requesterId: string; conversationId: string }) => {
+      try {
+        const type = callStateRef.current.type || "video";
+        const offer = await createOffer(type);
+        socket.emit("call_offer", {
+          targetUserId: data.requesterId,
+          offer,
+          callType: type,
+          conversationId: data.conversationId,
+          callerName: user?.username || "Someone",
+          callerAvatar: user?.avatarUrl || null,
+        });
+      } catch (e) {
+        console.error("Failed to re-send offer on request:", e);
+      }
+    });
+
     socket.on("call_answered", async (data: { answer: any; answererId: string }) => {
       setCallState((prev) => ({ ...prev, status: "connected" }));
       await handleAnswer(data.answer);
@@ -663,6 +687,7 @@ export default function ChatPage() {
       socket.off("new_message");
       socket.off("new_status");
       socket.off("call_incoming");
+      socket.off("request_call_offer");
       socket.off("call_answered");
       socket.off("call_rejected");
       socket.off("call_ended");

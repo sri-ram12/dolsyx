@@ -204,51 +204,69 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
 
     // Group call: someone added a new user — we initiate to them
     _onUserAddedToCall = (data) async {
-      if (!mounted) return;
-      if (data['conversationId'] != widget.conversationId) return;
-      final newUserId = data['newUserId'];
-      final newUserName = data['newUserName'];
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      setState(() {
-        _participants[newUserId] = {'username': newUserName, 'avatarUrl': null};
-      });
-      final pc = await _createPeerConnection(newUserId);
-      final offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      final user = authProvider.user;
-      authProvider.socketService.socket?.emit('call_offer', {
-        'targetUserId': newUserId,
-        'offer': {'sdp': offer.sdp, 'type': offer.type},
-        'callType': widget.isAudioOnly ? 'audio' : 'video',
-        'conversationId': widget.conversationId,
-        'callerName': user?['username'] ?? 'User',
-        'callerAvatar': user?['avatarUrl'],
-      });
+      if (!mounted || data == null) return;
+      try {
+        if (data['conversationId'] != widget.conversationId) return;
+        final newUserId = data['newUserId'] as String?;
+        final newUserName = data['newUserName'] as String? ?? 'User';
+        if (newUserId == null) return;
+        final authProvider = Provider.of<AuthProvider>(context, listen: false);
+        setState(() {
+          _participants[newUserId] = {'username': newUserName, 'avatarUrl': null};
+        });
+        final pc = await _createPeerConnection(newUserId);
+        final offerConstraints = <String, dynamic>{
+          'offerToReceiveAudio': 1,
+          'offerToReceiveVideo': widget.isAudioOnly ? 0 : 1,
+        };
+        final offer = await pc.createOffer(offerConstraints);
+        await pc.setLocalDescription(offer);
+        final user = authProvider.user;
+        authProvider.socketService.socket?.emit('call_offer', {
+          'targetUserId': newUserId,
+          'offer': {'sdp': offer.sdp, 'type': offer.type},
+          'callType': widget.isAudioOnly ? 'audio' : 'video',
+          'conversationId': widget.conversationId,
+          'callerName': user?['username'] ?? 'User',
+          'callerAvatar': user?['avatarUrl'],
+        });
+      } catch (e) {
+        debugPrint('[WebRTC] user_added_to_call error: $e');
+      }
     };
     socket.on('user_added_to_call', _onUserAddedToCall);
 
     // Group call: a new participant calls us (auto-answer)
     _onCallIncoming = (data) async {
-      if (!mounted) return;
-      if (data['conversationId'] != widget.conversationId) return;
-      final callerId = data['callerId'];
-      final callerName = data['callerName'];
-      final callerAvatarUrl = data['callerAvatarUrl'];
-      final offerData = data['offer'];
-      setState(() {
-        _participants[callerId] = {'username': callerName, 'avatarUrl': callerAvatarUrl};
-      });
-      final pc = await _createPeerConnection(callerId);
-      final offer = RTCSessionDescription(offerData['sdp'], offerData['type']);
-      await pc.setRemoteDescription(offer);
-      _flushIceCandidates(callerId);
-      final answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      if (!mounted) return;
-      Provider.of<AuthProvider>(context, listen: false).socketService.socket?.emit('call_answer', {
-        'callerId': callerId,
-        'answer': {'sdp': answer.sdp, 'type': answer.type},
-      });
+      if (!mounted || data == null) return;
+      try {
+        if (data['conversationId'] != widget.conversationId) return;
+        final callerId = data['callerId'] as String?;
+        final callerName = data['callerName'] as String? ?? 'User';
+        final callerAvatarUrl = data['callerAvatarUrl'];
+        final offerData = data['offer'];
+        if (callerId == null || offerData == null) return;
+        setState(() {
+          _participants[callerId] = {'username': callerName, 'avatarUrl': callerAvatarUrl};
+        });
+        final pc = await _createPeerConnection(callerId);
+        final offer = RTCSessionDescription(offerData['sdp'], offerData['type']);
+        await pc.setRemoteDescription(offer);
+        _flushIceCandidates(callerId);
+        final answerConstraints = <String, dynamic>{
+          'offerToReceiveAudio': 1,
+          'offerToReceiveVideo': widget.isAudioOnly ? 0 : 1,
+        };
+        final answer = await pc.createAnswer(answerConstraints);
+        await pc.setLocalDescription(answer);
+        if (!mounted) return;
+        Provider.of<AuthProvider>(context, listen: false).socketService.socket?.emit('call_answer', {
+          'callerId': callerId,
+          'answer': {'sdp': answer.sdp, 'type': answer.type},
+        });
+      } catch (e) {
+        debugPrint('[WebRTC] call_incoming error: $e');
+      }
     };
     socket.on('call_incoming', _onCallIncoming);
 
@@ -437,11 +455,14 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     try {
       final micStatus = await Permission.microphone.request();
       if (micStatus != PermissionStatus.granted) {
-        debugPrint('Microphone permission denied');
+        debugPrint('[WebRTC] Microphone permission denied');
         return false;
       }
       if (!widget.isAudioOnly) {
-        await Permission.camera.request();
+        final camStatus = await Permission.camera.request();
+        if (camStatus != PermissionStatus.granted) {
+          debugPrint('[WebRTC] Camera permission denied — falling back to audio-only');
+        }
       }
 
       _localStream = await navigator.mediaDevices.getUserMedia({
@@ -450,11 +471,20 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           'noiseSuppression': true,
           'autoGainControl': true,
         },
-        'video': widget.isAudioOnly ? false : {'facingMode': 'user', 'width': {'ideal': 1280}, 'height': {'ideal': 720}},
+        'video': widget.isAudioOnly
+            ? false
+            : {'facingMode': 'user', 'width': {'ideal': 1280}, 'height': {'ideal': 720}},
       });
+
+      // Verify we actually got audio tracks — empty stream means hardware isn't ready
+      if (_localStream == null || _localStream!.getAudioTracks().isEmpty) {
+        debugPrint('[WebRTC] getUserMedia returned no audio tracks');
+        return false;
+      }
+
       _localRenderer.srcObject = _localStream;
       if (widget.isAudioOnly) _isVideoOff = true;
-      
+
       _isSpeakerOn = !widget.isAudioOnly;
       Helper.setSpeakerphoneOn(_isSpeakerOn);
       _localStream?.getAudioTracks().forEach((track) {
@@ -462,13 +492,13 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       });
       return true;
     } catch (e) {
-      debugPrint('getUserMedia error: $e');
+      debugPrint('[WebRTC] getUserMedia error: $e');
       return false;
     }
   }
 
   Future<void> _startCall() async {
-    if (_callActive) return; // guard against double-init on this instance only
+    if (_callActive) return;
     setState(() => _status = 'Calling...');
     _timeoutTimer = Timer(const Duration(minutes: 2), () {
       if (!_callActive && mounted) _endCallLocally('No answer');
@@ -479,12 +509,18 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     final success = await _initWebRTC();
     if (!mounted) return;
     if (!success) {
-      setState(() { _hardwareFailed = true; _status = 'Hardware not supported'; });
+      setState(() { _hardwareFailed = true; _status = 'Microphone not available'; });
       return;
     }
     try {
       final pc = await _createPeerConnection(widget.remoteUserId);
-      final offer = await pc.createOffer();
+      // Explicit offer constraints are required on some Android WebRTC builds.
+      // Without them, createOffer() can fail with WEBRTC_CREATE_OFFER_ERROR.
+      final offerConstraints = <String, dynamic>{
+        'offerToReceiveAudio': 1,
+        'offerToReceiveVideo': widget.isAudioOnly ? 0 : 1,
+      };
+      final offer = await pc.createOffer(offerConstraints);
       await pc.setLocalDescription(offer);
       authProvider.socketService.socket?.emit('call_offer', {
         'targetUserId': widget.remoteUserId,
@@ -495,7 +531,8 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         'callerAvatar': authProvider.user?['avatarUrl'],
       });
     } catch (e) {
-      // silently handle
+      debugPrint('[WebRTC] _startCall error: $e');
+      if (mounted) setState(() => _status = 'Failed to start call');
     }
   }
 
@@ -530,7 +567,12 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         final offer = RTCSessionDescription(widget.initialOffer!['sdp'], widget.initialOffer!['type']);
         await pc.setRemoteDescription(offer);
         _flushIceCandidates(widget.remoteUserId);
-        final answer = await pc.createAnswer();
+        // Explicit answer constraints for compatibility with Android WebRTC builds
+        final answerConstraints = <String, dynamic>{
+          'offerToReceiveAudio': 1,
+          'offerToReceiveVideo': widget.isAudioOnly ? 0 : 1,
+        };
+        final answer = await pc.createAnswer(answerConstraints);
         await pc.setLocalDescription(answer);
         authProvider.socketService.socket?.emit('call_answer', {
           'callerId': widget.remoteUserId,
@@ -538,7 +580,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         });
         _startTimer();
       } catch (e) {
-        // silently handle
+        debugPrint('[WebRTC] _acceptCall error: $e');
       }
     }
   }

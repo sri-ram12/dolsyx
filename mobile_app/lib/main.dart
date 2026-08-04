@@ -60,9 +60,10 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
           importance: Importance.max,
           fullScreenIntent: true,
           category: AndroidNotificationCategory.call,
+          sound: const RawResourceAndroidNotificationSound('dolsyx_ringtone'),
           audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
           playSound: true,
-          enableVibration: true,
+          enableVibration: false,
           ongoing: true,
           autoCancel: false,
           actions: <AndroidNotificationAction>[
@@ -79,21 +80,23 @@ final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
 
 const AndroidNotificationChannel channel = AndroidNotificationChannel(
-  'dolsyx_messages',
+  'dolsyx_messages_v2',
   'Message Notifications',
   description: 'Notifications for incoming text and media messages',
   importance: Importance.max,
   playSound: true,
-  enableVibration: true,
+  enableVibration: false,
+  sound: RawResourceAndroidNotificationSound('dolsyx_message'),
 );
 
 const AndroidNotificationChannel callChannel = AndroidNotificationChannel(
-  'call_channel_v2',
+  'call_channel_v3',
   'Incoming Calls',
-  description: 'Full-screen incoming call notifications',
+  description: 'Full-screen incoming call notifications with ringtone',
   importance: Importance.max,
   playSound: true,
-  enableVibration: true,
+  enableVibration: false,
+  sound: RawResourceAndroidNotificationSound('dolsyx_ringtone'),
 );
 
 void main() async {
@@ -368,50 +371,49 @@ class _DolsyxAppState extends State<DolsyxApp> {
       });
     }
 
-    // Play ringtone
+    // Play ringtone via SoundService (foreground audio)
     SoundService().startRingtone();
 
-    // If app is in background/closed, ALSO fire a fullscreen OS notification
-    final lifecycle = WidgetsBinding.instance.lifecycleState;
-    if (lifecycle != AppLifecycleState.resumed) {
-      try {
-        flutterLocalNotificationsPlugin.show(
-          id: 8888,
-          title: 'Incoming ${isAudioOnly ? 'Audio' : 'Video'} Call',
-          body: '$callerName is calling you...',
-          payload: jsonEncode({
-            'conversationId': conversationId,
-            'callerId': callerId,
-            'callerName': callerName,
-            'callerAvatarUrl': callerAvatarUrl,
-            'isAudioOnly': isAudioOnly,
-            'initialOffer': initialOffer,
-          }),
-          notificationDetails: NotificationDetails(
-            android: AndroidNotificationDetails(
-              callChannel.id,
-              callChannel.name,
-              channelDescription: callChannel.description,
-              icon: '@mipmap/ic_launcher',
-              largeIcon: const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
-              priority: Priority.max,
-              importance: Importance.max,
-              fullScreenIntent: true,
-              category: AndroidNotificationCategory.call,
-              audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
-              playSound: true,
-              enableVibration: true,
-              ongoing: true,
-              autoCancel: false,
-              actions: <AndroidNotificationAction>[
-                const AndroidNotificationAction('decline', 'Decline', cancelNotification: true),
-                const AndroidNotificationAction('accept', 'Accept', cancelNotification: true),
-              ],
-            ),
+    // ALWAYS fire the OS notification with ringtone so it works in ALL states:
+    // foreground (heads-up banner), background (heads-up + sound), killed (full-screen alert + sound)
+    try {
+      flutterLocalNotificationsPlugin.show(
+        id: 8888,
+        title: 'Incoming ${isAudioOnly ? 'Audio' : 'Video'} Call',
+        body: '$callerName is calling you...',
+        payload: jsonEncode({
+          'conversationId': conversationId,
+          'callerId': callerId,
+          'callerName': callerName,
+          'callerAvatarUrl': callerAvatarUrl,
+          'isAudioOnly': isAudioOnly,
+          'initialOffer': initialOffer,
+        }),
+        notificationDetails: NotificationDetails(
+          android: AndroidNotificationDetails(
+            callChannel.id,
+            callChannel.name,
+            channelDescription: callChannel.description,
+            icon: '@mipmap/ic_launcher',
+            largeIcon: const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
+            priority: Priority.max,
+            importance: Importance.max,
+            fullScreenIntent: true,
+            category: AndroidNotificationCategory.call,
+            sound: const RawResourceAndroidNotificationSound('dolsyx_ringtone'),
+            audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
+            playSound: true,
+            enableVibration: false,
+            ongoing: true,
+            autoCancel: false,
+            actions: <AndroidNotificationAction>[
+              const AndroidNotificationAction('decline', 'Decline', cancelNotification: true),
+              const AndroidNotificationAction('accept', 'Accept', cancelNotification: true),
+            ],
           ),
-        );
-      } catch (_) {}
-    }
+        ),
+      );
+    } catch (_) {}
   }
 
   void _acceptIncomingCall() {

@@ -58,7 +58,11 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   bool _hardwareFailed = false;
   bool _callActive = false;
   bool _isSpeakerOn = false;
+  bool _isDisposed = false;
   String _status = 'Connecting...';
+
+  // Stored socket reference — avoids calling Provider.of(context) in native callbacks
+  dynamic _socket;
 
   // Call Timer
   Timer? _callTimer;
@@ -139,7 +143,8 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   }
 
   void _setupSocketListeners() {
-    final socket = Provider.of<AuthProvider>(context, listen: false).socketService.socket;
+    _socket = Provider.of<AuthProvider>(context, listen: false).socketService.socket;
+    final socket = _socket;
     if (socket == null) return;
 
     _onCallAnswered = (data) async {
@@ -317,17 +322,22 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   }
 
   void _removeParticipant(String userId) {
-    _peerConnections[userId]?.close();
-    _peerConnections[userId]?.dispose();
-    _peerConnections.remove(userId);
-    _remoteRenderers[userId]?.srcObject = null;
-    _remoteRenderers[userId]?.dispose();
-    _remoteRenderers.remove(userId);
-    _remoteStreams[userId]?.getTracks().forEach((t) => t.stop());
-    _remoteStreams[userId]?.dispose();
-    _remoteStreams.remove(userId);
-    _iceCandidateQueues.remove(userId);
-    if (mounted) setState(() => _participants.remove(userId));
+    if (_isDisposed) return;
+    try {
+      _peerConnections[userId]?.close();
+      _peerConnections[userId]?.dispose();
+      _peerConnections.remove(userId);
+      _remoteRenderers[userId]?.srcObject = null;
+      _remoteRenderers[userId]?.dispose();
+      _remoteRenderers.remove(userId);
+      _remoteStreams[userId]?.getTracks().forEach((t) => t.stop());
+      _remoteStreams[userId]?.dispose();
+      _remoteStreams.remove(userId);
+      _iceCandidateQueues.remove(userId);
+      if (mounted && !_isDisposed) setState(() => _participants.remove(userId));
+    } catch (e) {
+      debugPrint('[CallScreen] _removeParticipant error (ignored): $e');
+    }
   }
 
   void _startTimer() {
@@ -375,7 +385,9 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     if (mounted) setState(() => _remoteRenderers[targetUserId] = renderer);
 
     pc.onIceCandidate = (candidate) {
-      Provider.of<AuthProvider>(context, listen: false).socketService.socket?.emit('ice_candidate', {
+      if (_isDisposed) return;
+      // Use stored _socket reference — NEVER use Provider.of(context) inside a native callback
+      _socket?.emit('ice_candidate', {
         'targetUserId': targetUserId,
         'candidate': {
           'candidate': candidate.candidate,
@@ -400,57 +412,67 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       }
     };
 
-    // onTrack fires once per track (audio + video) in Unified Plan
+    // onTrack fires once per audio track and once per video track (Unified Plan)
     pc.onTrack = (event) {
-      if (!mounted) return;
-      
-      // Enable the incoming track
+      if (_isDisposed || !mounted) return;
       event.track.enabled = true;
 
-      if (event.streams.isNotEmpty) {
-        final stream = event.streams[0];
-        stream.getAudioTracks().forEach((t) => t.enabled = true);
-        stream.getVideoTracks().forEach((t) => t.enabled = true);
-        
-        if (mounted) {
+      // Prefer the stream provided by the event
+      MediaStream? incomingStream = event.streams.isNotEmpty ? event.streams[0] : null;
+
+      if (incomingStream != null) {
+        // Use the event stream directly — it already contains all tracks
+        incomingStream.getAudioTracks().forEach((t) { t.enabled = true; });
+        incomingStream.getVideoTracks().forEach((t) { t.enabled = true; });
+        _remoteStreams[targetUserId] = incomingStream;
+        if (mounted && !_isDisposed) {
           setState(() {
-            _remoteRenderers[targetUserId]?.srcObject = stream;
+            _remoteRenderers[targetUserId]?.srcObject = incomingStream;
           });
         }
+        // Enable speaker so remote audio is heard
+        Helper.setSpeakerphoneOn(true);
       } else {
-        // Fallback if event.streams is empty
-        createLocalMediaStream('remote_$targetUserId').then((stream) {
-          stream.addTrack(event.track);
-          _remoteStreams[targetUserId] = stream;
-          if (mounted) {
-            setState(() {
-              _remoteRenderers[targetUserId]?.srcObject = stream;
-            });
-          }
-        });
+        // Fallback: build a persistent stream manually and add each arriving track
+        final existing = _remoteStreams[targetUserId];
+        if (existing != null) {
+          existing.addTrack(event.track);
+          event.track.enabled = true;
+          if (mounted && !_isDisposed) setState(() { _remoteRenderers[targetUserId]?.srcObject = existing; });
+        } else {
+          createLocalMediaStream('remote_$targetUserId').then((stream) {
+            if (_isDisposed) return;
+            stream.addTrack(event.track);
+            event.track.enabled = true;
+            _remoteStreams[targetUserId] = stream;
+            if (mounted && !_isDisposed) {
+              setState(() { _remoteRenderers[targetUserId]?.srcObject = stream; });
+            }
+          });
+        }
+        Helper.setSpeakerphoneOn(true);
       }
-      
-      // Ensure speakerphone is enabled so incoming voice plays loudly
-      Helper.setSpeakerphoneOn(_isSpeakerOn);
     };
 
     // onAddStream: Plan B fallback — route into the same persistent stream
     pc.onAddStream = (stream) async {
-      if (!mounted) return;
+      if (_isDisposed || !mounted) return;
       if (!_remoteStreams.containsKey(targetUserId)) {
         _remoteStreams[targetUserId] = stream;
       } else {
         for (final t in stream.getTracks()) {
+          if (_isDisposed) return;
           await _remoteStreams[targetUserId]!.addTrack(t);
           t.enabled = true;
         }
       }
       stream.getTracks().forEach((t) { t.enabled = true; });
-      if (mounted) {
+      if (mounted && !_isDisposed) {
         setState(() {
           _remoteRenderers[targetUserId]?.srcObject = _remoteStreams[targetUserId];
         });
       }
+      Helper.setSpeakerphoneOn(true);
     };
 
     if (_localStream != null) {
@@ -497,8 +519,9 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       _localRenderer.srcObject = _localStream;
       if (widget.isAudioOnly) _isVideoOff = true;
 
-      _isSpeakerOn = !widget.isAudioOnly;
-      Helper.setSpeakerphoneOn(_isSpeakerOn);
+      // Always use speakerphone so remote voice is audible \u2014 user can toggle via UI
+      _isSpeakerOn = true;
+      Helper.setSpeakerphoneOn(true);
       _localStream?.getAudioTracks().forEach((track) {
         track.enabled = true;
       });
@@ -872,29 +895,29 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _isDisposed = true; // Set FIRST so all native callbacks bail out immediately
     WidgetsBinding.instance.removeObserver(this);
     CallScreen.activeConversationId = null;
+    CallScreen.activeCallState = null;
     SoundService().stopRingtone();
     _callTimer?.cancel();
     _timeoutTimer?.cancel();
-    final socket = Provider.of<AuthProvider>(context, listen: false).socketService.socket;
-    // Remove ONLY this screen's specific handlers — preserves global listeners in main.dart
-    socket?.off('call_answered', _onCallAnswered);
-    socket?.off('call_rejected', _onCallRejected);
-    socket?.off('call_ended', _onCallEnded);
-    socket?.off('ice_candidate', _onIceCandidate);
-    socket?.off('user_added_to_call', _onUserAddedToCall);
-    socket?.off('call_incoming', _onCallIncoming);
-    socket?.off('screen_share_request', _onScreenShareRequest);
+    // Use stored _socket reference to remove listeners — NEVER call Provider.of(context) in dispose()
+    _socket?.off('call_answered', _onCallAnswered);
+    _socket?.off('call_rejected', _onCallRejected);
+    _socket?.off('call_ended', _onCallEnded);
+    _socket?.off('ice_candidate', _onIceCandidate);
+    _socket?.off('user_added_to_call', _onUserAddedToCall);
+    _socket?.off('call_incoming', _onCallIncoming);
+    _socket?.off('screen_share_request', _onScreenShareRequest);
     _localStream?.getTracks().forEach((t) => t.stop());
     _localStream?.dispose();
     _screenStream?.getTracks().forEach((t) => t.stop());
     _screenStream?.dispose();
     for (final pc in _peerConnections.values) { pc.close(); pc.dispose(); }
     _localRenderer.dispose();
-    for (final r in _remoteRenderers.values) {
-      r.dispose();
-    }
+    for (final r in _remoteRenderers.values) { r.dispose(); }
+    for (final s in _remoteStreams.values) { s.dispose(); }
     super.dispose();
   }
 

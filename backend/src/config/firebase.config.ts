@@ -48,7 +48,8 @@ export const sendPushNotification = async (fcmToken: string, title: string, body
   if (getApps().length > 0) {
     try {
       const isCall = data?.type === "CALL" || data?.callType != null;
-      const channelId = isCall ? "call_channel_v2" : "dolsyx_messages";
+      const channelId = isCall ? "call_channel_v3" : "dolsyx_messages_v2";
+      const sound = isCall ? "dolsyx_ringtone" : "dolsyx_message";
 
       await getMessaging().send({
         token: fcmToken,
@@ -64,7 +65,7 @@ export const sendPushNotification = async (fcmToken: string, title: string, body
           ttl: 0,
           notification: {
             channelId,
-            sound: 'default',
+            sound,
             priority: 'high',
             visibility: 'public',
           },

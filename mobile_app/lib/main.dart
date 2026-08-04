@@ -79,14 +79,16 @@ final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
 
 const AndroidNotificationChannel channel = AndroidNotificationChannel(
-  'high_importance_channel',
-  'High Importance Notifications',
-  description: 'This channel is used for important notifications.',
+  'dolsyx_messages',
+  'Message Notifications',
+  description: 'Notifications for incoming text and media messages',
   importance: Importance.max,
+  playSound: true,
+  enableVibration: true,
 );
 
 const AndroidNotificationChannel callChannel = AndroidNotificationChannel(
-  'call_channel',
+  'call_channel_v2',
   'Incoming Calls',
   description: 'Full-screen incoming call notifications',
   importance: Importance.max,

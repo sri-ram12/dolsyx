@@ -143,20 +143,28 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     if (socket == null) return;
 
     _onCallAnswered = (data) async {
-      if (!mounted) return;
+      if (!mounted || data == null) return;
       SoundService().stopRingtone();
       _timeoutTimer?.cancel();
-      setState(() {
-        _status = 'Connected';
-        _callActive = true;
-        CallScreen.isCallActiveNotifier.value = true;
-      });
+      if (mounted) {
+        setState(() {
+          _status = 'Connected';
+          _callActive = true;
+          CallScreen.isCallActiveNotifier.value = true;
+        });
+      }
       final answererId = data['answererId'] ?? widget.remoteUserId;
       if (data['answer'] != null) {
         final answer = RTCSessionDescription(data['answer']['sdp'], data['answer']['type']);
-        await _peerConnections[answererId]?.setRemoteDescription(answer);
-        _flushIceCandidates(answererId);
+        try {
+          await _peerConnections[answererId]?.setRemoteDescription(answer);
+        } catch (e) {
+          debugPrint('[WebRTC] setRemoteDescription error: $e');
+        }
+        if (!mounted) return;
+        await _flushIceCandidates(answererId);
       }
+      if (!mounted) return;
       if (_callTimer == null || !_callTimer!.isActive) _startTimer();
     };
     socket.on('call_answered', _onCallAnswered);
@@ -392,34 +400,36 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       }
     };
 
-    // onTrack fires once per track (audio + video) in Unified Plan.
-    // We maintain ONE persistent MediaStream per peer so both audio and video
-    // tracks end up in the same stream and neither overwrites the other.
-    pc.onTrack = (event) async {
+    // onTrack fires once per track (audio + video) in Unified Plan
+    pc.onTrack = (event) {
       if (!mounted) return;
-
-      // Get or lazily create a persistent stream for this peer
-      if (!_remoteStreams.containsKey(targetUserId)) {
-        _remoteStreams[targetUserId] = await createLocalMediaStream('remote_$targetUserId');
-      }
-      final stream = _remoteStreams[targetUserId]!;
-
-      // Add the incoming track; always enable it so audio/video flows immediately
-      await stream.addTrack(event.track);
+      
+      // Enable the incoming track
       event.track.enabled = true;
 
-      // Also pull from event.streams if available (Plan B servers)
       if (event.streams.isNotEmpty) {
-        for (final t in event.streams[0].getTracks()) {
-          t.enabled = true;
+        final stream = event.streams[0];
+        stream.getAudioTracks().forEach((t) => t.enabled = true);
+        stream.getVideoTracks().forEach((t) => t.enabled = true);
+        
+        if (mounted) {
+          setState(() {
+            _remoteRenderers[targetUserId]?.srcObject = stream;
+          });
+        }
+      } else {
+        // Fallback if event.streams is empty
+        _remoteStreams.putIfAbsent(targetUserId, () => MediaStream(event.track.id, 'remote_$targetUserId'));
+        _remoteStreams[targetUserId]?.addTrack(event.track);
+        if (mounted) {
+          setState(() {
+            _remoteRenderers[targetUserId]?.srcObject = _remoteStreams[targetUserId];
+          });
         }
       }
-
-      if (mounted) {
-        setState(() {
-          _remoteRenderers[targetUserId]?.srcObject = stream;
-        });
-      }
+      
+      // Ensure speakerphone is enabled so incoming voice plays loudly
+      Helper.setSpeakerphoneOn(_isSpeakerOn);
     };
 
     // onAddStream: Plan B fallback — route into the same persistent stream

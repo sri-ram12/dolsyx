@@ -57,17 +57,16 @@ export const useWebRTC = ({ onIceCandidate }: UseWebRTCOptions) => {
     };
 
     pc.ontrack = (event) => {
-      // Track added
       if (event.streams && event.streams[0]) {
-        setRemoteStream(event.streams[0]);
+        const stream = event.streams[0];
+        stream.getAudioTracks().forEach((t) => { t.enabled = true; });
+        stream.getVideoTracks().forEach((t) => { t.enabled = true; });
+        setRemoteStream(new MediaStream(stream.getTracks()));
       } else {
         setRemoteStream((prev) => {
-          if (prev) {
-            prev.addTrack(event.track);
-            return prev;
-          }
-          const ns = new MediaStream();
+          const ns = prev ? new MediaStream(prev.getTracks()) : new MediaStream();
           ns.addTrack(event.track);
+          event.track.enabled = true;
           return ns;
         });
       }

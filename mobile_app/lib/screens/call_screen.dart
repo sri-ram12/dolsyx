@@ -541,6 +541,10 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       Helper.setSpeakerphoneOn(true);
     };
 
+    if (_localStream == null) {
+      await _initWebRTC();
+    }
+
     if (_localStream != null) {
       for (final track in _localStream!.getTracks()) {
         await pc.addTrack(track, _localStream!);

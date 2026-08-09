@@ -254,12 +254,12 @@ class _DolsyxAppState extends State<DolsyxApp> {
                 }
 
                 _incomingCallData = {
-                  'conversationId': payloadData['conversationId'] ?? '',
-                  'callerId': payloadData['callerId'] ?? '',
-                  'callerName': payloadData['callerName'] ?? 'Incoming Call',
-                  'callerAvatarUrl': payloadData['callerAvatarUrl'],
-                  'isAudioOnly': (payloadData['callType'] ?? 'audio') == 'audio' || payloadData['isAudioOnly'] == true,
-                  'initialOffer': payloadData['initialOffer'],
+                  'conversationId': payloadData?['conversationId'] ?? '',
+                  'callerId': payloadData?['callerId'] ?? '',
+                  'callerName': payloadData?['callerName'] ?? 'Incoming Call',
+                  'callerAvatarUrl': payloadData?['callerAvatarUrl'],
+                  'isAudioOnly': (payloadData?['callType'] ?? 'audio') == 'audio' || payloadData?['isAudioOnly'] == true,
+                  'initialOffer': payloadData?['initialOffer'],
                 };
               } catch (_) {}
             }

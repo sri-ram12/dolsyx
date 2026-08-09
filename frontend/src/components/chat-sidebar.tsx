@@ -823,6 +823,8 @@ export default function ChatSidebar({
                               if (m.mediaType === "VIDEO") return `${prefix}🎬 Video`;
                               if (m.mediaType === "AUDIO") return `${prefix}🎵 Voice message`;
                               if (m.mediaType === "FILE") return `${prefix}📎 File`;
+                              if (m.mediaType === "LOCATION" || (typeof m.content === "string" && (m.content.includes('"latitude":') || m.content.includes('"mediaType":"LOCATION"')))) return `${prefix}📍 Location`;
+                              if (m.mediaType === "POLL" || (typeof m.content === "string" && (m.content.includes('"question":') || m.content.includes('"mediaType":"POLL"')))) return `${prefix}📊 Poll`;
                               return prefix + m.content;
                             })()
                           : "No messages yet"}

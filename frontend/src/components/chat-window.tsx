@@ -38,6 +38,7 @@ import {
   Ban,
   RefreshCw,
   Star,
+  MapPin,
   Share2,
   Lock,
   IndianRupee,
@@ -299,6 +300,143 @@ function CallLogMessage({ msg, isMe }: { msg: Message; isMe: boolean }) {
           {isConnected ? "Connected" : isMissed ? (logStatus === "declined" ? "Declined" : "No Answer") : "Calling"}
         </span>
       </div>
+    </div>
+  );
+}
+
+function PollMessage({ msg, isMe, socket, user }: { msg: Message; isMe: boolean; socket: any; user: any }) {
+  let pollData: any = {};
+  try {
+    pollData = typeof msg.content === "string" && msg.content.startsWith("{") ? JSON.parse(msg.content) : {};
+  } catch (_) {}
+
+  const question = pollData.question || "Poll";
+  const options: any[] = pollData.options || [];
+  const myUserId = user?.id || "user";
+  const totalVotes = options.reduce((sum, opt) => sum + (opt.votes?.length || 0), 0);
+
+  const handleVote = (optionId: number) => {
+    const opt = options.find((o) => o.id === optionId);
+    if (!opt) return;
+    if (!opt.votes) opt.votes = [];
+
+    const userVoted = opt.votes.includes(myUserId);
+    if (userVoted) {
+      opt.votes = opt.votes.filter((id: string) => id !== myUserId);
+    } else {
+      opt.votes.push(myUserId);
+    }
+
+    if (socket && socket.connected) {
+      socket.emit("vote_poll", {
+        conversationId: msg.conversationId,
+        messageId: msg.id,
+        optionId: optionId,
+      });
+    }
+  };
+
+  return (
+    <div className="w-[270px] rounded-2xl p-4 bg-[#005C4B] text-white shadow-lg text-left select-none">
+      <h4 className="font-bold text-[16px] text-white leading-tight mb-3">{question}</h4>
+      <div className="space-y-3">
+        {options.map((opt) => {
+          const votes: string[] = opt.votes || [];
+          const userVoted = votes.includes(myUserId);
+          const pct = totalVotes > 0 ? Math.round((votes.length / totalVotes) * 100) : 0;
+
+          return (
+            <div
+              key={opt.id}
+              onClick={() => handleVote(opt.id)}
+              className="cursor-pointer group flex flex-col space-y-1.5"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2 min-w-0">
+                  <div
+                    className={`w-5 h-5 rounded-full flex items-center justify-center border ${
+                      userVoted ? "border-sky-400 bg-sky-400/20 text-sky-400" : "border-white/40 text-transparent"
+                    }`}
+                  >
+                    <div className={`w-2.5 h-2.5 rounded-full ${userVoted ? "bg-sky-400" : "bg-transparent"}`} />
+                  </div>
+                  <span className="text-[14px] font-medium text-white truncate">{opt.text}</span>
+                </div>
+                {votes.length > 0 && <span className="text-[12px] text-white/70 ml-2">{votes.length}</span>}
+              </div>
+              <div className="w-full bg-white/20 h-1.5 rounded-full overflow-hidden">
+                <div className="bg-white h-full transition-all duration-300" style={{ width: `${pct}%` }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-3 text-[11px] text-white/70 italic">{totalVotes} total votes</div>
+    </div>
+  );
+}
+
+function LocationMessage({ msg, isMe }: { msg: Message; isMe: boolean }) {
+  let lat = (msg as any).latitude;
+  let lng = (msg as any).longitude;
+  let locTitle = (msg as any).locationTitle || ((msg as any).isLiveLocation ? "Sharing live location" : "Current Location");
+  let isLive = (msg as any).isLiveLocation;
+  let liveExpiresAt = (msg as any).liveExpiresAt;
+
+  if ((!lat || !lng) && typeof msg.content === "string" && msg.content.startsWith("{") && msg.content.endsWith("}")) {
+    try {
+      const decoded = JSON.parse(msg.content);
+      lat = decoded.latitude || 12.9716;
+      lng = decoded.longitude || 77.5946;
+      locTitle = decoded.locationTitle || (decoded.isLiveLocation ? "Sharing live location" : "Current Location");
+      isLive = decoded.isLiveLocation || false;
+      liveExpiresAt = decoded.liveExpiresAt || null;
+    } catch (_) {}
+  }
+
+  const safeLat = lat || 12.9716;
+  const safeLng = lng || 77.5946;
+
+  const openMap = () => {
+    window.open(`https://www.google.com/maps/search/?api=1&query=${safeLat},${safeLng}`, "_blank");
+  };
+
+  return (
+    <div
+      className={`rounded-2xl p-3 shadow-md max-w-xs text-left ${
+        isMe
+          ? "bg-[var(--theme-bubble-sent)] text-[var(--theme-bubble-sent-text)]"
+          : "bg-[var(--theme-bubble-received)] text-[var(--theme-bubble-received-text)]"
+      }`}
+    >
+      <div className="flex items-center space-x-2 mb-2">
+        <MapPin className={`w-5 h-5 ${isLive ? "text-emerald-400 animate-pulse" : "text-rose-500"}`} />
+        <span className="font-bold text-[14px] truncate">{locTitle}</span>
+      </div>
+      <div
+        onClick={openMap}
+        className="relative w-[220px] h-[130px] rounded-xl overflow-hidden cursor-pointer group bg-zinc-900 border border-white/10"
+      >
+        <img
+          src={`https://static-maps.yandex.ru/1.x/?lang=en_US&ll=${safeLng},${safeLat}&z=14&l=map&pt=${safeLng},${safeLat},pm2rdm`}
+          alt="Map Location"
+          className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+          onError={(e: any) => {
+            e.target.style.display = "none";
+          }}
+        />
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 group-hover:bg-black/20 transition-colors">
+          <div className="bg-violet-600 hover:bg-violet-500 text-white text-[12px] font-bold px-3 py-1.5 rounded-full shadow-lg flex items-center space-x-1.5 transition-transform group-hover:scale-105">
+            <MapPin className="w-3.5 h-3.5" />
+            <span>Open Map</span>
+          </div>
+        </div>
+      </div>
+      {isLive && liveExpiresAt && (
+        <div className="mt-2 text-[11px] opacity-75 italic">
+          Expires: {new Date(liveExpiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+        </div>
+      )}
     </div>
   );
 }
@@ -1959,6 +2097,10 @@ export default function ChatWindow({
                       </div>
                     ) : msg.mediaType === "CALL_LOG" ? (
                       <CallLogMessage msg={msg} isMe={isMe} />
+                    ) : msg.mediaType === "POLL" || (typeof msg.content === "string" && (msg.content.includes('"question":') || msg.content.includes('"mediaType":"POLL"'))) ? (
+                      <PollMessage msg={msg} isMe={isMe} socket={socket} user={user} />
+                    ) : msg.mediaType === "LOCATION" || (typeof msg.content === "string" && (msg.content.includes('"latitude":') || msg.content.includes('"mediaType":"LOCATION"'))) ? (
+                      <LocationMessage msg={msg} isMe={isMe} />
                     ) : msg.mediaType === "IMAGE" ? (
                       <div className="flex flex-col space-y-1">
                         <div className="max-w-md rounded-2xl overflow-hidden border border-zinc-800 bg-zinc-900 shadow-md">

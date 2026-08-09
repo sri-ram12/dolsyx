@@ -51,12 +51,8 @@ export const sendPushNotification = async (fcmToken: string, title: string, body
       const channelId = isCall ? "call_channel_v3" : "dolsyx_messages_v2";
       const sound = isCall ? "dolsyx_ringtone" : "dolsyx_message";
 
-      await getMessaging().send({
+      const messagePayload: any = {
         token: fcmToken,
-        notification: {
-          title,
-          body,
-        },
         data: data ? Object.fromEntries(
           Object.entries(data).map(([k, v]) => [k, String(v)])
         ) : {},
@@ -66,7 +62,7 @@ export const sendPushNotification = async (fcmToken: string, title: string, body
           notification: {
             channelId,
             sound,
-            priority: 'high',
+            priority: 'max',
             visibility: 'public',
           },
         },
@@ -77,11 +73,17 @@ export const sendPushNotification = async (fcmToken: string, title: string, body
           payload: {
             aps: {
               contentAvailable: true,
-              sound: 'default',
+              sound: isCall ? sound : 'default',
             },
           },
         },
-      });
+      };
+
+      if (!isCall) {
+        messagePayload.notification = { title, body };
+      }
+
+      await getMessaging().send(messagePayload);
       console.log(`📲 Push notification sent successfully (${isCall ? 'CALL' : 'MESSAGE'})`);
     } catch (error: any) {
       if (error?.code === 'messaging/registration-token-not-registered') {

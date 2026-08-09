@@ -310,7 +310,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   @override
   void setState(fn) {
     if (mounted) {
-      super.setState(fn);
+      try {
+        super.setState(fn);
+      } catch (_) {}
     }
   }
 
@@ -2032,26 +2034,60 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                       actions: [
                         PopupMenuButton<String>(
                           icon: Icon(Icons.more_vert, color: AppTheme.textPrimary),
-                          onSelected: (value) {
+                          onSelected: (value) async {
                             final selectedMsg = _messages.firstWhere((m) => m.id == _selectedMessageIds.first, orElse: () => _messages.first);
                             final authProvider = Provider.of<AuthProvider>(context, listen: false);
                             final isMe = selectedMsg.senderId == authProvider.user?['id'];
 
                             if (value == 'copy') {
-                              Clipboard.setData(ClipboardData(text: selectedMsg.content));
+                              final textToCopy = selectedMsg.content.isNotEmpty ? selectedMsg.content : (selectedMsg.mediaUrl ?? '');
+                              Clipboard.setData(ClipboardData(text: textToCopy));
                               setState(() {
-                                _messageController.text = selectedMsg.content;
+                                _messageController.text = textToCopy;
                                 _selectedMessageIds.clear();
                               });
                               ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Message copied & pasted to input field!')),
+                                const SnackBar(content: Text('Copied & pasted to text input field!')),
                               );
+                            } else if (value == 'download' && selectedMsg.mediaUrl != null) {
+                              setState(() => _selectedMessageIds.clear());
+                              try {
+                                final fullUrl = selectedMsg.mediaUrl!.startsWith('http')
+                                    ? selectedMsg.mediaUrl!
+                                    : 'https://dolsyx-app.onrender.com${selectedMsg.mediaUrl!}';
+                                final response = await http.get(Uri.parse(fullUrl));
+                                final tempDir = await getTemporaryDirectory();
+                                final ext = selectedMsg.mediaType == 'VIDEO' ? 'mp4' : 'jpg';
+                                final tempFile = File('${tempDir.path}/dolsyx_${DateTime.now().millisecondsSinceEpoch}.$ext');
+                                await tempFile.writeAsBytes(response.bodyBytes);
+                                
+                                if (selectedMsg.mediaType == 'VIDEO') {
+                                  await Gal.putVideo(tempFile.path);
+                                } else {
+                                  await Gal.putImage(tempFile.path);
+                                }
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Saved to Phone Gallery successfully!')),
+                                  );
+                                }
+                              } catch (e) {
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Saved to Phone Gallery!')),
+                                  );
+                                }
+                              }
                             } else if (value == 'edit' && isMe) {
                               setState(() => _selectedMessageIds.clear());
                               _editMessageDialog(selectedMsg);
                             } else if (value == 'pin') {
                               setState(() => _selectedMessageIds.clear());
-                              _pinMessage(selectedMsg);
+                              if (_pinnedMessage?.id == selectedMsg.id) {
+                                setState(() => _pinnedMessage = null);
+                              } else {
+                                _showPinDurationDialog(selectedMsg.id);
+                              }
                             } else if (value == 'delete' && isMe) {
                               setState(() => _selectedMessageIds.clear());
                               _deleteMessage(selectedMsg.id, true);
@@ -2062,6 +2098,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                             final authProvider = Provider.of<AuthProvider>(ctx, listen: false);
                             final isMe = selectedMsg.senderId == authProvider.user?['id'];
                             final isWithinTimeLimit = DateTime.now().difference(selectedMsg.createdAt).inMinutes <= 15;
+                            final hasMedia = selectedMsg.mediaUrl != null && selectedMsg.mediaUrl!.isNotEmpty;
 
                             return [
                               const PopupMenuItem(
@@ -2070,11 +2107,22 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                   children: [
                                     Icon(Icons.copy, size: 18),
                                     SizedBox(width: 10),
-                                    Text('Copy'),
+                                    Text('Copy & Autofill'),
                                   ],
                                 ),
                               ),
-                              if (isMe && selectedMsg.mediaUrl == null && isWithinTimeLimit)
+                              if (hasMedia)
+                                const PopupMenuItem(
+                                  value: 'download',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.download, size: 18, color: Colors.green),
+                                      SizedBox(width: 10),
+                                      Text('Save to Gallery'),
+                                    ],
+                                  ),
+                                ),
+                              if (isMe && !hasMedia && isWithinTimeLimit)
                                 const PopupMenuItem(
                                   value: 'edit',
                                   child: Row(
@@ -2089,9 +2137,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                 value: 'pin',
                                 child: Row(
                                   children: [
-                                    Icon(Icons.push_pin, size: 18),
-                                    SizedBox(width: 10),
-                                    Text('Pin / Unpin'),
+                                    const Icon(Icons.push_pin, size: 18),
+                                    const SizedBox(width: 10),
+                                    Text(_pinnedMessage?.id == selectedMsg.id ? 'Unpin' : 'Pin'),
                                   ],
                                 ),
                               ),
@@ -2100,9 +2148,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                   value: 'delete',
                                   child: Row(
                                     children: [
-                                      Icon(Icons.delete, color: Colors.red, size: 18),
+                                      Icon(Icons.delete_forever, size: 18, color: Colors.red),
                                       SizedBox(width: 10),
-                                      Text('Delete', style: TextStyle(color: Colors.red)),
+                                      Text('Delete for Everyone', style: TextStyle(color: Colors.red)),
                                     ],
                                   ),
                                 ),

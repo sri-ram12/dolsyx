@@ -674,8 +674,14 @@ class MessageBubble extends StatelessWidget {
 
     void openMapApp() async {
       final Uri mapUri = Uri.parse('https://www.google.com/maps/search/?api=1&query=$finalLat,$finalLng');
-      if (await canLaunchUrl(mapUri)) {
-        await launchUrl(mapUri, mode: LaunchMode.externalApplication);
+      try {
+        if (await canLaunchUrl(mapUri)) {
+          await launchUrl(mapUri, mode: LaunchMode.externalApplication);
+        } else {
+          await launchUrl(mapUri, mode: LaunchMode.platformDefault);
+        }
+      } catch (_) {
+        await launchUrl(mapUri, mode: LaunchMode.externalNonBrowserApplication);
       }
     }
 

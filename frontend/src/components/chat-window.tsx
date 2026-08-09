@@ -58,7 +58,7 @@ interface Message {
   isEdited?: boolean;
   isDeleted?: boolean;
   mediaUrl?: string | null;
-  mediaType?: "TEXT" | "IMAGE" | "VIDEO" | "FILE" | "AUDIO" | "CODE_SNIPPET" | "STICKER" | "CALL_LOG" | null;
+  mediaType?: "TEXT" | "IMAGE" | "VIDEO" | "FILE" | "AUDIO" | "CODE_SNIPPET" | "STICKER" | "CALL_LOG" | "POLL" | "LOCATION" | null;
   sender: {
     id: string;
     username: string;

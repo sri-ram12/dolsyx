@@ -223,25 +223,26 @@ class _DolsyxAppState extends State<DolsyxApp> {
         await flutterLocalNotificationsPlugin.initialize(
           settings: initializationSettings,
           onDidReceiveNotificationResponse: (details) {
+            Map<String, dynamic>? payloadData;
             if (details.payload != null && details.payload!.isNotEmpty) {
               try {
-                final data = jsonDecode(details.payload!);
+                payloadData = jsonDecode(details.payload!);
                 
                 // Handle quick reply for message notifications from top notification banner
-                if ((details.actionId == 'reply_msg' || (details.input != null && details.input!.trim().isNotEmpty)) && data['conversationId'] != null) {
+                if ((details.actionId == 'reply_msg' || (details.input != null && details.input!.trim().isNotEmpty)) && payloadData!['conversationId'] != null) {
                   final replyText = details.input ?? '';
                   if (replyText.trim().isNotEmpty) {
                     final auth = Provider.of<AuthProvider>(context, listen: false);
                     if (auth.socketService.socket != null && auth.socketService.isConnected) {
                       auth.socketService.sendMessage(
-                        data['conversationId'],
+                        payloadData['conversationId'],
                         replyText.trim(),
                       );
                     } else {
                       ApiService().getToken().then((token) {
                         if (token != null) {
                           http.post(
-                            Uri.parse('${ApiService.baseUrl}/chats/${data['conversationId']}/messages'),
+                            Uri.parse('${ApiService.baseUrl}/chats/${payloadData!['conversationId']}/messages'),
                             headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
                             body: jsonEncode({'content': replyText.trim()}),
                           );
@@ -253,20 +254,20 @@ class _DolsyxAppState extends State<DolsyxApp> {
                 }
 
                 _incomingCallData = {
-                  'conversationId': data['conversationId'] ?? '',
-                  'callerId': data['callerId'] ?? '',
-                  'callerName': data['callerName'] ?? 'Incoming Call',
-                  'callerAvatarUrl': data['callerAvatarUrl'],
-                  'isAudioOnly': (data['callType'] ?? 'audio') == 'audio' || data['isAudioOnly'] == true,
-                  'initialOffer': data['initialOffer'],
+                  'conversationId': payloadData['conversationId'] ?? '',
+                  'callerId': payloadData['callerId'] ?? '',
+                  'callerName': payloadData['callerName'] ?? 'Incoming Call',
+                  'callerAvatarUrl': payloadData['callerAvatarUrl'],
+                  'isAudioOnly': (payloadData['callType'] ?? 'audio') == 'audio' || payloadData['isAudioOnly'] == true,
+                  'initialOffer': payloadData['initialOffer'],
                 };
               } catch (_) {}
             }
             final actionId = details.actionId;
             if (actionId == 'decline') {
-              _declineIncomingCall();
+              _declineIncomingCall(payloadData);
             } else {
-              _acceptIncomingCall();
+              _acceptIncomingCall(payloadData);
             }
           },
         );
@@ -455,46 +456,71 @@ class _DolsyxAppState extends State<DolsyxApp> {
     } catch (_) {}
   }
 
-  void _acceptIncomingCall() {
-    if (_incomingCallData == null) return;
-    final data = _incomingCallData!;
+  void _acceptIncomingCall([Map<String, dynamic>? callData]) {
+    final data = callData ?? _incomingCallData;
+    if (data == null) return;
     setState(() => _incomingCallData = null);
     SoundService().stopRingtone();
-    // Cancel the OS fullscreen notification
-    flutterLocalNotificationsPlugin.cancelAll();
+    try { flutterLocalNotificationsPlugin.cancelAll(); } catch (_) {}
 
-    if (navigatorKey.currentState != null) {
-      navigatorKey.currentState!.push(
-        MaterialPageRoute(
-          settings: const RouteSettings(name: 'CallScreen'),
-          builder: (_) => CallScreen(
-            conversationId: data['conversationId'],
-            remoteUserId: data['callerId'],
-            remoteUserName: data['callerName'],
-            remoteAvatarUrl: data['callerAvatarUrl'],
-            isAudioOnly: data['isAudioOnly'],
-            isIncoming: true,
-            initialOffer: data['initialOffer'],
+    void navigateToCall() {
+      if (navigatorKey.currentState != null) {
+        navigatorKey.currentState!.push(
+          MaterialPageRoute(
+            settings: const RouteSettings(name: 'CallScreen'),
+            builder: (_) => CallScreen(
+              conversationId: data['conversationId'],
+              remoteUserId: data['callerId'],
+              remoteUserName: data['callerName'],
+              remoteAvatarUrl: data['callerAvatarUrl'],
+              isAudioOnly: data['isAudioOnly'] ?? true,
+              isIncoming: true,
+              initialOffer: data['initialOffer'],
+            ),
           ),
-        ),
-      );
+        );
+      } else {
+        Future.delayed(const Duration(milliseconds: 300), () {
+          if (navigatorKey.currentState != null) {
+            navigatorKey.currentState!.push(
+              MaterialPageRoute(
+                settings: const RouteSettings(name: 'CallScreen'),
+                builder: (_) => CallScreen(
+                  conversationId: data['conversationId'],
+                  remoteUserId: data['callerId'],
+                  remoteUserName: data['callerName'],
+                  remoteAvatarUrl: data['callerAvatarUrl'],
+                  isAudioOnly: data['isAudioOnly'] ?? true,
+                  isIncoming: true,
+                  initialOffer: data['initialOffer'],
+                ),
+              ),
+            );
+          }
+        });
+      }
     }
+
+    navigateToCall();
   }
 
-  void _declineIncomingCall() {
-    if (_incomingCallData == null) return;
-    final data = _incomingCallData!;
-    if (mounted) setState(() => _incomingCallData = null);
+  void _declineIncomingCall([Map<String, dynamic>? callData]) {
+    final data = callData ?? _incomingCallData;
     SoundService().stopRingtone();
-    // Cancel the OS fullscreen notification
-    flutterLocalNotificationsPlugin.cancelAll();
-
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    authProvider.socketService.socket?.emit('call_reject', {
-      'callerId': data['callerId'],
-      'conversationId': data['conversationId'],
-      'callType': data['isAudioOnly'] ? 'audio' : 'video',
-    });
+    try { flutterLocalNotificationsPlugin.cancelAll(); } catch (_) {}
+    if (data != null) {
+      try {
+        final authProvider = Provider.of<AuthProvider>(context, listen: false);
+        if (authProvider.socketService.socket != null && authProvider.socketService.isConnected) {
+          authProvider.socketService.socket!.emit('call_reject', {
+            'callerId': data['callerId'],
+            'conversationId': data['conversationId'],
+            'callType': (data['isAudioOnly'] == true) ? 'audio' : 'video',
+          });
+        }
+      } catch (_) {}
+    }
+    setState(() => _incomingCallData = null);
   }
 
   @override

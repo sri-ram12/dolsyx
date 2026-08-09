@@ -194,6 +194,41 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     );
   }
 
+  void _exportChatTranscript() async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final user = authProvider.user;
+    final myId = user?['id'] ?? user?['_id'] ?? '';
+
+    final buffer = StringBuffer();
+    buffer.writeln('=== DOLSYX CHAT TRANSCRIPT ===');
+    buffer.writeln('Chat: ${widget.chatName}');
+    buffer.writeln('Date: ${DateTime.now().toIso8601String()}');
+    buffer.writeln('===============================\n');
+
+    for (var msg in _messages) {
+      final timeStr = DateFormat('yyyy-MM-dd HH:mm').format(msg.createdAt.toLocal());
+      final senderName = msg.senderId == myId ? 'Me' : widget.chatName;
+      buffer.writeln('[$timeStr] $senderName: ${msg.content}');
+    }
+
+    try {
+      final tempDir = await getTemporaryDirectory();
+      final file = File('${tempDir.path}/DOLSYX_${widget.chatName.replaceAll(' ', '_')}_ChatBackup.txt');
+      await file.writeAsString(buffer.toString());
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Chat backup exported: ${file.path}')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Exported Chat Backup successfully!')),
+        );
+      }
+    }
+  }
+
   void _handleGroupUpdated(dynamic data) {
     if (mounted && data['conversationId'] == widget.conversationId) {
       setState(() {
@@ -2486,6 +2521,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                       if (res == 'start_search') {
                         _startSearch();
                       }
+                    } else if (value == 'export_chat') {
+                      _exportChatTranscript();
                     } else if (value == 'clear_chat') {
                       _confirmClearChat();
                     } else if (value == 'block_user') {
@@ -2506,6 +2543,16 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                         value: 'view_contact',
                         child: Text('View Contact'),
                       ),
+                    const PopupMenuItem(
+                      value: 'export_chat',
+                      child: Row(
+                        children: [
+                          Icon(Icons.download, size: 18),
+                          SizedBox(width: 8),
+                          Text('Export Chat Backup (.txt)'),
+                        ],
+                      ),
+                    ),
                     const PopupMenuItem(
                       value: 'clear_chat',
                       child: Text('Clear Chat'),

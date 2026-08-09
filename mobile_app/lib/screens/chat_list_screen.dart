@@ -298,16 +298,26 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
           child: _isLoading
               ? Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
               : _chats.isEmpty
-                  ? Center(
-                      child: Text(
-                        'No conversations yet.\nStart a chat!',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: AppTheme.textSecondary, fontSize: 16),
+                  ? RefreshIndicator(
+                      onRefresh: _fetchChats,
+                      child: ListView(
+                        children: [
+                          const SizedBox(height: 100),
+                          Center(
+                            child: Text(
+                              'No conversations yet.\nStart a chat!',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: AppTheme.textSecondary, fontSize: 16),
+                            ),
+                          ),
+                        ],
                       ),
                     )
-                  : ListView.builder(
-                      itemCount: _chats.where((c) => !c.isArchived).length + (_chats.any((c) => c.isArchived) ? 1 : 0),
-                      itemBuilder: (context, index) {
+                  : RefreshIndicator(
+                      onRefresh: _fetchChats,
+                      child: ListView.builder(
+                        itemCount: _chats.where((c) => !c.isArchived).length + (_chats.any((c) => c.isArchived) ? 1 : 0),
+                        itemBuilder: (context, index) {
                         final activeChats = _chats.where((c) => !c.isArchived).toList();
                         
                         if (index == activeChats.length) {
@@ -455,6 +465,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                         );
                       },
                     ),
+                  ),
         ),
       ],
     );

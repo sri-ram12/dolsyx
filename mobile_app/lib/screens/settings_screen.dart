@@ -5,6 +5,7 @@ import 'privacy_settings_screen.dart';
 import 'app_lock_screen.dart';
 import 'chat_settings_screen.dart';
 import 'notification_settings_screen.dart';
+import 'storage_settings_screen.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 
@@ -52,7 +53,9 @@ class SettingsScreen extends StatelessWidget {
             _buildSettingItem(context, Icons.chat, 'Chats', 'Theme, wallpapers, chat history', () {
               Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatSettingsScreen()));
             }),
-            _buildSettingItem(context, Icons.data_usage, 'Storage and data', 'Network usage, auto-download', () {}),
+            _buildSettingItem(context, Icons.data_usage, 'Storage and data', 'Network usage, auto-download, clear cache', () {
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const StorageSettingsScreen()));
+            }),
             _buildSettingItem(context, Icons.fingerprint, 'App Lock', 'Require biometric or PIN', () {
               Navigator.push(context, MaterialPageRoute(builder: (_) => const AppLockScreen()));
             }),

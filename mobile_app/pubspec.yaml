@@ -61,6 +61,7 @@ dependencies:
   url_launcher: ^6.3.1
   path: ^1.9.1
   flutter_local_notifications: ^22.2.0
+  gal: ^2.3.0
 
 dev_dependencies:
   flutter_test:

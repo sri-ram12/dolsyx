@@ -679,12 +679,30 @@ export default function ChatPage() {
       await addIceCandidate(data.candidate);
     });
 
+    socket.on("poll_updated", (data: { conversationId: string; messageId: string; content: string }) => {
+      setMessages((prevMessages: any[]) =>
+        prevMessages.map((msg) => (msg.id === data.messageId ? { ...msg, content: data.content } : msg))
+      );
+      setChats((prevChats) =>
+        prevChats.map((c) => {
+          if (c.id === data.conversationId && c.lastMessage?.id === data.messageId) {
+            return {
+              ...c,
+              lastMessage: { ...c.lastMessage, content: data.content },
+            };
+          }
+          return c;
+        })
+      );
+    });
+
     return () => {
       socket.off("online_users_list");
       socket.off("user_status_change");
       socket.off("conversation_deleted");
       socket.off("new_conversation");
       socket.off("new_message");
+      socket.off("poll_updated");
       socket.off("new_status");
       socket.off("call_incoming");
       socket.off("request_call_offer");

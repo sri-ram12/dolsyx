@@ -652,7 +652,7 @@ class MessageBubble extends StatelessWidget {
   Widget _buildLocationBubble(BuildContext context) {
     double? lat = message.latitude;
     double? lng = message.longitude;
-    String locTitle = message.locationTitle ?? (message.isLiveLocation ? 'Sharing live location' : 'Current Location');
+    String locTitle = message.locationTitle ?? (message.isLiveLocation ? 'Sharing live location' : 'Location');
     bool isLive = message.isLiveLocation;
     DateTime? liveExpires = message.liveExpiresAt;
 
@@ -661,7 +661,7 @@ class MessageBubble extends StatelessWidget {
         final decoded = jsonDecode(message.content);
         lat = (decoded['latitude'] as num?)?.toDouble() ?? 12.9716;
         lng = (decoded['longitude'] as num?)?.toDouble() ?? 77.5946;
-        locTitle = decoded['locationTitle'] ?? (decoded['isLiveLocation'] == true ? 'Sharing live location' : 'Current Location');
+        locTitle = decoded['locationTitle'] ?? (decoded['isLiveLocation'] == true ? 'Sharing live location' : 'Location');
         isLive = decoded['isLiveLocation'] == true;
         if (decoded['liveExpiresAt'] != null) {
           liveExpires = DateTime.tryParse(decoded['liveExpiresAt'].toString());
@@ -669,60 +669,46 @@ class MessageBubble extends StatelessWidget {
       } catch (_) {}
     }
 
+    final double finalLat = lat ?? 12.9716;
+    final double finalLng = lng ?? 77.5946;
+
+    void openMapApp() async {
+      final Uri mapUri = Uri.parse('https://www.google.com/maps/search/?api=1&query=$finalLat,$finalLng');
+      if (await canLaunchUrl(mapUri)) {
+        await launchUrl(mapUri, mode: LaunchMode.externalApplication);
+      }
+    }
+
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: isMe ? AppTheme.bubbleSender : AppTheme.bubbleReceiver,
-          borderRadius: BorderRadius.circular(16).copyWith(
-            bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(16),
-            bottomLeft: !isMe ? const Radius.circular(4) : const Radius.circular(16),
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  isLive ? Icons.my_location : Icons.location_on, 
-                  color: isLive ? Colors.green : Colors.redAccent
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  locTitle,
-                  style: TextStyle(
-                    color: isMe ? (AppTheme.bubbleSender.computeLuminance() > 0.5 ? Colors.black87 : Colors.white) : (AppTheme.bubbleReceiver.computeLuminance() > 0.5 ? Colors.black87 : Colors.white),
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
+      child: GestureDetector(
+        onTap: openMapApp,
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          width: 260,
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            color: isMe ? AppTheme.bubbleSender : AppTheme.bubbleReceiver,
+            borderRadius: BorderRadius.circular(16).copyWith(
+              bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(16),
+              bottomLeft: !isMe ? const Radius.circular(4) : const Radius.circular(16),
             ),
-            const SizedBox(height: 8),
-            GestureDetector(
-              onTap: () async {
-                final Uri mapUri = Uri.parse('https://www.google.com/maps/search/?api=1&query=${lat ?? 12.9716},${lng ?? 77.5946}');
-                if (await canLaunchUrl(mapUri)) {
-                  await launchUrl(mapUri, mode: LaunchMode.externalApplication);
-                }
-              },
-              child: Container(
-                height: 130,
-                width: 220,
-                clipBehavior: Clip.antiAlias,
-                decoration: BoxDecoration(
-                  color: Colors.grey[900],
-                  borderRadius: BorderRadius.circular(12),
-                ),
+            boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2))],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // 1. Street Map Preview Image with Red Pin Marker (Matching Image 1)
+              SizedBox(
+                height: 140,
+                width: 260,
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
                     Positioned.fill(
                       child: Image.network(
-                        'https://static-maps.yandex.ru/1.x/?lang=en_US&ll=${lng ?? 77.5946},${lat ?? 12.9716}&z=14&l=map&pt=${lng ?? 77.5946},${lat ?? 12.9716},pm2rdm',
+                        'https://static-maps.yandex.ru/1.x/?lang=en_US&ll=$finalLng,$finalLat&z=15&l=map&pt=$finalLng,$finalLat,pm2rdm',
                         fit: BoxFit.cover,
                         errorBuilder: (ctx, err, stack) => Container(
                           color: const Color(0xFF1E293B),
@@ -730,10 +716,10 @@ class MessageBubble extends StatelessWidget {
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                const Icon(Icons.map, size: 48, color: Colors.white70),
+                                const Icon(Icons.location_on, size: 42, color: Colors.redAccent),
                                 const SizedBox(height: 4),
                                 Text(
-                                  '${(lat ?? 12.9716).toStringAsFixed(4)}, ${(lng ?? 77.5946).toStringAsFixed(4)}',
+                                  '${finalLat.toStringAsFixed(4)}, ${finalLng.toStringAsFixed(4)}',
                                   style: const TextStyle(color: Colors.white70, fontSize: 11),
                                 ),
                               ],
@@ -742,21 +728,34 @@ class MessageBubble extends StatelessWidget {
                         ),
                       ),
                     ),
+                    // Red Pin Marker Container
+                    Positioned(
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          boxShadow: [BoxShadow(color: Colors.black45, blurRadius: 6)],
+                        ),
+                        child: const Icon(Icons.location_on, size: 28, color: Colors.redAccent),
+                      ),
+                    ),
+                    // Route tracing pill badge
                     Positioned(
                       bottom: 8,
+                      left: 8,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
-                          color: AppTheme.primaryColor,
-                          borderRadius: BorderRadius.circular(16),
-                          boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 4)],
+                          color: Colors.black.withOpacity(0.75),
+                          borderRadius: BorderRadius.circular(12),
                         ),
                         child: const Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.directions, color: Colors.white, size: 14),
+                            Icon(Icons.directions, color: Colors.white, size: 12),
                             SizedBox(width: 4),
-                            Text('Open Map', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                            Text('Trace Route', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
                           ],
                         ),
                       ),
@@ -764,33 +763,73 @@ class MessageBubble extends StatelessWidget {
                   ],
                 ),
               ),
-            ),
-            if ((isLive || message.isLiveLocation) && liveExpires != null) ...[
-              const SizedBox(height: 8),
-              Text(
-                'Expires: ${DateFormat('h:mm a').format(liveExpires.toLocal())}',
-                style: TextStyle(
-                  color: isMe ? (AppTheme.bubbleSender.computeLuminance() > 0.5 ? Colors.black54 : Colors.white70) : (AppTheme.bubbleReceiver.computeLuminance() > 0.5 ? Colors.black54 : Colors.white70),
-                  fontSize: 11,
-                  fontStyle: FontStyle.italic,
+              // 2. Title & Address details (Matching Image 1 & Image 2)
+              Padding(
+                padding: const EdgeInsets.all(10.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          isLive ? Icons.my_location : Icons.location_on,
+                          color: isLive ? Colors.green : Colors.redAccent,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            locTitle,
+                            style: TextStyle(
+                              color: isMe ? (AppTheme.bubbleSender.computeLuminance() > 0.5 ? Colors.black87 : Colors.white) : (AppTheme.bubbleReceiver.computeLuminance() > 0.5 ? Colors.black87 : Colors.white),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'GPS: ${finalLat.toStringAsFixed(4)}, ${finalLng.toStringAsFixed(4)} • Tap to trace location',
+                      style: TextStyle(
+                        color: isMe ? (AppTheme.bubbleSender.computeLuminance() > 0.5 ? Colors.black54 : Colors.white70) : (AppTheme.bubbleReceiver.computeLuminance() > 0.5 ? Colors.black54 : Colors.white70),
+                        fontSize: 11,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if ((isLive || message.isLiveLocation) && liveExpires != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        'Expires: ${DateFormat('h:mm a').format(liveExpires.toLocal())}',
+                        style: TextStyle(
+                          color: isMe ? (AppTheme.bubbleSender.computeLuminance() > 0.5 ? Colors.black54 : Colors.white70) : (AppTheme.bubbleReceiver.computeLuminance() > 0.5 ? Colors.black54 : Colors.white70),
+                          fontSize: 10,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 4),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Text(
+                          DateFormat('hh:mm a').format(message.createdAt.toLocal()),
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: isMe ? (AppTheme.bubbleSender.computeLuminance() > 0.5 ? Colors.black54 : Colors.white70) : (AppTheme.bubbleReceiver.computeLuminance() > 0.5 ? Colors.black54 : Colors.white70),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
             ],
-            const SizedBox(height: 4),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                Text(
-                  DateFormat('hh:mm a').format(message.createdAt.toLocal()),
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: isMe ? (AppTheme.bubbleSender.computeLuminance() > 0.5 ? Colors.black54 : Colors.white70) : (AppTheme.bubbleReceiver.computeLuminance() > 0.5 ? Colors.black54 : Colors.white70),
-                  ),
-                ),
-              ],
-            ),
-          ],
+          ),
         ),
       ),
     );

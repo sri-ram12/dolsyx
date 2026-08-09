@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
 import '../models/chat.dart';
+import '../models/message.dart';
 
 class ChatService {
   Future<List<Chat>> getChats() async {
@@ -190,6 +191,27 @@ class ChatService {
     } catch (e) {
       print('Network error pinning message: $e');
       return false;
+    }
+  }
+
+  Future<Message?> getPinnedMessage(String conversationId) async {
+    try {
+      final token = await ApiService().getToken();
+      if (token == null) return null;
+
+      final response = await http.get(
+        Uri.parse('${ApiService.baseUrl}/chats/$conversationId/pinned'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data != null && data['message'] != null) {
+          return Message.fromJson(data['message']);
+        }
+      }
+      return null;
+    } catch (e) {
+      return null;
     }
   }
 

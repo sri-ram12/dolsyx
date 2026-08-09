@@ -345,6 +345,84 @@ export const initChatSocket = (io: Server) => {
       }
     });
 
+    // Handle voting on polls in real time across all platforms
+    socket.on("vote_poll", async (data: { conversationId: string; messageId: string; optionId: number }) => {
+      try {
+        const { conversationId, messageId, optionId } = data;
+        if (!conversationId || !messageId || optionId === undefined) return;
+
+        const targetMessage = await prisma.message.findUnique({
+          where: { id: messageId },
+        });
+
+        if (!targetMessage) return;
+
+        let contentStr = targetMessage.content;
+        try {
+          contentStr = encryptionService.decrypt(contentStr);
+        } catch (_) {}
+
+        if (!contentStr || !contentStr.startsWith("{")) return;
+
+        let pollData: any = {};
+        try {
+          pollData = JSON.parse(contentStr);
+        } catch (_) {
+          return;
+        }
+
+        const options: any[] = pollData.options || [];
+        const targetOpt = options.find((o) => o.id === optionId);
+        if (!targetOpt) return;
+
+        if (!targetOpt.votes) targetOpt.votes = [];
+        const votes: string[] = targetOpt.votes;
+
+        const userIndex = votes.indexOf(userId);
+        if (userIndex !== -1) {
+          votes.splice(userIndex, 1);
+        } else {
+          // If single choice poll (allowMultiple == false), clear previous votes
+          if (!pollData.allowMultiple) {
+            options.forEach((opt) => {
+              if (opt.votes) {
+                const idx = opt.votes.indexOf(userId);
+                if (idx !== -1) opt.votes.splice(idx, 1);
+              }
+            });
+          }
+          votes.push(userId);
+        }
+
+        pollData.options = options;
+        const updatedJson = JSON.stringify(pollData);
+        const encryptedContent = encryptionService.encrypt(updatedJson);
+
+        await prisma.message.update({
+          where: { id: messageId },
+          data: { content: encryptedContent },
+        });
+
+        const participants = await prisma.participant.findMany({
+          where: { conversationId },
+          select: { userId: true },
+        });
+
+        const payload = {
+          conversationId,
+          messageId,
+          content: updatedJson,
+        };
+
+        io.to(conversationId).emit("poll_updated", payload);
+        participants.forEach((p) => {
+          io.to(p.userId).emit("poll_updated", payload);
+        });
+      } catch (error) {
+        console.error("Socket vote_poll error:", error);
+      }
+    });
+
     // Handle marking messages as read
     socket.on("mark_read", async (data: { conversationId: string }) => {
       try {

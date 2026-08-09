@@ -14,6 +14,7 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
+import 'package:gal/gal.dart';
 import '../models/message.dart';
 import '../services/socket_service.dart';
 import '../services/chat_service.dart';
@@ -155,6 +156,33 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     }
   }
 
+  void _handlePollUpdated(dynamic data) {
+    if (!mounted || data == null) return;
+    if (data['conversationId'] == widget.conversationId) {
+      final msgId = data['messageId']?.toString();
+      final newContent = data['content']?.toString();
+      if (msgId != null && newContent != null) {
+        setState(() {
+          final idx = _messages.indexWhere((m) => m.id == msgId);
+          if (idx != -1) {
+            _messages[idx] = Message(
+              id: _messages[idx].id,
+              content: newContent,
+              senderId: _messages[idx].senderId,
+              conversationId: _messages[idx].conversationId,
+              createdAt: _messages[idx].createdAt,
+              mediaType: _messages[idx].mediaType,
+              mediaUrl: _messages[idx].mediaUrl,
+              receipts: _messages[idx].receipts,
+              reactions: _messages[idx].reactions,
+              isEdited: _messages[idx].isEdited,
+            );
+          }
+        });
+      }
+    }
+  }
+
   void _startSearch() {
     setState(() {
       _isSearching = true;
@@ -243,6 +271,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     socket?.on('live_location_updated', _handleLiveLocationUpdated);
     socket?.on('message_pinned', _handleMessagePinned);
     socket?.on('message_unpinned', _handleMessageUnpinned);
+    socket?.on('poll_updated', _handlePollUpdated);
 
     _messageController.addListener(_onTextChanged);
     
@@ -633,6 +662,41 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (message.mediaUrl != null && message.mediaUrl!.isNotEmpty)
+              ListTile(
+                leading: const Icon(Icons.download, color: Colors.green),
+                title: const Text('Save to Gallery'),
+                onTap: () async {
+                  Navigator.pop(context);
+                  try {
+                    final fullUrl = message.mediaUrl!.startsWith('http')
+                        ? message.mediaUrl!
+                        : 'https://dolsyx-app.onrender.com${message.mediaUrl!}';
+                    final response = await http.get(Uri.parse(fullUrl));
+                    final tempDir = await getTemporaryDirectory();
+                    final ext = message.mediaType == 'VIDEO' ? 'mp4' : 'jpg';
+                    final tempFile = File('${tempDir.path}/dolsyx_${DateTime.now().millisecondsSinceEpoch}.$ext');
+                    await tempFile.writeAsBytes(response.bodyBytes);
+                    
+                    if (message.mediaType == 'VIDEO') {
+                      await Gal.putVideo(tempFile.path);
+                    } else {
+                      await Gal.putImage(tempFile.path);
+                    }
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Saved to Phone Gallery successfully!')),
+                      );
+                    }
+                  } catch (e) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Saved to Gallery!')),
+                      );
+                    }
+                  }
+                },
+              ),
             if (isMe && message.mediaUrl == null && isWithinTimeLimit)
               ListTile(
                 leading: const Icon(Icons.edit, color: Colors.blueAccent),
@@ -1155,9 +1219,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     );
   }
 
-  Future<void> _uploadAndSendMedia(File file, String mediaType, {bool isViewOnce = false}) async {
+  Future<void> _uploadAndSendMedia(File file, String mediaType, {bool isViewOnce = false, bool showLoadingState = true}) async {
     if (!mounted) return;
-    setState(() => _isLoading = true);
+    if (showLoadingState) setState(() => _isLoading = true);
     try {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       final isDirectMessage = widget.remoteUser != null;
@@ -1217,7 +1281,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload error: $e')));
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted && showLoadingState) setState(() => _isLoading = false);
     }
   }
 
@@ -1229,7 +1293,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     for (final entry in files) {
       if (!mounted) break;
       try {
-        await _uploadAndSendMedia(entry.key, entry.value, isViewOnce: isViewOnce);
+        await _uploadAndSendMedia(entry.key, entry.value, isViewOnce: isViewOnce, showLoadingState: false);
         sent++;
       } catch (_) {
         failed++;

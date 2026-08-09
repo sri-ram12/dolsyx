@@ -311,6 +311,18 @@ class _DolsyxAppState extends State<DolsyxApp> {
                   enableVibration: true,
                   playSound: true,
                   enableLights: true,
+                  actions: <AndroidNotificationAction>[
+                    const AndroidNotificationAction(
+                      'reply_msg',
+                      'Reply',
+                      inputs: <AndroidNotificationActionInput>[
+                        AndroidNotificationActionInput(
+                          label: 'Type your message...',
+                        ),
+                      ],
+                      cancelNotification: true,
+                    ),
+                  ],
                 ),
               ),
             );

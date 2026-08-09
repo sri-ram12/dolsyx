@@ -165,6 +165,30 @@ class _CallsTabState extends State<CallsTab> {
     );
   }
 
+  String _formatCallDuration(dynamic logContent, dynamic rawDuration) {
+    if (logContent == 'missed' || logContent == 'declined') {
+      return 'Missed';
+    }
+    int durationSec = 0;
+    final contentStr = logContent?.toString() ?? '';
+    if (contentStr.startsWith('connected:')) {
+      durationSec = int.tryParse(contentStr.split(':')[1]) ?? 0;
+    } else if (rawDuration != null) {
+      durationSec = (rawDuration as num).toInt();
+    }
+
+    if (durationSec <= 0) {
+      return '0 sec';
+    }
+
+    final int mins = durationSec ~/ 60;
+    final int secs = durationSec % 60;
+    if (mins > 0) {
+      return '$mins min $secs sec';
+    }
+    return '$secs sec';
+  }
+
   void _showCallDetails(Map<String, dynamic> log, Map<String, dynamic> otherUser) {
     final isVideo = log['mediaUrl'] == 'video';
     final isMissed = log['content'] == 'missed' || log['content'] == 'declined';
@@ -242,12 +266,7 @@ class _CallsTabState extends State<CallsTab> {
                       ),
                       const SizedBox(height: 4),
                       Builder(builder: (context) {
-                        final durationSec = (log['duration'] as num?)?.toInt() ?? 0;
-                        final durationText = isMissed
-                            ? 'No duration'
-                            : (durationSec > 0
-                                ? '${durationSec ~/ 60} min ${durationSec % 60} sec'
-                                : 'Call duration unavailable');
+                        final durationText = _formatCallDuration(log['content'], log['duration']);
                         return Text(
                           'Talk Duration: $durationText',
                           style: TextStyle(color: AppTheme.primaryColor, fontSize: 13, fontWeight: FontWeight.w600),
@@ -426,10 +445,14 @@ class _CallsTabState extends State<CallsTab> {
                               Icon(iconData, size: 16, color: iconColor),
                               const SizedBox(width: 4),
                               Icon(typeIcon, size: 14, color: AppTheme.textSecondary),
-                              const SizedBox(width: 4),
-                              Text(
-                                DateFormat('MM/dd/yyyy, hh:mm a').format(DateTime.parse(log['createdAt']).toLocal()),
-                                style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  '${DateFormat('MMM d, h:mm a').format(DateTime.parse(log['createdAt']).toLocal())} • ${_formatCallDuration(log['content'], log['duration'])}',
+                                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
                             ],
                           ),

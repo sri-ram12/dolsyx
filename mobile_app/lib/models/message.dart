@@ -93,10 +93,10 @@ class Message {
     }
 
     return Message(
-      id: json['id'],
+      id: json['id'] ?? json['_id'] ?? '',
       content: contentStr,
-      senderId: json['senderId'] ?? (json['sender'] != null ? (json['sender']['id'] ?? json['sender']['_id']) : ''),
-      conversationId: json['conversationId'],
+      senderId: json['senderId'] ?? (json['sender'] != null ? (json['sender']['id'] ?? json['sender']['_id']) : '') ?? '',
+      conversationId: json['conversationId'] ?? json['chatId'] ?? '',
       parentMessageId: json['parentMessageId'],
       isEdited: json['isEdited'] ?? false,
       isDeleted: json['isDeleted'] ?? false,

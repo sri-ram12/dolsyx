@@ -73,6 +73,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   DateTime? _remoteUserLastSeen;
   Timer? _typingTimer;
   final Set<String> _selectedMessageIds = {};
+  List<String> _quickEmojis = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
   bool _isBlocked = false;
   Message? _replyingTo;
   bool _isRecording = false;
@@ -994,7 +995,15 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   void _reactToMessage(String messageId, String emoji) {
-    setState(() => _selectedMessageIds.clear());
+    setState(() {
+      _selectedMessageIds.clear();
+      if (!_quickEmojis.contains(emoji)) {
+        _quickEmojis.insert(0, emoji);
+        if (_quickEmojis.length > 6) {
+          _quickEmojis = _quickEmojis.sublist(0, 6);
+        }
+      }
+    });
     
     final msg = _messages.firstWhere((m) => m.id == messageId);
     final currentUser = Provider.of<AuthProvider>(context, listen: false).user;
@@ -1027,6 +1036,175 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         msg.reactions!.add({'userId': currentUser['id'], 'emoji': emoji});
       });
     }
+  }
+
+  Widget _buildQuickReactionPicker(Message message, bool isMe) {
+    final currentUser = Provider.of<AuthProvider>(context, listen: false).user;
+    String? userReaction;
+    if (message.reactions != null && currentUser != null) {
+      final myUserId = currentUser['id'] ?? currentUser['_id'];
+      for (final r in message.reactions!) {
+        if (r is Map && r['userId'] == myUserId) {
+          userReaction = r['emoji']?.toString();
+          break;
+        }
+      }
+    }
+
+    final List<String> quickEmojis = List<String>.from(_quickEmojis);
+    if (userReaction != null && userReaction.isNotEmpty && !quickEmojis.contains(userReaction)) {
+      if (quickEmojis.length >= 6) {
+        quickEmojis[5] = userReaction;
+      } else {
+        quickEmojis.add(userReaction);
+      }
+    }
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6, top: 4),
+      child: Align(
+        alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+        child: Container(
+          margin: EdgeInsets.only(
+            left: isMe ? 40 : 16,
+            right: isMe ? 16 : 40,
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1E293B) : Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.2),
+                blurRadius: 10,
+                spreadRadius: 1,
+                offset: const Offset(0, 3),
+              ),
+            ],
+            border: Border.all(
+              color: isDark ? Colors.white12 : Colors.black12,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ...quickEmojis.map((emoji) {
+                final bool isSelectedEmoji = userReaction == emoji;
+                return GestureDetector(
+                  onTap: () {
+                    _reactToMessage(message.id, emoji);
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: isSelectedEmoji
+                          ? AppTheme.primaryColor.withOpacity(0.25)
+                          : Colors.transparent,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Text(
+                      emoji,
+                      style: TextStyle(
+                        fontSize: isSelectedEmoji ? 26 : 22,
+                      ),
+                    ),
+                  ),
+                );
+              }),
+              Container(
+                height: 18,
+                width: 1,
+                margin: const EdgeInsets.symmetric(horizontal: 4),
+                color: isDark ? Colors.white24 : Colors.black26,
+              ),
+              GestureDetector(
+                onTap: () {
+                  final msgId = message.id;
+                  showModalBottomSheet(
+                    context: context,
+                    backgroundColor: AppTheme.surfaceColor,
+                    isScrollControlled: true,
+                    shape: const RoundedRectangleBorder(
+                      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                    ),
+                    builder: (context) => SizedBox(
+                      height: 350,
+                      child: Column(
+                        children: [
+                          Container(
+                            margin: const EdgeInsets.symmetric(vertical: 8),
+                            height: 4,
+                            width: 36,
+                            decoration: BoxDecoration(
+                              color: AppTheme.textSecondary.withOpacity(0.4),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: Text(
+                              'React with Any Emoji',
+                              style: TextStyle(
+                                color: AppTheme.textPrimary,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 15,
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            child: EmojiPicker(
+                              onEmojiSelected: (category, emoji) {
+                                Navigator.pop(context);
+                                _reactToMessage(msgId, emoji.emoji);
+                              },
+                              config: Config(
+                                checkPlatformCompatibility: true,
+                                emojiViewConfig: EmojiViewConfig(
+                                  backgroundColor: AppTheme.surfaceColor,
+                                  columns: 7,
+                                  emojiSizeMax: 28 * (Platform.isIOS ? 1.30 : 1.0),
+                                ),
+                                categoryViewConfig: CategoryViewConfig(
+                                  backgroundColor: AppTheme.surfaceColor,
+                                  indicatorColor: AppTheme.primaryColor,
+                                  iconColorSelected: AppTheme.primaryColor,
+                                  iconColor: AppTheme.textSecondary,
+                                ),
+                                bottomActionBarConfig: BottomActionBarConfig(
+                                  showSearchViewButton: true,
+                                  backgroundColor: AppTheme.surfaceColor,
+                                ),
+                                searchViewConfig: SearchViewConfig(
+                                  backgroundColor: AppTheme.surfaceColor,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white12 : Colors.grey.shade200,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.add,
+                    size: 18,
+                    color: AppTheme.textSecondary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   void _handleReactionAdded(dynamic data) {
@@ -2089,44 +2267,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     },
                   ),
                 IconButton(
-                  icon: const Icon(Icons.add_reaction_outlined),
-                  onPressed: () {
-                    final msgId = _selectedMessageIds.first;
-                    showModalBottomSheet(
-                      context: context,
-                      backgroundColor: AppTheme.surfaceColor,
-                      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
-                      builder: (context) => Container(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            ...'👍❤️😂😮😢🙏'.split('').map((emoji) => GestureDetector(
-                              onTap: () {
-                                Navigator.pop(context);
-                                _reactToMessage(msgId, emoji);
-                              },
-                              child: Text(emoji, style: const TextStyle(fontSize: 32)),
-                            )),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
-                IconButton(
-                  icon: const Icon(Icons.copy),
-                  onPressed: () {
-                    final selectedMsgs = _messages.where((m) => _selectedMessageIds.contains(m.id)).toList();
-                    final copiedText = selectedMsgs.map((m) => '[${DateFormat('HH:mm').format(m.createdAt)}] ${m.content}').join('\n');
-                    Clipboard.setData(ClipboardData(text: copiedText));
-                    setState(() => _selectedMessageIds.clear());
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Copied ${selectedMsgs.length} messages to clipboard!')),
-                    );
-                  },
-                ),
-                IconButton(
                   icon: const Icon(Icons.star_border),
                   onPressed: _starSelectedMessages,
                 ),
@@ -2187,9 +2327,65 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     );
                   },
                 ),
-                IconButton(
-                  icon: const Icon(Icons.push_pin_outlined),
-                  onPressed: _pinSelectedMessages,
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.more_vert),
+                  onSelected: (value) {
+                    if (value == 'edit') {
+                      if (_selectedMessageIds.length == 1) {
+                        final selectedMsg = _messages.firstWhere((m) => m.id == _selectedMessageIds.first);
+                        setState(() => _selectedMessageIds.clear());
+                        _editMessageDialog(selectedMsg);
+                      }
+                    } else if (value == 'copy') {
+                      final selectedMsgs = _messages.where((m) => _selectedMessageIds.contains(m.id)).toList();
+                      final copiedText = selectedMsgs.map((m) => m.content).join('\n');
+                      Clipboard.setData(ClipboardData(text: copiedText));
+                      setState(() => _selectedMessageIds.clear());
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Copied ${selectedMsgs.length} message(s) to clipboard')),
+                      );
+                    } else if (value == 'pin') {
+                      _pinSelectedMessages();
+                    }
+                  },
+                  itemBuilder: (context) {
+                    final myId = currentUser?['id'] ?? currentUser?['_id'];
+                    final bool canEdit = _selectedMessageIds.length == 1 &&
+                        _messages.any((m) => m.id == _selectedMessageIds.first && (m.senderId == myId || (m.sender != null && (m.sender!['id'] == myId || m.sender!['_id'] == myId))));
+                    return [
+                      if (canEdit)
+                        const PopupMenuItem<String>(
+                          value: 'edit',
+                          child: Row(
+                            children: [
+                              Icon(Icons.edit_outlined, size: 20),
+                              SizedBox(width: 12),
+                              Text('Edit'),
+                            ],
+                          ),
+                        ),
+                      const PopupMenuItem<String>(
+                        value: 'copy',
+                        child: Row(
+                          children: [
+                            Icon(Icons.content_copy, size: 20),
+                            SizedBox(width: 12),
+                            Text('Copy'),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuItem<String>(
+                        value: 'pin',
+                        child: Row(
+                          children: [
+                            Icon(Icons.push_pin_outlined, size: 20),
+                            SizedBox(width: 12),
+                            Text('Pin'),
+                          ],
+                        ),
+                      ),
+                    ];
+                  },
                 ),
               ],
             )
@@ -2732,6 +2928,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           separator,
+                          if (isSelected && _selectedMessageIds.length == 1)
+                            _buildQuickReactionPicker(message, isMe),
                           GestureDetector(
                             onLongPress: () {
                               setState(() {

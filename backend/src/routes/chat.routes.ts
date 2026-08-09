@@ -85,9 +85,16 @@ router.post("/upload", (req: any, res: any) => {
         return;
       }
 
+      const getCleanUrl = (f: Express.Multer.File) => {
+        if (f.path && (f.path.startsWith("http://") || f.path.startsWith("https://"))) {
+          return f.path;
+        }
+        return `/uploads/${f.filename}`;
+      };
+
       const uploadedFiles = files.map((f) => ({
-        fileUrl: f.path || `/uploads/${f.filename}`,
-        url: f.path || `/uploads/${f.filename}`,
+        fileUrl: getCleanUrl(f),
+        url: getCleanUrl(f),
         fileName: f.originalname,
         fileType: f.mimetype,
         size: f.size,

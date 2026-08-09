@@ -5,8 +5,19 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_core/firebase_core.dart';
 
 class ApiService {
-  // Replace with your computer's local Wi-Fi IP address
+  // Replace with your computer's local Wi-Fi IP address or production server
   static const String baseUrl = 'https://dolsyx-app.onrender.com/api';
+
+  static String getMediaUrl(String? path) {
+    if (path == null || path.isEmpty) return '';
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      return path;
+    }
+    final serverBase = baseUrl.endsWith('/api')
+        ? baseUrl.substring(0, baseUrl.length - 4)
+        : baseUrl;
+    return '$serverBase${path.startsWith('/') ? '' : '/'}$path';
+  }
 
   static Map<String, String> authHeaders(String token) => {
     'Content-Type': 'application/json',

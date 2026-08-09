@@ -10,7 +10,9 @@ import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
 import '../providers/auth_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:http/http.dart' as http;
 
+import '../services/api_service.dart';
 import '../screens/view_once_screen.dart';
 
 class MessageBubble extends StatelessWidget {
@@ -437,9 +439,7 @@ class MessageBubble extends StatelessWidget {
                           bottomLeft: (!isMe && isOnlyImage) ? const Radius.circular(4) : null,
                         ),
                         child: CachedNetworkImage(
-                          imageUrl: message.mediaUrl!.startsWith('http')
-                              ? message.mediaUrl!
-                              : 'https://dolsyx-app.onrender.com${message.mediaUrl}',
+                          imageUrl: ApiService.getMediaUrl(message.mediaUrl),
                           width: imageSize,
                           fit: BoxFit.contain,
                           placeholder: (context, url) => Container(
@@ -609,10 +609,14 @@ class MessageBubble extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      ...message.reactions!.map((r) => r['emoji']).toSet().map((emoji) => Text(
-                        emoji,
-                        style: const TextStyle(fontSize: 12),
-                      )),
+                      ...message.reactions!
+                          .where((r) => r is Map && r['emoji'] != null)
+                          .map((r) => r['emoji'].toString())
+                          .toSet()
+                          .map((emoji) => Text(
+                                emoji,
+                                style: const TextStyle(fontSize: 12),
+                              )),
                       if (message.reactions!.length > 1) ...[
                         const SizedBox(width: 2),
                         Text(
@@ -653,6 +657,50 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
+  static final Map<String, String> _placeNameCache = {};
+
+  Future<String> _reverseGeocode(double lat, double lng) async {
+    final key = '${lat.toStringAsFixed(4)},${lng.toStringAsFixed(4)}';
+    if (_placeNameCache.containsKey(key)) {
+      return _placeNameCache[key]!;
+    }
+    try {
+      final response = await http.get(
+        Uri.parse('https://nominatim.openstreetmap.org/reverse?format=json&lat=$lat&lon=$lng&zoom=18&addressdetails=1'),
+        headers: {'User-Agent': 'DolsyxApp/1.0 (Mobile Client)'},
+      ).timeout(const Duration(seconds: 4));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final address = data['address'];
+        if (address != null && address is Map) {
+          final List<String> parts = [];
+          final road = address['road'] ?? address['pedestrian'] ?? address['suburb'];
+          final area = address['suburb'] ?? address['neighbourhood'] ?? address['city_district'];
+          final city = address['city'] ?? address['town'] ?? address['village'] ?? address['county'];
+          final state = address['state'];
+
+          if (road != null) parts.add(road.toString());
+          if (area != null && area.toString() != road.toString()) parts.add(area.toString());
+          if (city != null) parts.add(city.toString());
+          if (state != null && parts.length < 3) parts.add(state.toString());
+
+          if (parts.isNotEmpty) {
+            final result = parts.join(', ');
+            _placeNameCache[key] = result;
+            return result;
+          }
+        }
+        if (data['display_name'] != null) {
+          final String name = data['display_name'].toString();
+          _placeNameCache[key] = name;
+          return name;
+        }
+      }
+    } catch (_) {}
+    return 'Coordinates: ${lat.toStringAsFixed(4)}°, ${lng.toStringAsFixed(4)}°';
+  }
+
   Widget _buildLocationBubble(BuildContext context) {
     double? lat = message.latitude;
     double? lng = message.longitude;
@@ -676,16 +724,31 @@ class MessageBubble extends StatelessWidget {
     final double finalLat = lat ?? 12.9716;
     final double finalLng = lng ?? 77.5946;
 
+    String senderName = isMe ? 'You' : 'User';
+    if (message.sender != null) {
+      senderName = message.sender!['username'] ?? message.sender!['name'] ?? message.sender!['savedName'] ?? senderName;
+    }
+
     void openMapApp() async {
-      final Uri mapUri = Uri.parse('https://www.google.com/maps/search/?api=1&query=$finalLat,$finalLng');
+      final String encodedName = Uri.encodeComponent("$senderName's Location");
+      final Uri googleMapsUri = Uri.parse('https://www.google.com/maps/search/?api=1&query=$finalLat,$finalLng');
+      final Uri geoUri = Uri.parse('geo:$finalLat,$finalLng?q=$finalLat,$finalLng($encodedName)');
+
       try {
-        if (await canLaunchUrl(mapUri)) {
-          await launchUrl(mapUri, mode: LaunchMode.externalApplication);
+        if (await canLaunchUrl(geoUri)) {
+          await launchUrl(geoUri, mode: LaunchMode.externalApplication);
+          return;
+        }
+      } catch (_) {}
+
+      try {
+        if (await canLaunchUrl(googleMapsUri)) {
+          await launchUrl(googleMapsUri, mode: LaunchMode.externalApplication);
         } else {
-          await launchUrl(mapUri, mode: LaunchMode.platformDefault);
+          await launchUrl(googleMapsUri, mode: LaunchMode.platformDefault);
         }
       } catch (_) {
-        await launchUrl(mapUri, mode: LaunchMode.externalNonBrowserApplication);
+        await launchUrl(googleMapsUri, mode: LaunchMode.externalNonBrowserApplication);
       }
     }
 
@@ -695,7 +758,7 @@ class MessageBubble extends StatelessWidget {
         onTap: openMapApp,
         child: Container(
           margin: const EdgeInsets.only(bottom: 8),
-          width: 260,
+          width: 270,
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
             color: isMe ? AppTheme.bubbleSender : AppTheme.bubbleReceiver,
@@ -709,16 +772,16 @@ class MessageBubble extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              // 1. Street Map Preview Image with Red Pin Marker (Matching Image 1)
+              // 1. Street Map Preview Image with Sender Name Overlay & Red Pin Marker
               SizedBox(
-                height: 140,
-                width: 260,
+                height: 150,
+                width: 270,
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
                     Positioned.fill(
                       child: Image.network(
-                        'https://static-maps.yandex.ru/1.x/?lang=en_US&ll=$finalLng,$finalLat&z=15&l=map&pt=$finalLng,$finalLat,pm2rdm',
+                        'https://static-maps.yandex.ru/1.x/?lang=en_US&ll=$finalLng,$finalLat&z=16&l=map&pt=$finalLng,$finalLat,pm2rdm',
                         fit: BoxFit.cover,
                         errorBuilder: (ctx, err, stack) => Container(
                           color: const Color(0xFF1E293B),
@@ -729,7 +792,7 @@ class MessageBubble extends StatelessWidget {
                                 const Icon(Icons.location_on, size: 42, color: Colors.redAccent),
                                 const SizedBox(height: 4),
                                 Text(
-                                  '${finalLat.toStringAsFixed(4)}, ${finalLng.toStringAsFixed(4)}',
+                                  '${finalLat.toStringAsFixed(6)}, ${finalLng.toStringAsFixed(6)}',
                                   style: const TextStyle(color: Colors.white70, fontSize: 11),
                                 ),
                               ],
@@ -738,34 +801,92 @@ class MessageBubble extends StatelessWidget {
                         ),
                       ),
                     ),
-                    // Red Pin Marker Container
+                    // Top Sender Name Banner Overlay
                     Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
                       child: Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: const BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
-                          boxShadow: [BoxShadow(color: Colors.black45, blurRadius: 6)],
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        color: Colors.black.withOpacity(0.7),
+                        child: Row(
+                          children: [
+                            Icon(
+                              isLive ? Icons.my_location : Icons.person_pin_circle,
+                              color: isLive ? Colors.greenAccent : Colors.redAccent,
+                              size: 16,
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                "$senderName's Location",
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (isLive)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Colors.green,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Text(
+                                  'LIVE',
+                                  style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                          ],
                         ),
-                        child: const Icon(Icons.location_on, size: 28, color: Colors.redAccent),
                       ),
                     ),
-                    // Route tracing pill badge
+                    // Center Red Pin Marker Container with User Name Badge
+                    Positioned(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 4)],
+                            ),
+                            child: Text(
+                              senderName,
+                              style: const TextStyle(
+                                color: Colors.black87,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          const Icon(Icons.location_on, size: 32, color: Colors.redAccent),
+                        ],
+                      ),
+                    ),
+                    // Route tracing pill badge at bottom left
                     Positioned(
                       bottom: 8,
                       left: 8,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.75),
+                          color: AppTheme.primaryColor,
                           borderRadius: BorderRadius.circular(12),
+                          boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 4)],
                         ),
                         child: const Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.directions, color: Colors.white, size: 12),
+                            Icon(Icons.near_me, color: Colors.white, size: 12),
                             SizedBox(width: 4),
-                            Text('Trace Route', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
+                            Text('Track GPS', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
                           ],
                         ),
                       ),
@@ -773,40 +894,47 @@ class MessageBubble extends StatelessWidget {
                   ],
                 ),
               ),
-              // 2. Title & Address details (Matching Image 1 & Image 2)
+              // 2. Title & Address details with Reverse Geocoding
               Padding(
                 padding: const EdgeInsets.all(10.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Icon(
-                          isLive ? Icons.my_location : Icons.location_on,
-                          color: isLive ? Colors.green : Colors.redAccent,
-                          size: 18,
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            locTitle,
-                            style: TextStyle(
-                              color: isMe ? (AppTheme.bubbleSender.computeLuminance() > 0.5 ? Colors.black87 : Colors.white) : (AppTheme.bubbleReceiver.computeLuminance() > 0.5 ? Colors.black87 : Colors.white),
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
+                    FutureBuilder<String>(
+                      future: _reverseGeocode(finalLat, finalLng),
+                      builder: (context, snapshot) {
+                        final String displayPlace = snapshot.data ?? (locTitle.isNotEmpty && locTitle != 'Location' && locTitle != 'Current Location' ? locTitle : 'Fetching place name...');
+                        return Row(
+                          children: [
+                            Icon(
+                              isLive ? Icons.my_location : Icons.location_on,
+                              color: isLive ? Colors.green : Colors.redAccent,
+                              size: 18,
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                displayPlace,
+                                style: TextStyle(
+                                  color: isMe ? (AppTheme.bubbleSender.computeLuminance() > 0.5 ? Colors.black87 : Colors.white) : (AppTheme.bubbleReceiver.computeLuminance() > 0.5 ? Colors.black87 : Colors.white),
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        );
+                      },
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 4),
                     Text(
-                      'GPS: ${finalLat.toStringAsFixed(4)}, ${finalLng.toStringAsFixed(4)} • Tap to trace location',
+                      'GPS: ${finalLat.toStringAsFixed(6)}°, ${finalLng.toStringAsFixed(6)}°',
                       style: TextStyle(
                         color: isMe ? (AppTheme.bubbleSender.computeLuminance() > 0.5 ? Colors.black54 : Colors.white70) : (AppTheme.bubbleReceiver.computeLuminance() > 0.5 ? Colors.black54 : Colors.white70),
                         fontSize: 11,
+                        fontWeight: FontWeight.w500,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -863,6 +991,17 @@ class MessageBubble extends StatelessWidget {
         ? 'Missed ${isVideo ? "video" : "voice"} call'
         : (message.content == 'declined' ? 'Declined ${isVideo ? "video" : "voice"} call' : '${isVideo ? "Video" : "Voice"} call');
 
+    String subtitleText = 'Tap to call back';
+    if (message.content.startsWith('connected:')) {
+      final int sec = int.tryParse(message.content.split(':')[1]) ?? 0;
+      if (sec > 0) {
+        final int mins = sec ~/ 60;
+        final int secs = sec % 60;
+        final String durStr = mins > 0 ? '$mins min $secs sec' : '$secs sec';
+        subtitleText = '$durStr • Tap to call back';
+      }
+    }
+
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: GestureDetector(
@@ -904,7 +1043,7 @@ class MessageBubble extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'Tap to call back',
+                    subtitleText,
                     style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
                   ),
                 ],
@@ -975,7 +1114,7 @@ class _AudioPlayWidgetState extends State<AudioPlayWidget> {
         await _player.pause();
         if (mounted) setState(() => _isPlaying = false);
       } else {
-        final fullUrl = widget.url.startsWith('http') ? widget.url : 'https://dolsyx-app.onrender.com${widget.url}';
+        final fullUrl = ApiService.getMediaUrl(widget.url);
         await _player.play(UrlSource(fullUrl));
         if (mounted) setState(() => _isPlaying = true);
       }

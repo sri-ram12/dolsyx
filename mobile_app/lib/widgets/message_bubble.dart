@@ -633,23 +633,9 @@ class MessageBubble extends StatelessWidget {
 
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-      child: GestureDetector(
-        onDoubleTap: () {
-          final authProvider = Provider.of<AuthProvider>(context, listen: false);
-          if (authProvider.socketService.socket != null && authProvider.socketService.isConnected) {
-            authProvider.socketService.socket!.emit('add_reaction', {
-              'messageId': message.id,
-              'conversationId': message.conversationId,
-              'emoji': '❤️',
-            });
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Reacted with ❤️'), duration: Duration(milliseconds: 800)),
-            );
-          }
-        },
-        child: onSwipeReply != null
-            ? Dismissible(
-                key: Key('dismiss_${message.id}'),
+      child: onSwipeReply != null
+          ? Dismissible(
+              key: Key('dismiss_${message.id}'),
               direction: DismissDirection.startToEnd,
               onDismissed: (_) {},
               confirmDismiss: (direction) async {
@@ -664,7 +650,6 @@ class MessageBubble extends StatelessWidget {
               child: bubbleContent,
             )
           : bubbleContent,
-      ),
     );
   }
 
@@ -999,81 +984,22 @@ class _AudioPlayWidgetState extends State<AudioPlayWidget> {
     }
   }
 
-  double _playbackSpeed = 1.0;
-  bool _showTranscript = false;
-  String _transcriptText = "Generating transcript...";
-
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              constraints: const BoxConstraints(),
-              padding: EdgeInsets.zero,
-              icon: Icon(_isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill, color: widget.color, size: 36),
-              onPressed: _togglePlay,
-            ),
-            const SizedBox(width: 8),
-            Text(
-              _formatDuration(_position) + ' / ' + _formatDuration(_duration),
-              style: TextStyle(color: widget.color, fontSize: 13, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: () {
-                setState(() {
-                  if (_playbackSpeed == 1.0) _playbackSpeed = 1.5;
-                  else if (_playbackSpeed == 1.5) _playbackSpeed = 2.0;
-                  else _playbackSpeed = 1.0;
-                });
-                _player.setPlaybackRate(_playbackSpeed);
-              },
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: widget.color.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: widget.color.withOpacity(0.5)),
-                ),
-                child: Text(
-                  '${_playbackSpeed}x',
-                  style: TextStyle(color: widget.color, fontSize: 11, fontWeight: FontWeight.bold),
-                ),
-              ),
-            ),
-            const SizedBox(width: 6),
-            InkWell(
-              onTap: () {
-                setState(() {
-                  _showTranscript = !_showTranscript;
-                  if (_showTranscript && _transcriptText == "Generating transcript...") {
-                    _transcriptText = "📝 Audio Transcript: \"Hey there! Hope you're doing well. Talk to you soon!\"";
-                  }
-                });
-              },
-              child: Icon(Icons.subtitles, size: 18, color: widget.color.withOpacity(0.8)),
-            ),
-          ],
+        IconButton(
+          constraints: const BoxConstraints(),
+          padding: EdgeInsets.zero,
+          icon: Icon(_isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill, color: widget.color, size: 36),
+          onPressed: _togglePlay,
         ),
-        if (_showTranscript) ...[
-          const SizedBox(height: 6),
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: Colors.black26,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              _transcriptText,
-              style: TextStyle(color: widget.color, fontSize: 11, fontStyle: FontStyle.italic),
-            ),
-          ),
-        ],
+        const SizedBox(width: 8),
+        Text(
+          _formatDuration(_position) + ' / ' + _formatDuration(_duration),
+          style: TextStyle(color: widget.color, fontSize: 13, fontWeight: FontWeight.bold),
+        ),
       ],
     );
   }

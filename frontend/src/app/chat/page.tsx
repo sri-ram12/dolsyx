@@ -680,9 +680,6 @@ export default function ChatPage() {
     });
 
     socket.on("poll_updated", (data: { conversationId: string; messageId: string; content: string }) => {
-      setMessages((prevMessages: any[]) =>
-        prevMessages.map((msg) => (msg.id === data.messageId ? { ...msg, content: data.content } : msg))
-      );
       setChats((prevChats) =>
         prevChats.map((c) => {
           if (c.id === data.conversationId && c.lastMessage?.id === data.messageId) {

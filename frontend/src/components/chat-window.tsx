@@ -1143,6 +1143,14 @@ export default function ChatWindow({
       }
     };
 
+    const handlePollUpdated = (data: { conversationId: string; messageId: string; content: string }) => {
+      if (data.conversationId === chat.id) {
+        setMessages((prev) =>
+          prev.map((msg) => (msg.id === data.messageId ? { ...msg, content: data.content } : msg))
+        );
+      }
+    };
+
     socket.on("receive_encrypted_message", handleEncryptedMessage);
     socket.on("new_message", handleNewMessage);
     socket.on("messages_read", handleMessagesRead);
@@ -1153,6 +1161,7 @@ export default function ChatWindow({
     socket.on("chat_cleared", handleChatCleared);
     socket.on("reaction_added", handleReactionAdded);
     socket.on("reaction_removed", handleReactionRemoved);
+    socket.on("poll_updated", handlePollUpdated);
 
     return () => {
       socket.off("receive_encrypted_message", handleEncryptedMessage);
@@ -1165,6 +1174,7 @@ export default function ChatWindow({
       socket.off("chat_cleared", handleChatCleared);
       socket.off("reaction_added", handleReactionAdded);
       socket.off("reaction_removed", handleReactionRemoved);
+      socket.off("poll_updated", handlePollUpdated);
     };
   }, [socket, chat, user]);
 

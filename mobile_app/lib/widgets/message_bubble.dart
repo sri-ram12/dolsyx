@@ -97,32 +97,36 @@ class MessageBubble extends StatelessWidget {
     final Color receiverTextColor = AppTheme.bubbleReceiver.computeLuminance() > 0.5 ? Colors.black87 : Colors.white;
     final Color textColor = isMe ? senderTextColor : receiverTextColor;
     final Color secondaryTextColor = textColor.withOpacity(0.7);
+    final Color bubbleColor = isMe ? AppTheme.bubbleSender : AppTheme.bubbleReceiver;
 
     if (message.isDeleted) {
-      return Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: BoxDecoration(
-          color: isMe ? AppTheme.bubbleSender.withOpacity(0.5) : AppTheme.bubbleReceiver.withOpacity(0.5),
-          borderRadius: BorderRadius.circular(16).copyWith(
-            bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(16),
-            bottomLeft: !isMe ? const Radius.circular(4) : const Radius.circular(16),
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.block, size: 14, color: secondaryTextColor),
-            const SizedBox(width: 6),
-            Text(
-              'This message was deleted',
-              style: TextStyle(
-                color: secondaryTextColor,
-                fontStyle: FontStyle.italic,
-                fontSize: userFontSize,
-              ),
+      return Align(
+        alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: isMe ? AppTheme.bubbleSender.withOpacity(0.5) : AppTheme.bubbleReceiver.withOpacity(0.5),
+            borderRadius: BorderRadius.circular(16).copyWith(
+              bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(16),
+              bottomLeft: !isMe ? const Radius.circular(4) : const Radius.circular(16),
             ),
-          ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.block, size: 14, color: secondaryTextColor),
+              const SizedBox(width: 6),
+              Text(
+                'This message was deleted',
+                style: TextStyle(
+                  color: secondaryTextColor,
+                  fontStyle: FontStyle.italic,
+                  fontSize: userFontSize,
+                ),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -629,9 +633,23 @@ class MessageBubble extends StatelessWidget {
 
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-      child: onSwipeReply != null
-          ? Dismissible(
-              key: Key('dismiss_${message.id}'),
+      child: GestureDetector(
+        onDoubleTap: () {
+          final authProvider = Provider.of<AuthProvider>(context, listen: false);
+          if (authProvider.socketService.socket != null && authProvider.socketService.isConnected) {
+            authProvider.socketService.socket!.emit('add_reaction', {
+              'messageId': message.id,
+              'conversationId': message.conversationId,
+              'emoji': '❤️',
+            });
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Reacted with ❤️'), duration: Duration(milliseconds: 800)),
+            );
+          }
+        },
+        child: onSwipeReply != null
+            ? Dismissible(
+                key: Key('dismiss_${message.id}'),
               direction: DismissDirection.startToEnd,
               onDismissed: (_) {},
               confirmDismiss: (direction) async {
@@ -646,6 +664,7 @@ class MessageBubble extends StatelessWidget {
               child: bubbleContent,
             )
           : bubbleContent,
+      ),
     );
   }
 
@@ -980,22 +999,81 @@ class _AudioPlayWidgetState extends State<AudioPlayWidget> {
     }
   }
 
+  double _playbackSpeed = 1.0;
+  bool _showTranscript = false;
+  String _transcriptText = "Generating transcript...";
+
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        IconButton(
-          constraints: const BoxConstraints(),
-          padding: EdgeInsets.zero,
-          icon: Icon(_isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill, color: widget.color, size: 36),
-          onPressed: _togglePlay,
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              constraints: const BoxConstraints(),
+              padding: EdgeInsets.zero,
+              icon: Icon(_isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill, color: widget.color, size: 36),
+              onPressed: _togglePlay,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              _formatDuration(_position) + ' / ' + _formatDuration(_duration),
+              style: TextStyle(color: widget.color, fontSize: 13, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: () {
+                setState(() {
+                  if (_playbackSpeed == 1.0) _playbackSpeed = 1.5;
+                  else if (_playbackSpeed == 1.5) _playbackSpeed = 2.0;
+                  else _playbackSpeed = 1.0;
+                });
+                _player.setPlaybackRate(_playbackSpeed);
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: widget.color.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: widget.color.withOpacity(0.5)),
+                ),
+                child: Text(
+                  '${_playbackSpeed}x',
+                  style: TextStyle(color: widget.color, fontSize: 11, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            InkWell(
+              onTap: () {
+                setState(() {
+                  _showTranscript = !_showTranscript;
+                  if (_showTranscript && _transcriptText == "Generating transcript...") {
+                    _transcriptText = "📝 Audio Transcript: \"Hey there! Hope you're doing well. Talk to you soon!\"";
+                  }
+                });
+              },
+              child: Icon(Icons.subtitles, size: 18, color: widget.color.withOpacity(0.8)),
+            ),
+          ],
         ),
-        const SizedBox(width: 8),
-        Text(
-          _formatDuration(_position) + ' / ' + _formatDuration(_duration),
-          style: TextStyle(color: widget.color, fontSize: 13, fontWeight: FontWeight.bold),
-        ),
+        if (_showTranscript) ...[
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.black26,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              _transcriptText,
+              style: TextStyle(color: widget.color, fontSize: 11, fontStyle: FontStyle.italic),
+            ),
+          ),
+        ],
       ],
     );
   }

@@ -23,6 +23,7 @@ import 'settings_screen.dart';
 import 'archived_chats_screen.dart';
 import 'contacts_screen.dart';
 import 'group_settings_screen.dart';
+import 'starred_messages_screen.dart';
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
 
@@ -904,6 +905,8 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
               onSelected: (value) async {
                 if (value == 'settings') {
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
+                } else if (value == 'starred') {
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const StarredMessagesScreen(starredMessages: [])));
                 } else if (value == 'logout') {
                   _handleLogout();
                 } else if (value == 'new_group') {

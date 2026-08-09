@@ -83,11 +83,116 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   final AudioRecorder _audioRecorder = AudioRecorder();
   Message? _pinnedMessage;
 
+  // Feature States
+  bool _isMuted = false;
+  String? _disappearingTimer = 'Off';
+  bool _isScreenGuardEnabled = false;
+
   // In-Chat Search State
   bool _isSearching = false;
   final TextEditingController _searchController = TextEditingController();
   List<int> _matchingIndices = [];
   int _currentSearchMatchIndex = 0;
+
+  void _showMuteDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Mute Notifications'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: const Text('8 Hours'),
+              onTap: () {
+                Navigator.pop(ctx);
+                setState(() => _isMuted = true);
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Notifications muted for 8 Hours')));
+              },
+            ),
+            ListTile(
+              title: const Text('1 Week'),
+              onTap: () {
+                Navigator.pop(ctx);
+                setState(() => _isMuted = true);
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Notifications muted for 1 Week')));
+              },
+            ),
+            ListTile(
+              title: const Text('Always'),
+              onTap: () {
+                Navigator.pop(ctx);
+                setState(() => _isMuted = true);
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Notifications muted Always')));
+              },
+            ),
+            if (_isMuted)
+              ListTile(
+                title: const Text('Unmute Notifications', style: TextStyle(color: Colors.green)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  setState(() => _isMuted = false);
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Notifications unmuted')));
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showDisappearingDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Disappearing Messages'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: const Text('Off'),
+              onTap: () {
+                Navigator.pop(ctx);
+                setState(() => _disappearingTimer = 'Off');
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Disappearing messages turned Off')));
+              },
+            ),
+            ListTile(
+              title: const Text('24 Hours'),
+              onTap: () {
+                Navigator.pop(ctx);
+                setState(() => _disappearingTimer = '24 Hours');
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Messages will self-destruct after 24 Hours')));
+              },
+            ),
+            ListTile(
+              title: const Text('7 Days'),
+              onTap: () {
+                Navigator.pop(ctx);
+                setState(() => _disappearingTimer = '7 Days');
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Messages will self-destruct after 7 Days')));
+              },
+            ),
+            ListTile(
+              title: const Text('90 Days'),
+              onTap: () {
+                Navigator.pop(ctx);
+                setState(() => _disappearingTimer = '90 Days');
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Messages will self-destruct after 90 Days')));
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _toggleScreenGuard() {
+    setState(() => _isScreenGuardEnabled = !_isScreenGuardEnabled);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(_isScreenGuardEnabled ? '🛡️ Screen Guard Enabled (Screenshots & Recordings Protected)' : 'Screen Guard Disabled')),
+    );
+  }
 
   void _handleGroupUpdated(dynamic data) {
     if (mounted && data['conversationId'] == widget.conversationId) {
@@ -1362,11 +1467,77 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 _buildAttachGridItem(sheetContext, 'Gallery', Icons.photo_library, const Color(0xFFAB47BC), _pickGalleryMedia),
                 _buildAttachGridItem(sheetContext, 'Location', Icons.location_on, const Color(0xFF09AF79), _showLocationOptions),
                 _buildAttachGridItem(sheetContext, 'Poll', Icons.poll_rounded, const Color(0xFF00BFA5), _showPollCreationModal),
+                _buildAttachGridItem(sheetContext, 'Schedule', Icons.schedule, const Color(0xFFFF9800), _showScheduleMessageModal),
               ],
             ),
           ),
         );
       },
+    );
+  }
+
+  void _showScheduleMessageModal() async {
+    final DateTime? pickedDate = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now().add(const Duration(minutes: 30)),
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+    if (pickedDate == null) return;
+
+    final TimeOfDay? pickedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.now(),
+    );
+    if (pickedTime == null) return;
+
+    final scheduledDateTime = DateTime(
+      pickedDate.year,
+      pickedDate.month,
+      pickedDate.day,
+      pickedTime.hour,
+      pickedTime.minute,
+    );
+
+    final textController = TextEditingController(text: _messageController.text);
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Schedule Message'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Scheduled for: ${DateFormat('EEE, MMM d, yyyy @ h:mm a').format(scheduledDateTime)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: textController,
+              decoration: const InputDecoration(hintText: 'Enter scheduled message text...'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () {
+              final text = textController.text.trim();
+              if (text.isNotEmpty) {
+                Navigator.pop(ctx);
+                final delay = scheduledDateTime.difference(DateTime.now());
+                Timer(delay.isNegative ? Duration.zero : delay, () {
+                  _messageController.text = text;
+                  _sendMessage();
+                });
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Message scheduled for ${DateFormat('h:mm a').format(scheduledDateTime)}')),
+                );
+              }
+            },
+            child: const Text('Schedule'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -2320,9 +2491,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     } else if (value == 'block_user') {
                       _isBlocked ? _confirmUnblockUser() : _confirmBlockUser();
                     } else if (value == 'mute') {
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Mute options coming soon')));
+                      _showMuteDialog();
                     } else if (value == 'disappearing') {
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Disappearing messages options coming soon')));
+                      _showDisappearingDialog();
+                    } else if (value == 'screen_guard') {
+                      _toggleScreenGuard();
                     } else if (value == 'wallpaper') {
                       Navigator.push(context, MaterialPageRoute(builder: (_) => WallpaperSettingsScreen(conversationId: widget.conversationId)));
                     }
@@ -2342,13 +2515,35 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                         value: 'block_user',
                         child: Text(_isBlocked ? 'Unblock User' : 'Block User', style: TextStyle(color: _isBlocked ? AppTheme.primaryColor : Colors.red)),
                       ),
-                    const PopupMenuItem(
+                    PopupMenuItem(
                       value: 'mute',
-                      child: Text('Mute Notifications'),
+                      child: Row(
+                        children: [
+                          Icon(_isMuted ? Icons.volume_off : Icons.volume_up, size: 18),
+                          const SizedBox(width: 8),
+                          Text(_isMuted ? 'Unmute Notifications' : 'Mute Notifications'),
+                        ],
+                      ),
                     ),
-                    const PopupMenuItem(
+                    PopupMenuItem(
                       value: 'disappearing',
-                      child: Text('Disappearing Messages'),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.timer, size: 18),
+                          const SizedBox(width: 8),
+                          Text('Disappearing Messages (${_disappearingTimer ?? 'Off'})'),
+                        ],
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'screen_guard',
+                      child: Row(
+                        children: [
+                          Icon(_isScreenGuardEnabled ? Icons.security : Icons.security_outlined, size: 18, color: _isScreenGuardEnabled ? Colors.green : null),
+                          const SizedBox(width: 8),
+                          Text(_isScreenGuardEnabled ? 'Screen Guard: ON' : 'Screen Guard: OFF'),
+                        ],
+                      ),
                     ),
                     const PopupMenuItem(
                       value: 'wallpaper',

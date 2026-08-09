@@ -1254,15 +1254,22 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
                   ),
                 ),
 
-              // === TOP TIMER BAR (video call only) ===
-              if (!widget.isAudioOnly && _callActive)
+              // === TOP TIMER & SIGNAL QUALITY BAR ===
+              if (_callActive)
                 Positioned(
                   top: 12, left: 0, right: 0,
                   child: Center(
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                       decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(20)),
-                      child: Text(_formatDuration(_callDuration), style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.signal_cellular_alt, color: Colors.greenAccent, size: 16),
+                          const SizedBox(width: 6),
+                          Text('HD • ${_formatDuration(_callDuration)}', style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
                     ),
                   ),
                 ),

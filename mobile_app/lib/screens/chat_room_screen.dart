@@ -2115,6 +2115,18 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                   },
                 ),
                 IconButton(
+                  icon: const Icon(Icons.copy),
+                  onPressed: () {
+                    final selectedMsgs = _messages.where((m) => _selectedMessageIds.contains(m.id)).toList();
+                    final copiedText = selectedMsgs.map((m) => '[${DateFormat('HH:mm').format(m.createdAt)}] ${m.content}').join('\n');
+                    Clipboard.setData(ClipboardData(text: copiedText));
+                    setState(() => _selectedMessageIds.clear());
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Copied ${selectedMsgs.length} messages to clipboard!')),
+                    );
+                  },
+                ),
+                IconButton(
                   icon: const Icon(Icons.star_border),
                   onPressed: _starSelectedMessages,
                 ),

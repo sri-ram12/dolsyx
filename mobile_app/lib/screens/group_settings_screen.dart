@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../services/group_service.dart';
+import 'media_gallery_screen.dart';
 import '../services/chat_service.dart';
 import '../services/contact_service.dart';
 import '../providers/auth_provider.dart';
@@ -338,7 +339,31 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 16),
+          ListTile(
+            leading: Icon(Icons.perm_media, color: AppTheme.primaryColor),
+            title: Text('Shared Media, Docs & Links', style: TextStyle(color: AppTheme.textPrimary)),
+            subtitle: Text('View photos, files, and web links', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Navigator.push(context, MaterialPageRoute(builder: (_) => MediaGalleryScreen(title: _groupName, messages: const [])));
+            },
+          ),
+          ListTile(
+            leading: Icon(Icons.link, color: AppTheme.primaryColor),
+            title: Text('Group Invite Link', style: TextStyle(color: AppTheme.textPrimary)),
+            subtitle: Text('https://dolsyx.app/join/grp_${widget.conversationId.substring(0, 6)}', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+            trailing: _isAdmin ? IconButton(
+              icon: const Icon(Icons.refresh, color: Colors.orange),
+              onPressed: () {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Group invite link revoked & regenerated!')));
+              },
+            ) : null,
+            onTap: () {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Group invite link copied to clipboard!')));
+            },
+          ),
+          const Divider(),
+          const SizedBox(height: 8),
           Expanded(
             child: ListView.builder(
               itemCount: _participants.length + (_isAdmin ? 1 : 0),

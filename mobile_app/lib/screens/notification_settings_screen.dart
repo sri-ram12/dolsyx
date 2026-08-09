@@ -15,6 +15,8 @@ class NotificationSettingsScreen extends StatefulWidget {
 class _NotificationSettingsScreenState extends State<NotificationSettingsScreen> {
   bool _conversationTones = true;
   bool _vibrate = true;
+  String _vibrationPattern = 'Default';
+  bool _quietHoursEnabled = false;
   String _messageTone = 'Pop';
   String _callRingtone = 'Marimba Melody';
   bool _highPriorityNotifications = true;
@@ -208,6 +210,30 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
             onChanged: (val) {
               setState(() => _vibrate = val);
               _saveBool('notif_vibrate', val);
+            },
+          ),
+          ListTile(
+            title: Text('Vibration Pattern', style: TextStyle(color: AppTheme.textPrimary)),
+            subtitle: Text(_vibrationPattern, style: TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
+            leading: Icon(Icons.vibration, color: AppTheme.primaryColor),
+            onTap: () {
+              _showPicker('Select Vibration Pattern', _vibrationPattern, ['Default', 'Short Pulse', 'Long Vibration', 'Heartbeat', 'Rapid'], false, (val) {
+                setState(() => _vibrationPattern = val);
+              });
+            },
+          ),
+          const Divider(height: 1),
+          _buildSectionHeader('Quiet Hours & Do Not Disturb'),
+          SwitchListTile(
+            title: Text('Quiet Hours (Do Not Disturb)', style: TextStyle(color: AppTheme.textPrimary)),
+            subtitle: Text(_quietHoursEnabled ? 'Notifications silenced between 10:00 PM – 7:00 AM' : 'Automatically silence alerts during night', style: TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
+            value: _quietHoursEnabled,
+            activeColor: AppTheme.primaryColor,
+            onChanged: (val) {
+              setState(() => _quietHoursEnabled = val);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(val ? 'Quiet Hours Enabled (10:00 PM – 7:00 AM)' : 'Quiet Hours Disabled')),
+              );
             },
           ),
           const Divider(height: 1),

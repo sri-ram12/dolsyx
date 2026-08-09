@@ -141,8 +141,8 @@ class CryptoService {
     final prefs = await SharedPreferences.getInstance();
 
     // Check if we have an existing session
-    final recipientUserId = recipientKeyBundle['userId'] as String;
-    final existingSession = prefs.getString('$_sessionPrefix$recipientUserId');
+    final recipientUserId = (recipientKeyBundle['userId'] ?? recipientKeyBundle['id'] ?? recipientKeyBundle['_id'] ?? '').toString();
+    final existingSession = recipientUserId.isNotEmpty ? prefs.getString('$_sessionPrefix$recipientUserId') : null;
 
     Uint8List sessionKey;
     String? ephemeralKeyPublicB64;
@@ -159,7 +159,10 @@ class CryptoService {
       final myIdentityPrivateBytes = base64Decode(prefs.getString(_identityPrivateKey)!);
 
       // Decode recipient's keys
-      final devices = recipientKeyBundle['devices'] as List<dynamic>;
+      final List<dynamic> devices = (recipientKeyBundle['devices'] as List<dynamic>?) ?? [];
+      if (devices.isEmpty) {
+        throw Exception('No E2EE devices found for recipient');
+      }
       final device = devices.first as Map<String, dynamic>;
 
       final recipientIdentityKeyBytes = base64Decode(device['identityKeyPublic'] as String);

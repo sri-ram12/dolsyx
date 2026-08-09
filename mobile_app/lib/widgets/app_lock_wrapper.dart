@@ -6,6 +6,8 @@ import '../theme/app_theme.dart';
 class GlobalAppLockWrapper extends StatefulWidget {
   final Widget child;
 
+  static bool isMediaPickerActive = false;
+
   const GlobalAppLockWrapper({super.key, required this.child});
 
   @override
@@ -44,6 +46,7 @@ class _GlobalAppLockWrapperState extends State<GlobalAppLockWrapper> with Widget
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) async {
+    if (GlobalAppLockWrapper.isMediaPickerActive) return;
     if (state == AppLifecycleState.paused) {
       _pausedTime = DateTime.now();
     } else if (state == AppLifecycleState.resumed) {

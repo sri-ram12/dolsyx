@@ -107,7 +107,26 @@ export const updateGroup = async (req: AuthRequest, res: Response): Promise<void
         description: description !== undefined ? description.trim() : undefined,
         avatarUrl: avatarUrl || undefined,
       },
+      include: {
+        participants: {
+          select: { userId: true }
+        }
+      }
     });
+
+    // Emit live group update event to all group participants
+    const io = req.app.get("io");
+    if (io && updated.participants) {
+      updated.participants.forEach((p) => {
+        io.to(p.userId).emit("group_updated", {
+          conversationId,
+          group: updated,
+          avatarUrl: updated.avatarUrl,
+          name: updated.name,
+          description: updated.description,
+        });
+      });
+    }
 
     res.json(updated);
   } catch (error) {

@@ -266,11 +266,14 @@ class SocketService {
       final recipientBundle = await E2EEApi.fetchKeys(recipientEmail, token);
 
       // Store sender identity key so we can decrypt future messages from them
-      final devices = recipientBundle['devices'] as List<dynamic>;
-      if (devices.isNotEmpty) {
-        final recipientUserId = recipientBundle['userId'] as String;
-        final identityKey = devices.first['identityKeyPublic'] as String;
-        await _crypto.storeSenderIdentityKey(recipientUserId, identityKey);
+      final List<dynamic> devices = (recipientBundle['devices'] as List<dynamic>?) ?? [];
+      final recipientUserId = (recipientBundle['userId'] ?? recipientBundle['id'] ?? recipientBundle['_id'] ?? '').toString();
+
+      if (devices.isNotEmpty && recipientUserId.isNotEmpty) {
+        final identityKey = (devices.first['identityKeyPublic'] ?? '').toString();
+        if (identityKey.isNotEmpty) {
+          await _crypto.storeSenderIdentityKey(recipientUserId, identityKey);
+        }
       }
 
       // Encrypt the message
@@ -281,8 +284,8 @@ class SocketService {
 
       // Build recipient list and send to server
       final recipients = devices.map((device) => {
-        'recipientDeviceId': device['id'],
-        'recipientUserId': recipientBundle['userId'],
+        'recipientDeviceId': device['id'] ?? device['_id'],
+        'recipientUserId': recipientUserId,
         'type': messagePayload.type,
         'ciphertext': jsonEncode(messagePayload.toJson()),
       }).toList();
@@ -293,12 +296,19 @@ class SocketService {
         'recipients': recipients,
       }, token);
     } catch (e) {
-      print('⚠️ Failed to send encrypted message: $e');
-      rethrow;
+      print('⚠️ E2EE encrypted message failed ($e). Falling back to standard socket delivery...');
+      String? extractedType;
+      try {
+        if (plaintext.startsWith('{') && plaintext.endsWith('}')) {
+          final decoded = jsonDecode(plaintext);
+          extractedType = decoded['mediaType'];
+        }
+      } catch (_) {}
+      sendMessage(conversationId, plaintext, mediaType: extractedType);
     }
   }
 
-  void sendMessage(String conversationId, String content, {String? mediaUrl, String? mediaType, String? parentMessageId, bool isForwarded = false}) async {
+  void sendMessage(String conversationId, String content, {String? mediaUrl, String? mediaType, String? parentMessageId, bool isForwarded = false, bool isViewOnce = false, double? latitude, double? longitude, String? locationTitle, bool isLiveLocation = false, String? liveExpiresAt}) async {
     print('Sending message. Socket connected: ${socket?.connected}');
     final msgData = {
       'conversationId': conversationId,
@@ -307,6 +317,12 @@ class SocketService {
       if (mediaType != null) 'mediaType': mediaType,
       if (parentMessageId != null) 'parentMessageId': parentMessageId,
       if (isForwarded) 'isForwarded': true,
+      if (isViewOnce) 'isViewOnce': true,
+      if (latitude != null) 'latitude': latitude,
+      if (longitude != null) 'longitude': longitude,
+      if (locationTitle != null) 'locationTitle': locationTitle,
+      if (isLiveLocation) 'isLiveLocation': true,
+      if (liveExpiresAt != null) 'liveExpiresAt': liveExpiresAt,
     };
 
     if (socket != null && socket!.connected) {

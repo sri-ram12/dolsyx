@@ -22,6 +22,7 @@ import 'status_screen.dart';
 import 'settings_screen.dart';
 import 'archived_chats_screen.dart';
 import 'contacts_screen.dart';
+import 'group_settings_screen.dart';
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
 
@@ -137,12 +138,23 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
     }
   }
 
+  void _sortChats() {
+    _chats.sort((a, b) {
+      if (a.isPinned && !b.isPinned) return -1;
+      if (!a.isPinned && b.isPinned) return 1;
+      final timeA = a.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final timeB = b.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return timeB.compareTo(timeA);
+    });
+  }
+
   Future<void> _fetchChats() async {
     if (mounted) {
       final cachedChats = await _chatService.getCachedChats();
       if (cachedChats.isNotEmpty) {
         setState(() {
           _chats = cachedChats.where((c) => c.isGroup || c.lastMessage != null).toList();
+          _sortChats();
           _isLoading = false;
         });
       }
@@ -153,6 +165,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
       if (mounted) {
         setState(() {
           _chats = chats.where((c) => c.isGroup || c.lastMessage != null).toList();
+          _sortChats();
           _isLoading = false;
         });
       }
@@ -364,13 +377,25 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                                       )
                                     : ColorAvatar(name: _getChatName(chat), radius: 24)),
                           ),
-                          title: Text(
-                            _getChatName(chat),
-                            style: TextStyle(
-                              color: AppTheme.textPrimary,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                            ),
+                          title: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  _getChatName(chat),
+                                  style: TextStyle(
+                                    color: AppTheme.textPrimary,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              if (chat.isPinned)
+                                const Padding(
+                                  padding: EdgeInsets.only(left: 4),
+                                  child: Icon(Icons.push_pin, size: 16, color: Colors.green),
+                                ),
+                            ],
                           ),
                           subtitle: _buildLastMessageWidget(chat),
                           trailing: Column(
@@ -414,35 +439,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                               });
                               return;
                             }
-
-                            String? remoteId;
-                            Map<String, dynamic>? remoteUser;
-                            if (!chat.isGroup && chat.participants != null) {
-                              final currentUserId = Provider.of<AuthProvider>(context, listen: false).user?['id'] ?? Provider.of<AuthProvider>(context, listen: false).user?['_id'];
-                              final otherParticipant = chat.participants!.firstWhere(
-                                (p) => p['user'] != null && (p['user']['id'] != currentUserId && p['user']['_id'] != currentUserId),
-                                orElse: () => null,
-                              );
-                              if (otherParticipant != null) {
-                                remoteId = otherParticipant['user']['id'] ?? otherParticipant['user']['_id'];
-                                remoteUser = otherParticipant['user'];
-                              }
-                            }
-
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => ChatRoomScreen(
-                                  conversationId: chat.id,
-                                  chatName: _getChatName(chat),
-                                  avatarUrl: chat.avatarUrl,
-                                  remoteUserId: remoteId,
-                                  remoteUser: remoteUser,
-                                ),
-                              ),
-                            ).then((_) {
-                              if (mounted) _fetchChats();
-                            });
+                            _openChat(chat);
                           },
                           onLongPress: () {
                             setState(() {
@@ -460,6 +457,59 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
         ),
       ],
     );
+  }
+
+  void _showChatOptions(Chat chat) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppTheme.surfaceColor,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: Icon(chat.isPinned ? Icons.push_pin_outlined : Icons.push_pin, color: AppTheme.primaryColor),
+              title: Text(chat.isPinned ? 'Unpin Chat' : 'Pin Chat', style: TextStyle(color: AppTheme.textPrimary)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _togglePinChat(chat);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.archive_outlined),
+              title: Text(chat.isArchived ? 'Unarchive Chat' : 'Archive Chat', style: TextStyle(color: AppTheme.textPrimary)),
+              onTap: () async {
+                Navigator.pop(ctx);
+                await _chatService.archiveChat(chat.id, !chat.isArchived);
+                _fetchChats();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _togglePinChat(Chat chat) {
+    final socket = Provider.of<AuthProvider>(context, listen: false).socketService.socket;
+    final newPin = !chat.isPinned;
+    final pinnedCount = _chats.where((c) => c.isPinned).length;
+    if (newPin && pinnedCount >= 3) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('You can only pin up to 3 chats')),
+      );
+      return;
+    }
+    socket?.emit('pin_contact', {
+      'conversationId': chat.id,
+      'pin': newPin,
+    });
+    setState(() {
+      chat.isPinned = newPin;
+      chat.pinnedAt = newPin ? DateTime.now() : null;
+      _sortChats();
+    });
   }
 
   Widget _buildCallsTab() {
@@ -539,13 +589,44 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
         else
           ...groupChats.map((chat) {
             final cleanName = chat.name ?? 'Group';
+            final avatar = chat.avatarUrl;
             return ListTile(
-              leading: CircleAvatar(
-                backgroundColor: AppTheme.primaryColor,
-                child: Text(cleanName.isNotEmpty ? cleanName[0].toUpperCase() : 'G', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              leading: GestureDetector(
+                onTap: () {
+                  if (avatar != null && avatar.isNotEmpty) {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => FullScreenImageView(imageUrl: avatar),
+                      ),
+                    );
+                  } else {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => GroupSettingsScreen(
+                          conversationId: chat.id,
+                          groupName: cleanName,
+                          groupAvatarUrl: avatar,
+                          participants: chat.participants ?? [],
+                        ),
+                      ),
+                    );
+                  }
+                },
+                child: CircleAvatar(
+                  radius: 22,
+                  backgroundColor: AppTheme.primaryColor,
+                  backgroundImage: avatar != null && avatar.isNotEmpty
+                      ? NetworkImage(avatar.startsWith('http') ? avatar : 'https://dolsyx-app.onrender.com$avatar')
+                      : null,
+                  child: avatar == null || avatar.isEmpty
+                      ? Text(cleanName.isNotEmpty ? cleanName[0].toUpperCase() : 'G', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
+                      : null,
+                ),
               ),
               title: Text(cleanName, style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
-              subtitle: Text('Group', style: TextStyle(color: AppTheme.textSecondary)),
+              subtitle: Text('${chat.participants?.length ?? 0} members', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
               onTap: () => _openChat(chat),
             );
           }),
@@ -607,6 +688,19 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
         ),
         title: Text('${_selectedChatIds.length}'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.push_pin),
+            onPressed: () {
+              final idsToProcess = List.from(_selectedChatIds);
+              for (String id in idsToProcess) {
+                final chat = _chats.firstWhere((c) => c.id == id, orElse: () => _chats.first);
+                _togglePinChat(chat);
+              }
+              setState(() {
+                _selectedChatIds.clear();
+              });
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.delete),
             onPressed: () async {

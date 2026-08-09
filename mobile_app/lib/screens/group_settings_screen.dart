@@ -228,19 +228,29 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     setState(() => _isUploadingAvatar = true);
     try {
       final uploadRes = await ApiService().uploadMedia(pickedFile.path);
-      final uploadedUrl = uploadRes?['url'];
+      final uploadedUrl = uploadRes?['fileUrl'] ?? uploadRes?['url'];
       if (uploadedUrl != null) {
         final ok = await _groupService.updateGroup(widget.conversationId, _groupName, null, uploadedUrl);
         if (ok && mounted) {
           setState(() {
             _groupAvatarUrl = uploadedUrl;
           });
+          // Also notify via socket so other members see the update instantly
+          final socket = Provider.of<AuthProvider>(context, listen: false).socketService.socket;
+          socket?.emit('group_avatar_updated', {
+            'conversationId': widget.conversationId,
+            'avatarUrl': uploadedUrl,
+          });
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Group photo updated!')));
+        } else if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to update group photo')));
         }
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload failed — no URL returned')));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to upload image')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload error: $e')));
       }
     } finally {
       if (mounted) setState(() => _isUploadingAvatar = false);

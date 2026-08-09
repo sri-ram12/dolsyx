@@ -8,6 +8,8 @@ class Chat {
   int unreadCount;
   DateTime? updatedAt;
   bool isArchived;
+  bool isPinned;
+  DateTime? pinnedAt;
 
   Chat({
     required this.id,
@@ -19,6 +21,8 @@ class Chat {
     this.unreadCount = 0,
     this.updatedAt,
     this.isArchived = false,
+    this.isPinned = false,
+    this.pinnedAt,
   });
 
   factory Chat.fromJson(Map<String, dynamic> json) {
@@ -32,6 +36,8 @@ class Chat {
       unreadCount: json['unreadCount'] ?? 0,
       updatedAt: json['updatedAt'] != null ? DateTime.parse(json['updatedAt']) : null,
       isArchived: json['isArchived'] ?? false,
+      isPinned: json['isPinned'] ?? false,
+      pinnedAt: json['pinnedAt'] != null ? DateTime.tryParse(json['pinnedAt']) : null,
     );
   }
 
@@ -46,6 +52,8 @@ class Chat {
       'unreadCount': unreadCount,
       'updatedAt': updatedAt?.toIso8601String(),
       'isArchived': isArchived,
+      'isPinned': isPinned,
+      'pinnedAt': pinnedAt?.toIso8601String(),
     };
   }
 }

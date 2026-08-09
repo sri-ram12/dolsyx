@@ -103,12 +103,38 @@ export const initChatSocket = (io: Server) => {
     });
 
     // Handle real-time messaging
-    socket.on("send_message", async (data: { conversationId: string; content: string; parentMessageId?: string; mediaUrl?: string; mediaType?: string; isForwarded?: boolean }) => {
+    socket.on("send_message", async (data: {
+      conversationId: string;
+      content: string;
+      parentMessageId?: string;
+      mediaUrl?: string;
+      mediaType?: string;
+      isForwarded?: boolean;
+      isViewOnce?: boolean;
+      latitude?: number;
+      longitude?: number;
+      locationTitle?: string;
+      isLiveLocation?: boolean;
+      liveExpiresAt?: string;
+    }) => {
       try {
-        const { conversationId, content, parentMessageId, mediaUrl, mediaType, isForwarded } = data;
+        const {
+          conversationId,
+          content,
+          parentMessageId,
+          mediaUrl,
+          mediaType,
+          isForwarded,
+          isViewOnce,
+          latitude,
+          longitude,
+          locationTitle,
+          isLiveLocation,
+          liveExpiresAt
+        } = data;
 
-        // Allow empty content for media messages
-        if (!mediaUrl && (!content || !content.trim())) return;
+        // Allow empty content for media & location messages
+        if (!mediaUrl && !latitude && (!content || !content.trim())) return;
 
         // Find conversation participants first (needed for block check)
         const participants = await prisma.participant.findMany({
@@ -141,8 +167,14 @@ export const initChatSocket = (io: Server) => {
             senderId: userId,
             parentMessageId: parentMessageId || null,
             mediaUrl: mediaUrl || null,
-            mediaType: (mediaType as any) || "TEXT",
+            mediaType: (mediaType as any) || (latitude ? "LOCATION" : "TEXT"),
             isForwarded: isForwarded || false,
+            isViewOnce: isViewOnce || false,
+            latitude: latitude ?? null,
+            longitude: longitude ?? null,
+            locationTitle: locationTitle || null,
+            isLiveLocation: isLiveLocation || false,
+            liveExpiresAt: liveExpiresAt ? new Date(liveExpiresAt) : null,
           },
           include: {
             sender: {
@@ -753,6 +785,164 @@ export const initChatSocket = (io: Server) => {
         declinerId: userId,
         conversationId: data.conversationId,
       });
+    });
+
+    // Handle View Once Media Opened
+    socket.on("view_once_opened", async (data: { messageId: string; conversationId: string }) => {
+      try {
+        const { messageId, conversationId } = data;
+        const updatedMsg = await prisma.message.update({
+          where: { id: messageId },
+          data: {
+            isViewed: true,
+            viewedAt: new Date(),
+            mediaUrl: null, // Wipe media URL once opened
+          },
+        });
+
+        const participants = await prisma.participant.findMany({
+          where: { conversationId },
+          select: { userId: true },
+        });
+
+        participants.forEach((p) => {
+          io.to(p.userId).emit("view_once_opened", {
+            messageId,
+            conversationId,
+            viewerId: userId,
+          });
+        });
+      } catch (err) {
+        console.error("Error in view_once_opened socket handler:", err);
+      }
+    });
+
+    // Realtime Live Location Update
+    socket.on("live_location_update", async (data: { conversationId: string; messageId: string; latitude: number; longitude: number }) => {
+      try {
+        const { conversationId, messageId, latitude, longitude } = data;
+        await prisma.message.update({
+          where: { id: messageId },
+          data: { latitude, longitude },
+        });
+
+        io.to(conversationId).emit("live_location_updated", {
+          conversationId,
+          messageId,
+          userId,
+          latitude,
+          longitude,
+        });
+      } catch (err) {
+        console.error("Error updating live location:", err);
+      }
+    });
+
+    // Stop Live Location
+    socket.on("stop_live_location", async (data: { conversationId: string; messageId: string }) => {
+      try {
+        const { conversationId, messageId } = data;
+        await prisma.message.update({
+          where: { id: messageId },
+          data: { isLiveEnded: true },
+        });
+
+        io.to(conversationId).emit("live_location_ended", {
+          conversationId,
+          messageId,
+          userId,
+        });
+      } catch (err) {
+        console.error("Error stopping live location:", err);
+      }
+    });
+
+    // Pin / Unpin Contact
+    socket.on("pin_contact", async (data: { conversationId: string; pin: boolean }) => {
+      try {
+        const { conversationId, pin } = data;
+        if (pin) {
+          const pinnedCount = await prisma.participant.count({
+            where: { userId, isPinned: true },
+          });
+          if (pinnedCount >= 3) {
+            socket.emit("error_message", { message: "Maximum 3 pinned chats allowed." });
+            return;
+          }
+        }
+        await prisma.participant.update({
+          where: { userId_conversationId: { userId, conversationId } },
+          data: { isPinned: pin, pinnedAt: pin ? new Date() : null },
+        });
+        socket.emit("contact_pinned_updated", { conversationId, isPinned: pin });
+      } catch (err) {
+        console.error("Error toggling pinned contact:", err);
+      }
+    });
+
+    // Pin / Unpin Message
+    socket.on("pin_message", async (data: { conversationId: string; messageId: string; durationHours?: number }) => {
+      try {
+        const { conversationId, messageId, durationHours } = data;
+        let expiresAt: Date | null = null;
+        if (durationHours && durationHours > 0) {
+          expiresAt = new Date(Date.now() + durationHours * 3600 * 1000);
+        }
+
+        const pinned = await prisma.pinnedMessage.upsert({
+          where: { conversationId_messageId: { conversationId, messageId } },
+          create: {
+            conversationId,
+            messageId,
+            pinnedById: userId,
+            expiresAt,
+          },
+          update: {
+            pinnedById: userId,
+            expiresAt,
+          },
+          include: {
+            message: true,
+          },
+        });
+
+        const participants = await prisma.participant.findMany({
+          where: { conversationId },
+          select: { userId: true },
+        });
+
+        participants.forEach((p) => {
+          io.to(p.userId).emit("message_pinned", {
+            conversationId,
+            pinnedMessage: pinned,
+          });
+        });
+      } catch (err) {
+        console.error("Error pinning message:", err);
+      }
+    });
+
+    socket.on("unpin_message", async (data: { conversationId: string; messageId: string }) => {
+      try {
+        const { conversationId, messageId } = data;
+        await prisma.pinnedMessage.deleteMany({
+          where: { conversationId, messageId },
+        });
+
+        const participants = await prisma.participant.findMany({
+          where: { conversationId },
+          select: { userId: true },
+        });
+
+        participants.forEach((p) => {
+          io.to(p.userId).emit("message_unpinned", {
+            conversationId,
+            messageId,
+          });
+        });
+      } catch (err) {
+        console.error("Error unpinning message:", err);
+      }
     });
 
     // Handle typing indicator

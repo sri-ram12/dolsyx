@@ -72,24 +72,35 @@ router.post("/:conversationId/messages/:messageId/pin", pinMessage as any);
 
 // Upload endpoint
 router.post("/upload", (req: any, res: any) => {
-  upload.single("file")(req, res, (err: any) => {
+  upload.any()(req, res, (err: any) => {
     if (err) {
       console.error("[Multer Error]", err);
       return res.status(400).json({ message: err.message || "File upload error" });
     }
 
     try {
-      if (!req.file) {
+      const files = req.files as Express.Multer.File[] | undefined;
+      if (!files || files.length === 0) {
         res.status(400).json({ message: "No file uploaded" });
         return;
       }
 
-      const fileUrl = req.file.path; // Cloudinary returns the full URL in `path`
+      const uploadedFiles = files.map((f) => ({
+        fileUrl: f.path || `/uploads/${f.filename}`,
+        url: f.path || `/uploads/${f.filename}`,
+        fileName: f.originalname,
+        fileType: f.mimetype,
+        size: f.size,
+      }));
+
+      const first = uploadedFiles[0]!;
       res.json({
-        fileUrl,
-        fileName: req.file.originalname,
-        fileType: req.file.mimetype,
-        size: req.file.size,
+        fileUrl: first.fileUrl,
+        url: first.url,
+        fileName: first.fileName,
+        fileType: first.fileType,
+        size: first.size,
+        files: uploadedFiles,
       });
     } catch (error) {
       console.error("Upload handler error:", error);

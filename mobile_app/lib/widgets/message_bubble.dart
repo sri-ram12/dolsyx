@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'dart:async';
@@ -7,23 +8,31 @@ import '../theme/app_theme.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
+import '../providers/auth_provider.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+import '../screens/view_once_screen.dart';
 
 class MessageBubble extends StatelessWidget {
   final Message message;
   final bool isMe;
+  final bool isGroup;
   final Function(Message)? onSwipeReply;
   final bool showReadReceipts;
   final Function(bool isVideo)? onTapCall;
   final String? searchQuery;
+  final Function(String)? onViewOnceOpened;
 
   const MessageBubble({
     super.key,
     required this.message,
     required this.isMe,
+    this.isGroup = false,
     this.onSwipeReply,
     this.showReadReceipts = true,
     this.onTapCall,
     this.searchQuery,
+    this.onViewOnceOpened,
   });
 
   Widget _buildMessageText(String text, Color textColor, double fontSize) {
@@ -73,10 +82,10 @@ class MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bool isOnlyImage = message.mediaUrl != null &&
+    final bool isOnlyImage = (message.mediaUrl != null &&
         message.mediaUrl!.isNotEmpty &&
-        message.mediaType == 'IMAGE' &&
-        message.content.isEmpty;
+        (message.mediaType == 'IMAGE' || message.mediaType == 'VIDEO') &&
+        message.content.isEmpty) || message.mediaType == 'POLL';
 
     final imageSize = MediaQuery.of(context).size.width * 0.75;
     
@@ -121,6 +130,10 @@ class MessageBubble extends StatelessWidget {
     if (message.mediaType == 'CALL_LOG') {
       return _buildCallLogBubble(context);
     }
+    
+    if (message.mediaType == 'LOCATION' || message.latitude != null) {
+      return _buildLocationBubble(context);
+    }
 
 
     Widget bubbleContent = Stack(
@@ -141,6 +154,18 @@ class MessageBubble extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (isGroup && !isMe && message.sender != null && message.sender!['username'] != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4.0),
+                      child: Text(
+                        message.sender!['username'],
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                          color: AppTheme.primaryColor,
+                        ),
+                      ),
+                    ),
                   if (message.isForwarded)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 4.0),
@@ -193,7 +218,214 @@ class MessageBubble extends StatelessWidget {
                         ],
                       ),
                     ),
-                  if (message.mediaUrl != null && message.mediaUrl!.isNotEmpty) ...[
+                  if (message.isViewOnce)
+                    GestureDetector(
+                      onTap: () {
+                        if (message.isViewed || message.mediaUrl == null) return;
+                        if (!isMe) {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (ctx) => ViewOnceScreen(
+                                message: message,
+                                onViewed: (msgId) {
+                                  if (onViewOnceOpened != null) {
+                                    onViewOnceOpened!(msgId);
+                                  }
+                                },
+                              ),
+                            ),
+                          );
+                        } else {
+                          // Sender cannot view it again
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('You cannot view your own view once media')),
+                          );
+                        }
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(color: message.isViewed ? Colors.grey : AppTheme.primaryColor, width: 2),
+                              ),
+                              child: Text(
+                                '1',
+                                style: TextStyle(
+                                  color: message.isViewed ? Colors.grey : AppTheme.primaryColor,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              message.isViewed ? 'Opened' : (message.mediaType == 'VIDEO' ? 'View Once Video' : 'View Once Photo'),
+                              style: TextStyle(
+                                color: message.isViewed ? secondaryTextColor : textColor,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 15,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  // 🟢 Location Message rendering
+                  else if (message.mediaType == 'LOCATION' || message.latitude != null)
+                    Container(
+                      width: 220,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: isMe ? Colors.white10 : Colors.black12,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                message.isLiveLocation ? Icons.my_location : Icons.location_on,
+                                color: Colors.redAccent,
+                                size: 22,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  message.isLiveLocation ? 'Live Location' : (message.locationTitle ?? 'Location Share'),
+                                  style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Lat: ${message.latitude?.toStringAsFixed(4) ?? '0'}, Long: ${message.longitude?.toStringAsFixed(4) ?? '0'}',
+                            style: TextStyle(color: secondaryTextColor, fontSize: 12),
+                          ),
+                          if (message.isLiveLocation && message.liveExpiresAt != null) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              message.isLiveEnded ? 'Live sharing ended' : 'Sharing live location',
+                              style: const TextStyle(color: Colors.greenAccent, fontSize: 11, fontWeight: FontWeight.w500),
+                            ),
+                          ],
+                        ],
+                      ),
+                    )
+                  // 🟢 Poll Message rendering (Pic 1 style)
+                  else if (message.mediaType == 'POLL' || message.content.contains('"question":') || message.content.contains('"mediaType":"POLL"'))
+                    Builder(builder: (ctx) {
+                      Map<String, dynamic> pollData = {};
+                      try {
+                        pollData = jsonDecode(message.content);
+                      } catch (_) {}
+                      final question = pollData['question'] ?? 'Poll';
+                      final List<dynamic> options = (pollData['options'] as List<dynamic>?) ?? [];
+                      final authProvider = Provider.of<AuthProvider>(ctx, listen: false);
+                      final myUserId = authProvider.user?['id'] ?? 'user';
+                      
+                      final totalVotes = options.fold<int>(0, (sum, opt) => sum + (((opt['votes'] as List<dynamic>?)?.length) ?? 0));
+
+                      return Container(
+                        width: 270,
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF005C4B), // WhatsApp dark green poll background
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              question,
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                            ),
+                            const SizedBox(height: 12),
+                            ...options.map((opt) {
+                              final text = opt['text'] ?? '';
+
+                              return StatefulBuilder(
+                                builder: (context, setPollState) {
+                                  final currentVotes = (opt['votes'] as List<dynamic>?) ?? [];
+                                  final userVoted = currentVotes.contains(myUserId);
+                                  final currentPct = totalVotes > 0 ? (currentVotes.length / totalVotes) : 0.0;
+
+                                  return GestureDetector(
+                                    onTap: () {
+                                      setPollState(() {
+                                        if (userVoted) {
+                                          currentVotes.remove(myUserId);
+                                        } else {
+                                          currentVotes.add(myUserId);
+                                        }
+                                        opt['votes'] = currentVotes;
+                                      });
+                                      if (authProvider.socketService.socket?.connected == true) {
+                                        authProvider.socketService.socket!.emit('vote_poll', {
+                                          'conversationId': message.conversationId,
+                                          'messageId': message.id,
+                                          'optionId': opt['id'],
+                                        });
+                                      }
+                                    },
+                                    child: Padding(
+                                      padding: const EdgeInsets.only(bottom: 12.0),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Icon(
+                                                userVoted ? Icons.check_circle : Icons.radio_button_unchecked,
+                                                color: userVoted ? Colors.lightBlueAccent : Colors.white60,
+                                                size: 22,
+                                              ),
+                                              const SizedBox(width: 10),
+                                              Expanded(
+                                                child: Text(
+                                                  text,
+                                                  style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w500),
+                                                ),
+                                              ),
+                                              if (currentVotes.isNotEmpty)
+                                                Text('${currentVotes.length}', style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 6),
+                                          ClipRRect(
+                                            borderRadius: BorderRadius.circular(4),
+                                            child: LinearProgressIndicator(
+                                              value: currentPct,
+                                              minHeight: 6,
+                                              backgroundColor: Colors.white24,
+                                              color: Colors.white,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                },
+                              );
+                            }),
+                            const SizedBox(height: 4),
+                            Text(
+                              '$totalVotes total votes',
+                              style: const TextStyle(color: Colors.white70, fontSize: 12, fontStyle: FontStyle.italic),
+                            ),
+                          ],
+                        ),
+                      );
+                    })
+                  else if (message.mediaUrl != null && message.mediaUrl!.isNotEmpty) ...[
                     if (message.mediaType == 'IMAGE')
                       ClipRRect(
                         borderRadius: BorderRadius.circular(isOnlyImage ? 16 : 8).copyWith(
@@ -216,21 +448,75 @@ class MessageBubble extends StatelessWidget {
                         ),
                       )
                       else if (message.mediaType == 'VIDEO')
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.videocam, color: isMe ? Colors.white : AppTheme.textPrimary),
-                            const SizedBox(width: 8),
-                            Flexible(
-                              child: Text(
-                                'Video Attachment',
-                                style: TextStyle(
-                                  color: textColor,
-                                  fontStyle: FontStyle.italic,
+                        GestureDetector(
+                          onTap: () {
+                            if (message.mediaUrl != null && message.mediaUrl!.isNotEmpty) {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (ctx) => ViewOnceScreen(
+                                    message: message,
+                                    onViewed: (_) {},
+                                  ),
+                                ),
+                              );
+                            }
+                          },
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(isOnlyImage ? 16 : 8).copyWith(
+                              bottomRight: (isMe && isOnlyImage) ? const Radius.circular(4) : null,
+                              bottomLeft: (!isMe && isOnlyImage) ? const Radius.circular(4) : null,
+                            ),
+                            child: Container(
+                              width: imageSize,
+                              height: 160,
+                              decoration: BoxDecoration(
+                                color: Colors.black,
+                                border: Border.all(color: Colors.white.withOpacity(0.3), width: 0.8),
+                                borderRadius: BorderRadius.circular(isOnlyImage ? 16 : 8).copyWith(
+                                  bottomRight: (isMe && isOnlyImage) ? const Radius.circular(4) : null,
+                                  bottomLeft: (!isMe && isOnlyImage) ? const Radius.circular(4) : null,
                                 ),
                               ),
+                              child: Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  Positioned.fill(
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        gradient: LinearGradient(
+                                          colors: [Colors.black54, Colors.black87],
+                                          begin: Alignment.topCenter,
+                                          end: Alignment.bottomCenter,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(12),
+                                        decoration: BoxDecoration(
+                                          color: AppTheme.primaryColor.withOpacity(0.9),
+                                          shape: BoxShape.circle,
+                                          boxShadow: const [
+                                            BoxShadow(color: Colors.black45, blurRadius: 8),
+                                          ],
+                                        ),
+                                        child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 36),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        'Tap to play video',
+                                        style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w500),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
                             ),
-                          ],
+                          ),
                         )
                       else if (message.mediaType == 'AUDIO')
                         AudioPlayWidget(
@@ -256,7 +542,7 @@ class MessageBubble extends StatelessWidget {
                         ),
                     if (message.content.isNotEmpty) const SizedBox(height: 8),
                   ],
-                  if (message.content.isNotEmpty && message.mediaType != 'CALL_LOG')
+                  if (message.content.isNotEmpty && message.mediaType != 'CALL_LOG' && message.mediaType != 'POLL' && message.mediaType != 'LOCATION')
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       mainAxisAlignment: MainAxisAlignment.end,
@@ -360,6 +646,153 @@ class MessageBubble extends StatelessWidget {
               child: bubbleContent,
             )
           : bubbleContent,
+    );
+  }
+
+  Widget _buildLocationBubble(BuildContext context) {
+    double? lat = message.latitude;
+    double? lng = message.longitude;
+    String locTitle = message.locationTitle ?? (message.isLiveLocation ? 'Sharing live location' : 'Current Location');
+    bool isLive = message.isLiveLocation;
+    DateTime? liveExpires = message.liveExpiresAt;
+
+    if ((lat == null || lng == null) && message.content.startsWith('{') && message.content.endsWith('}')) {
+      try {
+        final decoded = jsonDecode(message.content);
+        lat = (decoded['latitude'] as num?)?.toDouble() ?? 12.9716;
+        lng = (decoded['longitude'] as num?)?.toDouble() ?? 77.5946;
+        locTitle = decoded['locationTitle'] ?? (decoded['isLiveLocation'] == true ? 'Sharing live location' : 'Current Location');
+        isLive = decoded['isLiveLocation'] == true;
+        if (decoded['liveExpiresAt'] != null) {
+          liveExpires = DateTime.tryParse(decoded['liveExpiresAt'].toString());
+        }
+      } catch (_) {}
+    }
+
+    return Align(
+      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: isMe ? AppTheme.bubbleSender : AppTheme.bubbleReceiver,
+          borderRadius: BorderRadius.circular(16).copyWith(
+            bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(16),
+            bottomLeft: !isMe ? const Radius.circular(4) : const Radius.circular(16),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  isLive ? Icons.my_location : Icons.location_on, 
+                  color: isLive ? Colors.green : Colors.redAccent
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  locTitle,
+                  style: TextStyle(
+                    color: isMe ? (AppTheme.bubbleSender.computeLuminance() > 0.5 ? Colors.black87 : Colors.white) : (AppTheme.bubbleReceiver.computeLuminance() > 0.5 ? Colors.black87 : Colors.white),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            GestureDetector(
+              onTap: () async {
+                final Uri mapUri = Uri.parse('https://www.google.com/maps/search/?api=1&query=${lat ?? 12.9716},${lng ?? 77.5946}');
+                if (await canLaunchUrl(mapUri)) {
+                  await launchUrl(mapUri, mode: LaunchMode.externalApplication);
+                }
+              },
+              child: Container(
+                height: 130,
+                width: 220,
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(
+                  color: Colors.grey[900],
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Positioned.fill(
+                      child: Image.network(
+                        'https://static-maps.yandex.ru/1.x/?lang=en_US&ll=${lng ?? 77.5946},${lat ?? 12.9716}&z=14&l=map&pt=${lng ?? 77.5946},${lat ?? 12.9716},pm2rdm',
+                        fit: BoxFit.cover,
+                        errorBuilder: (ctx, err, stack) => Container(
+                          color: const Color(0xFF1E293B),
+                          child: Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.map, size: 48, color: Colors.white70),
+                                const SizedBox(height: 4),
+                                Text(
+                                  '${(lat ?? 12.9716).toStringAsFixed(4)}, ${(lng ?? 77.5946).toStringAsFixed(4)}',
+                                  style: const TextStyle(color: Colors.white70, fontSize: 11),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      bottom: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primaryColor,
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 4)],
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.directions, color: Colors.white, size: 14),
+                            SizedBox(width: 4),
+                            Text('Open Map', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if ((isLive || message.isLiveLocation) && liveExpires != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Expires: ${DateFormat('h:mm a').format(liveExpires.toLocal())}',
+                style: TextStyle(
+                  color: isMe ? (AppTheme.bubbleSender.computeLuminance() > 0.5 ? Colors.black54 : Colors.white70) : (AppTheme.bubbleReceiver.computeLuminance() > 0.5 ? Colors.black54 : Colors.white70),
+                  fontSize: 11,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ],
+            const SizedBox(height: 4),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                Text(
+                  DateFormat('hh:mm a').format(message.createdAt.toLocal()),
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: isMe ? (AppTheme.bubbleSender.computeLuminance() > 0.5 ? Colors.black54 : Colors.white70) : (AppTheme.bubbleReceiver.computeLuminance() > 0.5 ? Colors.black54 : Colors.white70),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 

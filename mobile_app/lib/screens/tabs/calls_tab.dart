@@ -165,6 +165,137 @@ class _CallsTabState extends State<CallsTab> {
     );
   }
 
+  void _showCallDetails(Map<String, dynamic> log, Map<String, dynamic> otherUser) {
+    final isVideo = log['mediaUrl'] == 'video';
+    final isMissed = log['content'] == 'missed' || log['content'] == 'declined';
+    final formattedTime = DateFormat('EEEE, MMMM d, yyyy • hh:mm a').format(DateTime.parse(log['createdAt']).toLocal());
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppTheme.surfaceColor,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 28,
+                  backgroundColor: AppTheme.primaryColor,
+                  backgroundImage: otherUser['avatarUrl'] != null && otherUser['avatarUrl'].toString().isNotEmpty
+                      ? NetworkImage(otherUser['avatarUrl'].toString().startsWith('http')
+                          ? otherUser['avatarUrl']
+                          : 'https://dolsyx-app.onrender.com${otherUser['avatarUrl']}')
+                      : null,
+                  child: otherUser['avatarUrl'] == null
+                      ? Text(
+                          (otherUser['username'] ?? 'U')[0].toUpperCase(),
+                          style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+                        )
+                      : null,
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        otherUser['username'] ?? 'User',
+                        style: TextStyle(color: AppTheme.textPrimary, fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        isVideo ? 'Video Call' : 'Audio Call',
+                        style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            const Divider(),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Icon(
+                  isMissed ? Icons.call_missed : Icons.call_received,
+                  color: isMissed ? Colors.red : Colors.green,
+                  size: 20,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        isMissed ? 'Missed Call' : 'Call Completed',
+                        style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.w600, fontSize: 14),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        formattedTime,
+                        style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                      ),
+                      const SizedBox(height: 4),
+                      Builder(builder: (context) {
+                        final durationSec = (log['duration'] as num?)?.toInt() ?? 0;
+                        final durationText = isMissed
+                            ? 'No duration'
+                            : (durationSec > 0
+                                ? '${durationSec ~/ 60} min ${durationSec % 60} sec'
+                                : 'Call duration unavailable');
+                        return Text(
+                          'Talk Duration: $durationText',
+                          style: TextStyle(color: AppTheme.primaryColor, fontSize: 13, fontWeight: FontWeight.w600),
+                        );
+                      }),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primaryColor,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                  ),
+                  icon: const Icon(Icons.call, color: Colors.white),
+                  label: const Text('Audio Call', style: TextStyle(color: Colors.white)),
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    _startCall(otherUser, true, log['conversationId']);
+                  },
+                ),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primaryColor,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                  ),
+                  icon: const Icon(Icons.videocam, color: Colors.white),
+                  label: const Text('Video Call', style: TextStyle(color: Colors.white)),
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    _startCall(otherUser, false, log['conversationId']);
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final currentUserId = Provider.of<AuthProvider>(context, listen: false).user?['id'];
@@ -269,7 +400,7 @@ class _CallsTabState extends State<CallsTab> {
                                 }
                               });
                             } else {
-                              _startCall(otherUser, !isVideo, log['conversationId']);
+                              _showCallDetails(log, otherUser);
                             }
                           },
                           leading: otherUser['avatarUrl'] != null && otherUser['avatarUrl'].toString().isNotEmpty
@@ -307,40 +438,14 @@ class _CallsTabState extends State<CallsTab> {
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     IconButton(
-                                      icon: Icon(isVideo ? Icons.videocam : Icons.call, color: AppTheme.primaryColor),
-                                      onPressed: () => _startCall(otherUser, !isVideo, log['conversationId']),
+                                      icon: Icon(Icons.call, color: AppTheme.primaryColor, size: 22),
+                                      onPressed: () => _startCall(otherUser, true, log['conversationId']),
+                                      tooltip: 'Audio Call',
                                     ),
-                                    PopupMenuButton<String>(
-                                      icon: Icon(Icons.more_vert, color: AppTheme.textSecondary, size: 20),
-                                      onSelected: (value) {
-                                        if (value == 'delete') {
-                                          _deleteSingleCall(logId);
-                                        } else if (value == 'call') {
-                                          _startCall(otherUser, !isVideo, log['conversationId']);
-                                        }
-                                      },
-                                      itemBuilder: (context) => [
-                                        PopupMenuItem(
-                                          value: 'call',
-                                          child: Row(
-                                            children: [
-                                              Icon(isVideo ? Icons.videocam : Icons.call, color: AppTheme.primaryColor, size: 18),
-                                              const SizedBox(width: 8),
-                                              const Text('Call back'),
-                                            ],
-                                          ),
-                                        ),
-                                        const PopupMenuItem(
-                                          value: 'delete',
-                                          child: Row(
-                                            children: [
-                                              Icon(Icons.delete, color: Colors.redAccent, size: 18),
-                                              SizedBox(width: 8),
-                                              Text('Delete log', style: TextStyle(color: Colors.redAccent)),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
+                                    IconButton(
+                                      icon: Icon(Icons.videocam, color: AppTheme.primaryColor, size: 22),
+                                      onPressed: () => _startCall(otherUser, false, log['conversationId']),
+                                      tooltip: 'Video Call',
                                     ),
                                   ],
                                 )

@@ -137,6 +137,25 @@ class ChatService {
     }
   }
 
+  Future<bool> editMessage(String messageId, String newContent) async {
+    try {
+      final token = await ApiService().getToken();
+      if (token == null) return false;
+      final response = await http.put(
+        Uri.parse('${ApiService.baseUrl}/chats/messages/$messageId'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({'content': newContent}),
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      print('Network error editing message: $e');
+      return false;
+    }
+  }
+
 
   Future<bool> starMessage(String messageId) async {
     try {
@@ -218,6 +237,26 @@ class ChatService {
     } catch (e) {
       print('Network error creating direct chat: $e');
       return null;
+    }
+  }
+
+  Future<bool> archiveChat(String conversationId, bool archive) async {
+    try {
+      final token = await ApiService().getToken();
+      if (token == null) return false;
+
+      final response = await http.post(
+        Uri.parse('${ApiService.baseUrl}/chats/$conversationId/archive'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({'archive': archive}),
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      print('Error archiving chat: $e');
+      return false;
     }
   }
 

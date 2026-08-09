@@ -502,13 +502,13 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         // Fallback: build a persistent stream manually and add each arriving track
         final existing = _remoteStreams[targetUserId];
         if (existing != null) {
-          existing.addTrack(event.track);
+          try { existing.addTrack(event.track); } catch (_) {}
           event.track.enabled = true;
           if (mounted && !_isDisposed) setState(() { _remoteRenderers[targetUserId]?.srcObject = existing; });
         } else {
           createLocalMediaStream('remote_$targetUserId').then((stream) {
             if (_isDisposed) return;
-            stream.addTrack(event.track);
+            try { stream.addTrack(event.track); } catch (_) {}
             event.track.enabled = true;
             _remoteStreams[targetUserId] = stream;
             if (mounted && !_isDisposed) {
@@ -528,7 +528,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       } else {
         for (final t in stream.getTracks()) {
           if (_isDisposed) return;
-          await _remoteStreams[targetUserId]!.addTrack(t);
+          try { await _remoteStreams[targetUserId]!.addTrack(t); } catch (_) {}
           t.enabled = true;
         }
       }
@@ -569,16 +569,24 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         }
       }
 
-      _localStream = await navigator.mediaDevices.getUserMedia({
-        'audio': {
-          'echoCancellation': true,
-          'noiseSuppression': true,
-          'autoGainControl': true,
-        },
-        'video': widget.isAudioOnly
-            ? false
-            : {'facingMode': 'user', 'width': {'ideal': 1280}, 'height': {'ideal': 720}},
-      });
+      try {
+        _localStream = await navigator.mediaDevices.getUserMedia({
+          'audio': {
+            'echoCancellation': true,
+            'noiseSuppression': true,
+            'autoGainControl': true,
+          },
+          'video': widget.isAudioOnly
+              ? false
+              : {'facingMode': 'user', 'width': {'ideal': 1280}, 'height': {'ideal': 720}},
+        });
+      } catch (_) {
+        // Fallback for strict Web browsers or devices
+        _localStream = await navigator.mediaDevices.getUserMedia({
+          'audio': true,
+          'video': widget.isAudioOnly ? false : true,
+        });
+      }
 
       // Verify we actually got audio tracks — empty stream means hardware isn't ready
       if (_localStream == null || _localStream!.getAudioTracks().isEmpty) {
@@ -812,7 +820,10 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   void _switchCamera() async {
     if (widget.isAudioOnly || _localStream == null) return;
     final tracks = _localStream!.getVideoTracks();
-    if (tracks.isNotEmpty) await Helper.switchCamera(tracks[0]);
+    if (tracks.isNotEmpty) {
+      await Helper.switchCamera(tracks[0]);
+      if (mounted) setState(() {});
+    }
   }
 
   void _toggleSpeaker() {
@@ -881,7 +892,8 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
                 }
               }
             }
-            _localRenderer.srcObject = _screenStream;
+            // Keep local renderer on local camera stream or null to avoid infinite recursive screen mirror
+            _localRenderer.srcObject = _localStream;
             setState(() => _isScreenSharing = true);
             screenVideoTrack.onEnded = () {
               if (mounted && _isScreenSharing) _toggleScreenShare();

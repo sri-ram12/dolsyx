@@ -15,6 +15,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'services/api_service.dart';
+import 'package:http/http.dart' as http;
 
 
 // Background FCM handler
@@ -227,14 +228,26 @@ class _DolsyxAppState extends State<DolsyxApp> {
                 final data = jsonDecode(details.payload!);
                 
                 // Handle quick reply for message notifications from top notification banner
-                if ((details.actionId == 'reply_msg' || details.input != null) && data['conversationId'] != null) {
+                if ((details.actionId == 'reply_msg' || (details.input != null && details.input!.trim().isNotEmpty)) && data['conversationId'] != null) {
                   final replyText = details.input ?? '';
                   if (replyText.trim().isNotEmpty) {
                     final auth = Provider.of<AuthProvider>(context, listen: false);
-                    auth.socketService.sendMessage(
-                      data['conversationId'],
-                      replyText.trim(),
-                    );
+                    if (auth.socketService.socket != null && auth.socketService.isConnected) {
+                      auth.socketService.sendMessage(
+                        data['conversationId'],
+                        replyText.trim(),
+                      );
+                    } else {
+                      ApiService().getToken().then((token) {
+                        if (token != null) {
+                          http.post(
+                            Uri.parse('${ApiService.baseUrl}/chats/${data['conversationId']}/messages'),
+                            headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+                            body: jsonEncode({'content': replyText.trim()}),
+                          );
+                        }
+                      });
+                    }
                   }
                   return;
                 }

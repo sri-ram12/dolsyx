@@ -26,15 +26,29 @@ const upload = multer({
   limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max file size
 });
 
-router.post("/", authenticateToken, upload.single("file"), (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ message: "No file uploaded" });
-  }
-
-  // Return the path so the frontend can use it
-  // Using forward slashes for URLs
-  const fileUrl = `/uploads/${req.file.filename}`;
-  res.status(200).json({ url: fileUrl });
+router.post("/", authenticateToken, (req, res) => {
+  upload.any()(req, res, (err: any) => {
+    if (err) {
+      return res.status(400).json({ message: err.message || "Upload error" });
+    }
+    const files = req.files as Express.Multer.File[] | undefined;
+    if (!files || files.length === 0) {
+      return res.status(400).json({ message: "No file uploaded" });
+    }
+    const uploadedFiles = files.map(f => ({
+      url: `/uploads/${f.filename}`,
+      fileUrl: `/uploads/${f.filename}`,
+      filename: f.originalname,
+      size: f.size,
+      mimetype: f.mimetype
+    }));
+    const first = uploadedFiles[0]!;
+    return res.status(200).json({
+      url: first.url,
+      fileUrl: first.fileUrl,
+      files: uploadedFiles
+    });
+  });
 });
 
 export default router;

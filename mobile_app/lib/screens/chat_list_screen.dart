@@ -317,11 +317,62 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                   : RefreshIndicator(
                       onRefresh: _fetchChats,
                       child: ListView.builder(
-                        itemCount: _chats.where((c) => !c.isArchived).length + (_chats.any((c) => c.isArchived) ? 1 : 0),
+                        itemCount: _chats.where((c) => !c.isArchived).length + 1 + (_chats.any((c) => c.isArchived) ? 1 : 0),
                         itemBuilder: (context, index) {
                         final activeChats = _chats.where((c) => !c.isArchived).toList();
                         
-                        if (index == activeChats.length) {
+                        if (index == 0) {
+                          return ListTile(
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => const DolsyxAiScreen()),
+                              );
+                            },
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                            leading: Container(
+                              padding: const EdgeInsets.all(2),
+                              decoration: const BoxDecoration(
+                                shape: BoxShape.circle,
+                                gradient: LinearGradient(
+                                  colors: [Color(0xFF8B5CF6), Color(0xFFEC4899), Color(0xFF3B82F6)],
+                                ),
+                              ),
+                              child: const CircleAvatar(
+                                radius: 22,
+                                backgroundColor: Color(0xFF0B141A),
+                                child: Icon(Icons.smart_toy, color: Color(0xFFEC4899), size: 22),
+                              ),
+                            ),
+                            title: Row(
+                              children: [
+                                const Text(
+                                  'DOLSYX AI',
+                                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                                ),
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFEC4899).withOpacity(0.2),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Text('Interactive Bot', style: TextStyle(color: Color(0xFFEC4899), fontSize: 10, fontWeight: FontWeight.bold)),
+                                ),
+                              ],
+                            ),
+                            subtitle: const Text(
+                              'Generate images, Q&A, draft emails & code...',
+                              style: TextStyle(color: Colors.white54, fontSize: 12),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          );
+                        }
+
+                        final chatIndex = index - 1;
+
+                        if (chatIndex == activeChats.length) {
                           return ListTile(
                             leading: Icon(Icons.archive_outlined, color: AppTheme.textSecondary),
                             title: Text('Archived Chats', style: TextStyle(color: AppTheme.textSecondary)),
@@ -339,7 +390,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                           );
                         }
                         
-                        final chat = activeChats[index];
+                        final chat = activeChats[chatIndex];
                         final isSelected = _selectedChatIds.contains(chat.id);
                         return Container(
                           color: isSelected ? AppTheme.primaryColor.withOpacity(0.2) : Colors.transparent,

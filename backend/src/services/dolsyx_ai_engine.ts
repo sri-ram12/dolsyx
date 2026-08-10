@@ -58,6 +58,57 @@ Never fabricate.
     if (!rawPrompt) return 'Please type a valid prompt.';
     const clean = rawPrompt.toLowerCase();
 
+    // Image Generation Intent Detection & Confirmation Flow
+    if (clean.includes('generate an image') || clean.includes('create an image') || clean.includes('draw a picture') || clean.includes('generate image') || clean.includes('create image')) {
+      let imagePrompt = rawPrompt
+        .replace(/generate an image of/gi, '')
+        .replace(/create an image of/gi, '')
+        .replace(/draw a picture of/gi, '')
+        .replace(/generate image of/gi, '')
+        .replace(/create image of/gi, '')
+        .replace(/generate an image/gi, '')
+        .replace(/create an image/gi, '')
+        .trim();
+      if (!imagePrompt) imagePrompt = 'A brand new red Ferrari parked outside an expensive mansion';
+
+      return JSON.stringify({
+        type: 'image_confirmation',
+        text: `Are you sure you want to generate an image?\n\nYour image prompt is: **${imagePrompt}**\n\nNote you can also use the 'Generate Image' option from the Menu which provides more options for customisation of your image.`,
+        imagePrompt: imagePrompt,
+        options: [
+          { label: 'Yes Proceed ✅', action: 'confirm_image', prompt: imagePrompt },
+          { label: 'No ❌', action: 'cancel_image' }
+        ]
+      });
+    }
+
+    if (clean.startsWith('yes proceed') || clean.includes('yes proceed')) {
+      let promptToUse = 'brand new red Ferrari parked outside an expensive mansion';
+      const lastUserMsg = [...history].reverse().find(m => m.role === 'user' && !m.content.toLowerCase().includes('yes proceed'));
+      if (lastUserMsg) {
+        promptToUse = lastUserMsg.content
+          .replace(/generate an image of/gi, '')
+          .replace(/create an image of/gi, '')
+          .replace(/draw a picture of/gi, '')
+          .trim();
+      }
+
+      const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(promptToUse)}?width=1024&height=1024&nologo=true&seed=${Date.now()}`;
+      return JSON.stringify({
+        type: 'image_result',
+        text: `Your image prompt is: **${promptToUse}**\n\nNote you can also use the 'Generate Image' option from the Menu which provides more options for customisation of your image.`,
+        imageUrl: imageUrl,
+        imagePrompt: promptToUse
+      });
+    }
+
+    if (clean.includes('no ❌') || clean.startsWith('no')) {
+      return JSON.stringify({
+        type: 'text',
+        text: 'Image generation cancelled. How else can I assist you?'
+      });
+    }
+
     // 1. Check for Cloud LLM API Key (Groq, Gemini, OpenAI)
     const apiKey = process.env.GROQ_API_KEY || process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY;
     if (apiKey) {

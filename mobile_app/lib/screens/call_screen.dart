@@ -81,6 +81,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   MediaStream? _screenStream;
 
   static const _channel = MethodChannel('com.dolsyx/screen_share');
+  static const _pipChannel = MethodChannel('com.dolsyx/pip');
 
   // Named socket handlers so we can selectively remove only OUR listeners in dispose()
   late final Function(dynamic) _onCallAnswered;

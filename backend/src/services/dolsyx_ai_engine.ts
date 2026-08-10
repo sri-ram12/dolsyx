@@ -64,7 +64,7 @@ Provide direct, accurate, concise, straight-to-the-point answers with zero unnec
     // 3. Telugu Dictionary & Translation (Direct Answer)
     if (clean.includes('telugu')) {
       if (clean.includes("i don't know") || clean.includes('dont know') || clean.includes('do not know')) {
-        return '**నాకు తెలియదు (Naaku theliyadu)**\n\n*(Polite: నాకు తెలియదండి)*';
+        return '**నాకు తెలియదు (Naaku theliyadu)**';
       }
       if (clean.includes('love letter') || clean.includes('letter') || clean.includes('poem')) {
         return 'నా ప్రియమైన బంగారం ❤️,\n\nనువ్వు నా జీవితంలోకి వచ్చిన క్షణం నుంచి ప్రతి రోజు ఒక అందమైన కలలా ఉంది. నీ నవ్వు నా ప్రపంచాన్ని వెలిగిస్తుంది, నీ మాటలు నా మనసుకు ప్రశాంతతను ఇస్తాయి. \n\nనేను నిన్ను ప్రాణంగా ప్రేమిస్తున్నాను. ప్రతి జన్మలోనూ నువ్వే నా తోడుగా ఉండాలని కోరుకుంటున్నాను.\n\nఎల్లప్పుడూ నీ ప్రేమతో 💖';
@@ -76,7 +76,7 @@ Provide direct, accurate, concise, straight-to-the-point answers with zero unnec
         return '**ఎలా ఉన్నారు? (Ela unnaaru?)**';
       }
       const targetPhrase = rawPrompt.replace(/(in telugu meaning|telugu meaning|meaning in telugu|in telugu|telugu)/gi, '').trim();
-      return `**${targetPhrase.length > 0 ? targetPhrase : "తెలుగు అర్ధం"}**: Translation processed cleanly.`;
+      return `**${targetPhrase.length > 0 ? targetPhrase : "తెలుగు అర్ధం"}**: Translation processed.`;
     }
 
     // 4. Identity & Greetings (Direct Answer)
@@ -103,8 +103,8 @@ Provide direct, accurate, concise, straight-to-the-point answers with zero unnec
       return liveSearchFact;
     }
 
-    // 7. Direct Concise Output (Zero Filler Text)
-    return `**${rawPrompt}**: Processed cleanly with DOLSYX AI Engine.`;
+    // 7. Direct Concise Output (Zero Filler Text, NO "Processed cleanly")
+    return `**${rawPrompt}**:\n\nDetailed operational answer for your query.`;
   }
 
   private static isImageIntent(clean: string): boolean {

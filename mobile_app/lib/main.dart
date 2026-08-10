@@ -16,6 +16,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/services.dart';
 import 'screens/share_target_screen.dart';
+import 'services/api_service.dart';
 import 'package:http/http.dart' as http;
 
 
@@ -170,6 +171,7 @@ class _DolsyxAppState extends State<DolsyxApp> {
             }
           }
         }
+      } catch (_) {}
       _checkInitialShareData();
     });
     _tryAutoLogin();

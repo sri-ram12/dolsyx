@@ -33,10 +33,22 @@ class _ShareTargetScreenState extends State<ShareTargetScreen> {
 
   Future<void> _fetchConversations() async {
     try {
-      final res = await _chatService.getConversations();
+      final chats = await _chatService.getChats();
       if (mounted) {
         setState(() {
-          _conversations = res;
+          _conversations = chats.map((c) => {
+            'id': c.id,
+            'name': c.name,
+            'isGroup': c.isGroup,
+            'groupAvatar': c.groupAvatar,
+            'participants': c.participants.map((p) => {
+              'user': {
+                'id': p.userId,
+                'username': p.username,
+                'avatarUrl': p.avatarUrl,
+              }
+            }).toList(),
+          }).toList();
           _isLoading = false;
         });
       }
@@ -49,6 +61,7 @@ class _ShareTargetScreenState extends State<ShareTargetScreen> {
     if (_selectedConversationIds.isEmpty || _isSending) return;
     setState(() => _isSending = true);
 
+    final socketService = Provider.of<AuthProvider>(context, listen: false).socketService;
     final type = widget.sharedData['type'];
     final text = widget.sharedData['text'];
     final List<dynamic> uris = widget.sharedData['uris'] ?? [];
@@ -56,10 +69,10 @@ class _ShareTargetScreenState extends State<ShareTargetScreen> {
     for (final convId in _selectedConversationIds) {
       try {
         if (type == 'text' && text != null) {
-          await _chatService.sendMessage(convId, text);
+          socketService.sendMessage(convId, text);
         } else if (uris.isNotEmpty) {
           for (final uri in uris) {
-            await _chatService.sendMessage(convId, uri.toString(), mediaType: 'IMAGE');
+            socketService.sendMessage(convId, uri.toString(), mediaUrl: uri.toString(), mediaType: 'IMAGE');
           }
         }
       } catch (e) {

@@ -40,14 +40,14 @@ class _ShareTargetScreenState extends State<ShareTargetScreen> {
             'id': c.id,
             'name': c.name,
             'isGroup': c.isGroup,
-            'groupAvatar': c.groupAvatar,
-            'participants': c.participants.map((p) => {
+            'groupAvatar': c.avatarUrl,
+            'participants': c.participants?.map((p) => {
               'user': {
-                'id': p.userId,
-                'username': p.username,
-                'avatarUrl': p.avatarUrl,
+                'id': p is Map ? (p['user']?['id'] ?? p['userId']) : p,
+                'username': p is Map ? (p['user']?['username'] ?? p['username']) : 'User',
+                'avatarUrl': p is Map ? (p['user']?['avatarUrl'] ?? p['avatarUrl']) : null,
               }
-            }).toList(),
+            }).toList() ?? [],
           }).toList();
           _isLoading = false;
         });

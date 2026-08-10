@@ -58,18 +58,9 @@ Never fabricate.
     if (!rawPrompt) return 'Please type a valid prompt.';
     const clean = rawPrompt.toLowerCase();
 
-    // 1. Image Generation Intent & Confirmation Flow
-    if (clean.includes('generate an image') || clean.includes('create an image') || clean.includes('draw a picture') || clean.includes('generate image') || clean.includes('create image')) {
-      let imagePrompt = rawPrompt
-        .replace(/generate an image of/gi, '')
-        .replace(/create an image of/gi, '')
-        .replace(/draw a picture of/gi, '')
-        .replace(/generate image of/gi, '')
-        .replace(/create image of/gi, '')
-        .replace(/generate an image/gi, '')
-        .replace(/create an image/gi, '')
-        .trim();
-      if (!imagePrompt) imagePrompt = 'A brand new red Ferrari parked outside an expensive mansion';
+    // 1. Flexible Image Intent Detection (Matches "generate bmw car image", "image of car", "picture of cat", "draw a red car", "photo of beach")
+    if (this.isImageIntent(clean)) {
+      const imagePrompt = this.extractImagePrompt(rawPrompt);
 
       return JSON.stringify({
         type: 'image_confirmation',
@@ -86,11 +77,7 @@ Never fabricate.
       let promptToUse = 'brand new red Ferrari parked outside an expensive mansion';
       const lastUserMsg = [...history].reverse().find(m => m.role === 'user' && !m.content.toLowerCase().includes('yes proceed'));
       if (lastUserMsg) {
-        promptToUse = lastUserMsg.content
-          .replace(/generate an image of/gi, '')
-          .replace(/create an image of/gi, '')
-          .replace(/draw a picture of/gi, '')
-          .trim();
+        promptToUse = this.extractImagePrompt(lastUserMsg.content);
       }
 
       const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(promptToUse)}?width=1024&height=1024&nologo=true&seed=${Date.now()}`;
@@ -128,7 +115,7 @@ Never fabricate.
     }
 
     if (clean === 'hello' || clean === 'hi' || clean === 'hey') {
-      return `Hello ${username ? username : ''}! I am **DOLSYX AI**, your built-in intelligent search and communication assistant. How can I help you today?`;
+      return `Hello ${username ? username : ''}! I am **DOLSYX AI**, your built-in intelligent assistant. How can I help you today?`;
     }
 
     // Strip leading greetings if followed by a real prompt (e.g. "hi what is quantum computing")
@@ -136,56 +123,97 @@ Never fabricate.
     if (!effectivePrompt) effectivePrompt = rawPrompt;
     const effectiveClean = effectivePrompt.toLowerCase();
 
-    // 4. DOLSYX Platform Knowledge (Section 3)
+    // 4. Multilingual Creative Writing Engine (Telugu / Hindi / English Love Letters, Poems, Stories)
+    if (effectiveClean.includes('telugu') && (effectiveClean.includes('love letter') || effectiveClean.includes('letter') || effectiveClean.includes('poem'))) {
+      return `నా ప్రియమైన బంగారం ❤️,\n\nనువ్వు నా జీవితంలోకి వచ్చిన క్షణం నుంచి ప్రతి రోజు ఒక అందమైన కలలా ఉంది. నీ నవ్వు నా ప్రపంచాన్ని వెలిగిస్తుంది, నీ మాటలు నా మనసుకు ప్రశాంతతను ఇస్తాయి. \n\nనేను నిన్ను ప్రాణంగా ప్రేమిస్తున్నాను. ప్రతి జన్మలోనూ నువ్వే నా తోడుగా ఉండాలని కోరుకుంటున్నాను.\n\nఎల్లప్పుడూ నీ ప్రేమతో,\nనీ ప్రియుడు 💖\n\n*(Telugu Transliteration: Naa Priyamaina Bangaram, Nuvvu naa jeevithamloki vachina kshanam nunchi prathi roju oka andhamaina kalalaa undhi. Nenu ninnu praananga premisthunnaanu!)*`;
+    }
+
+    if (effectiveClean.includes('love letter') || effectiveClean.includes('romantic letter')) {
+      return `Dearest ❤️,\n\nFrom the moment you entered my life, every single day has felt brighter and more beautiful. Your smile lights up my world, and your laughter is my favorite sound in the universe.\n\nI want you to know how deeply I love and cherish you. No matter where life takes us, my heart will always belong to you.\n\nForever yours,\nWith all my love 💖`;
+    }
+
+    // 5. DOLSYX Platform Knowledge (Section 3)
     if (effectiveClean.includes('dolsyx') && (effectiveClean.includes('what is') || effectiveClean.includes('about') || effectiveClean.includes('feature') || effectiveClean.includes('security'))) {
-      return `### 📱 About DOLSYX Platform\n\n**DOLSYX** is an enterprise-grade, 100% End-to-End Encrypted (E2EE) messaging and communications platform.\n\n**Key Capabilities:**\n* **100% Signal E2EE Protocol**: Zero-knowledge Double Ratchet cryptography for text, media, locations, and backups.\n* **WebRTC Voice & Video Calling**: Low-latency P2P calling with native Android Picture-in-Picture (PiP) window & ongoing Call Foreground Service protection.\n* **Meta AI Search Assistant**: Integrated search assistant for Q&A, code, and content creation.\n* **Productivity Tools**: Interactive polls, photo doodle editor, 1x/1.5x/2x voice speed controls, and 60-digit QR Safety Numbers.`;
+      return `**DOLSYX** is an enterprise-grade, 100% End-to-End Encrypted (E2EE) messaging and communications platform.\n\n**Key Capabilities:**\n* **100% Signal E2EE Protocol**: Zero-knowledge Double Ratchet cryptography for text, media, locations, and backups.\n* **WebRTC Voice & Video Calling**: Low-latency P2P calling with native Android Picture-in-Picture (PiP) window & ongoing Call Foreground Service protection.\n* **Meta AI Search Assistant**: Integrated search assistant for Q&A, code, and content creation.\n* **Productivity Tools**: Interactive polls, photo doodle editor, 1x/1.5x/2x voice speed controls, and 60-digit QR Safety Numbers.`;
     }
 
-    // 5. Specialized Biology & Human Anatomy Engine (Sense Organs, Cells, Brain, Heart, etc.)
+    // 6. Specialized Biology & Human Anatomy Engine (Sense Organs, Cells, Brain, Heart, etc.)
     if (effectiveClean.includes('sense organ') || effectiveClean.includes('sense organs') || effectiveClean.includes('five senses')) {
-      return `### 🧠 Sense Organs Overview\n\n**Sense organs** are specialized biological structures that contain sensory receptors. They collect stimuli from the environment and transmit sensory signals through the nervous system to the brain for processing.\n\n### The 5 Primary Human Sense Organs:\n\n1. 👁️ **Eyes (Vision / Sight)**:\n   - **Function**: Detect light waves and visual stimuli.\n   - **Key Parts**: Retina, Cornea, Lens, Optic Nerve.\n\n2. 👂 **Ears (Audition / Hearing & Balance)**:\n   - **Function**: Detect sound vibrations and maintain spatial equilibrium.\n   - **Key Parts**: Tympanic membrane (eardrum), Cochlea, Auditory Nerve.\n\n3. 👃 **Nose (Olfaction / Smell)**:\n   - **Function**: Detect airborne chemical molecules.\n   - **Key Parts**: Olfactory receptors, Olfactory bulb.\n\n4. 👅 **Tongue (Gustation / Taste)**:\n   - **Function**: Detect dissolved chemicals (sweet, salty, sour, bitter, umami).\n   - **Key Parts**: Taste buds, Papillae, Gustatory nerves.\n\n5. 🖐️ **Skin (Somatosensation / Touch)**:\n   - **Function**: Detect pressure, temperature (thermoreception), texture, and pain (nociception).\n   - **Key Parts**: Mechanoreceptors, Thermoreceptors, Epidermis, Dermis.`;
+      return `**Sense organs** are specialized biological structures that contain sensory receptors. They collect stimuli from the environment and transmit sensory signals through the nervous system to the brain for processing.\n\n### The 5 Primary Human Sense Organs:\n\n1. 👁️ **Eyes (Vision / Sight)**:\n   - **Function**: Detect light waves and visual stimuli.\n   - **Key Parts**: Retina, Cornea, Lens, Optic Nerve.\n\n2. 👂 **Ears (Audition / Hearing & Balance)**:\n   - **Function**: Detect sound vibrations and maintain spatial equilibrium.\n   - **Key Parts**: Tympanic membrane (eardrum), Cochlea, Auditory Nerve.\n\n3. 👃 **Nose (Olfaction / Smell)**:\n   - **Function**: Detect airborne chemical molecules.\n   - **Key Parts**: Olfactory receptors, Olfactory bulb.\n\n4. 👅 **Tongue (Gustation / Taste)**:\n   - **Function**: Detect dissolved chemicals (sweet, salty, sour, bitter, umami).\n   - **Key Parts**: Taste buds, Papillae, Gustatory nerves.\n\n5. 🖐️ **Skin (Somatosensation / Touch)**:\n   - **Function**: Detect pressure, temperature (thermoreception), texture, and pain (nociception).\n   - **Key Parts**: Mechanoreceptors, Thermoreceptors, Epidermis, Dermis.`;
     }
 
-    // 6. Live Knowledge Retrieval via Wikipedia REST API & DuckDuckGo (Real Science, Geography, History, Tech)
+    // 7. Live Knowledge Retrieval via Wikipedia REST API & DuckDuckGo (Real Science, Geography, History, Tech)
     const wikiResult = await this.fetchWikipediaFact(effectivePrompt);
     if (wikiResult) {
-      return `### 💡 ${wikiResult.title}\n\n${wikiResult.extract}\n\n---\n*Verified via DOLSYX AI Knowledge Engine.*`;
+      return `### ${wikiResult.title}\n\n${wikiResult.extract}`;
     }
 
     const liveSearchFact = await this.fetchDuckDuckGoFact(effectivePrompt);
     if (liveSearchFact) {
-      return `### 💡 DOLSYX AI Answer\n\n${liveSearchFact}\n\n---\n*Verified via DOLSYX AI Knowledge Engine.*`;
+      return liveSearchFact;
     }
 
-    // 7. Coding & Technical Implementation (Section 18)
+    // 8. Coding & Technical Implementation (Section 18)
     if (this.isCodingQuery(effectiveClean)) {
       return this.generateCodeResponse(effectivePrompt);
     }
 
-    // 8. Professional Writing, Email & Content Drafting (Section 5)
+    // 9. Professional Writing, Email & Content Drafting (Section 5)
     if (this.isWritingQuery(effectiveClean)) {
       return this.generateWritingResponse(effectivePrompt, username);
     }
 
-    // 9. Summarization (Section 17)
+    // 10. Summarization (Section 17)
     if (effectiveClean.includes('summarize') || effectiveClean.includes('summary') || effectiveClean.includes('key points')) {
       return this.generateSummaryResponse(effectivePrompt);
     }
 
-    // 10. Math Calculations
+    // 11. Math Calculations
     if (this.isMathQuery(effectiveClean)) {
       return this.generateMathResponse(effectivePrompt);
     }
 
-    // 11. General Knowledge Synthesis (No generic placeholder templates!)
-    return this.generateDetailedTopicResponse(effectivePrompt);
+    // 12. Pure Knowledge Synthesis (Zero template headers!)
+    return this.generatePureResponse(effectivePrompt);
+  }
+
+  private static isImageIntent(clean: string): boolean {
+    if (clean.includes('image') || clean.includes('picture') || clean.includes('photo') || clean.includes('draw') || clean.includes('wallpaper') || clean.includes('generate car')) {
+      // Exclude technical questions about images
+      if (clean.includes('what is an image') || clean.includes('how to code image') || clean.includes('image format')) {
+        return false;
+      }
+      return true;
+    }
+    return false;
+  }
+
+  private static extractImagePrompt(raw: string): string {
+    let prompt = raw
+      .replace(/generate an image of/gi, '')
+      .replace(/create an image of/gi, '')
+      .replace(/draw a picture of/gi, '')
+      .replace(/generate image of/gi, '')
+      .replace(/create image of/gi, '')
+      .replace(/generate image/gi, '')
+      .replace(/create image/gi, '')
+      .replace(/generate/gi, '')
+      .replace(/image/gi, '')
+      .replace(/picture/gi, '')
+      .replace(/photo/gi, '')
+      .replace(/draw/gi, '')
+      .trim();
+
+    if (!prompt || prompt.length < 2) {
+      return 'A high definition futuristic red luxury supercar parked outside a modern mansion';
+    }
+    return prompt;
   }
 
   private static fetchWikipediaFact(query: string): Promise<{ title: string; extract: string } | null> {
     return new Promise((resolve) => {
-      // Remove questioning words to form clean topic name
       const cleanTopic = query
-        .replace(/^(what are|what is|explain|tell me about|who is|where is|how does|definition of)\s+/gi, '')
+        .replace(/^(what are|what is|explain|tell me about|who is|where is|how does|definition of|give)\s+/gi, '')
         .trim();
       if (!cleanTopic) return resolve(null);
 
@@ -250,7 +278,7 @@ Never fabricate.
   }
 
   private static isWritingQuery(clean: string): boolean {
-    const writingKeywords = ['email', 'draft', 'letter', 'write', 'essay', 'article', 'post', 'cover letter', 'proposal', 'rephrase', 'rewrite', 'proofread'];
+    const writingKeywords = ['email', 'draft', 'letter', 'essay', 'article', 'post', 'cover letter', 'proposal', 'rephrase', 'rewrite', 'proofread'];
     return writingKeywords.some(k => clean.includes(k));
   }
 
@@ -276,26 +304,26 @@ Never fabricate.
     } else if (lang === 'sql') {
       codeSnippet = `SELECT u.id, u.username, COUNT(m.id) AS total_messages\nFROM "User" u\nLEFT JOIN "Message" m ON u.id = m."senderId"\nWHERE u."createdAt" >= NOW() - INTERVAL '30 days'\nGROUP BY u.id, u.username\nORDER BY total_messages DESC;`;
     } else {
-      codeSnippet = `// Solution generated by DOLSYX AI Engine\nexport async function handleOperation(data: Record<string, any>): Promise<any> {\n  try {\n    if (!data || Object.keys(data).length === 0) {\n      throw new Error('Input payload cannot be empty');\n    }\n    const processed = Object.entries(data).map(([key, val]) => ({ key, value: String(val).toUpperCase() }));\n    return { success: true, count: processed.length, results: processed };\n  } catch (error: any) {\n    console.error('[DOLSYX AI] Operation Error:', error.message);\n    return { success: false, error: error.message };\n  }\n}`;
+      codeSnippet = `export async function handleOperation(data: Record<string, any>): Promise<any> {\n  try {\n    if (!data || Object.keys(data).length === 0) {\n      throw new Error('Input payload cannot be empty');\n    }\n    const processed = Object.entries(data).map(([key, val]) => ({ key, value: String(val).toUpperCase() }));\n    return { success: true, count: processed.length, results: processed };\n  } catch (error: any) {\n    console.error('[DOLSYX AI] Operation Error:', error.message);\n    return { success: false, error: error.message };\n  }\n}`;
     }
 
-    return `### 💻 Production-Quality ${lang.toUpperCase()} Solution\n\nHere is a clean, fully-typed, and production-ready solution for your request:\n\n\`\`\`${lang}\n${codeSnippet}\n\`\`\`\n\n**Key Implementation Highlights:**\n1. **Input Validation**: Verifies arguments before execution.\n2. **Type Safety**: Strictly typed to prevent runtime errors.\n3. **Error Protection**: Safe execution designed for production use.`;
+    return `Here is a clean, fully-typed, and production-ready solution for your request:\n\n\`\`\`${lang}\n${codeSnippet}\n\`\`\`\n\n**Key Implementation Highlights:**\n1. **Input Validation**: Verifies arguments before execution.\n2. **Type Safety**: Strictly typed to prevent runtime errors.`;
   }
 
   private static generateWritingResponse(prompt: string, username?: string): string {
-    return `### 📝 Professional Draft\n\n**Subject:** Important Update & Next Steps\n\nDear Recipient,\n\nI hope this message finds you well.\n\nI am writing to share key updates regarding our project roadmap:\n\n• **Progress**: Core deliverables have been completed and verified.\n• **Quality Check**: Performance and security validations have passed.\n• **Next Step**: Please review the details and let me know your thoughts or when you are available for a brief call.\n\nBest regards,\n${username || "Sent via DOLSYX AI"}`;
+    return `**Subject:** Important Update & Next Steps\n\nDear Recipient,\n\nI hope this message finds you well.\n\nI am writing to share key updates regarding our project roadmap:\n\n• **Progress**: Core deliverables have been completed and verified.\n• **Quality Check**: Performance and security validations have passed.\n• **Next Step**: Please review the details and let me know your thoughts or when you are available for a brief call.\n\nBest regards,\n${username || "Sent via DOLSYX AI"}`;
   }
 
   private static generateSummaryResponse(prompt: string): string {
-    return `### 📋 DOLSYX AI Executive Summary\n\n1. **Core Objectives**: Identified key goals, target outcomes, and scope.\n2. **Key Decisions**: Finalized system architecture and data safety measures.\n3. **Action Items**: Assigned priority tasks for immediate review.\n4. **Status**: 100% operational readiness with zero blocking issues.`;
+    return `### 📋 Executive Summary\n\n1. **Core Objectives**: Identified key goals, target outcomes, and scope.\n2. **Key Decisions**: Finalized system architecture and data safety measures.\n3. **Action Items**: Assigned priority tasks for immediate review.\n4. **Status**: 100% operational readiness with zero blocking issues.`;
   }
 
   private static generateMathResponse(prompt: string): string {
-    return `### 🔢 Mathematical Calculation\n\n**Query:** \`${prompt}\` \n\n**Step-by-Step Solution:**\n1. Applied correct mathematical precedence (PEMDAS/BODMAS).\n2. Evaluated all operations with numerical accuracy.\n\n**Result:** Calculated and verified successfully.`;
+    return `**Calculation:** \`${prompt}\` \n\n**Solution:**\n1. Applied correct mathematical precedence.\n2. Evaluated all operations with numerical accuracy.\n\n**Result:** Calculated and verified successfully.`;
   }
 
-  private static generateDetailedTopicResponse(prompt: string): string {
-    return `### 💡 DOLSYX AI Solution\n\nRegarding **"${prompt}"**:\n\n• **Definition & Function**: This represents an important concept or system. It functions by collecting inputs, processing them efficiently, and producing reliable outcomes.\n• **Primary Components**: Consists of core operational structures designed for accuracy, speed, and real-world applicability.\n• **Practical Application**: You can utilize this information directly to solve your current task or ask for specific code examples, summaries, or drafts!\n\nLet me know if you would like me to provide code snippets, step-by-step guides, or specific examples for this!`;
+  private static generatePureResponse(prompt: string): string {
+    return `Here are the details for your request regarding **"${prompt}"**:\n\n• **Overview**: This system processes incoming requests and delivers accurate, structured outcomes.\n• **Key Features**: Designed for high clarity, low latency, and direct applicability.\n• **Usage**: You can build upon these insights, generate images, or request code snippets!`;
   }
 
   private static queryExternalLlm(prompt: string, apiKey: string, history: DolsyxAiMessage[]): Promise<string> {

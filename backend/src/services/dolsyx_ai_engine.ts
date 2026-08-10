@@ -122,48 +122,53 @@ Never fabricate.
       }
     }
 
-    // 2. Identity Queries (Section 25)
+    // 2. Identity Queries & Greetings (Section 25)
     if (clean === 'who are you' || clean === 'what is your name' || clean === 'tell me about yourself') {
       return "I'm DOLSYX AI, the AI assistant built into DOLSYX. I can help you answer questions, create and analyze content, work with information, and assist with tasks.";
     }
 
-    if (clean === 'hello' || clean === 'hi' || clean === 'hey' || clean.startsWith('hi ') || clean.startsWith('hello ')) {
+    if (clean === 'hello' || clean === 'hi' || clean === 'hey') {
       return `Hello ${username ? username : ''}! I am **DOLSYX AI**, your built-in intelligent search and communication assistant. How can I help you today?`;
     }
 
+    // Strip leading greetings if followed by a real prompt (e.g. "hi what is quantum computing")
+    let effectivePrompt = rawPrompt.replace(/^(hi|hello|hey|hey ai|hi ai|hello ai)\s*,?\s*/gi, '').trim();
+    if (!effectivePrompt) effectivePrompt = rawPrompt;
+    const effectiveClean = effectivePrompt.toLowerCase();
+
     // 3. DOLSYX Platform Knowledge (Section 3)
-    if (clean.includes('dolsyx') && (clean.includes('what is') || clean.includes('about') || clean.includes('feature') || clean.includes('security'))) {
+    if (effectiveClean.includes('dolsyx') && (effectiveClean.includes('what is') || effectiveClean.includes('about') || effectiveClean.includes('feature') || effectiveClean.includes('security'))) {
       return `### 📱 About DOLSYX Platform\n\n**DOLSYX** is an enterprise-grade, 100% End-to-End Encrypted (E2EE) messaging and communications platform.\n\n**Key Capabilities:**\n* **100% Signal E2EE Protocol**: Zero-knowledge Double Ratchet cryptography for text, media, locations, and backups.\n* **WebRTC Voice & Video Calling**: Low-latency P2P calling with native Android Picture-in-Picture (PiP) window & ongoing Call Foreground Service protection.\n* **Meta AI Search Assistant**: Integrated search assistant for Q&A, code, and content creation.\n* **Productivity Tools**: Interactive polls, photo doodle editor, 1x/1.5x/2x voice speed controls, and 60-digit QR Safety Numbers.`;
     }
 
     // 4. Live Knowledge Retrieval via Search API for factual topics (Section 9 - Real Time Info)
-    const liveSearchFact = await this.fetchLiveFact(rawPrompt);
+    const liveSearchFact = await this.fetchLiveFact(effectivePrompt);
     if (liveSearchFact) {
       return `### 💡 DOLSYX AI Answer\n\n${liveSearchFact}\n\n---\n*Verified via DOLSYX AI Knowledge Engine.*`;
     }
 
     // 5. Coding & Technical Implementation (Section 18)
-    if (this.isCodingQuery(clean)) {
-      return this.generateCodeResponse(rawPrompt);
+    if (this.isCodingQuery(effectiveClean)) {
+      return this.generateCodeResponse(effectivePrompt);
     }
 
     // 6. Professional Writing, Email & Content Drafting (Section 5)
-    if (this.isWritingQuery(clean)) {
-      return this.generateWritingResponse(rawPrompt, username);
+    if (this.isWritingQuery(effectiveClean)) {
+      return this.generateWritingResponse(effectivePrompt, username);
     }
 
     // 7. Summarization (Section 17)
-    if (clean.includes('summarize') || clean.includes('summary') || clean.includes('key points')) {
-      return this.generateSummaryResponse(rawPrompt);
+    if (effectiveClean.includes('summarize') || effectiveClean.includes('summary') || effectiveClean.includes('key points')) {
+      return this.generateSummaryResponse(effectivePrompt);
     }
 
     // 8. Math Calculations
-    if (this.isMathQuery(clean)) {
-      return this.generateMathResponse(rawPrompt);
+    if (this.isMathQuery(effectiveClean)) {
+      return this.generateMathResponse(effectivePrompt);
     }
 
     // 9. Technical Concept Synthesis
-    return this.generateTechConceptResponse(rawPrompt);
+    return this.generateTechConceptResponse(effectivePrompt);
   }
 
   private static fetchLiveFact(query: string): Promise<string | null> {

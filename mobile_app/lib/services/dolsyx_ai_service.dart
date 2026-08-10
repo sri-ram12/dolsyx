@@ -34,8 +34,8 @@ class DolsyxAiService {
     if (clean == 'who are you' || clean == 'what is your name') {
       return "I'm DOLSYX AI, the AI assistant built into DOLSYX. I can help you answer questions, create and analyze content, work with information, and assist with tasks.";
     }
-    if (clean.contains('hello') || clean.contains('hi')) {
-      return 'Hello! I am **DOLSYX AI**, your built-in intelligent search and communication assistant. How can I help you today?';
+    if (clean == 'hello' || clean == 'hi' || clean == 'hey') {
+      return 'Hello! I am **DOLSYX AI**, your built-in intelligent assistant. How can I help you today?';
     }
 
     if (clean.contains('code') || clean.contains('function') || clean.contains('python') || clean.contains('flutter') || clean.contains('js')) {

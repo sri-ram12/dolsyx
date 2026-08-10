@@ -11,9 +11,6 @@ import {
 } from "../controllers/status.controller.js";
 import { authenticateToken } from "../middleware/auth.middleware.js";
 
-import { fileURLToPath } from "url";
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 import { getCloudinaryStorage } from "../config/cloudinary.config.js";
 
 const storage = getCloudinaryStorage("dolsyx_status");

@@ -120,8 +120,11 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Keep call screen visible when app comes back from background
-    if (state == AppLifecycleState.resumed && _callActive && mounted) {
+    if (state == AppLifecycleState.paused && _callActive && mounted) {
+      try {
+        _pipChannel.invokeMethod('enterPip');
+      } catch (_) {}
+    } else if (state == AppLifecycleState.resumed && _callActive && mounted) {
       setState(() {});
     }
   }
@@ -158,6 +161,9 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           _status = 'Connected';
           _callActive = true;
           CallScreen.isCallActiveNotifier.value = true;
+          try {
+            _pipChannel.invokeMethod('setCallActive', {'active': true});
+          } catch (_) {}
         });
       }
       final answererId = data['answererId'] ?? widget.remoteUserId;

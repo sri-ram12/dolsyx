@@ -116,6 +116,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                 },
               );
             },
+          ),
           ListTile(
             leading: Icon(Icons.backup, color: AppTheme.textSecondary),
             title: Text('Chat backup & restore', style: TextStyle(color: AppTheme.textPrimary)),

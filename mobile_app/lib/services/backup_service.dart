@@ -72,8 +72,7 @@ class BackupService {
 
   Future<Uint8List> _deriveKeyFromPassphrase(String passphrase) async {
     final bytes = utf8.encode(passphrase.padRight(32, '0'));
-    final sha = Sha256();
-    final hash = await sha.calculateHash(bytes);
+    final hash = await sha256.hash(bytes);
     return Uint8List.fromList(hash.bytes);
   }
 }

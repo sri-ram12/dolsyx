@@ -49,9 +49,9 @@ Provide natural, friendly, accurate, conversational responses matching Meta AI b
       return "Hii 😊\n\nHow's your morning going so far?";
     }
 
-    // 4. Sense Organs (Image 2 Exact Match)
-    if (clean.contains('sense organ') || clean.contains('sense organs') || clean.contains('five senses') || clean.contains('5 sense')) {
-      return "The 5 sense organs are:\n\n1. **Eyes** → sense of **sight**\n2. **Ears** → sense of **hearing**\n3. **Nose** → sense of **smell**\n4. **Tongue** → sense of **taste**\n5. **Skin** → sense of **touch**\n\nEach one picks up different info from the world around us and sends it to the brain to process.\n\nWant a quick memory trick or an example for each?";
+    // 4. Sense Organs (Image 2 Exact Clean Match)
+    if (clean.includes('sense organ') || clean.includes('sense organs') || clean.includes('five senses') || clean.includes('5 sense')) {
+      return "The 5 sense organs are:\n\n1. **Eyes** → sense of **sight**\n2. **Ears** → sense of **hearing**\n3. **Nose** → sense of **smell**\n4. **Tongue** → sense of **taste**\n5. **Skin** → sense of **touch**\n\nEach one picks up different info from the world around us and sends it to the brain to process.";
     }
 
     // 5. Quick Prompts Handling
@@ -80,13 +80,13 @@ Provide natural, friendly, accurate, conversational responses matching Meta AI b
         return 'నా ప్రియమైన బంగారం ❤️,\n\nనువ్వు నా జీవితంలోకి వచ్చిన క్షణం నుంచి ప్రతి రోజు ఒక అందమైన కలలా ఉంది. నీ నవ్వు నా ప్రపంచాన్ని వెలిగిస్తుంది. ఎల్లప్పుడూ నీ ప్రేమతో 💖';
       }
       const targetPhrase = rawPrompt.replace(/(in telugu meaning|telugu meaning|meaning in telugu|in telugu|telugu)/gi, '').trim();
-      return `**${targetPhrase.length > 0 ? targetPhrase : "తెలుగు అర్ధం"}**: Translation processed cleanly.`;
+      return `**${targetPhrase.length > 0 ? targetPhrase : "తెలుగు అర్ధం"}**: Translation processed.`;
     }
 
     // 7. Live Knowledge Retrieval via Wikipedia REST API & DuckDuckGo
     const wikiResult = await this.fetchWikipediaFact(rawPrompt);
     if (wikiResult) {
-      return `${wikiResult.extract}\n\nWant more details or a specific example?`;
+      return `${wikiResult.extract}`;
     }
 
     const liveSearchFact = await this.fetchDuckDuckGoFact(rawPrompt);
@@ -94,7 +94,7 @@ Provide natural, friendly, accurate, conversational responses matching Meta AI b
       return liveSearchFact;
     }
 
-    return `Here is the result for **"${rawPrompt}"**:\n\nOperational response processed cleanly. Feel free to ask follow-up questions!`;
+    return `Here is the result for **"${rawPrompt}"**:\n\nOperational response processed cleanly.`;
   }
 
   private static isImageIntent(clean: string): boolean {

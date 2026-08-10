@@ -1,5 +1,5 @@
-import { Request, Response } from 'express';
-import { DolsyxAiEngine } from '../services/dolsyx_ai_engine';
+import type { Request, Response } from 'express';
+import { DolsyxAiEngine } from '../services/dolsyx_ai_engine.js';
 
 export class AIController {
   public static async handleChat(req: Request, res: Response): Promise<void> {

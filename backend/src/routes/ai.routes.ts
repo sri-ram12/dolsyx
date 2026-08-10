@@ -1,6 +1,7 @@
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { AIController } from '../controllers/ai.controller';
+import { AIController } from '../controllers/ai.controller.js';
 
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'dolsyx_super_secret_key_123456';

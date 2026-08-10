@@ -116,6 +116,15 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       'username': widget.remoteUserName,
       'avatarUrl': widget.remoteAvatarUrl,
     };
+
+    _pipChannel.setMethodCallHandler((call) async {
+      if (call.method == 'onCallTaskRemoved') {
+        if (_callActive) {
+          _endCall();
+        }
+      }
+    });
+
     _initRenderers();
   }
 

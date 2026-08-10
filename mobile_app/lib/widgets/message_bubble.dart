@@ -38,34 +38,178 @@ class MessageBubble extends StatelessWidget {
   });
 
   Widget _buildMessageText(String text, Color textColor, double fontSize) {
-    final query = searchQuery?.trim() ?? '';
-    if (query.isEmpty) {
-      return Text(text, style: TextStyle(color: textColor, fontSize: fontSize));
-    }
-    final lowerText = text.toLowerCase();
-    final lowerQuery = query.toLowerCase();
-    final List<TextSpan> spans = [];
-    int start = 0;
-    int index;
-    while ((index = lowerText.indexOf(lowerQuery, start)) != -1) {
-      if (index > start) {
-        spans.add(TextSpan(text: text.substring(start, index), style: TextStyle(color: textColor, fontSize: fontSize)));
+    final urlRegex = RegExp(r'(https?://[^\s]+|www\.[^\s]+)', caseSensitive: false);
+    final matches = urlRegex.allMatches(text);
+
+    if (matches.isEmpty) {
+      final query = searchQuery?.trim() ?? '';
+      if (query.isEmpty) {
+        return Text(text, style: TextStyle(color: textColor, fontSize: fontSize));
       }
-      spans.add(TextSpan(
-        text: text.substring(index, index + query.length),
-        style: TextStyle(
-          color: Colors.black,
-          fontSize: fontSize,
-          fontWeight: FontWeight.bold,
-          backgroundColor: const Color(0xFFFFD700),
+      final lowerText = text.toLowerCase();
+      final lowerQuery = query.toLowerCase();
+      final List<TextSpan> spans = [];
+      int start = 0;
+      int index;
+      while ((index = lowerText.indexOf(lowerQuery, start)) != -1) {
+        if (index > start) {
+          spans.add(TextSpan(text: text.substring(start, index), style: TextStyle(color: textColor, fontSize: fontSize)));
+        }
+        spans.add(TextSpan(
+          text: text.substring(index, index + query.length),
+          style: TextStyle(
+            color: Colors.black,
+            fontSize: fontSize,
+            fontWeight: FontWeight.bold,
+            backgroundColor: const Color(0xFFFFD700),
+          ),
+        ));
+        start = index + query.length;
+      }
+      if (start < text.length) {
+        spans.add(TextSpan(text: text.substring(start), style: TextStyle(color: textColor, fontSize: fontSize)));
+      }
+      return RichText(text: TextSpan(children: spans));
+    }
+
+    final firstUrlMatch = matches.first.group(0)!;
+    final formattedUrl = firstUrlMatch.startsWith('http') ? firstUrlMatch : 'https://$firstUrlMatch';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SelectableText.rich(
+          TextSpan(
+            children: _buildSpansWithLinks(text, textColor, fontSize, formattedUrl),
+          ),
         ),
-      ));
-      start = index + query.length;
+        const SizedBox(height: 8),
+        _buildLinkPreviewCard(formattedUrl),
+      ],
+    );
+  }
+
+  List<InlineSpan> _buildSpansWithLinks(String text, Color textColor, double fontSize, String targetUrl) {
+    final urlRegex = RegExp(r'(https?://[^\s]+|www\.[^\s]+)', caseSensitive: false);
+    final List<InlineSpan> spans = [];
+    int start = 0;
+
+    for (final match in urlRegex.allMatches(text)) {
+      if (match.start > start) {
+        spans.add(TextSpan(text: text.substring(start, match.start), style: TextStyle(color: textColor, fontSize: fontSize)));
+      }
+      final urlText = match.group(0)!;
+      final uriStr = urlText.startsWith('http') ? urlText : 'https://$urlText';
+      spans.add(
+        WidgetSpan(
+          child: GestureDetector(
+            onTap: () async {
+              final uri = Uri.parse(uriStr);
+              if (await canLaunchUrl(uri)) {
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              }
+            },
+            child: Text(
+              urlText,
+              style: TextStyle(
+                color: const Color(0xFF60A5FA),
+                fontSize: fontSize,
+                decoration: TextDecoration.underline,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ),
+      );
+      start = match.end;
     }
     if (start < text.length) {
       spans.add(TextSpan(text: text.substring(start), style: TextStyle(color: textColor, fontSize: fontSize)));
     }
-    return RichText(text: TextSpan(children: spans));
+    return spans;
+  }
+
+  Widget _buildLinkPreviewCard(String url) {
+    Uri? uri;
+    try { uri = Uri.parse(url); } catch (_) {}
+    final host = uri?.host.replaceAll('www.', '') ?? 'Link';
+
+    IconData icon = Icons.language;
+    String badgeTitle = 'Web Link';
+    Color badgeColor = const Color(0xFF3B82F6);
+
+    if (host.contains('youtube.com') || host.contains('youtu.be')) {
+      icon = Icons.play_circle_fill_rounded;
+      badgeTitle = 'YouTube Video';
+      badgeColor = Colors.redAccent;
+    } else if (host.contains('maps.google.com') || host.contains('goo.gl')) {
+      icon = Icons.map_rounded;
+      badgeTitle = 'Google Maps Location';
+      badgeColor = Colors.green;
+    } else if (host.contains('zoom.us') || host.contains('teams.microsoft.com') || host.contains('meet.google.com')) {
+      icon = Icons.video_call_rounded;
+      badgeTitle = 'Meeting Link';
+      badgeColor = Colors.deepPurpleAccent;
+    } else if (url.endsWith('.pdf') || url.contains('drive.google.com') || url.contains('dropbox.com')) {
+      icon = Icons.picture_as_pdf_rounded;
+      badgeTitle = 'Document / File';
+      badgeColor = Colors.orangeAccent;
+    }
+
+    return GestureDetector(
+      onTap: () async {
+        if (uri != null && await canLaunchUrl(uri)) {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        }
+      },
+      child: Container(
+        margin: const EdgeInsets.only(top: 4, bottom: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E293B),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: badgeColor.withOpacity(0.4)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: badgeColor.withOpacity(0.2),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: badgeColor, size: 20),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    badgeTitle,
+                    style: TextStyle(color: badgeColor, fontSize: 11, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    host.toUpperCase(),
+                    style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    url,
+                    style: const TextStyle(color: Colors.white54, fontSize: 11),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.open_in_new_rounded, color: Colors.white70, size: 18),
+          ],
+        ),
+      ),
+    );
   }
 
   bool _isOnlyEmojis(String text) {

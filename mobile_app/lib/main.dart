@@ -14,7 +14,8 @@ import 'services/sound_service.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'services/api_service.dart';
+import 'package:flutter/services.dart';
+import 'screens/share_target_screen.dart';
 import 'package:http/http.dart' as http;
 
 
@@ -169,9 +170,35 @@ class _DolsyxAppState extends State<DolsyxApp> {
             }
           }
         }
-      } catch (_) {}
+      _checkInitialShareData();
     });
     _tryAutoLogin();
+  }
+
+  static const _shareChannel = MethodChannel('com.dolsyx/share');
+
+  Future<void> _checkInitialShareData() async {
+    try {
+      final sharedData = await _shareChannel.invokeMethod('getInitialSharedData');
+      if (sharedData != null && sharedData is Map) {
+        _openShareTarget(Map<String, dynamic>.from(sharedData));
+      }
+    } catch (_) {}
+
+    _shareChannel.setMethodCallHandler((call) async {
+      if (call.method == 'onSharedDataReceived' && call.arguments != null) {
+        _openShareTarget(Map<String, dynamic>.from(call.arguments));
+      }
+    });
+  }
+
+  void _openShareTarget(Map<String, dynamic> sharedData) {
+    if (!mounted) return;
+    navigatorKey.currentState?.push(
+      MaterialPageRoute(
+        builder: (_) => ShareTargetScreen(sharedData: sharedData),
+      ),
+    );
   }
 
   /// Handle FCM notification taps (app was in background and user tapped the notification)

@@ -65,4 +65,13 @@ class CallForegroundService : Service() {
 
         return START_STICKY
     }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        try {
+            val intent = Intent("com.dolsyx.ACTION_CALL_ENDED_TASK_REMOVED")
+            sendBroadcast(intent)
+        } catch (_: Exception) {}
+        stopSelf()
+    }
 }

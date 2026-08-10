@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:intl/intl.dart';
+import '../theme/app_theme.dart';
 import '../services/dolsyx_ai_service.dart';
 import '../widgets/full_screen_image_view.dart';
 
@@ -97,41 +98,41 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0B141A),
+      backgroundColor: AppTheme.backgroundColor,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1F2C34),
-        elevation: 1,
+        backgroundColor: AppTheme.surfaceColor,
+        elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          icon: Icon(Icons.arrow_back, color: AppTheme.textPrimary),
           onPressed: () => Navigator.pop(context),
         ),
         title: Row(
           children: [
             Container(
               padding: const EdgeInsets.all(2),
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 gradient: LinearGradient(
-                  colors: [Color(0xFF8B5CF6), Color(0xFFEC4899), Color(0xFF3B82F6)],
+                  colors: [AppTheme.primaryColor, const Color(0xFF8B5CF6), const Color(0xFFEC4899)],
                 ),
               ),
-              child: const CircleAvatar(
+              child: CircleAvatar(
                 radius: 18,
-                backgroundColor: Color(0xFF0B141A),
-                child: Icon(Icons.smart_toy, color: Color(0xFFEC4899), size: 20),
+                backgroundColor: AppTheme.backgroundColor,
+                child: Icon(Icons.smart_toy, color: AppTheme.primaryColor, size: 20),
               ),
             ),
             const SizedBox(width: 12),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
+              children: [
                 Text(
                   'DOLSYX AI',
-                  style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+                  style: TextStyle(color: AppTheme.textPrimary, fontSize: 17, fontWeight: FontWeight.bold),
                 ),
                 Text(
                   'Always active • Interactive AI',
-                  style: TextStyle(color: Colors.white54, fontSize: 11),
+                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
                 ),
               ],
             ),
@@ -164,7 +165,7 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: isUser ? const Color(0xFF005C4B) : const Color(0xFF202C33),
+                            color: isUser ? AppTheme.bubbleSender : AppTheme.bubbleReceiver,
                             borderRadius: BorderRadius.only(
                               topLeft: const Radius.circular(14),
                               topRight: const Radius.circular(14),
@@ -180,19 +181,19 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
                                   padding: const EdgeInsets.only(bottom: 4),
                                   child: Row(
                                     mainAxisSize: MainAxisSize.min,
-                                    children: const [
-                                      Icon(Icons.smart_toy, color: Color(0xFFEC4899), size: 14),
-                                      SizedBox(width: 4),
+                                    children: [
+                                      Icon(Icons.smart_toy, color: AppTheme.primaryColor, size: 14),
+                                      const SizedBox(width: 4),
                                       Text(
                                         'DOLSYX AI 🤖',
-                                        style: TextStyle(color: Color(0xFFEC4899), fontSize: 12, fontWeight: FontWeight.bold),
+                                        style: TextStyle(color: AppTheme.primaryColor, fontSize: 12, fontWeight: FontWeight.bold),
                                       ),
                                     ],
                                   ),
                                 ),
                               Text(
                                 msg['text'],
-                                style: const TextStyle(color: Colors.white, fontSize: 15, height: 1.3),
+                                style: TextStyle(color: isUser ? Colors.white : AppTheme.textPrimary, fontSize: 15, height: 1.3),
                               ),
 
                               // Embedded Image preview if present
@@ -214,18 +215,16 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
                                         if (loadingProgress == null) return child;
                                         return Container(
                                           height: 220,
-                                          color: const Color(0xFF111B21),
-                                          child: const Center(
-                                            child: CircularProgressIndicator(color: Color(0xFFEC4899)),
+                                          color: AppTheme.surfaceColor,
+                                          child: Center(
+                                            child: CircularProgressIndicator(color: AppTheme.primaryColor),
                                           ),
                                         );
                                       },
                                       errorBuilder: (context, error, stackTrace) => Container(
                                         height: 180,
                                         color: Colors.black26,
-                                        child: const Center(
-                                          child: Icon(Icons.broken_image, color: Colors.white38, size: 40),
-                                        ),
+                                        child: Icon(Icons.broken_image, color: AppTheme.textSecondary, size: 40),
                                       ),
                                     ),
                                   ),
@@ -239,11 +238,11 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
                                 children: [
                                   Text(
                                     DateFormat('hh:mm a').format(msg['time']),
-                                    style: const TextStyle(color: Colors.white38, fontSize: 10),
+                                    style: TextStyle(color: isUser ? Colors.white70 : AppTheme.textSecondary, fontSize: 10),
                                   ),
                                   if (isUser) ...[
                                     const SizedBox(width: 4),
-                                    const Icon(Icons.done_all, color: Color(0xFF53BDEB), size: 14),
+                                    const Icon(Icons.done_all, color: Colors.white, size: 14),
                                   ],
                                 ],
                               ),
@@ -251,7 +250,7 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
                           ),
                         ),
 
-                        // Interactive Action Buttons (WhatsApp/MobileGPT style)
+                        // Interactive Action Buttons
                         if (!isUser && options.isNotEmpty) ...[
                           const SizedBox(height: 6),
                           Column(
@@ -266,12 +265,12 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
                                   height: 44,
                                   child: ElevatedButton(
                                     style: ElevatedButton.styleFrom(
-                                      backgroundColor: const Color(0xFF2A3942),
+                                      backgroundColor: AppTheme.surfaceColor,
                                       elevation: 0,
                                       shape: RoundedRectangleBorder(
                                         borderRadius: BorderRadius.circular(10),
                                         side: BorderSide(
-                                          color: isConfirm ? const Color(0xFF00A884).withOpacity(0.5) : Colors.white12,
+                                          color: isConfirm ? AppTheme.primaryColor : AppTheme.textSecondary.withOpacity(0.3),
                                         ),
                                       ),
                                     ),
@@ -279,7 +278,7 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
                                     child: Text(
                                       label,
                                       style: TextStyle(
-                                        color: isConfirm ? const Color(0xFF00A884) : const Color(0xFFEA80FC),
+                                        color: isConfirm ? AppTheme.primaryColor : AppTheme.textPrimary,
                                         fontSize: 14,
                                         fontWeight: FontWeight.bold,
                                       ),
@@ -298,16 +297,16 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
             ),
           ),
 
-          // Thinking / Generating Indicator
+          // Thinking Indicator
           if (_isThinking)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              color: const Color(0xFF1F2C34),
+              color: AppTheme.surfaceColor,
               child: Row(
-                children: const [
-                  SizedBox(width: 14, height: 14, child: CircularProgressIndicator(color: Color(0xFFEC4899), strokeWidth: 2)),
-                  SizedBox(width: 10),
-                  Text('DOLSYX AI is generating response...', style: TextStyle(color: Colors.white70, fontSize: 12, fontStyle: FontStyle.italic)),
+                children: [
+                  SizedBox(width: 14, height: 14, child: CircularProgressIndicator(color: AppTheme.primaryColor, strokeWidth: 2)),
+                  const SizedBox(width: 10),
+                  Text('DOLSYX AI is generating response...', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontStyle: FontStyle.italic)),
                 ],
               ),
             ),
@@ -315,19 +314,19 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
           // Message Input Bar
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            color: const Color(0xFF1F2C34),
+            color: AppTheme.surfaceColor,
             child: Row(
               children: [
                 Expanded(
                   child: TextField(
                     controller: _messageController,
                     onSubmitted: (val) => _sendPrompt(val),
-                    style: const TextStyle(color: Colors.white),
+                    style: TextStyle(color: AppTheme.textPrimary),
                     decoration: InputDecoration(
                       hintText: 'Type a message or ask to generate an image...',
-                      hintStyle: const TextStyle(color: Colors.white38, fontSize: 14),
+                      hintStyle: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
                       filled: true,
-                      fillColor: const Color(0xFF2A3942),
+                      fillColor: AppTheme.backgroundColor,
                       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(24),
@@ -338,7 +337,7 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
                 ),
                 const SizedBox(width: 8),
                 CircleAvatar(
-                  backgroundColor: const Color(0xFF00A884),
+                  backgroundColor: AppTheme.primaryColor,
                   radius: 22,
                   child: IconButton(
                     icon: const Icon(Icons.send_rounded, color: Colors.white, size: 20),

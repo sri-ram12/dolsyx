@@ -1073,6 +1073,7 @@ class AudioPlayWidget extends StatefulWidget {
 class _AudioPlayWidgetState extends State<AudioPlayWidget> {
   final AudioPlayer _player = AudioPlayer();
   bool _isPlaying = false;
+  double _playbackSpeed = 1.0;
   Duration _duration = Duration.zero;
   Duration _position = Duration.zero;
   StreamSubscription? _durationSub;
@@ -1107,6 +1108,21 @@ class _AudioPlayWidgetState extends State<AudioPlayWidget> {
     super.dispose();
   }
 
+  void _toggleSpeed() async {
+    double nextSpeed = 1.0;
+    if (_playbackSpeed == 1.0) {
+      nextSpeed = 1.5;
+    } else if (_playbackSpeed == 1.5) {
+      nextSpeed = 2.0;
+    } else {
+      nextSpeed = 1.0;
+    }
+    setState(() => _playbackSpeed = nextSpeed);
+    try {
+      await _player.setPlaybackRate(nextSpeed);
+    } catch (_) {}
+  }
+
   void _togglePlay() async {
     try {
       if (_isPlaying) {
@@ -1115,6 +1131,7 @@ class _AudioPlayWidgetState extends State<AudioPlayWidget> {
       } else {
         final fullUrl = ApiService.getMediaUrl(widget.url);
         await _player.play(UrlSource(fullUrl));
+        await _player.setPlaybackRate(_playbackSpeed);
         if (mounted) setState(() => _isPlaying = true);
       }
     } catch (e) {
@@ -1135,8 +1152,23 @@ class _AudioPlayWidgetState extends State<AudioPlayWidget> {
         ),
         const SizedBox(width: 8),
         Text(
-          _formatDuration(_position) + ' / ' + _formatDuration(_duration),
+          '${_formatDuration(_position)} / ${_formatDuration(_duration)}',
           style: TextStyle(color: widget.color, fontSize: 13, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(width: 8),
+        GestureDetector(
+          onTap: _toggleSpeed,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+            decoration: BoxDecoration(
+              color: widget.color.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              _playbackSpeed == 1.0 ? '1x' : (_playbackSpeed == 1.5 ? '1.5x' : '2x'),
+              style: TextStyle(color: widget.color, fontSize: 11, fontWeight: FontWeight.bold),
+            ),
+          ),
         ),
       ],
     );

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
+import '../services/backup_service.dart';
 
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
@@ -115,6 +116,59 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                 },
               );
             },
+          ListTile(
+            leading: Icon(Icons.backup, color: AppTheme.textSecondary),
+            title: Text('Chat backup & restore', style: TextStyle(color: AppTheme.textPrimary)),
+            subtitle: Text('Export & restore encrypted .dolsyx backups', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+            onTap: _showBackupDialog,
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showBackupDialog() {
+    final passphraseCtrl = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.surfaceColor,
+        title: Text('Encrypted Chat Backup', style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Enter a secret passphrase to encrypt your local chat backup file (.dolsyx):', style: TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: passphraseCtrl,
+              obscureText: true,
+              style: TextStyle(color: AppTheme.textPrimary),
+              decoration: InputDecoration(
+                hintText: 'Secret Passphrase',
+                hintStyle: TextStyle(color: AppTheme.textSecondary),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryColor),
+            onPressed: () async {
+              final pass = passphraseCtrl.text.trim();
+              if (pass.length < 4) return;
+              Navigator.pop(ctx);
+              final file = await BackupService().exportEncryptedBackup(passphrase: pass, messages: []);
+              if (file != null && mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    backgroundColor: Colors.green,
+                    content: Text('🟢 Encrypted backup exported to ${file.path.split('/').last}'),
+                  ),
+                );
+              }
+            },
+            child: const Text('Export Backup', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),

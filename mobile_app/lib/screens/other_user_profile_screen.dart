@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
 import '../theme/app_theme.dart';
+import 'verify_safety_number_screen.dart';
 import '../services/api_service.dart';
 import '../services/chat_service.dart';
 import '../providers/auth_provider.dart';
@@ -732,6 +733,18 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
               color: AppTheme.surfaceColor,
               child: Column(
                 children: [
+                  _buildActionItem(Icons.verified_user, 'Verify Safety Number', () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => VerifySafetyNumberScreen(
+                          contactName: username,
+                          contactEmail: email,
+                          contactUserId: (widget.user['id'] ?? widget.user['_id'] ?? '').toString(),
+                        ),
+                      ),
+                    );
+                  }),
                   _buildActionItem(Icons.notifications, 'Notifications', () {}),
                   _buildActionItem(Icons.timelapse, 'Disappearing Messages', () {}),
                   _buildActionItem(Icons.lock, 'Chat Lock', () {}),

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useAuth, API_URL } from "@/context/auth-context";
 import { getAvatarUrl } from "@/utils/avatar";
 import { useSocket } from "@/hooks/use-socket";

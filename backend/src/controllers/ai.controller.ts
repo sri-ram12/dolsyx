@@ -1,10 +1,10 @@
 import { Request, Response } from 'express';
-import { AIService } from '../services/ai.service';
+import { DolsyxAiEngine } from '../services/dolsyx_ai_engine';
 
 export class AIController {
   public static async handleChat(req: Request, res: Response): Promise<void> {
     try {
-      const { prompt } = req.body;
+      const { prompt, history } = req.body;
       const user = (req as any).user;
 
       if (!prompt || typeof prompt !== 'string') {
@@ -12,14 +12,14 @@ export class AIController {
         return;
       }
 
-      const responseText = await AIService.generateResponse(prompt, user?.username);
+      const replyText = await DolsyxAiEngine.processQuery(prompt, history || [], user?.username);
       res.json({
-        reply: responseText,
+        reply: replyText,
         sender: 'DOLSYX AI',
         createdAt: new Date().toISOString(),
       });
     } catch (error: any) {
-      res.status(500).json({ error: error.message || 'AI Service Error' });
+      res.status(500).json({ error: error.message || 'DOLSYX AI Engine Error' });
     }
   }
 }

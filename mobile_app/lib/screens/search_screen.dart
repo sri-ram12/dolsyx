@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/chat_service.dart';
-import '../services/ai_service.dart';
+import '../services/dolsyx_ai_service.dart';
 import '../theme/app_theme.dart';
 import 'chat_room_screen.dart';
 
@@ -14,7 +14,7 @@ class SearchScreen extends StatefulWidget {
 
 class _SearchScreenState extends State<SearchScreen> {
   final ChatService _chatService = ChatService();
-  final AIService _aiService = AIService();
+  final DolsyxAiService _dolsyxAiService = DolsyxAiService();
   final TextEditingController _searchController = TextEditingController();
   List<dynamic> _searchResults = [];
   bool _isLoading = false;
@@ -41,7 +41,7 @@ class _SearchScreenState extends State<SearchScreen> {
     FocusScope.of(context).unfocus();
     setState(() => _isAiThinking = true);
 
-    final aiAnswer = await _aiService.askAI(prompt);
+    final aiAnswer = await _dolsyxAiService.queryAiEngine(prompt);
 
     if (mounted) {
       setState(() => _isAiThinking = false);
@@ -86,7 +86,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       ),
                       const SizedBox(width: 10),
                       const Text(
-                        'DOLSYX AI Search Answer',
+                        'DOLSYX AI Answer',
                         style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
                       ),
                       const Spacer(),
@@ -155,7 +155,7 @@ class _SearchScreenState extends State<SearchScreen> {
                           setModalState(() {
                             currentAnswer = 'DOLSYX AI is thinking...';
                           });
-                          final reply = await _aiService.askAI(text);
+                          final reply = await _dolsyxAiService.queryAiEngine(text);
                           setModalState(() {
                             currentAnswer = reply;
                           });

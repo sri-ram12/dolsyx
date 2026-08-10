@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_theme.dart';
 import '../services/dolsyx_ai_service.dart';
 import '../widgets/full_screen_image_view.dart';
@@ -19,6 +20,7 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
 
   final List<Map<String, dynamic>> _messages = [];
   bool _isThinking = false;
+  String _userName = 'there';
 
   final List<String> _quickPrompts = [
     'I want to write a message to a classmate',
@@ -30,6 +32,28 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
     'I need help with my math homework',
     'I want to plan a wedding',
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserName();
+  }
+
+  Future<void> _loadUserName() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cachedUserStr = prefs.getString('cached_user_data');
+      if (cachedUserStr != null) {
+        final data = jsonDecode(cachedUserStr);
+        final name = data['username'] ?? data['name'] ?? data['displayName'];
+        if (name != null && name.toString().trim().isNotEmpty) {
+          setState(() {
+            _userName = name.toString().trim();
+          });
+        }
+      }
+    } catch (_) {}
+  }
 
   Future<void> _sendPrompt(String promptText) async {
     final prompt = promptText.trim();
@@ -148,7 +172,7 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
       ),
       body: Column(
         children: [
-          // If no messages yet, show Meta AI Welcome Screen (Image 1)
+          // If no messages yet, show Meta AI Welcome Screen with dynamic logged-in user name
           if (_messages.isEmpty)
             Expanded(
               child: SingleChildScrollView(
@@ -157,7 +181,7 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
                   children: [
                     const SizedBox(height: 10),
                     Text(
-                      'Hi, SIRI#777#',
+                      'Hi, $_userName',
                       style: TextStyle(
                         color: AppTheme.textPrimary,
                         fontSize: 32,
@@ -239,7 +263,6 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                // Embedded Image preview if present (Image 3 match)
                                 if (imageUrl != null && imageUrl.isNotEmpty) ...[
                                   GestureDetector(
                                     onTap: () {
@@ -321,7 +344,7 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
               ),
             ),
 
-          // Input Bar (Image 1 / 2 / 3 match)
+          // Input Bar
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             color: AppTheme.surfaceColor,

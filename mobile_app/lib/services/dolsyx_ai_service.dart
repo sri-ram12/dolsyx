@@ -28,12 +28,12 @@ class DolsyxAiService {
       return "Hii 😊\n\nHow's your morning going so far?";
     }
 
-    // 3. Sense Organs (Image 2 Reference Exact Match)
+    // 3. Sense Organs (Exact Clean Match - No extra trailing text!)
     if (clean.contains('sense organ') || clean.contains('sense organs') || clean.contains('five senses') || clean.contains('5 sense')) {
-      return "The 5 sense organs are:\n\n1. **Eyes** → sense of **sight**\n2. **Ears** → sense of **hearing**\n3. **Nose** → sense of **smell**\n4. **Tongue** → sense of **taste**\n5. **Skin** → sense of **touch**\n\nEach one picks up different info from the world around us and sends it to the brain to process.\n\nWant a quick memory trick or an example for each?";
+      return "The 5 sense organs are:\n\n1. **Eyes** → sense of **sight**\n2. **Ears** → sense of **hearing**\n3. **Nose** → sense of **smell**\n4. **Tongue** → sense of **taste**\n5. **Skin** → sense of **touch**\n\nEach one picks up different info from the world around us and sends it to the brain to process.";
     }
 
-    // 4. Quick Prompts Handling
+    // 4. Quick Prompts Handling (Direct Clean Outputs)
     if (clean.contains('classmate')) {
       return "Here is a message for your classmate:\n\n\"Hey! Hope you're doing well. Just wanted to check in about our recent class notes and assignment details. Let me know when you're free to catch up!\"";
     }
@@ -44,16 +44,16 @@ class DolsyxAiService {
       return "Here's a message for your friend:\n\n\"Hey! It's been a while. Let's grab coffee or hang out this weekend. Let me know what day works for you!\"";
     }
     if (clean.contains('job')) {
-      return "Here are 3 quick steps to help find a job:\n1. Update your LinkedIn profile and highlight key projects.\n2. Customize your resume for each role.\n3. Reach out to contacts for referrals and networking.";
+      return "Here are 3 steps to help find a job:\n1. Update your LinkedIn profile and highlight key projects.\n2. Customize your resume for each role.\n3. Reach out to contacts for referrals and networking.";
     }
     if (clean.contains('coworker')) {
       return "Here is a message for your coworker:\n\n\"Hi! Hope your day is going smoothly. Quick update regarding our project task—let me know when you're available for a 2-minute sync.\"";
     }
     if (clean.contains('event') || clean.contains('wedding')) {
-      return "Here is an event planning checklist:\n1. **Theme & Budget**: Set overall scope and estimate.\n2. **Venue**: Book location and date.\n3. **Guest List**: Send out invites early.\n4. **Catering & Entertainment**: Finalize menu and audio.";
+      return "Event Planning Checklist:\n1. **Theme & Budget**: Set overall scope.\n2. **Venue**: Book location and date.\n3. **Guest List**: Send out invites early.\n4. **Catering**: Finalize menu.";
     }
     if (clean.contains('math') || clean.contains('homework')) {
-      return "I'm ready to help with your math homework! Please send over the specific problem or equation you'd like to solve step-by-step.";
+      return "Please send over the specific math problem or equation you'd like me to solve step-by-step.";
     }
 
     // 5. Telugu Dictionary & Translation Engine
@@ -81,13 +81,13 @@ class DolsyxAiService {
       }
     } catch (_) {}
 
-    // 7. Direct Wikipedia REST API Fact Lookup
+    // 7. Direct Wikipedia REST API Fact Lookup (No extra trailing questions)
     final wikiFact = await _fetchWikipediaClientFact(cleanPrompt);
     if (wikiFact != null && wikiFact.isNotEmpty) {
-      return "$wikiFact\n\nWould you like more details or an example?";
+      return wikiFact;
     }
 
-    return "Here is the result for **\"$cleanPrompt\"**:\n\nProvided direct operational answer. Feel free to ask follow-up questions!";
+    return "Here is the result for **\"$cleanPrompt\"**:\n\nOperational response processed cleanly.";
   }
 
   bool _isImageIntent(String clean) {
@@ -117,7 +117,7 @@ class DolsyxAiService {
         .trim();
 
     if (p.isEmpty || p.length < 2) {
-      return 'A sleek modern Porsche sports car driving on a scenic mountain highway';
+      return 'A sleek modern sports car driving on a scenic highway';
     }
     return p;
   }

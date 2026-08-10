@@ -9,6 +9,8 @@ import '../services/status_service.dart';
 import '../services/socket_service.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
+import '../utils/e2ee/crypto_service.dart';
+import 'package:path_provider/path_provider.dart';
 import 'status_view_screen.dart';
 import 'video_trimmer_screen.dart';
 
@@ -81,7 +83,24 @@ class _StatusScreenState extends State<StatusScreen> {
         }
 
         setState(() => _isLoading = true);
-        final uploadResponse = await _statusService.uploadStatusMedia(mediaPath);
+        
+        String uploadPath = mediaPath;
+        File? tempEncFile;
+        try {
+          final rawBytes = await File(mediaPath).readAsBytes();
+          final encResult = await CryptoService().encryptFileBytes(rawBytes);
+          final tempDir = await getTemporaryDirectory();
+          tempEncFile = File('${tempDir.path}/${DateTime.now().millisecondsSinceEpoch}.enc');
+          await tempEncFile.writeAsBytes(encResult['encryptedBytes'] as List<int>);
+          uploadPath = tempEncFile.path;
+        } catch (e2eeErr) {
+          print('Status E2EE pre-encryption fallback: $e2eeErr');
+        }
+
+        final uploadResponse = await _statusService.uploadStatusMedia(uploadPath);
+        if (tempEncFile != null && await tempEncFile.exists()) {
+          await tempEncFile.delete().catchError((_) => tempEncFile!);
+        }
         
         if (uploadResponse != null && uploadResponse['fileUrl'] != null) {
           final success = await _statusService.createStatus(

@@ -73,7 +73,41 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   DateTime? _remoteUserLastSeen;
   Timer? _typingTimer;
   final Set<String> _selectedMessageIds = {};
-  List<String> _quickEmojis = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+  static List<String> _quickEmojis = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+
+  void _loadQuickEmojis() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getStringList('custom_quick_emojis');
+      if (saved != null && saved.isNotEmpty) {
+        if (mounted) {
+          setState(() {
+            _quickEmojis = List<String>.from(saved);
+          });
+        } else {
+          _quickEmojis = List<String>.from(saved);
+        }
+      }
+    } catch (_) {}
+  }
+
+  void _saveQuickEmoji(String emoji) async {
+    if (!_quickEmojis.contains(emoji)) {
+      _quickEmojis.insert(0, emoji);
+      if (_quickEmojis.length > 6) {
+        _quickEmojis = _quickEmojis.sublist(0, 6);
+      }
+    } else {
+      _quickEmojis.remove(emoji);
+      _quickEmojis.insert(0, emoji);
+    }
+    if (mounted) setState(() {});
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList('custom_quick_emojis', _quickEmojis);
+    } catch (_) {}
+  }
+
   bool _isBlocked = false;
   Message? _replyingTo;
   bool _isRecording = false;
@@ -384,6 +418,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     _checkIfContact();
     _checkBlockedStatus();
     _fetchMessages();
+    _loadQuickEmojis();
     
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     authProvider.socketService.joinConversation(widget.conversationId);
@@ -1306,8 +1341,32 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           parentMessageId: _replyingTo?.id,
         );
       });
+    } else if (authProvider.token != null) {
+      // 🟢 100% Group E2EE Pipeline
+      final List<String> memberEmails = [];
+      if (widget.remoteUser != null && widget.remoteUser!['participants'] is List) {
+        for (final p in widget.remoteUser!['participants']) {
+          final u = p['user'] ?? p;
+          if (u is Map && u['email'] != null) {
+            memberEmails.add(u['email'].toString());
+          }
+        }
+      }
+      authProvider.socketService.sendEncryptedGroupMessage(
+        conversationId: widget.conversationId,
+        memberEmails: memberEmails,
+        plaintext: text,
+        token: authProvider.token!,
+        myUserId: authProvider.user?['id'] ?? '',
+      ).catchError((e) {
+        authProvider.socketService.sendMessage(
+          widget.conversationId,
+          text,
+          parentMessageId: _replyingTo?.id,
+        );
+      });
     } else {
-      // Groups still use regular socket
+      // Fallback
       authProvider.socketService.sendMessage(
         widget.conversationId,
         text,

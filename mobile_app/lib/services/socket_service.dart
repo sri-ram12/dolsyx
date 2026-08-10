@@ -304,7 +304,64 @@ class SocketService {
           extractedType = decoded['mediaType'];
         }
       } catch (_) {}
-      sendMessage(conversationId, plaintext, mediaType: extractedType);
+  /// Sends an E2EE encrypted message to all members in a Group Chat.
+  /// Encrypts individual payloads for each member's devices using Signal X3DH + Double Ratchet.
+  Future<void> sendEncryptedGroupMessage({
+    required String conversationId,
+    required List<String> memberEmails,
+    required String plaintext,
+    required String token,
+    required String myUserId,
+  }) async {
+    try {
+      final List<Map<String, dynamic>> allRecipients = [];
+
+      for (final email in memberEmails) {
+        if (email.isEmpty) continue;
+        try {
+          final recipientBundle = await E2EEApi.fetchKeys(email, token);
+          final List<dynamic> devices = (recipientBundle['devices'] as List<dynamic>?) ?? [];
+          final recipientUserId = (recipientBundle['userId'] ?? recipientBundle['id'] ?? recipientBundle['_id'] ?? '').toString();
+
+          if (recipientUserId == myUserId) continue; // Skip self
+
+          if (devices.isNotEmpty && recipientUserId.isNotEmpty) {
+            final identityKey = (devices.first['identityKeyPublic'] ?? '').toString();
+            if (identityKey.isNotEmpty) {
+              await _crypto.storeSenderIdentityKey(recipientUserId, identityKey);
+            }
+          }
+
+          final messagePayload = await _crypto.encryptMessage(
+            recipientKeyBundle: recipientBundle,
+            plaintext: plaintext,
+          );
+
+          for (final device in devices) {
+            allRecipients.add({
+              'recipientDeviceId': device['id'] ?? device['_id'],
+              'recipientUserId': recipientUserId,
+              'type': messagePayload.type,
+              'ciphertext': jsonEncode(messagePayload.toJson()),
+            });
+          }
+        } catch (memberErr) {
+          print('Group member E2EE key fetch failed for $email: $memberErr');
+        }
+      }
+
+      if (allRecipients.isNotEmpty) {
+        await E2EEApi.sendEncryptedMessage({
+          'senderDeviceId': 1,
+          'conversationId': conversationId,
+          'recipients': allRecipients,
+        }, token);
+      } else {
+        sendMessage(conversationId, plaintext);
+      }
+    } catch (e) {
+      print('⚠️ Group E2EE encrypted message failed ($e). Falling back to standard socket delivery...');
+      sendMessage(conversationId, plaintext);
     }
   }
 

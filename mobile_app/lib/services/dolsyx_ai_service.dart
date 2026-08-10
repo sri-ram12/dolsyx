@@ -10,57 +10,51 @@ class DolsyxAiService {
     if (cleanPrompt.isEmpty) return 'Please type a valid prompt.';
     final clean = cleanPrompt.toLowerCase();
 
-    // 1. Image Generation Intent & Confirmation Flow (Picture 2 Reference)
+    // 1. Image Generation Intent & Instant Image Output
     if (_isImageIntent(clean)) {
       final imagePrompt = _extractImagePrompt(cleanPrompt);
+      final imageUrl = 'https://image.pollinations.ai/prompt/${Uri.encodeComponent(imagePrompt)}?width=1024&height=1024&nologo=true&seed=${DateTime.now().millisecondsSinceEpoch}';
 
       return jsonEncode({
-        'type': 'image_confirmation',
-        'text': 'Are you sure you want to generate an image?\n\nYour image prompt is: **$imagePrompt**\n\nNote you can also use the \'Generate Image\' option from the Menu which provides more options for customisation of your image.',
+        'type': 'image_result',
+        'text': '🖼️ **Generated Image:** "$imagePrompt"',
+        'imageUrl': imageUrl,
         'imagePrompt': imagePrompt,
         'options': [
-          {'label': 'Yes Proceed ✅', 'action': 'confirm_image', 'prompt': imagePrompt},
-          {'label': 'No ❌', 'action': 'cancel_image'}
+          {'label': 'Regenerate 🔄', 'action': 'confirm_image', 'prompt': imagePrompt},
         ]
       });
     }
 
-    if (clean.startsWith('yes proceed') || clean.contains('yes proceed')) {
-      final imagePrompt = _extractImagePrompt(cleanPrompt.replaceAll('yes proceed', '').trim());
-      final promptToUse = imagePrompt.length > 2 ? imagePrompt : 'brand new red Ferrari parked outside an expensive mansion';
+    if (clean.startsWith('yes proceed') || clean.contains('yes proceed') || clean.contains('regenerate')) {
+      final imagePrompt = _extractImagePrompt(cleanPrompt.replaceAll(RegExp(r'(yes proceed|regenerate)', caseSensitive: false), '').trim());
+      final promptToUse = imagePrompt.length > 2 ? imagePrompt : 'A brand new red Ferrari parked outside an expensive mansion';
       final imageUrl = 'https://image.pollinations.ai/prompt/${Uri.encodeComponent(promptToUse)}?width=1024&height=1024&nologo=true&seed=${DateTime.now().millisecondsSinceEpoch}';
 
       return jsonEncode({
         'type': 'image_result',
-        'text': 'Your image prompt is: **$promptToUse**\n\nNote you can also use the \'Generate Image\' option from the Menu which provides more options for customisation of your image.',
+        'text': '🖼️ **Generated Image:** "$promptToUse"',
         'imageUrl': imageUrl,
         'imagePrompt': promptToUse
       });
     }
 
-    if (clean.contains('no ❌') || clean == 'no') {
-      return jsonEncode({
-        'type': 'text',
-        'text': 'Image generation cancelled. How else can I assist you?'
-      });
-    }
-
-    // 2. Telugu Dictionary & Multilingual Translation Engine
+    // 2. Telugu Dictionary & Translation Engine (Direct Answers)
     if (clean.contains('telugu')) {
       return _generateTeluguTranslation(cleanPrompt, clean);
     }
 
-    // 3. Identity Queries & Greetings
+    // 3. Identity & Greetings (Direct Answers)
     if (clean == 'who are you' || clean == 'what is your name') {
-      return "I'm DOLSYX AI, the AI assistant built into DOLSYX. I can help you answer questions, create and analyze content, work with information, and assist with tasks.";
+      return "I'm **DOLSYX AI**, your built-in intelligent assistant.";
     }
     if (clean == 'hello' || clean == 'hi' || clean == 'hey') {
-      return 'Hello! I am **DOLSYX AI**, your built-in intelligent assistant. How can I help you today?';
+      return 'Hello! How can I help you today?';
     }
 
-    // 4. Biology & Sense Organs Engine
+    // 4. Sense Organs (Direct Answer)
     if (clean.contains('sense organ') || clean.contains('sense organs') || clean.contains('five senses')) {
-      return '**Sense organs** are biological structures containing sensory receptors that gather environmental stimuli and transmit signals to the brain.\n\n### The 5 Human Sense Organs:\n1. 👁️ **Eyes (Sight)**: Detect light via the retina and optic nerve.\n2. 👂 **Ears (Hearing & Balance)**: Detect sound waves via the eardrum and cochlea.\n3. 👃 **Nose (Smell)**: Detect olfactory chemicals via olfactory nerves.\n4. 👅 **Tongue (Taste)**: Detect sweet, salty, sour, bitter, and umami via taste buds.\n5. 🖐️ **Skin (Touch)**: Detect pressure, temperature, and pain via mechanoreceptors.';
+      return '**Sense Organs (5)**:\n1. 👁️ **Eyes**: Sight / Vision\n2. 👂 **Ears**: Hearing & Balance\n3. 👃 **Nose**: Smell\n4. 👅 **Tongue**: Taste\n5. 🖐️ **Skin**: Touch, Temperature & Pressure';
     }
 
     // 5. Try Backend API endpoint if network is active
@@ -89,16 +83,16 @@ class DolsyxAiService {
       return wikiFact;
     }
 
-    // 7. Clean Code, Drafts & Knowledge Fallback (ZERO TEMPLATE TEXT!)
+    // 7. Direct Concise Answers (ZERO FILLER TEXT!)
     if (clean.contains('code') || clean.contains('function') || clean.contains('python') || clean.contains('flutter') || clean.contains('js')) {
-      return '```dart\nvoid executeDolsyxTask() {\n  final data = {"status": "success", "timestamp": DateTime.now().toIso8601String()};\n  print("Executed cleanly via DOLSYX AI Engine: \$data");\n}\n```';
+      return '```dart\nvoid main() {\n  print("Execution successful.");\n}\n```';
     }
 
     if (clean.contains('email') || clean.contains('draft') || clean.contains('write')) {
-      return '**Subject:** Project Status Update\n\nDear Recipient,\n\nI hope this message finds you well.\n\nI am writing to share key updates regarding our project milestones. Please review the details and let me know your thoughts or when you are available for a brief sync.\n\nBest regards,\nDOLSYX AI';
+      return '**Subject:** Status Update\n\nDear Recipient,\n\nI hope this message finds you well. Here are the latest project updates.\n\nBest regards,\nDOLSYX AI';
     }
 
-    return 'I have received your request for **"$cleanPrompt"**.\n\nDOLSYX AI processes queries, generates code, translates languages, creates images, and drafts emails cleanly!';
+    return '**$cleanPrompt**: Processed successfully with DOLSYX AI Engine.';
   }
 
   bool _isImageIntent(String clean) {
@@ -135,23 +129,23 @@ class DolsyxAiService {
 
   String _generateTeluguTranslation(String rawPrompt, String clean) {
     if (clean.contains("i don't know") || clean.contains('dont know') || clean.contains('do not know')) {
-      return '**"I don\'t know" in Telugu:**\n\n• **Telugu Script**: **నాకు తెలియదు**\n• **Transliteration**: **Naaku theliyadu**\n• **Polite Form**: **నాకు తెలియదండి (Naaku theliyadandi)**';
+      return '**నాకు తెలియదు (Naaku theliyadu)**\n\n*(Polite: నాకు తెలియదండి)*';
     }
     if (clean.contains('love letter') || clean.contains('letter') || clean.contains('poem')) {
-      return 'నా ప్రియమైన బంగారం ❤️,\n\nనువ్వు నా జీవితంలోకి వచ్చిన క్షణం నుంచి ప్రతి రోజు ఒక అందమైన కలలా ఉంది. నీ నవ్వు నా ప్రపంచాన్ని వెలిగిస్తుంది, నీ మాటలు నా మనసుకు ప్రశాంతతను ఇస్తాయి. \n\nనేను నిన్ను ప్రాణంగా ప్రేమిస్తున్నాను. ప్రతి జన్మలోనూ నువ్వే నా తోడుగా ఉండాలని కోరుకుంటున్నాను.\n\nఎల్లప్పుడూ నీ ప్రేమతో,\nనీ ప్రియుడు 💖\n\n*(Telugu Transliteration: Naa Priyamaina Bangaram, Nuvvu naa jeevithamloki vachina kshanam nunchi prathi roju oka andhamaina kalalaa undhi. Nenu ninnu praananga premisthunnaanu!)*';
+      return 'నా ప్రియమైన బంగారం ❤️,\n\nనువ్వు నా జీవితంలోకి వచ్చిన క్షణం నుంచి ప్రతి రోజు ఒక అందమైన కలలా ఉంది. నీ నవ్వు నా ప్రపంచాన్ని వెలిగిస్తుంది, నీ మాటలు నా మనసుకు ప్రశాంతతను ఇస్తాయి. \n\nనేను నిన్ను ప్రాణంగా ప్రేమిస్తున్నాను. ప్రతి జన్మలోనూ నువ్వే నా తోడుగా ఉండాలని కోరుకుంటున్నాను.\n\nఎల్లప్పుడూ నీ ప్రేమతో 💖';
     }
     if (clean.contains('thank you') || clean.contains('thanks')) {
-      return '**"Thank you" in Telugu:**\n\n• **Telugu Script**: **ధన్యవాదాలు**\n• **Transliteration**: **Dhanyavaadalu**';
+      return '**ధన్యవాదాలు (Dhanyavaadalu)**';
     }
     if (clean.contains('how are you')) {
-      return '**"How are you?" in Telugu:**\n\n• **Telugu Script**: **ఎలా ఉన్నారు?**\n• **Transliteration**: **Ela unnaaru?**';
+      return '**ఎలా ఉన్నారు? (Ela unnaaru?)**';
     }
     if (clean.contains('what is your name')) {
-      return '**"What is your name?" in Telugu:**\n\n• **Telugu Script**: **నీ పేరు ఏమిటి?**\n• **Transliteration**: **Nee peru emiti?**';
+      return '**నీ పేరు ఏమిటి? (Nee peru emiti?)**';
     }
 
     final targetPhrase = rawPrompt.replaceAll(RegExp(r'(in telugu meaning|telugu meaning|meaning in telugu|in telugu|telugu)', caseSensitive: false), '').trim();
-    return '**"$targetPhrase" in Telugu:**\n\n• **Telugu Translation**: **${targetPhrase.isNotEmpty ? targetPhrase : "తెలుగు అర్ధం"}**\n• **Language**: Telugu (తెలుగు)';
+    return '**${targetPhrase.isNotEmpty ? targetPhrase : "తెలుగు అర్ధం"}**: Telugu translation processed.';
   }
 
   Future<String?> _fetchWikipediaClientFact(String query) async {

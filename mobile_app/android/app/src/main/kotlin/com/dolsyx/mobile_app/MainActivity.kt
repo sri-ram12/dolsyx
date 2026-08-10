@@ -2,6 +2,7 @@ package com.dolsyx.mobile_app
 
 import android.app.PictureInPictureParams
 import android.content.Intent
+import android.content.res.Configuration
 import android.os.Build
 import android.util.Rational
 import androidx.annotation.NonNull
@@ -13,9 +14,11 @@ class MainActivity : FlutterFragmentActivity() {
     private val SCREEN_SHARE_CHANNEL = "com.dolsyx/screen_share"
     private val PIP_CHANNEL = "com.dolsyx/pip"
     private var isCallActive = false
+    private var pipMethodChannel: MethodChannel? = null
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SCREEN_SHARE_CHANNEL).setMethodCallHandler { call, result ->
             if (call.method == "startScreenShareService") {
                 val serviceIntent = Intent(this, ScreenCaptureService::class.java)
@@ -34,7 +37,8 @@ class MainActivity : FlutterFragmentActivity() {
             }
         }
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, PIP_CHANNEL).setMethodCallHandler { call, result ->
+        pipMethodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, PIP_CHANNEL)
+        pipMethodChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
                 "enterPip" -> {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -52,11 +56,35 @@ class MainActivity : FlutterFragmentActivity() {
                     }
                 }
                 "setCallActive" -> {
-                    isCallActive = call.argument<Boolean>("active") ?: false
+                    val active = call.argument<Boolean>("active") ?: false
+                    isCallActive = active
+                    updateCallState(active)
                     result.success(null)
                 }
                 else -> result.notImplemented()
             }
+        }
+    }
+
+    private fun updateCallState(active: Boolean) {
+        val serviceIntent = Intent(this, CallForegroundService::class.java)
+        if (active) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent)
+            } else {
+                startService(serviceIntent)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                try {
+                    val params = PictureInPictureParams.Builder()
+                        .setAspectRatio(Rational(9, 16))
+                        .setAutoEnterEnabled(true)
+                        .build()
+                    setPictureInPictureParams(params)
+                } catch (_: Exception) {}
+            }
+        } else {
+            stopService(serviceIntent)
         }
     }
 
@@ -70,5 +98,10 @@ class MainActivity : FlutterFragmentActivity() {
                 enterPictureInPictureMode(params)
             } catch (_: Exception) {}
         }
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        pipMethodChannel?.invokeMethod("onPipChanged", isInPictureInPictureMode)
     }
 }

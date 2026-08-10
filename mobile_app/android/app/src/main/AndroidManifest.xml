@@ -105,6 +105,10 @@
             android:name=".ScreenCaptureService"
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
+        <service
+            android:name=".CallForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="phoneCall|microphone|camera" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

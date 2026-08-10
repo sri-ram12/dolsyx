@@ -775,6 +775,9 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     _callTimer?.cancel();
     _timeoutTimer?.cancel();
     _callActive = false;
+    try {
+      _pipChannel.invokeMethod('setCallActive', {'active': false});
+    } catch (_) {}
     _localStream?.getTracks().forEach((t) => t.stop());
     _localStream = null;
     _screenStream?.getTracks().forEach((t) => t.stop());

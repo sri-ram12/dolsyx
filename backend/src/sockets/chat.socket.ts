@@ -4,6 +4,7 @@ import { prisma } from "../config/db.js";
 import { encryptionService } from "../services/encryption.service.js";
 import { sendPushNotification } from "../config/firebase.config.js";
 import { canViewOnline, canViewLastSeen } from "../utils/privacy.engine.js";
+import { AIService } from "../services/ai.service.js";
 
 const JWT_SECRET = process.env.JWT_SECRET || "dolsyx_super_secret_key_123456";
 
@@ -272,6 +273,34 @@ export const initChatSocket = (io: Server) => {
             conversationId,
           });
         });
+
+        // Check for @AI or @dolsyx prompt tag in message content
+        const lowerContent = (content || "").toLowerCase();
+        if (lowerContent.includes("@ai") || lowerContent.includes("@dolsyx")) {
+          const prompt = content.replace(/@ai/gi, "").replace(/@dolsyx/gi, "").trim();
+          const aiAnswer = await AIService.generateResponse(prompt.length > 0 ? prompt : "hello");
+          
+          setTimeout(() => {
+            const aiMessage = {
+              id: `ai_${Date.now()}`,
+              conversationId,
+              senderId: "dolsyx_ai_bot",
+              sender: { id: "dolsyx_ai_bot", username: "DOLSYX AI", avatarUrl: null },
+              content: aiAnswer,
+              mediaUrl: null,
+              mediaType: null,
+              createdAt: new Date().toISOString(),
+              receipts: [],
+            };
+
+            participants.forEach((p) => {
+              io.to(p.userId).emit("new_message", {
+                message: aiMessage,
+                conversationId,
+              });
+            });
+          }, 800);
+        }
       } catch (error) {
         console.error("Socket send_message error:", error);
       }

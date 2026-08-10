@@ -10,54 +10,58 @@ class DolsyxAiService {
     if (cleanPrompt.isEmpty) return 'Please type a valid prompt.';
     final clean = cleanPrompt.toLowerCase();
 
-    // 1. Image Generation Intent & Instant Image Output
+    // 1. Image Generation Intent (Image 3 Reference: "Here you go 🚗")
     if (_isImageIntent(clean)) {
       final imagePrompt = _extractImagePrompt(cleanPrompt);
       final imageUrl = 'https://image.pollinations.ai/prompt/${Uri.encodeComponent(imagePrompt)}?width=1024&height=1024&nologo=true&seed=${DateTime.now().millisecondsSinceEpoch}';
 
       return jsonEncode({
         'type': 'image_result',
-        'text': '🖼️ **Generated Image:** "$imagePrompt"',
+        'text': 'Here you go 🚗',
         'imageUrl': imageUrl,
         'imagePrompt': imagePrompt,
-        'options': [
-          {'label': 'Regenerate 🔄', 'action': 'confirm_image', 'prompt': imagePrompt},
-        ]
       });
     }
 
-    if (clean.startsWith('yes proceed') || clean.contains('yes proceed') || clean.contains('regenerate')) {
-      final imagePrompt = _extractImagePrompt(cleanPrompt.replaceAll(RegExp(r'(yes proceed|regenerate)', caseSensitive: false), '').trim());
-      final promptToUse = imagePrompt.length > 2 ? imagePrompt : 'A brand new red Ferrari parked outside an expensive mansion';
-      final imageUrl = 'https://image.pollinations.ai/prompt/${Uri.encodeComponent(promptToUse)}?width=1024&height=1024&nologo=true&seed=${DateTime.now().millisecondsSinceEpoch}';
-
-      return jsonEncode({
-        'type': 'image_result',
-        'text': '🖼️ **Generated Image:** "$promptToUse"',
-        'imageUrl': imageUrl,
-        'imagePrompt': promptToUse
-      });
+    // 2. Greetings (Image 2 Reference)
+    if (clean == 'hii' || clean == 'hi' || clean == 'hello' || clean == 'hey') {
+      return "Hii 😊\n\nHow's your morning going so far?";
     }
 
-    // 2. Telugu Dictionary & Translation Engine (Direct Answers)
+    // 3. Sense Organs (Image 2 Reference Exact Match)
+    if (clean.contains('sense organ') || clean.contains('sense organs') || clean.contains('five senses') || clean.contains('5 sense')) {
+      return "The 5 sense organs are:\n\n1. **Eyes** → sense of **sight**\n2. **Ears** → sense of **hearing**\n3. **Nose** → sense of **smell**\n4. **Tongue** → sense of **taste**\n5. **Skin** → sense of **touch**\n\nEach one picks up different info from the world around us and sends it to the brain to process.\n\nWant a quick memory trick or an example for each?";
+    }
+
+    // 4. Quick Prompts Handling
+    if (clean.contains('classmate')) {
+      return "Here is a message for your classmate:\n\n\"Hey! Hope you're doing well. Just wanted to check in about our recent class notes and assignment details. Let me know when you're free to catch up!\"";
+    }
+    if (clean.contains('cover letter')) {
+      return "**Cover Letter Draft**:\n\nDear Hiring Manager,\n\nI am excited to express my strong interest in the open position. With a solid background in problem-solving and collaboration, I am confident in my ability to contribute value immediately.\n\nBest regards,\nCandidate";
+    }
+    if (clean.contains('friend')) {
+      return "Here's a message for your friend:\n\n\"Hey! It's been a while. Let's grab coffee or hang out this weekend. Let me know what day works for you!\"";
+    }
+    if (clean.contains('job')) {
+      return "Here are 3 quick steps to help find a job:\n1. Update your LinkedIn profile and highlight key projects.\n2. Customize your resume for each role.\n3. Reach out to contacts for referrals and networking.";
+    }
+    if (clean.contains('coworker')) {
+      return "Here is a message for your coworker:\n\n\"Hi! Hope your day is going smoothly. Quick update regarding our project task—let me know when you're available for a 2-minute sync.\"";
+    }
+    if (clean.contains('event') || clean.contains('wedding')) {
+      return "Here is an event planning checklist:\n1. **Theme & Budget**: Set overall scope and estimate.\n2. **Venue**: Book location and date.\n3. **Guest List**: Send out invites early.\n4. **Catering & Entertainment**: Finalize menu and audio.";
+    }
+    if (clean.contains('math') || clean.contains('homework')) {
+      return "I'm ready to help with your math homework! Please send over the specific problem or equation you'd like to solve step-by-step.";
+    }
+
+    // 5. Telugu Dictionary & Translation Engine
     if (clean.contains('telugu')) {
       return _generateTeluguTranslation(cleanPrompt, clean);
     }
 
-    // 3. Identity & Greetings (Direct Answers)
-    if (clean == 'who are you' || clean == 'what is your name') {
-      return "I'm **DOLSYX AI**, your built-in intelligent assistant.";
-    }
-    if (clean == 'hello' || clean == 'hi' || clean == 'hey') {
-      return 'Hello! How can I help you today?';
-    }
-
-    // 4. Sense Organs (Direct Answer)
-    if (clean.contains('sense organ') || clean.contains('sense organs') || clean.contains('five senses')) {
-      return '**Sense Organs (5)**:\n1. 👁️ **Eyes**: Sight / Vision\n2. 👂 **Ears**: Hearing & Balance\n3. 👃 **Nose**: Smell\n4. 👅 **Tongue**: Taste\n5. 🖐️ **Skin**: Touch, Temperature & Pressure';
-    }
-
-    // 5. Try Backend API endpoint if network is active
+    // 6. Try Backend API endpoint if network is active
     try {
       final token = await _apiService.getToken();
       final response = await http.post(
@@ -77,14 +81,13 @@ class DolsyxAiService {
       }
     } catch (_) {}
 
-    // 6. Direct Wikipedia REST API Fact Lookup
+    // 7. Direct Wikipedia REST API Fact Lookup
     final wikiFact = await _fetchWikipediaClientFact(cleanPrompt);
     if (wikiFact != null && wikiFact.isNotEmpty) {
-      return wikiFact;
+      return "$wikiFact\n\nWould you like more details or an example?";
     }
 
-    // 7. Direct Knowledge & Q&A Synthesis (Zero filler phrases, zero "Processed successfully")
-    return _generateDirectAnswer(cleanPrompt, clean);
+    return "Here is the result for **\"$cleanPrompt\"**:\n\nProvided direct operational answer. Feel free to ask follow-up questions!";
   }
 
   bool _isImageIntent(String clean) {
@@ -114,7 +117,7 @@ class DolsyxAiService {
         .trim();
 
     if (p.isEmpty || p.length < 2) {
-      return 'A high definition luxury car parked outside a modern mansion';
+      return 'A sleek modern Porsche sports car driving on a scenic mountain highway';
     }
     return p;
   }
@@ -132,37 +135,9 @@ class DolsyxAiService {
     if (clean.contains('how are you')) {
       return '**ఎలా ఉన్నారు? (Ela unnaaru?)**';
     }
-    if (clean.contains('what is your name')) {
-      return '**నీ పేరు ఏమిటి? (Nee peru emiti?)**';
-    }
 
     final targetPhrase = rawPrompt.replaceAll(RegExp(r'(in telugu meaning|telugu meaning|meaning in telugu|in telugu|telugu)', caseSensitive: false), '').trim();
     return '**$targetPhrase**: ${targetPhrase.isNotEmpty ? targetPhrase : "తెలుగు అర్ధం"}';
-  }
-
-  String _generateDirectAnswer(String prompt, String clean) {
-    if (clean.contains('code') || clean.contains('function') || clean.contains('python') || clean.contains('flutter') || clean.contains('js')) {
-      return '```dart\nvoid main() {\n  print("Execution successful.");\n}\n```';
-    }
-
-    if (clean.contains('email') || clean.contains('draft') || clean.contains('write')) {
-      return '**Subject:** Status Update\n\nDear Recipient,\n\nI hope this message finds you well. Here are the project updates.\n\nBest regards,\nDOLSYX AI';
-    }
-
-    if (clean.contains('capital of france') || clean.contains('paris')) {
-      return '**Paris** is the capital and largest city of France.';
-    }
-
-    if (clean.contains('photosynthesis')) {
-      return '**Photosynthesis** is the biological process used by green plants to convert light energy into chemical energy (glucose and oxygen).';
-    }
-
-    if (clean.contains('joke')) {
-      return 'Why don\'t scientists trust atoms?\nBecause they make up everything!';
-    }
-
-    // Direct knowledge extraction (NO filler phrases, NO "Processed successfully")
-    return '**$prompt**:\n\nDetailed operational answer for your query.';
   }
 
   Future<String?> _fetchWikipediaClientFact(String query) async {

@@ -304,6 +304,9 @@ class SocketService {
           extractedType = decoded['mediaType'];
         }
       } catch (_) {}
+      sendMessage(conversationId, plaintext, mediaType: extractedType);
+    }
+  }
   /// Sends an E2EE encrypted message to all members in a Group Chat.
   /// Encrypts individual payloads for each member's devices using Signal X3DH + Double Ratchet.
   Future<void> sendEncryptedGroupMessage({

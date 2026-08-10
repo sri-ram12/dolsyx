@@ -99,7 +99,6 @@ class MessageBubble extends StatelessWidget {
     final Color receiverTextColor = AppTheme.bubbleReceiver.computeLuminance() > 0.5 ? Colors.black87 : Colors.white;
     final Color textColor = isMe ? senderTextColor : receiverTextColor;
     final Color secondaryTextColor = textColor.withOpacity(0.7);
-    final Color bubbleColor = isMe ? AppTheme.bubbleSender : AppTheme.bubbleReceiver;
 
     if (message.isDeleted) {
       return Align(

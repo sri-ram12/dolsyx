@@ -9,6 +9,7 @@ class Chat {
   DateTime? updatedAt;
   bool isArchived;
   bool isPinned;
+  bool isLocked;
   DateTime? pinnedAt;
 
   Chat({
@@ -22,6 +23,7 @@ class Chat {
     this.updatedAt,
     this.isArchived = false,
     this.isPinned = false,
+    this.isLocked = false,
     this.pinnedAt,
   });
 
@@ -37,6 +39,7 @@ class Chat {
       updatedAt: json['updatedAt'] != null ? DateTime.parse(json['updatedAt']) : null,
       isArchived: json['isArchived'] ?? false,
       isPinned: json['isPinned'] ?? false,
+      isLocked: json['isLocked'] ?? false,
       pinnedAt: json['pinnedAt'] != null ? DateTime.tryParse(json['pinnedAt']) : null,
     );
   }
@@ -53,6 +56,7 @@ class Chat {
       'updatedAt': updatedAt?.toIso8601String(),
       'isArchived': isArchived,
       'isPinned': isPinned,
+      'isLocked': isLocked,
       'pinnedAt': pinnedAt?.toIso8601String(),
     };
   }

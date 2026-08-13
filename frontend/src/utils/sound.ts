@@ -281,6 +281,25 @@ class SoundEngineClass {
     } catch {}
   }
 
+  /* ── Public: Start outgoing call ringback tone loop ───────────────── */
+
+  playRingback() {
+    this.stopRingtone();
+    try {
+      const ctx = this.getCtx();
+      if (!ctx) return;
+      const playOnce = () => {
+        try {
+          const t = ctx.currentTime;
+          this.playTone(ctx, 440, t, 1.2, 0.15);
+          this.playTone(ctx, 480, t, 1.2, 0.15);
+        } catch {}
+      };
+      playOnce();
+      this.ringIntervalId = setInterval(playOnce, 3000);
+    } catch {}
+  }
+
   /* ── Public: Stop ringtone ────────────────────────────────────────── */
 
   stopRingtone() {

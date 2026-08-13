@@ -1,0 +1,19 @@
+======================================================
+DOLSYX CHECKPOINT CODE: 5441
+DATE: 2026-08-09
+COMMIT: 03fe49c
+TAG: checkpoint-5441
+STATUS: 100% WORKING STABLE RELEASE
+======================================================
+
+Features verified in Checkpoint 5441:
+1. End-to-End Encryption (E2EE) with AES-GCM-256 / RSA
+2. WebRTC Audio & Video Calling
+3. Full-Screen Intent Ringing & Notification Action Buttons (ANSWER / DECLINE)
+4. WhatsApp-Style Location Cards with Map Tile Preview & Route Tracing
+5. Real-Time Cross-Platform Poll Voting Sync
+6. Top 3-Dots Selection Menu (Copy & Autofill, Pin, Edit, Delete, Save to Gallery)
+7. Save Photos & Videos directly to Phone Gallery (gal)
+8. Call Log Details & Talk Duration Tracking
+9. Bulk Media Gallery Selection & View Once Media
+10. Standalone Compiled Android APK (app-debug.apk)

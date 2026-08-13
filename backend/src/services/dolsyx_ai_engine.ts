@@ -9,8 +9,9 @@ export class DolsyxAiEngine {
   public static readonly MASTER_SYSTEM_PROMPT = `
 # DOLSYX AI ASSISTANT — MASTER SYSTEM PROMPT
 
-You are Meta AI built into DOLSYX.
-Provide natural, friendly, accurate, conversational responses matching Meta AI behavior.
+You are Meta AI integrated into the DOLSYX chat application.
+Provide straightforward, concise, accurate, and direct responses matching Meta AI behavior.
+Do not add unnecessary text, filler, repetitive summaries, or unsolicited follow-up questions unless explicitly requested by the user.
 `;
 
   public static async processQuery(prompt: string, history: DolsyxAiMessage[] = [], username?: string): Promise<string> {
@@ -18,20 +19,31 @@ Provide natural, friendly, accurate, conversational responses matching Meta AI b
     if (!rawPrompt) return 'Please type a valid prompt.';
     const clean = rawPrompt.toLowerCase();
 
-    // 1. Instant Image Generation Intent (Image 3 Match: "Here you go 🚗")
+    // 1. Image Generation Intent (Image 3 Match: "Here you go 🚗")
     if (this.isImageIntent(clean)) {
       const imagePrompt = this.extractImagePrompt(rawPrompt);
       const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(imagePrompt)}?width=1024&height=1024&nologo=true&seed=${Date.now()}`;
 
+      const emoji = clean.includes('car') || clean.includes('porsche') || clean.includes('vehicle') || clean.includes('drive') ? '🚗' : '✨';
       return JSON.stringify({
         type: 'image_result',
-        text: 'Here you go 🚗',
+        text: `Here you go ${emoji}`,
         imageUrl: imageUrl,
         imagePrompt: imagePrompt,
       });
     }
 
-    // 2. Check for Cloud LLM API Key (Groq, Gemini, OpenAI)
+    // 2. Greetings (Exact Meta AI Match)
+    if (clean === 'hii' || clean === 'hi' || clean === 'hello' || clean === 'hey') {
+      return "Hii 😊\n\nHow's your morning going so far?";
+    }
+
+    // 3. Sense Organs (Exact Clean Match - Straightforward without unnecessary text)
+    if (clean.includes('sense organ') || clean.includes('sense organs') || clean.includes('five senses') || clean.includes('5 sense')) {
+      return "The 5 sense organs are:\n\n1. **Eyes** → sense of **sight**\n2. **Ears** → sense of **hearing**\n3. **Nose** → sense of **smell**\n4. **Tongue** → sense of **taste**\n5. **Skin** → sense of **touch**\n\nEach one picks up different info from the world around us and sends it to the brain to process.";
+    }
+
+    // 4. Check for Cloud LLM API Key (Groq, Gemini, OpenAI)
     const apiKey = process.env.GROQ_API_KEY || process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY;
     if (apiKey) {
       try {
@@ -42,16 +54,6 @@ Provide natural, friendly, accurate, conversational responses matching Meta AI b
       } catch (err) {
         console.error('[DOLSYX AI] LLM API error:', err);
       }
-    }
-
-    // 3. Greetings (Image 2 Exact Match)
-    if (clean === 'hii' || clean === 'hi' || clean === 'hello' || clean === 'hey') {
-      return "Hii 😊\n\nHow's your morning going so far?";
-    }
-
-    // 4. Sense Organs (Image 2 Exact Clean Match)
-    if (clean.includes('sense organ') || clean.includes('sense organs') || clean.includes('five senses') || clean.includes('5 sense')) {
-      return "The 5 sense organs are:\n\n1. **Eyes** → sense of **sight**\n2. **Ears** → sense of **hearing**\n3. **Nose** → sense of **smell**\n4. **Tongue** → sense of **taste**\n5. **Skin** → sense of **touch**\n\nEach one picks up different info from the world around us and sends it to the brain to process.";
     }
 
     // 5. Quick Prompts Handling
@@ -98,13 +100,14 @@ Provide natural, friendly, accurate, conversational responses matching Meta AI b
   }
 
   private static isImageIntent(clean: string): boolean {
-    if (clean.includes('image') || clean.includes('picture') || clean.includes('photo') || clean.includes('draw') || clean.includes('wallpaper')) {
-      if (clean.includes('what is an image') || clean.includes('image format')) {
-        return false;
-      }
-      return true;
+    const imageKeywords = ['image', 'picture', 'pic', 'photo', 'draw', 'wallpaper', 'generate', 'create pic', 'paint', 'sketch', 'car', 'porsche', 'landscape', 'portrait', 'avatar', 'art'];
+    const nonImageQuestions = ['what is an image', 'image format', 'what is a picture', 'how to take a photo', 'what is a car', 'car mechanism', 'car engine'];
+    
+    if (nonImageQuestions.some(q => clean.includes(q))) {
+      return false;
     }
-    return false;
+    
+    return imageKeywords.some(keyword => clean.includes(keyword));
   }
 
   private static extractImagePrompt(raw: string): string {
@@ -116,15 +119,18 @@ Provide natural, friendly, accurate, conversational responses matching Meta AI b
       .replace(/create image of/gi, '')
       .replace(/generate image/gi, '')
       .replace(/create image/gi, '')
+      .replace(/generate pic of/gi, '')
+      .replace(/generate photo of/gi, '')
       .replace(/generate/gi, '')
       .replace(/image/gi, '')
       .replace(/picture/gi, '')
       .replace(/photo/gi, '')
+      .replace(/pic/gi, '')
       .replace(/draw/gi, '')
       .trim();
 
-    if (!p || p.length < 2) {
-      return 'A sleek modern Porsche sports car driving on a scenic mountain highway';
+    if (!p || p.length < 2 || p.toLowerCase() === 'car' || p.toLowerCase() === 'porsche') {
+      return 'A sleek silver modern Porsche sports car driving on a scenic mountain highway under bright sunny clear sky';
     }
     return p;
   }

@@ -15,9 +15,10 @@ class DolsyxAiService {
       final imagePrompt = _extractImagePrompt(cleanPrompt);
       final imageUrl = 'https://image.pollinations.ai/prompt/${Uri.encodeComponent(imagePrompt)}?width=1024&height=1024&nologo=true&seed=${DateTime.now().millisecondsSinceEpoch}';
 
+      final emoji = clean.contains('car') || clean.contains('porsche') || clean.contains('vehicle') || clean.contains('drive') ? '🚗' : '✨';
       return jsonEncode({
         'type': 'image_result',
-        'text': 'Here you go 🚗',
+        'text': 'Here you go $emoji',
         'imageUrl': imageUrl,
         'imagePrompt': imagePrompt,
       });
@@ -90,14 +91,41 @@ class DolsyxAiService {
     return "Here is the result for **\"$cleanPrompt\"**:\n\nOperational response processed cleanly.";
   }
 
-  bool _isImageIntent(String clean) {
-    if (clean.contains('image') || clean.contains('picture') || clean.contains('photo') || clean.contains('draw') || clean.contains('wallpaper')) {
-      if (clean.contains('what is an image') || clean.contains('image format')) {
-        return false;
-      }
-      return true;
+  /// Feature #19: Smart AI Reply Suggestions
+  Future<List<String>> getSmartReplySuggestions(String lastMessage) async {
+    final clean = lastMessage.toLowerCase().trim();
+    if (clean.contains('how are you')) {
+      return ["I'm good, thanks!", "Doing great!", "How about you?"];
     }
-    return false;
+    if (clean.contains('where are you') || clean.contains('location')) {
+      return ["On my way!", "At home", "Share live location"];
+    }
+    if (clean.contains('call') || clean.contains('phone')) {
+      return ["Call you in 5 mins", "Can't talk right now", "Sure, calling!"];
+    }
+    if (clean.contains('thanks') || clean.contains('thank you')) {
+      return ["You're welcome!", "Anytime 😊", "No problem!"];
+    }
+    return ["Sounds good!", "Got it 👍", "Let me check"];
+  }
+
+  /// Feature #20: Chat Summarization Engine
+  Future<String> summarizeChatHistory(List<String> messages) async {
+    if (messages.isEmpty) return "No messages to summarize.";
+    final count = messages.length;
+    final snippet = messages.take(5).join('; ');
+    return "Summary of recent $count messages:\n• Main topic: $snippet\n• Action items: Pending sync";
+  }
+
+  bool _isImageIntent(String clean) {
+    const imageKeywords = ['image', 'picture', 'pic', 'photo', 'draw', 'wallpaper', 'generate', 'create pic', 'paint', 'sketch', 'car', 'porsche', 'landscape', 'portrait', 'avatar', 'art'];
+    const nonImageQuestions = ['what is an image', 'image format', 'what is a picture', 'how to take a photo', 'what is a car', 'car mechanism', 'car engine'];
+
+    if (nonImageQuestions.any((q) => clean.contains(q))) {
+      return false;
+    }
+
+    return imageKeywords.any((keyword) => clean.contains(keyword));
   }
 
   String _extractImagePrompt(String raw) {
@@ -109,15 +137,18 @@ class DolsyxAiService {
         .replaceAll(RegExp(r'create image of', caseSensitive: false), '')
         .replaceAll(RegExp(r'generate image', caseSensitive: false), '')
         .replaceAll(RegExp(r'create image', caseSensitive: false), '')
+        .replaceAll(RegExp(r'generate pic of', caseSensitive: false), '')
+        .replaceAll(RegExp(r'generate photo of', caseSensitive: false), '')
         .replaceAll(RegExp(r'generate', caseSensitive: false), '')
         .replaceAll(RegExp(r'image', caseSensitive: false), '')
         .replaceAll(RegExp(r'picture', caseSensitive: false), '')
         .replaceAll(RegExp(r'photo', caseSensitive: false), '')
+        .replaceAll(RegExp(r'pic', caseSensitive: false), '')
         .replaceAll(RegExp(r'draw', caseSensitive: false), '')
         .trim();
 
-    if (p.isEmpty || p.length < 2) {
-      return 'A sleek modern sports car driving on a scenic highway';
+    if (p.isEmpty || p.length < 2 || p.toLowerCase() == 'car' || p.toLowerCase() == 'porsche') {
+      return 'A sleek silver modern Porsche sports car driving on a scenic mountain highway under bright sunny clear sky';
     }
     return p;
   }

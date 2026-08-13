@@ -30,6 +30,26 @@ class WallpaperSelectionScreen extends StatelessWidget {
       '#108dc7,#ef8e38', // Contrast
       '#fc4a1a,#f7b733', // Fire
       '#2b5876,#4e4376', // Deep
+      '#7f00ff,#e100ff', // Neon Violet
+      '#00f2fe,#4facfe', // Cyber Cyan
+      '#fa709a,#fee140', // Peach Sorbet
+      '#30cfd0,#330867', // Teal Midnight
+      '#a8ff78,#78ffd6', // Aurora Mint
+      '#ff0844,#ffb199', // Flamingo Red
+      '#f12711,#f5af19', // Solar Blaze
+      '#b92b27,#1565c0', // Electric Indigo
+      '#3a1c71,#d76d77', // Velvet Dusk
+      '#43e97b,#38f9d7', // Emerald Glow
+      '#ff9a9e,#fecfef', // Rose Pastel
+      '#6a11cb,#2575fc', // Royal Orbit
+      '#200122,#6f0000', // Vampire Blood
+      '#141e30,#243b55', // Night Shadow
+      '#000000,#434343', // Obsidian Dark
+      '#f857a6,#ff5858', // Crimson Pulse
+      '#e0c3fc,#8ec5fc', // Lavender Mist
+      '#c2e9fb,#a1c4fd', // Ice Cloud
+      '#ffd269,#ff4500', // Gold Rush
+      '#1d2b64,#f8cdda', // Cosmic Rose
     ];
 
     final items = type == WallpaperType.solidColor ? solidColors : gradientPatterns;

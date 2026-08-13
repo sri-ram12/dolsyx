@@ -129,14 +129,28 @@ class SoundService {
     }
   }
 
+  Future<void> _setEarSpeakerAudioContext() async {
+    try {
+      AudioPlayer.global.setAudioContext(AudioContext(
+        android: const AudioContextAndroid(
+          isSpeakerphoneOn: false, // Route to Ear Speaker / Earpiece!
+          stayAwake: true,
+          contentType: AndroidContentType.speech,
+          usageType: AndroidUsageType.voiceCommunication,
+          audioFocus: AndroidAudioFocus.gainTransient,
+        ),
+      ));
+    } catch (e) {}
+  }
+
   Future<void> startRingbackTone() async {
     if (_isRingtonePlaying) return;
     try {
       _isRingtonePlaying = true;
-      await _setRingtoneAudioContext();
+      await _setEarSpeakerAudioContext();
       await _ringtonePlayer.setReleaseMode(ReleaseMode.loop);
-      await _ringtonePlayer.setVolume(0.8);
-      // Ringback tone is usually standard, but we'll use tir tir as default call tune as well
+      await _ringtonePlayer.setVolume(0.9);
+      // Play outgoing ringback tone in earpiece / ear speaker
       await _ringtonePlayer.play(AssetSource('notificationsounds/tyy.mp3'));
     } catch (e) {
       print('SoundService ringback error: $e');

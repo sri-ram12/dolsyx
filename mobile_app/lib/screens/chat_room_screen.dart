@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:ui';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:io';
 import 'package:provider/provider.dart';
@@ -173,6 +174,115 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  void _showAskAiChatContextModal() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF0F172A),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) {
+        String answer = "Analyzing chat context...";
+        final queryCtrl = TextEditingController();
+
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom,
+                top: 20,
+                left: 20,
+                right: 20,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: LinearGradient(colors: [Color(0xFF8B5CF6), Color(0xFFEC4899), Color(0xFF3B82F6)]),
+                        ),
+                        child: const Icon(Icons.auto_awesome, color: Colors.white, size: 18),
+                      ),
+                      const SizedBox(width: 10),
+                      Text('Ask AI About "${widget.chatName}"', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                      const Spacer(),
+                      IconButton(icon: const Icon(Icons.close, color: Colors.white70), onPressed: () => Navigator.pop(context)),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(color: const Color(0xFF1E293B), borderRadius: BorderRadius.circular(14)),
+                    child: Text(
+                      answer == "Analyzing chat context..."
+                          ? "🤖 AI is reading conversation transcript & summarizing..."
+                          : answer,
+                      style: const TextStyle(color: Colors.white, fontSize: 14, height: 1.4),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: queryCtrl,
+                          style: const TextStyle(color: Colors.white),
+                          decoration: InputDecoration(
+                            hintText: 'e.g. What did we decide? What tasks are pending?',
+                            hintStyle: const TextStyle(color: Colors.white38, fontSize: 13),
+                            filled: true,
+                            fillColor: const Color(0xFF1E293B),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        icon: const Icon(Icons.send_rounded, color: Color(0xFFEC4899)),
+                        onPressed: () async {
+                          final text = queryCtrl.text.trim();
+                          if (text.isEmpty) return;
+                          queryCtrl.clear();
+                          setModalState(() => answer = "AI is thinking...");
+                          try {
+                            final authProvider = Provider.of<AuthProvider>(context, listen: false);
+                            final response = await http.post(
+                              Uri.parse('${ApiService.baseUrl}/ai/chat-context'),
+                              headers: {
+                                'Content-Type': 'application/json',
+                                if (authProvider.token != null) 'Authorization': 'Bearer ${authProvider.token}',
+                              },
+                              body: jsonEncode({'conversationId': widget.conversationId, 'query': text}),
+                            );
+                            if (response.statusCode == 200) {
+                              final data = jsonDecode(response.body);
+                              setModalState(() => answer = data['reply'] ?? 'Summary ready.');
+                            } else {
+                              setModalState(() => answer = 'Failed to analyze chat context.');
+                            }
+                          } catch (_) {
+                            setModalState(() => answer = 'Error connecting to AI service.');
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -2274,8 +2384,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Listen to theme changes (including font size) to rebuild the screen
-    Provider.of<ThemeProvider>(context);
+    final themeProvider = Provider.of<ThemeProvider>(context);
 
     final currentUser = Provider.of<AuthProvider>(context).user;
     final wallpaperConfig = Provider.of<WallpaperProvider>(context).getWallpaperForChat(widget.conversationId);
@@ -2800,11 +2909,23 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                       _showDisappearingDialog();
                     } else if (value == 'screen_guard') {
                       _toggleScreenGuard();
+                    } else if (value == 'ask_ai_chat') {
+                      _showAskAiChatContextModal();
                     } else if (value == 'wallpaper') {
                       Navigator.push(context, MaterialPageRoute(builder: (_) => WallpaperSettingsScreen(conversationId: widget.conversationId)));
                     }
                   },
                   itemBuilder: (context) => [
+                    const PopupMenuItem(
+                      value: 'ask_ai_chat',
+                      child: Row(
+                        children: [
+                          Icon(Icons.auto_awesome, size: 20, color: Color(0xFFEC4899)),
+                          SizedBox(width: 12),
+                          Text('Ask AI About This Chat', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ),
                     if (widget.remoteUserId != null)
                       const PopupMenuItem(
                         value: 'view_contact',
@@ -2873,10 +2994,29 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 ),
               ],
             ),
-      body: Container(
-        decoration: wallpaperDecoration,
-        child: Column(
+      body: Stack(
         children: [
+          if (wallpaperDecoration != null)
+            Positioned.fill(
+              child: Opacity(
+                opacity: themeProvider.wallpaperOpacity.clamp(0.0, 1.0),
+                child: Container(
+                  decoration: wallpaperDecoration,
+                ),
+              ),
+            ),
+          if (themeProvider.wallpaperBlur > 0.0)
+            Positioned.fill(
+              child: BackdropFilter(
+                filter: ImageFilter.blur(
+                  sigmaX: themeProvider.wallpaperBlur,
+                  sigmaY: themeProvider.wallpaperBlur,
+                ),
+                child: Container(color: Colors.transparent),
+              ),
+            ),
+          Column(
+            children: [
           if (_pinnedMessage != null)
             GestureDetector(
               onTap: () {
@@ -3296,6 +3436,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             ),
         ],
         ),
+      ],
       ),
     );
   }

@@ -17,6 +17,7 @@ import {
   starMessage,
   pinMessage,
   deleteMessage,
+  uploadChunk,
 } from "../controllers/chat.controller.js";
 import { authenticateToken } from "../middleware/auth.middleware.js";
 
@@ -66,7 +67,8 @@ router.post("/messages/:messageId/star", starMessage as any);
 router.delete("/messages/:messageId", deleteMessage as any);
 router.post("/:conversationId/messages/:messageId/pin", pinMessage as any);
 
-// Upload endpoint
+// Upload endpoints
+router.post("/upload-chunk", upload.single("file"), uploadChunk as any);
 router.post("/upload", (req: any, res: any) => {
   upload.any()(req, res, (err: any) => {
     if (err) {

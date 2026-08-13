@@ -116,8 +116,13 @@ export default function CallModal({
   };
 
   useEffect(() => {
-    if (status === "incoming" && isOpen) SoundEngine.playRingtone();
-    else SoundEngine.stopRingtone();
+    if (status === "incoming" && isOpen) {
+      SoundEngine.playRingtone();
+    } else if (status === "outgoing" && isOpen) {
+      SoundEngine.playRingback();
+    } else {
+      SoundEngine.stopRingtone();
+    }
     return () => SoundEngine.stopRingtone();
   }, [status, isOpen]);
 

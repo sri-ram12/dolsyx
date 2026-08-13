@@ -25,6 +25,8 @@ import 'contacts_screen.dart';
 import 'group_settings_screen.dart';
 import 'dolsyx_ai_screen.dart';
 import 'starred_messages_screen.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
 
@@ -115,9 +117,11 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
         final message = event['message'];
         final senderId = message != null ? (message['senderId'] ?? message['sender']?['id']) : null;
 
+        bool found = false;
         setState(() {
           final index = _chats.indexWhere((c) => c.id == conversationId);
           if (index != -1) {
+            found = true;
             if (event['type'] == 'read') {
                _chats[index].unreadCount = 0;
             } else {
@@ -135,8 +139,10 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
             }
           }
         });
+        if (!found) {
+          _fetchChats();
+        }
       }
-      _fetchChats();
     }
   }
 
@@ -428,9 +434,13 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                                 ? CircleAvatar(
                                     radius: 24,
                                     backgroundColor: AppTheme.surfaceColor,
-                                    backgroundImage: chat.avatarUrl!.startsWith('http')
-                                        ? NetworkImage(chat.avatarUrl!)
-                                        : NetworkImage('https://dolsyx-app.onrender.com${chat.avatarUrl!}'),
+                                    backgroundImage: CachedNetworkImageProvider(
+                                      chat.avatarUrl!.startsWith('http')
+                                          ? chat.avatarUrl!
+                                          : 'https://dolsyx-app.onrender.com${chat.avatarUrl!}',
+                                      maxHeight: 120,
+                                      maxWidth: 120,
+                                    ),
                                   )
                                 : (chat.isGroup
                                     ? CircleAvatar(

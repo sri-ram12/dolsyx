@@ -136,6 +136,13 @@ export const initChatSocket = (io: Server) => {
         // Allow empty content for media & location messages
         if (!mediaUrl && !latitude && (!content || !content.trim())) return;
 
+        // Feature #26: Automated Spam & Phishing Shield
+        const suspiciousPatterns = [/bit\.ly/i, /tinyurl\.com/i, /free-crypto-giveaway/i, /claim-bonus-now/i];
+        let processedContent = content;
+        if (content && suspiciousPatterns.some(pattern => pattern.test(content))) {
+          processedContent = `[⚠️ Spam Shield Flagged] ${content}`;
+        }
+
         // Find conversation participants first (needed for block check)
         const participants = await prisma.participant.findMany({
           where: { conversationId },

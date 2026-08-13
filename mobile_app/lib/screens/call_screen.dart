@@ -11,6 +11,9 @@ import '../widgets/color_avatar.dart';
 import '../services/sound_service.dart';
 import '../services/contact_service.dart';
 import 'chat_list_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+import '../utils/e2ee/crypto_service.dart';
 
 class CallScreen extends StatefulWidget {
   final String conversationId;
@@ -34,7 +37,7 @@ class CallScreen extends StatefulWidget {
 
   static String? activeConversationId;
   static ValueNotifier<bool> isCallActiveNotifier = ValueNotifier<bool>(false);
-  static _CallScreenState? activeCallState;
+  static dynamic activeCallState;
 
   @override
   State<CallScreen> createState() => _CallScreenState();
@@ -153,6 +156,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         });
       }
     } else {
+      SoundService().startRingbackTone();
       _startCall();
     }
   }
@@ -238,7 +242,13 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       if (_isDisposed || !mounted || data == null) return;
       final requesterId = data['requesterId'] as String? ?? widget.remoteUserId;
       try {
-        final pc = _peerConnections[requesterId] ?? await _createPeerConnection(requesterId);
+        // Recreate connection if already existing to prevent SDP state errors (kHaveLocalOffer)
+        if (_peerConnections.containsKey(requesterId)) {
+          final oldPc = _peerConnections.remove(requesterId);
+          await oldPc?.close();
+          await oldPc?.dispose();
+        }
+        final pc = await _createPeerConnection(requesterId);
         final offerConstraints = <String, dynamic>{
           'offerToReceiveAudio': 1,
           'offerToReceiveVideo': widget.isAudioOnly ? 0 : 1,
@@ -264,7 +274,12 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       final offerData = data['offer'];
       if (offerData == null) return;
       try {
-        final pc = _peerConnections[callerId] ?? await _createPeerConnection(callerId);
+        RTCPeerConnection pc;
+        if (_peerConnections.containsKey(callerId)) {
+          pc = _peerConnections[callerId]!;
+        } else {
+          pc = await _createPeerConnection(callerId);
+        }
         final offer = RTCSessionDescription(offerData['sdp'], offerData['type']);
         await pc.setRemoteDescription(offer);
         await _flushIceCandidates(callerId);
@@ -342,7 +357,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         final pc = await _createPeerConnection(callerId);
         final offer = RTCSessionDescription(offerData['sdp'], offerData['type']);
         await pc.setRemoteDescription(offer);
-        _flushIceCandidates(callerId);
+        await _flushIceCandidates(callerId);
         final answerConstraints = <String, dynamic>{
           'offerToReceiveAudio': 1,
           'offerToReceiveVideo': widget.isAudioOnly ? 0 : 1,
@@ -435,6 +450,9 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   }
 
   Future<RTCPeerConnection> _createPeerConnection(String targetUserId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final forceRelay = prefs.getBool('force_turn_relay') ?? false;
+
     final configuration = {
       'iceServers': [
         {'urls': 'stun:stun.l.google.com:19302'},
@@ -445,19 +463,24 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         {'urls': 'stun:stun.services.mozilla.com:3478'},
         {'urls': 'stun:global.stun.twilio.com:3478'},
         {
-          'urls': 'turn:relay.metered.ca:80',
+          'urls': 'turn:openrelay.metered.ca:80',
           'username': 'openrelayproject',
           'credential': 'openrelayproject',
         },
         {
-          'urls': 'turn:relay.metered.ca:443',
+          'urls': 'turn:openrelay.metered.ca:443',
+          'username': 'openrelayproject',
+          'credential': 'openrelayproject',
+        },
+        {
+          'urls': 'turn:openrelay.metered.ca:443?transport=tcp',
           'username': 'openrelayproject',
           'credential': 'openrelayproject',
         },
       ],
       'sdpSemantics': 'unified-plan',
       'bundlePolicy': 'max-bundle',
-      'iceTransportPolicy': 'all',
+      'iceTransportPolicy': forceRelay ? 'relay' : 'all',
     };
     final pc = await createPeerConnection(configuration);
     _peerConnections[targetUserId] = pc;
@@ -585,6 +608,15 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         }
       }
 
+      final prefs = await SharedPreferences.getInstance();
+      final lowDataMode = prefs.getBool('low_bandwidth_call_mode') ?? false;
+
+      final videoConstraints = widget.isAudioOnly
+          ? false
+          : (lowDataMode
+              ? {'facingMode': 'user', 'width': {'ideal': 320}, 'height': {'ideal': 240}, 'frameRate': {'ideal': 15}}
+              : {'facingMode': 'user', 'width': {'ideal': 1280}, 'height': {'ideal': 720}});
+
       try {
         _localStream = await navigator.mediaDevices.getUserMedia({
           'audio': {
@@ -592,9 +624,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
             'noiseSuppression': true,
             'autoGainControl': true,
           },
-          'video': widget.isAudioOnly
-              ? false
-              : {'facingMode': 'user', 'width': {'ideal': 1280}, 'height': {'ideal': 720}},
+          'video': videoConstraints,
         });
       } catch (_) {
         // Fallback for strict Web browsers or devices
@@ -703,7 +733,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         final pc = await _createPeerConnection(widget.remoteUserId);
         final offer = RTCSessionDescription(widget.initialOffer!['sdp'], widget.initialOffer!['type']);
         await pc.setRemoteDescription(offer);
-        _flushIceCandidates(widget.remoteUserId);
+        await _flushIceCandidates(widget.remoteUserId);
         // Explicit answer constraints for compatibility with Android WebRTC builds
         final answerConstraints = <String, dynamic>{
           'offerToReceiveAudio': 1,
@@ -745,13 +775,23 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     _endCallLocally('Call declined');
   }
 
-  void _endCall() {
+  Future<void> _endCall() async {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final userId = authProvider.user?['id'];
-    for (final peerId in _participants.keys) {
+    for (final peerId in _peerConnections.keys) {
+      final payloadData = jsonEncode({
+        'peerId': peerId,
+        'conversationId': widget.conversationId,
+        'callType': widget.isAudioOnly ? 'audio' : 'video',
+        'status': _callActive ? 'connected' : 'missed',
+        'duration': _callDuration,
+        'callerId': widget.isIncoming ? widget.remoteUserId : userId,
+      });
+      final encryptedPayload = await CryptoService().encryptLocalString(payloadData);
       authProvider.socketService.socket?.emit('call_end', {
         'peerId': peerId,
         'conversationId': widget.conversationId,
+        'encryptedData': encryptedPayload,
         'callType': widget.isAudioOnly ? 'audio' : 'video',
         'status': _callActive ? 'connected' : 'missed',
         'duration': _callDuration,
@@ -762,12 +802,22 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   }
 
   // End call with a single specific participant (group call)
-  void _endCallWith(String peerId) {
+  Future<void> _endCallWith(String peerId) async {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final userId = authProvider.user?['id'];
+    final payloadData = jsonEncode({
+      'peerId': peerId,
+      'conversationId': widget.conversationId,
+      'callType': widget.isAudioOnly ? 'audio' : 'video',
+      'status': 'connected',
+      'duration': _callDuration,
+      'callerId': widget.isIncoming ? widget.remoteUserId : userId,
+    });
+    final encryptedPayload = await CryptoService().encryptLocalString(payloadData);
     authProvider.socketService.socket?.emit('call_end', {
       'peerId': peerId,
       'conversationId': widget.conversationId,
+      'encryptedData': encryptedPayload,
       'callType': widget.isAudioOnly ? 'audio' : 'video',
       'status': 'connected',
       'duration': _callDuration,

@@ -18,5 +18,13 @@ const optionalAuthMiddleware = (req: Request, res: Response, next: NextFunction)
 };
 
 router.post('/chat', optionalAuthMiddleware, AIController.handleChat);
+router.post('/messages/stream', optionalAuthMiddleware, AIController.streamChat);
+router.post('/chat-context', optionalAuthMiddleware, AIController.handleChatContext);
+
+router.get('/conversations', optionalAuthMiddleware, AIController.getConversations);
+router.post('/conversations', optionalAuthMiddleware, AIController.createConversation);
+router.delete('/conversations/:id', optionalAuthMiddleware, AIController.deleteConversation);
+
+router.get('/usage', optionalAuthMiddleware, AIController.getUsage);
 
 export default router;

@@ -6,6 +6,8 @@ import '../theme/app_theme.dart';
 import '../services/dolsyx_ai_service.dart';
 import '../widgets/full_screen_image_view.dart';
 
+import 'ai_profile_screen.dart';
+
 class DolsyxAiScreen extends StatefulWidget {
   const DolsyxAiScreen({super.key});
 
@@ -21,6 +23,9 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
   final List<Map<String, dynamic>> _messages = [];
   bool _isThinking = false;
   String _userName = 'there';
+  String _activePreset = 'Photorealistic';
+
+  final List<String> _presets = ['Photorealistic', 'Cinematic', 'Anime', '3D', 'Cyberpunk', 'Minimalist'];
 
   final List<String> _quickPrompts = [
     'I want to write a message to a classmate',
@@ -55,7 +60,7 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
     } catch (_) {}
   }
 
-  Future<void> _sendPrompt(String promptText) async {
+  Future<void> _sendPrompt(String promptText, {String? parentImageId}) async {
     final prompt = promptText.trim();
     if (prompt.isEmpty || _isThinking) return;
 
@@ -131,43 +136,48 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
           icon: Icon(Icons.arrow_back, color: AppTheme.textPrimary),
           onPressed: () => Navigator.pop(context),
         ),
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(2),
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  colors: [Color(0xFF8B5CF6), Color(0xFFEC4899), Color(0xFF3B82F6)],
+        title: GestureDetector(
+          onTap: () {
+            Navigator.push(context, MaterialPageRoute(builder: (_) => const AiProfileScreen()));
+          },
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(2),
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    colors: [Color(0xFF8B5CF6), Color(0xFFEC4899), Color(0xFF3B82F6)],
+                  ),
+                ),
+                child: CircleAvatar(
+                  radius: 18,
+                  backgroundColor: AppTheme.backgroundColor,
+                  child: const Icon(Icons.blur_on_rounded, color: Color(0xFF8B5CF6), size: 22),
                 ),
               ),
-              child: CircleAvatar(
-                radius: 18,
-                backgroundColor: AppTheme.backgroundColor,
-                child: const Icon(Icons.blur_on_rounded, color: Color(0xFF8B5CF6), size: 22),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        'Meta AI',
+                        style: TextStyle(color: AppTheme.textPrimary, fontSize: 17, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(width: 4),
+                      const Icon(Icons.verified, color: Color(0xFF3B82F6), size: 16),
+                    ],
+                  ),
+                  Text(
+                    'Tap for profile & settings',
+                    style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text(
-                      'Meta AI',
-                      style: TextStyle(color: AppTheme.textPrimary, fontSize: 17, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(width: 4),
-                    const Icon(Icons.verified, color: Color(0xFF3B82F6), size: 16),
-                  ],
-                ),
-                Text(
-                  'Quick hello',
-                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
-                ),
-              ],
-            ),
-          ],
+            ],
+          ),
         ),
       ),
       body: Column(

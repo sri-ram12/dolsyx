@@ -142,6 +142,21 @@ class MainActivity : FlutterFragmentActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        val securityChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.dolsyx/security")
+        securityChannel.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "enableSecure" -> {
+                    window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+                    result.success(true)
+                }
+                "disableSecure" -> {
+                    window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+                    result.success(true)
+                }
+                else -> result.notImplemented()
+            }
+        }
     }
 
     private fun updateCallState(active: Boolean) {

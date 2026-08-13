@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 class ColorAvatar extends StatelessWidget {
   final String name;
@@ -51,7 +52,11 @@ class ColorAvatar extends StatelessWidget {
         ),
         image: hasImage
             ? DecorationImage(
-                image: NetworkImage(resolvedUrl),
+                image: CachedNetworkImageProvider(
+                  resolvedUrl,
+                  maxHeight: (radius * 4).toInt(),
+                  maxWidth: (radius * 4).toInt(),
+                ),
                 fit: BoxFit.cover,
                 onError: (exception, stackTrace) {},
               )

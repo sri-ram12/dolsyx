@@ -671,21 +671,68 @@ class MessageBubble extends StatelessWidget {
                           color: isMe ? Colors.white : AppTheme.textPrimary,
                         )
                       else 
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.insert_drive_file, color: isMe ? Colors.white : AppTheme.textPrimary),
-                            const SizedBox(width: 8),
-                            Flexible(
-                              child: Text(
-                                'File Attachment',
-                                style: TextStyle(
-                                  color: textColor,
-                                  fontStyle: FontStyle.italic,
+                        GestureDetector(
+                          onTap: () {
+                            if (message.mediaUrl != null) {
+                              final fullUrl = ApiService.getMediaUrl(message.mediaUrl!);
+                              showModalBottomSheet(
+                                context: context,
+                                backgroundColor: AppTheme.backgroundColor,
+                                shape: const RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                                ),
+                                builder: (ctx) => Container(
+                                  padding: const EdgeInsets.all(24),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.description_rounded, size: 48, color: AppTheme.primaryColor),
+                                      const SizedBox(height: 16),
+                                      Text(
+                                        'Document Attachment Preview',
+                                        style: TextStyle(color: AppTheme.textPrimary, fontSize: 18, fontWeight: FontWeight.bold),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        fullUrl,
+                                        style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      const SizedBox(height: 24),
+                                      ElevatedButton.icon(
+                                        onPressed: () {
+                                          Navigator.pop(ctx);
+                                        },
+                                        icon: const Icon(Icons.close),
+                                        label: const Text('Close Document Preview'),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: AppTheme.primaryColor,
+                                          foregroundColor: Colors.white,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            }
+                          },
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.insert_drive_file, color: isMe ? Colors.white : AppTheme.textPrimary),
+                              const SizedBox(width: 8),
+                              Flexible(
+                                child: Text(
+                                  'File Attachment (Tap to Preview)',
+                                  style: TextStyle(
+                                    color: textColor,
+                                    fontStyle: FontStyle.italic,
+                                  ),
                                 ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                     if (message.content.isNotEmpty) const SizedBox(height: 8),
                   ],

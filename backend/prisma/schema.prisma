@@ -60,6 +60,12 @@ model User {
   // E2EE Relations
   devices          Device[]          @relation("UserDevices")
   encryptedBackups EncryptedBackup[] @relation("UserEncryptedBackups")
+  
+  // AI Platform Relations
+  aiConversations  AIConversation[]
+  aiImages         AIImage[]
+  aiMemories       AIMemory[]
+  aiUsages         AIUsage[]
 }
 
 model Status {
@@ -157,6 +163,8 @@ model Participant {
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@unique([userId, conversationId])
+  @@index([userId])
+  @@index([conversationId])
 }
 
 model Message {
@@ -193,6 +201,10 @@ model Message {
   starredBy       StarredMessage[]
   reactions       MessageReaction[]
   pinnedMessages  PinnedMessage[]
+
+  @@index([conversationId, createdAt])
+  @@index([senderId])
+  @@index([mediaType])
 }
 
 model PinnedMessage {
@@ -232,6 +244,7 @@ model MessageReceipt {
   message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
   @@unique([messageId, userId])
+  @@index([messageId, userId])
 }
 
 model Note {
@@ -392,3 +405,103 @@ model EncryptedMessage {
   senderDevice        Device   @relation("SentEncryptedMessages", fields: [senderDeviceId], references: [id], onDelete: Cascade)
   recipientDevice     Device   @relation("ReceivedEncryptedMessages", fields: [recipientDeviceId], references: [id], onDelete: Cascade)
 }
+
+// ----------------------------------------------------------------------
+// PRODUCTION AI PLATFORM MODELS (ChatGPT-like + AI Image Generation)
+// ----------------------------------------------------------------------
+
+model AIConversation {
+  id          String      @id @default(uuid())
+  userId      String
+  title       String      @default("New AI Chat")
+  mode        String      @default("NORMAL") // NORMAL, TEMPORARY, CHAT_CONTEXT
+  summary     String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  deletedAt   DateTime?
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages    AIMessage[]
+  images      AIImage[]
+}
+
+model AIMessage {
+  id              String         @id @default(uuid())
+  conversationId  String
+  sender          String         // USER, AI, SYSTEM
+  type            String         @default("USER_TEXT") // USER_TEXT, AI_TEXT, USER_IMAGE, AI_IMAGE, FILE, ERROR
+  content         String
+  model           String?
+  status          String         @default("COMPLETED") // QUEUED, PROCESSING, STREAMING, COMPLETED, FAILED, CANCELLED
+  tokenUsage      Int            @default(0)
+  parentMessageId String?
+  feedback        String?        // UP, DOWN
+  metadata        String?        // JSON string for additional parameters
+  createdAt       DateTime       @default(now())
+
+  conversation    AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  attachments     AIAttachment[]
+  images          AIImage[]
+}
+
+model AIAttachment {
+  id          String    @id @default(uuid())
+  messageId   String
+  userId      String
+  storageKey  String
+  mimeType    String
+  size        Int
+  metadata    String?   // JSON metadata
+
+  message     AIMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+}
+
+model AIImage {
+  id              String          @id @default(uuid())
+  userId          String
+  conversationId  String
+  messageId       String?
+  storageKey      String
+  imageUrl        String
+  prompt          String
+  revisedPrompt   String?
+  model           String          @default("pollinations-v1")
+  preset          String          @default("photorealistic")
+  aspectRatio     String          @default("1:1")
+  parentImageId   String?
+  metadata        String?         // JSON parameters
+  createdAt       DateTime        @default(now())
+
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversation    AIConversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message         AIMessage?      @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  parentImage     AIImage?        @relation("ImageEditChain", fields: [parentImageId], references: [id], onDelete: SetNull)
+  childImages     AIImage[]       @relation("ImageEditChain")
+}
+
+model AIMemory {
+  id        String   @id @default(uuid())
+  userId    String
+  content   String
+  category  String   @default("PREFERENCE") // PREFERENCE, FACT, INSTRUCTION
+  source    String   @default("USER")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AIUsage {
+  id            String   @id @default(uuid())
+  userId        String
+  requestType   String   // TEXT, IMAGE, IMAGE_EDIT, FILE_ANALYSIS
+  model         String
+  inputTokens   Int      @default(0)
+  outputTokens  Int      @default(0)
+  imageCount    Int      @default(0)
+  estimatedCost Float    @default(0.0)
+  createdAt     DateTime @default(now())
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+

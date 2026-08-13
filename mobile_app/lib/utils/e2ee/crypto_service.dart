@@ -381,5 +381,59 @@ class CryptoService {
     return Uint8List.fromList(List.generate(length, (_) => random.nextInt(256)));
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Local Database / Cache AES-256 Encryption
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// Encrypts local cache string [plaintext] using a device-local derived AES-256 key.
+  Future<String> encryptLocalString(String plaintext) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      var localKeyB64 = prefs.getString('e2ee_local_storage_key');
+      if (localKeyB64 == null) {
+        final keyBytes = _generateNonce(32);
+        localKeyB64 = _bytesToBase64(keyBytes);
+        await prefs.setString('e2ee_local_storage_key', localKeyB64);
+      }
+      final keyBytes = base64Decode(localKeyB64);
+      final nonce = _generateNonce(16);
+      final secretBox = await _aesCbc.encrypt(
+        utf8.encode(plaintext),
+        secretKey: SecretKey(keyBytes),
+        nonce: nonce,
+      );
+      final payload = {
+        'cipher': _bytesToBase64(secretBox.cipherText),
+        'nonce': _bytesToBase64(nonce),
+        'tag': _bytesToBase64(secretBox.mac.bytes),
+      };
+      return jsonEncode(payload);
+    } catch (_) {
+      return plaintext;
+    }
+  }
+
+  /// Decrypts local cache payload string [encryptedJson].
+  Future<String> decryptLocalString(String encryptedJson) async {
+    try {
+      if (!encryptedJson.startsWith('{') || !encryptedJson.contains('cipher')) return encryptedJson;
+      final prefs = await SharedPreferences.getInstance();
+      final localKeyB64 = prefs.getString('e2ee_local_storage_key');
+      if (localKeyB64 == null) return encryptedJson;
+      final keyBytes = base64Decode(localKeyB64);
+
+      final Map<String, dynamic> data = jsonDecode(encryptedJson);
+      final cipherBytes = base64Decode(data['cipher']);
+      final nonceBytes = base64Decode(data['nonce']);
+      final tagBytes = base64Decode(data['tag']);
+
+      final secretBox = SecretBox(cipherBytes, nonce: nonceBytes, mac: Mac(tagBytes));
+      final decryptedBytes = await _aesCbc.decrypt(secretBox, secretKey: SecretKey(keyBytes));
+      return utf8.decode(decryptedBytes);
+    } catch (_) {
+      return encryptedJson;
+    }
+  }
+
   String _bytesToBase64(List<int> bytes) => base64Encode(bytes);
 }

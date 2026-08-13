@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:local_auth/local_auth.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -708,7 +709,22 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
     );
   }
 
-  void _openChat(Chat chat) {
+  void _openChat(Chat chat) async {
+    if (chat.isLocked) {
+      try {
+        final localAuth = LocalAuthentication();
+        final canAuth = await localAuth.canCheckBiometrics || await localAuth.isDeviceSupported();
+        if (canAuth) {
+          final authenticated = await localAuth.authenticate(
+            localizedReason: 'Authenticate to open locked chat',
+          );
+          if (!authenticated) return;
+        }
+      } catch (e) {
+        debugPrint('Biometric error: $e');
+      }
+    }
+
     String? remoteId;
     Map<String, dynamic>? remoteUser;
     if (!chat.isGroup && chat.participants != null) {
@@ -723,6 +739,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
       }
     }
 
+    if (!mounted) return;
     Navigator.push(
       context,
       MaterialPageRoute(

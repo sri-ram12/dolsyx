@@ -149,12 +149,21 @@ class SoundService {
       _isRingtonePlaying = true;
       await _setEarSpeakerAudioContext();
       await _ringtonePlayer.setReleaseMode(ReleaseMode.loop);
-      await _ringtonePlayer.setVolume(0.9);
-      // Play outgoing ringback tone in earpiece / ear speaker
+      await _ringtonePlayer.setVolume(1.0);
+      // Play classic tir tir ringback tone in earpiece / ear speaker
       await _ringtonePlayer.play(AssetSource('notificationsounds/tyy.mp3'));
     } catch (e) {
       print('SoundService ringback error: $e');
     }
+  }
+
+  Future<void> playBusyTone() async {
+    try {
+      await _setEarSpeakerAudioContext();
+      await _notificationPlayer.stop();
+      await _notificationPlayer.setVolume(1.0);
+      await _notificationPlayer.play(AssetSource('notificationsounds/tyy.mp3'));
+    } catch (e) {}
   }
 
   Future<void> stopRingtone() async {

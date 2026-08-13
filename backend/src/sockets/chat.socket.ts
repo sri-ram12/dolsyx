@@ -9,6 +9,8 @@ const JWT_SECRET = process.env.JWT_SECRET || "dolsyx_super_secret_key_123456";
 
 // Map to track online users: userId -> Set of socket.id (supports multiple client connections)
 const onlineUsers = new Map<string, Set<string>>();
+// Set to track users currently active in a call
+const activeCallUsers = new Set<string>();
 
 export const initChatSocket = (io: Server) => {
   // Authentication middleware for Socket.io
@@ -744,6 +746,18 @@ export const initChatSocket = (io: Server) => {
       callerName: string;
       callerAvatar: string | null;
     }) => {
+      // Check if target user is ALREADY engaged in another active call
+      if (activeCallUsers.has(data.targetUserId)) {
+        io.to(userId).emit("call_busy", {
+          targetUserId: data.targetUserId,
+          conversationId: data.conversationId,
+        });
+        return;
+      }
+
+      activeCallUsers.add(userId);
+      activeCallUsers.add(data.targetUserId);
+
       io.to(data.targetUserId).emit("call_incoming", {
         callerId: userId,
         callerName: data.callerName || username,
@@ -801,6 +815,9 @@ export const initChatSocket = (io: Server) => {
 
     // Receiver rejects the call
     socket.on("call_reject", (data: { callerId: string; conversationId: string; callType: "audio" | "video" }) => {
+      activeCallUsers.delete(userId);
+      if (data.callerId) activeCallUsers.delete(data.callerId);
+
       io.to(data.callerId).emit("call_rejected", { rejecterId: userId });
       io.to(data.callerId).emit("call_ended", { status: "rejected", endedBy: userId });
       io.to(userId).emit("call_ended", { status: "rejected", endedBy: userId });
@@ -819,6 +836,10 @@ export const initChatSocket = (io: Server) => {
       duration?: number;
       callerId?: string;
     }) => {
+      activeCallUsers.delete(userId);
+      if (data.peerId) activeCallUsers.delete(data.peerId);
+      if (data.callerId) activeCallUsers.delete(data.callerId);
+
       if (data.peerId) {
         io.to(data.peerId).emit("call_ended", { endedBy: userId });
       }
@@ -1065,6 +1086,7 @@ export const initChatSocket = (io: Server) => {
     // Handle client disconnect
     socket.on("disconnect", () => {
       console.log(`User disconnected from socket: ${username} (${userId})`);
+      activeCallUsers.delete(userId);
 
       const userSockets = onlineUsers.get(userId);
       if (userSockets) {

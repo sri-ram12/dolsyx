@@ -157,14 +157,46 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       }
     } else {
       SoundService().startRingbackTone();
+      _timeoutTimer = Timer(const Duration(minutes: 2, seconds: 30), () {
+        if (!_callActive && mounted) {
+          _handleCallNotConnected();
+        }
+      });
       _startCall();
     }
+  }
+
+  void _handleCallNotConnected() {
+    SoundService().stopRingtone();
+    if (mounted) {
+      setState(() {
+        _status = 'Call Not Connected';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Call Not Connected - User did not answer')),
+      );
+    }
+    _endCallLocally('Call Not Connected');
   }
 
   void _setupSocketListeners() {
     _socket = Provider.of<AuthProvider>(context, listen: false).socketService.socket;
     final socket = _socket;
     if (socket == null) return;
+
+    socket.on('call_busy', (data) {
+      if (!mounted) return;
+      SoundService().stopRingtone();
+      SoundService().playBusyTone();
+      _timeoutTimer?.cancel();
+      setState(() => _status = 'User is Busy');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('User is currently busy on another call')),
+      );
+      Future.delayed(const Duration(seconds: 3), () {
+        if (mounted) _endCallLocally('User is busy');
+      });
+    });
 
     _onCallAnswered = (data) async {
       if (!mounted || data == null) return;
@@ -645,7 +677,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
 
       // Always use speakerphone so remote voice is audible \u2014 user can toggle via UI
       _isSpeakerOn = true;
-      Helper.setSpeakerphoneOn(true);
+      Helper.setSpeakerphoneOn(widget.isIncoming ? true : false);
       _localStream?.getAudioTracks().forEach((track) {
         track.enabled = true;
       });

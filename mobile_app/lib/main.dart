@@ -258,26 +258,23 @@ class _DolsyxAppState extends State<DolsyxApp> {
                 payloadData = jsonDecode(details.payload!);
                 
                 // Handle quick reply for message notifications from top notification banner
-                if ((details.actionId == 'reply_msg' || (details.input != null && details.input!.trim().isNotEmpty)) && payloadData!['conversationId'] != null) {
+                if ((details.actionId == 'reply_msg' || (details.input != null && details.input!.trim().isNotEmpty)) && payloadData != null && payloadData['conversationId'] != null) {
                   final replyText = details.input ?? '';
-                  if (replyText.trim().isNotEmpty) {
-                    final auth = Provider.of<AuthProvider>(context, listen: false);
-                    if (auth.socketService.socket != null && auth.socketService.isConnected) {
-                      auth.socketService.sendMessage(
-                        payloadData['conversationId'],
-                        replyText.trim(),
-                      );
-                    } else {
-                      ApiService().getToken().then((token) {
-                        if (token != null) {
-                          http.post(
-                            Uri.parse('${ApiService.baseUrl}/chats/${payloadData!['conversationId']}/messages'),
-                            headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
-                            body: jsonEncode({'content': replyText.trim()}),
-                          );
-                        }
-                      });
-                    }
+                  final conversationId = payloadData['conversationId'];
+                  if (replyText.trim().isNotEmpty && conversationId != null) {
+                    ApiService().getToken().then((token) {
+                      if (token != null) {
+                        http.post(
+                          Uri.parse('${ApiService.baseUrl}/chats/$conversationId/messages'),
+                          headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+                          body: jsonEncode({'content': replyText.trim()}),
+                        ).then((res) {
+                          debugPrint('[NotificationReply] Sent reply status: ${res.statusCode}');
+                        }).catchError((err) {
+                          debugPrint('[NotificationReply] Error sending reply: $err');
+                        });
+                      }
+                    });
                   }
                   return;
                 }
@@ -330,6 +327,10 @@ class _DolsyxAppState extends State<DolsyxApp> {
               id: notification.hashCode,
               title: notification.title,
               body: notification.body,
+              payload: jsonEncode({
+                'conversationId': data['conversationId'],
+                'senderId': data['senderId'],
+              }),
               notificationDetails: NotificationDetails(
                 android: AndroidNotificationDetails(
                   channel.id,

@@ -144,9 +144,9 @@ class SoundService {
   }
 
   Future<void> startRingbackTone() async {
-    if (_isRingtonePlaying) return;
     try {
       _isRingtonePlaying = true;
+      await _ringtonePlayer.stop();
       await _setEarSpeakerAudioContext();
       await _ringtonePlayer.setReleaseMode(ReleaseMode.loop);
       await _ringtonePlayer.setVolume(1.0);

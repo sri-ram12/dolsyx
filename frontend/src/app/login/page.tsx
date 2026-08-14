@@ -505,7 +505,7 @@ export default function LoginPage() {
                   <div className="relative flex h-full w-full items-center justify-center">
                     {/* QR Code Image */}
                     <img
-                      src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(`dolsyx_qr_session_${qrSessionId}||${API_URL}`)}&color=1e1b4b`}
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(`${qrSessionId}||${API_URL}`)}&color=1e1b4b`}
                       alt="DOLSYX Web Login QR Code"
                       className="h-full w-full rounded-lg object-contain"
                     />

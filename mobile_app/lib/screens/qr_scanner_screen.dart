@@ -110,6 +110,9 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
       sessionId = parts[0];
       customApiUrl = parts[1];
     }
+    if (sessionId.startsWith('dolsyx_qr_session_')) {
+      sessionId = sessionId.replaceFirst('dolsyx_qr_session_', '');
+    }
 
     showDialog(
       context: context,

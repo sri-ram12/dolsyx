@@ -678,25 +678,42 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   void _handleMessagesRead(dynamic data) {
     if (!mounted || data == null) return;
     if (data['conversationId'] == widget.conversationId) {
-      if (!mounted) return;
+      final readUserId = data['userId'];
+      if (readUserId == null) return;
       setState(() {
-        for (var msg in _messages) {
-          if (msg.senderId != data['userId']) {
-            if (msg.receipts == null) {
-              // Message model receipts is final List<dynamic>?, so we can't just assign to it if it's null
-              // and we can't mutate a potentially unmodifiable list. 
-              // We should just update the state of blue ticks directly or wait for the next fetch.
-              // We will just do a soft reload of messages if this happens, but for now since we just need the blue tick,
-              // we can update it if it's mutable, but to be safe, let's just trigger a re-fetch of messages.
-              _fetchMessages();
-              break;
-            } else if (!msg.receipts!.any((r) => r['userId'] == data['userId'] && r['status'] == 'READ')) {
-              try {
-                msg.receipts!.add({'userId': data['userId'], 'status': 'READ'});
-              } catch (e) {
-                _fetchMessages();
-                break;
-              }
+        for (int i = 0; i < _messages.length; i++) {
+          final msg = _messages[i];
+          if (msg.senderId != readUserId) {
+            final receiptsList = List<dynamic>.from(msg.receipts ?? []);
+            if (!receiptsList.any((r) => r['userId'] == readUserId && r['status'] == 'READ')) {
+              receiptsList.add({'userId': readUserId, 'status': 'READ'});
+              _messages[i] = Message(
+                id: msg.id,
+                content: msg.content,
+                senderId: msg.senderId,
+                conversationId: msg.conversationId,
+                parentMessageId: msg.parentMessageId,
+                isEdited: msg.isEdited,
+                isDeleted: msg.isDeleted,
+                isForwarded: msg.isForwarded,
+                mediaUrl: msg.mediaUrl,
+                mediaType: msg.mediaType,
+                isViewOnce: msg.isViewOnce,
+                isViewed: msg.isViewed,
+                latitude: msg.latitude,
+                longitude: msg.longitude,
+                locationTitle: msg.locationTitle,
+                isLiveLocation: msg.isLiveLocation,
+                liveExpiresAt: msg.liveExpiresAt,
+                isLiveEnded: msg.isLiveEnded,
+                receipts: receiptsList,
+                reactions: msg.reactions,
+                createdAt: msg.createdAt,
+                parentMessage: msg.parentMessage,
+                sender: msg.sender,
+                isPending: msg.isPending,
+                isPinned: msg.isPinned,
+              );
             }
           }
         }
@@ -852,6 +869,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('cached_messages_${widget.conversationId}', response.body);
 
+        final bool wasEmpty = _messages.isEmpty;
         final List<dynamic> data = jsonDecode(response.body);
         if (mounted) {
           setState(() {
@@ -861,7 +879,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               _pinnedMessage = _messages.firstWhere((m) => m.isPinned);
             } catch (_) {}
           });
-          _scrollToBottom();
+          if (wasEmpty) {
+            _scrollToBottom();
+          }
         }
       } else if (mounted) {
         setState(() => _isLoading = false);
@@ -1584,14 +1604,14 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     try {
       final picker = ImagePicker();
       if (source == ImageSource.camera) {
-        final pickedFile = await picker.pickImage(source: ImageSource.camera, imageQuality: 70);
+        final pickedFile = await picker.pickImage(source: ImageSource.camera);
         if (!mounted) return;
         if (pickedFile != null) {
           final isViewOnce = await _promptViewOnceMode() ?? false;
           await _uploadAndSendMedia(File(pickedFile.path), 'IMAGE', isViewOnce: isViewOnce);
         }
       } else {
-        final pickedFiles = await picker.pickMultiImage(imageQuality: 70);
+        final pickedFiles = await picker.pickMultiImage();
         if (!mounted) return;
         if (pickedFiles.isNotEmpty) {
           final isViewOnce = await _promptViewOnceMode() ?? false;
@@ -1614,29 +1634,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     GlobalAppLockWrapper.isMediaPickerActive = true;
     try {
       final picker = ImagePicker();
-      if (source == ImageSource.camera) {
-        final pickedFile = await picker.pickVideo(source: ImageSource.camera);
-        if (!mounted) return;
-        if (pickedFile != null) {
-          final isViewOnce = await _promptViewOnceMode() ?? false;
-          await _uploadAndSendMedia(File(pickedFile.path), 'VIDEO', isViewOnce: isViewOnce);
-        }
-      } else {
-        final result = await FilePicker.pickFiles(
-          allowMultiple: true,
-          type: FileType.video,
-        );
-        if (!mounted) return;
-        if (result != null && result.files.isNotEmpty) {
-          final isViewOnce = await _promptViewOnceMode() ?? false;
-          await _uploadAndSendMultipleMedia(
-            result.files
-                .where((f) => f.path != null)
-                .map((f) => MapEntry(File(f.path!), 'VIDEO'))
-                .toList(),
-            isViewOnce: isViewOnce,
-          );
-        }
+      final pickedFile = await picker.pickVideo(source: source);
+      if (!mounted) return;
+      if (pickedFile != null) {
+        final isViewOnce = await _promptViewOnceMode() ?? false;
+        await _uploadAndSendMedia(File(pickedFile.path), 'VIDEO', isViewOnce: isViewOnce);
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error picking video: $e')));
@@ -1679,31 +1681,12 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   void _showCameraOptions() {
     showModalBottomSheet(
       context: context,
-      backgroundColor: AppTheme.surfaceColor,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (sheetContext) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const SizedBox(height: 8),
-          Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey, borderRadius: BorderRadius.circular(2))),
-          ListTile(
-            leading: Icon(Icons.camera_alt, color: AppTheme.primaryColor),
-            title: Text('Take Photo', style: TextStyle(color: AppTheme.textPrimary)),
-            onTap: () {
-              Navigator.pop(sheetContext);
-              _pickImage(ImageSource.camera);
-            },
-          ),
-          ListTile(
-            leading: Icon(Icons.videocam, color: AppTheme.primaryColor),
-            title: Text('Record Video', style: TextStyle(color: AppTheme.textPrimary)),
-            onTap: () {
-              Navigator.pop(sheetContext);
-              _pickVideo(ImageSource.camera);
-            },
-          ),
-          const SizedBox(height: 16),
-        ],
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetContext) => SlidingCameraOptionsSheet(
+        onTakePhoto: () => _pickImage(ImageSource.camera),
+        onTakeVideo: () => _pickVideo(ImageSource.camera),
+        onDirectGallery: () => _pickGalleryMedia(),
       ),
     );
   }
@@ -1713,48 +1696,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     if (showLoadingState) setState(() => _isLoading = true);
     try {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      final isDirectMessage = widget.remoteUser != null;
-      final remoteEmail = widget.remoteUser?['email'] as String?;
       final apiService = ApiService();
 
-      if (isDirectMessage && remoteEmail != null && authProvider.token != null) {
-        try {
-          // 🟢 100% E2EE Media Upload: Pre-encrypt file bytes on-device before uploading
-          final rawBytes = await file.readAsBytes();
-          final encResult = await CryptoService().encryptFileBytes(rawBytes);
-
-          final tempDir = await getTemporaryDirectory();
-          final tempEncFile = File('${tempDir.path}/${DateTime.now().millisecondsSinceEpoch}.enc');
-          await tempEncFile.writeAsBytes(encResult['encryptedBytes'] as List<int>);
-
-          final uploadRes = await apiService.uploadMedia(tempEncFile.path);
-          await tempEncFile.delete().catchError((_) => tempEncFile);
-
-          if (uploadRes != null && uploadRes['fileUrl'] != null) {
-            final mediaPayloadJson = jsonEncode({
-              'encryptedMedia': true,
-              'mediaUrl': uploadRes['fileUrl'],
-              'mediaKey': encResult['mediaKeyB64'],
-              'nonce': encResult['nonceB64'],
-              'mediaType': mediaType,
-              'isViewOnce': isViewOnce,
-            });
-
-            await authProvider.socketService.sendEncryptedMessage(
-              conversationId: widget.conversationId,
-              recipientEmail: remoteEmail,
-              plaintext: mediaPayloadJson,
-              token: authProvider.token!,
-              myUserId: authProvider.user?['id'] ?? '',
-            );
-            return;
-          }
-        } catch (e2eeError) {
-          print('E2EE media upload failed, falling back to standard upload: $e2eeError');
-        }
-      }
-
-      // Standard / group media upload
       final response = await apiService.uploadMedia(file.path);
       if (response != null && response['fileUrl'] != null) {
         authProvider.socketService.sendMessage(
@@ -1801,26 +1744,26 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   Future<void> _pickGalleryMedia() async {
     GlobalAppLockWrapper.isMediaPickerActive = true;
     try {
-      final result = await FilePicker.pickFiles(
-        allowMultiple: true,
-        type: FileType.media,
-      );
+      final picker = ImagePicker();
+      final pickedFiles = await picker.pickMultipleMedia();
+
       if (!mounted) return;
-      if (result != null && result.files.isNotEmpty) {
-        final entries = result.files
-            .where((f) => f.path != null)
-            .map((f) {
-          final ext = f.extension?.toLowerCase() ?? '';
-          String type = 'IMAGE';
-          if (['mp4', 'mov', 'avi', 'mkv', 'webm', '3gp'].contains(ext)) {
-            type = 'VIDEO';
-          }
-          return MapEntry(File(f.path!), type);
+      if (pickedFiles.isNotEmpty) {
+        final isViewOnce = await _promptViewOnceMode() ?? false;
+        final entries = pickedFiles.map((f) {
+          final ext = f.path.split('.').last.toLowerCase();
+          final isVideo = ['mp4', 'mov', 'avi', 'mkv', 'webm', '3gp', 'flv', 'm4v'].contains(ext);
+          return MapEntry(File(f.path), isVideo ? 'VIDEO' : 'IMAGE');
         }).toList();
-        await _uploadAndSendMultipleMedia(entries);
+
+        if (entries.length == 1) {
+          await _uploadAndSendMedia(entries.first.key, entries.first.value, isViewOnce: isViewOnce);
+        } else {
+          await _uploadAndSendMultipleMedia(entries, isViewOnce: isViewOnce);
+        }
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error picking media: $e')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error picking gallery media: $e')));
     } finally {
       Future.delayed(const Duration(seconds: 1), () {
         GlobalAppLockWrapper.isMediaPickerActive = false;
@@ -1907,10 +1850,65 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               if (text.isNotEmpty) {
                 Navigator.pop(ctx);
                 final delay = scheduledDateTime.difference(DateTime.now());
+                final authProvider = Provider.of<AuthProvider>(context, listen: false);
+                final conversationId = widget.conversationId;
+                final remoteEmail = widget.remoteUser?['email'] as String?;
+                final token = authProvider.token;
+                final myUserId = authProvider.user?['id'] ?? authProvider.user?['_id'] ?? '';
+                final socketService = authProvider.socketService;
+
+                final List<String> memberEmails = [];
+                if (widget.remoteUser != null && widget.remoteUser!['participants'] is List) {
+                  for (final p in widget.remoteUser!['participants']) {
+                    final u = p['user'] ?? p;
+                    if (u is Map && u['email'] != null) {
+                      memberEmails.add(u['email'].toString());
+                    }
+                  }
+                }
+
                 Timer(delay.isNegative ? Duration.zero : delay, () {
-                  _messageController.text = text;
-                  _sendMessage();
+                  final isDirectMessage = remoteEmail != null && remoteEmail.isNotEmpty;
+                  if (isDirectMessage && token != null) {
+                    socketService.sendEncryptedMessage(
+                      conversationId: conversationId,
+                      recipientEmail: remoteEmail,
+                      plaintext: text,
+                      token: token,
+                      myUserId: myUserId,
+                    ).catchError((e) {
+                      socketService.sendMessage(conversationId, text);
+                    });
+                  } else if (token != null && memberEmails.isNotEmpty) {
+                    socketService.sendEncryptedGroupMessage(
+                      conversationId: conversationId,
+                      memberEmails: memberEmails,
+                      plaintext: text,
+                      token: token,
+                      myUserId: myUserId,
+                    ).catchError((e) {
+                      socketService.sendMessage(conversationId, text);
+                    });
+                  } else {
+                    socketService.sendMessage(conversationId, text);
+                  }
+
+                  if (mounted) {
+                    final newMsg = Message(
+                      id: 'temp-${DateTime.now().millisecondsSinceEpoch}',
+                      content: text,
+                      senderId: myUserId,
+                      conversationId: conversationId,
+                      createdAt: DateTime.now(),
+                      isPending: socketService.socket?.connected != true,
+                    );
+                    setState(() {
+                      _messages.add(newMsg);
+                    });
+                    _scrollToBottom();
+                  }
                 });
+
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(content: Text('Message scheduled for ${DateFormat('h:mm a').format(scheduledDateTime)}')),
                 );
@@ -3437,6 +3435,247 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         ],
         ),
       ],
+      ),
+    );
+  }
+}
+
+class SlidingCameraOptionsSheet extends StatefulWidget {
+  final VoidCallback onTakePhoto;
+  final VoidCallback onTakeVideo;
+  final VoidCallback onDirectGallery;
+
+  const SlidingCameraOptionsSheet({
+    Key? key,
+    required this.onTakePhoto,
+    required this.onTakeVideo,
+    required this.onDirectGallery,
+  }) : super(key: key);
+
+  @override
+  State<SlidingCameraOptionsSheet> createState() => _SlidingCameraOptionsSheetState();
+}
+
+class _SlidingCameraOptionsSheetState extends State<SlidingCameraOptionsSheet> {
+  int _currentIndex = 0;
+  late final PageController _pageController;
+
+  final List<Map<String, dynamic>> _options = [
+    {
+      'title': 'Take Photo',
+      'subtitle': 'Capture a photo with your camera',
+      'icon': Icons.camera_alt_rounded,
+      'color': const Color(0xFFEC407A),
+    },
+    {
+      'title': 'Take Video',
+      'subtitle': 'Record a video clip with your camera',
+      'icon': Icons.videocam_rounded,
+      'color': const Color(0xFFFF5252),
+    },
+    {
+      'title': 'Direct Gallery',
+      'subtitle': 'Select photos or videos directly from gallery',
+      'icon': Icons.photo_library_rounded,
+      'color': const Color(0xFFAB47BC),
+    },
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController(initialPage: 0);
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  void _triggerAction(int index) {
+    Navigator.pop(context);
+    if (index == 0) {
+      widget.onTakePhoto();
+    } else if (index == 1) {
+      widget.onTakeVideo();
+    } else if (index == 2) {
+      widget.onDirectGallery();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: const EdgeInsets.only(top: 12, bottom: 24, left: 16, right: 16),
+      child: SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.withOpacity(0.4),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              height: 46,
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: AppTheme.backgroundColor,
+                borderRadius: BorderRadius.circular(23),
+              ),
+              child: Row(
+                children: List.generate(_options.length, (index) {
+                  final isSelected = _currentIndex == index;
+                  final color = _options[index]['color'] as Color;
+                  return Expanded(
+                    child: GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _currentIndex = index;
+                        });
+                        _pageController.animateToPage(
+                          index,
+                          duration: const Duration(milliseconds: 250),
+                          curve: Curves.easeInOut,
+                        );
+                      },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        decoration: BoxDecoration(
+                          color: isSelected ? color : Colors.transparent,
+                          borderRadius: BorderRadius.circular(20),
+                          boxShadow: isSelected
+                              ? [
+                                  BoxShadow(
+                                    color: color.withOpacity(0.4),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ]
+                              : [],
+                        ),
+                        alignment: Alignment.center,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              _options[index]['icon'] as IconData,
+                              size: 16,
+                              color: isSelected ? Colors.white : AppTheme.textSecondary,
+                            ),
+                            const SizedBox(width: 4),
+                            Flexible(
+                              child: Text(
+                                _options[index]['title'] as String,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                                  color: isSelected ? Colors.white : AppTheme.textSecondary,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+              ),
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              height: 140,
+              child: PageView.builder(
+                controller: _pageController,
+                itemCount: _options.length,
+                onPageChanged: (index) {
+                  setState(() {
+                    _currentIndex = index;
+                  });
+                },
+                itemBuilder: (context, index) {
+                  final opt = _options[index];
+                  final color = opt['color'] as Color;
+                  final icon = opt['icon'] as IconData;
+
+                  return Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      GestureDetector(
+                        onTap: () => _triggerAction(index),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          width: 72,
+                          height: 72,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: color.withOpacity(0.15),
+                            border: Border.all(color: color, width: 3),
+                            boxShadow: [
+                              BoxShadow(
+                                color: color.withOpacity(0.3),
+                                blurRadius: 12,
+                                spreadRadius: 2,
+                              ),
+                            ],
+                          ),
+                          child: Center(
+                            child: CircleAvatar(
+                              radius: 26,
+                              backgroundColor: color,
+                              child: Icon(icon, color: Colors.white, size: 28),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        opt['title'] as String,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        opt['subtitle'] as String,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: AppTheme.textSecondary,
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.swipe_left, size: 14, color: AppTheme.textSecondary),
+                const SizedBox(width: 4),
+                Text(
+                  'Slide horizontally to switch modes',
+                  style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+                ),
+                const SizedBox(width: 4),
+                Icon(Icons.swipe_right, size: 14, color: AppTheme.textSecondary),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

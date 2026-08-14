@@ -140,7 +140,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
             }
           }
         });
-        if (!found) {
+        if (!found && message != null) {
           _fetchChats();
         }
       }

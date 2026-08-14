@@ -231,48 +231,59 @@ export const initChatSocket = (io: Server) => {
           select: { isGroup: true, name: true },
         });
 
-        // Create Message Receipts for all other participants
-        const receiptsData = [];
-        for (const participant of participants) {
-          if (participant.userId === userId) continue;
+        // Batch create Message Receipts for all other participants
+        const otherParticipants = participants.filter((p) => p.userId !== userId);
+        const receiptsToCreate = otherParticipants.map((p) => ({
+          messageId: message.id,
+          userId: p.userId,
+          status: onlineUsers.has(p.userId) ? "DELIVERED" : "SENT",
+        }));
 
-          const roomSockets = io.sockets.adapter.rooms.get(conversationId);
-          const userSockets = onlineUsers.get(participant.userId);
-          
-          let status = onlineUsers.has(participant.userId) ? "DELIVERED" : "SENT";
-
-          const receipt = await prisma.messageReceipt.create({
-            data: {
-              messageId: message.id,
-              userId: participant.userId,
-              status,
-            },
+        if (receiptsToCreate.length > 0) {
+          await prisma.messageReceipt.createMany({
+            data: receiptsToCreate,
+            skipDuplicates: true,
           });
-          receiptsData.push(receipt);
-
-          // If offline, try to send push notification
-          if (status === "SENT") {
-            const recipientUser = await prisma.user.findUnique({
-              where: { id: participant.userId },
-              select: { fcmToken: true, username: true },
-            });
-            
-            if (recipientUser?.fcmToken) {
-              const sender = await prisma.user.findUnique({
-                where: { id: userId },
-                select: { username: true },
-              });
-              const pushTitle = conversation?.isGroup ? `${conversation.name}` : `${sender?.username}`;
-              const pushBody = conversation?.isGroup ? `${sender?.username}: ${decryptedMessage.content || "Media message"}` : `${decryptedMessage.content || "Media message"}`;
-              
-              sendPushNotification(recipientUser.fcmToken, pushTitle, pushBody, {
-                conversationId,
-                messageId: message.id,
-              });
-            }
-          }
         }
+
+        const receiptsData = await prisma.messageReceipt.findMany({
+          where: { messageId: message.id },
+        });
         (decryptedMessage as any).receipts = receiptsData;
+
+        // Async Push Notifications for offline recipients (non-blocking)
+        const offlineParticipantIds = receiptsToCreate
+          .filter((r) => r.status === "SENT")
+          .map((r) => r.userId);
+
+        if (offlineParticipantIds.length > 0) {
+          (async () => {
+            try {
+              const [sender, recipientUsers] = await Promise.all([
+                prisma.user.findUnique({ where: { id: userId }, select: { username: true } }),
+                prisma.user.findMany({
+                  where: { id: { in: offlineParticipantIds } },
+                  select: { fcmToken: true },
+                }),
+              ]);
+              const pushTitle = conversation?.isGroup ? `${conversation.name}` : `${sender?.username}`;
+              const pushBody = conversation?.isGroup
+                ? `${sender?.username}: ${decryptedMessage.content || "Media message"}`
+                : `${decryptedMessage.content || "Media message"}`;
+
+              for (const u of recipientUsers) {
+                if (u.fcmToken) {
+                  sendPushNotification(u.fcmToken, pushTitle, pushBody, {
+                    conversationId,
+                    messageId: message.id,
+                  });
+                }
+              }
+            } catch (e) {
+              console.error("Push notification send error:", e);
+            }
+          })();
+        }
 
         // Broadcast to all participants using their personal user rooms
         participants.forEach((participant) => {
@@ -1052,35 +1063,16 @@ export const initChatSocket = (io: Server) => {
     });
 
     // Handle typing indicator
-
-    socket.on("typing", async (data: { conversationId: string; isTyping: boolean }) => {
+    socket.on("typing", (data: { conversationId: string; isTyping: boolean }) => {
       const { conversationId, isTyping } = data;
-      // Broadcast user typing state to other users inside the conversation room
+      if (!conversationId) return;
+      // Broadcast user typing state instantly to all other users in conversation room
       socket.to(conversationId).emit("user_typing", {
         conversationId,
         userId,
         username,
         isTyping,
       });
-
-      try {
-        const participants = await prisma.participant.findMany({
-          where: { conversationId },
-          select: { userId: true },
-        });
-        participants.forEach((p) => {
-          if (p.userId !== userId) {
-            io.to(p.userId).emit("user_typing", {
-              conversationId,
-              userId,
-              username,
-              isTyping,
-            });
-          }
-        });
-      } catch (err) {
-        console.error("Error broadcasting typing to participants:", err);
-      }
     });
 
     // Handle client disconnect

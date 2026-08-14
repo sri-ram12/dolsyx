@@ -60,17 +60,30 @@ const corsOriginFn = (
   callback(new Error(`CORS: origin ${origin} not allowed`));
 };
 
+import compression from "compression";
+
 // ── Middleware ───────────────────────────────────────────────────────────────
 // Trust proxy headers (for tunnels like serveo/ngrok where X-Forwarded-Proto is https)
 app.set("trust proxy", 1);
+app.use(compression());
 app.use(cors({ origin: corsOriginFn, credentials: true }));
 app.use(express.json({ limit: "10mb" }));
-app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
+
+const staticOptions = {
+  maxAge: "30d",
+  etag: true,
+  acceptRanges: true,
+  setHeaders: (res: express.Response) => {
+    res.setHeader("Cache-Control", "public, max-age=2592000, immutable");
+  },
+};
+
+app.use("/uploads", express.static(path.join(process.cwd(), "uploads"), staticOptions));
 const uploadsDir = path.join(__dirname, "../uploads");
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
-app.use("/uploads", express.static(uploadsDir));
+app.use("/uploads", express.static(uploadsDir, staticOptions));
 
 // ── API Routes ───────────────────────────────────────────────────────────────
 app.use("/api/auth", authRoutes);

@@ -6,7 +6,7 @@ import { useAuth, API_URL } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
 import {
   MessageSquare, ShieldAlert, Key, User, CheckCircle2, Mail, Sun,
-  Moon, ArrowRight, Loader2, Fingerprint, Lock, Eye, EyeOff
+  Moon, ArrowRight, Loader2, Fingerprint, Lock, Eye, EyeOff, QrCode, Smartphone
 } from "lucide-react";
 
 type Step =
@@ -19,6 +19,10 @@ type Step =
 const PIN_LENGTH = 4;
 
 export default function LoginPage() {
+  const [loginMode, setLoginMode] = useState<"qr" | "email">("qr");
+  const [qrSessionId, setQrSessionId] = useState<string>("");
+  const [qrStatus, setQrStatus] = useState<"loading" | "pending" | "approved">("loading");
+
   const [email, setEmail] = useState("");
   const [step, setStep] = useState<Step>("email");
   const [error, setError] = useState("");
@@ -53,6 +57,49 @@ export default function LoginPage() {
   const { theme, setTheme } = useTheme();
   const { login, isAuthenticated, isLoading: authLoading } = useAuth();
   const router = useRouter();
+
+  // WhatsApp Web QR Session Polling
+  useEffect(() => {
+    if (loginMode !== "qr") return;
+    let isSubscribed = true;
+    let pollInterval: NodeJS.Timeout;
+
+    const initQrSession = async () => {
+      try {
+        setQrStatus("loading");
+        const res = await fetch(`${API_URL}/api/auth/qr-session`);
+        const data = await res.json();
+        if (data.sessionId && isSubscribed) {
+          setQrSessionId(data.sessionId);
+          setQrStatus("pending");
+
+          pollInterval = setInterval(async () => {
+            try {
+              const checkRes = await fetch(`${API_URL}/api/auth/check-qr-session/${data.sessionId}`);
+              const checkData = await checkRes.json();
+              if (checkData.status === "APPROVED" && checkData.token && checkData.user) {
+                clearInterval(pollInterval);
+                setQrStatus("approved");
+                login(checkData.token, checkData.user);
+              } else if (checkData.status === "EXPIRED") {
+                clearInterval(pollInterval);
+                initQrSession();
+              }
+            } catch (_) {}
+          }, 2000);
+        }
+      } catch (_) {
+        if (isSubscribed) setQrStatus("loading");
+      }
+    };
+
+    initQrSession();
+
+    return () => {
+      isSubscribed = false;
+      if (pollInterval) clearInterval(pollInterval);
+    };
+  }, [loginMode, login]);
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
@@ -392,6 +439,95 @@ export default function LoginPage() {
         {theme === "aqua-light" ? <Sun className="h-5 w-5 text-amber-500" /> : <Moon className="h-5 w-5" />}
       </button>
 
+      {/* ── WHATSAPP WEB STYLE QR CODE LOGIN MODE ── */}
+      {loginMode === "qr" ? (
+        <div className="w-full max-w-4xl rounded-3xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-container)] p-8 md:p-12 shadow-2xl backdrop-blur-xl">
+          <div className="flex flex-col md:flex-row items-center justify-between gap-10">
+            
+            {/* Left Column: Instructions */}
+            <div className="flex-1 space-y-6 text-left">
+              <div className="flex items-center gap-3">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl text-white shadow-lg bg-gradient-to-tr from-violet-600 to-indigo-600">
+                  <MessageSquare className="h-6 w-6" />
+                </div>
+                <h1 className="text-2xl md:text-3xl font-black text-[var(--theme-text-primary)]">Log into DOLSYX Web</h1>
+              </div>
+
+              <p className="text-sm text-[var(--theme-text-secondary)] leading-relaxed">
+                Message and call privately with friends and family using DOLSYX on your web browser.
+              </p>
+
+              <ol className="space-y-4 text-sm text-[var(--theme-text-primary)] font-medium">
+                <li className="flex items-start gap-3">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--theme-accent)] text-white text-xs font-bold">1</span>
+                  <span>Open <strong className="text-[var(--theme-accent)]">DOLSYX</strong> on your mobile phone</span>
+                </li>
+                <li className="flex items-start gap-3">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--theme-accent)] text-white text-xs font-bold">2</span>
+                  <span>Tap <strong>Menu ⚙️</strong> on Android, or <strong>Profile 👤</strong> on iPhone</span>
+                </li>
+                <li className="flex items-start gap-3">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--theme-accent)] text-white text-xs font-bold">3</span>
+                  <span>Tap <strong>Scan QR Code</strong></span>
+                </li>
+                <li className="flex items-start gap-3">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--theme-accent)] text-white text-xs font-bold">4</span>
+                  <span>Point your phone camera at this screen to scan the QR code</span>
+                </li>
+              </ol>
+
+              <div className="pt-4 border-t border-[var(--theme-border-color)]">
+                <button
+                  type="button"
+                  onClick={() => setLoginMode("email")}
+                  className="inline-flex items-center gap-2 text-sm font-bold text-[var(--theme-accent)] hover:underline cursor-pointer"
+                >
+                  <span>Log in with Email / PIN</span>
+                  <ArrowRight className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Right Column: QR Code Box */}
+            <div className="flex flex-col items-center justify-center space-y-4">
+              <div className="relative flex h-64 w-64 items-center justify-center rounded-2xl border-4 border-[var(--theme-accent)] bg-white p-4 shadow-2xl">
+                {qrStatus === "loading" ? (
+                  <div className="flex flex-col items-center gap-3">
+                    <Loader2 className="h-10 w-10 animate-spin text-purple-600" />
+                    <span className="text-xs font-bold text-gray-600">Generating QR Code...</span>
+                  </div>
+                ) : qrStatus === "approved" ? (
+                  <div className="flex flex-col items-center gap-3 text-emerald-600">
+                    <CheckCircle2 className="h-16 w-16 animate-bounce" />
+                    <span className="text-sm font-black">Login Approved! Logging in...</span>
+                  </div>
+                ) : (
+                  <div className="relative flex h-full w-full items-center justify-center">
+                    {/* QR Code Image */}
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=dolsyx_qr_session_${qrSessionId}&color=1e1b4b`}
+                      alt="DOLSYX Web Login QR Code"
+                      className="h-full w-full rounded-lg object-contain"
+                    />
+                    {/* Centered Logo Badge */}
+                    <div className="absolute flex h-12 w-12 items-center justify-center rounded-full border-2 border-white bg-gradient-to-tr from-violet-600 to-indigo-600 text-white shadow-xl">
+                      <MessageSquare className="h-6 w-6" />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 text-xs font-bold text-[var(--theme-text-secondary)]">
+                <div className="h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
+                <span>Scan with phone to log in instantly</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      ) : (
+
+      /* ── TRADITIONAL EMAIL / PIN LOGIN MODE ── */
       <div className="w-full max-w-md space-y-8 rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-container)] p-8 shadow-2xl backdrop-blur-xl">
         {/* Header */}
         <div className="flex flex-col items-center justify-center text-center">
@@ -631,13 +767,20 @@ export default function LoginPage() {
                 <Lock className="h-4 w-4" /> Save PIN & Continue
               </button>
               <button type="button" onClick={handleSkipPin}
-                className="w-full text-center text-xs text-[var(--theme-text-secondary)] hover:text-[var(--theme-accent)] hover:underline cursor-pointer">
-                Skip for now
+            <div className="pt-4 border-t border-[var(--theme-border-color)] text-center">
+              <button
+                type="button"
+                onClick={() => setLoginMode("qr")}
+                className="inline-flex items-center gap-2 text-xs font-bold text-[var(--theme-accent)] hover:underline cursor-pointer"
+              >
+                <QrCode className="h-4 w-4" />
+                <span>Log in with QR Code instead</span>
               </button>
             </div>
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

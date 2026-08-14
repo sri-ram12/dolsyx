@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
 import '../services/chat_service.dart';
+import '../services/api_service.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/color_avatar.dart';
 
@@ -62,28 +63,51 @@ class _ShareTargetScreenState extends State<ShareTargetScreen> {
     setState(() => _isSending = true);
 
     final socketService = Provider.of<AuthProvider>(context, listen: false).socketService;
+    final apiService = ApiService();
     final type = widget.sharedData['type'];
     final text = widget.sharedData['text'];
     final List<dynamic> uris = widget.sharedData['uris'] ?? [];
 
-    for (final convId in _selectedConversationIds) {
-      try {
-        if (type == 'text' && text != null) {
+    try {
+      if (type == 'text' && text != null && text.isNotEmpty) {
+        for (final convId in _selectedConversationIds) {
           socketService.sendMessage(convId, text);
-        } else if (uris.isNotEmpty) {
-          for (final uri in uris) {
-            socketService.sendMessage(convId, uri.toString(), mediaUrl: uri.toString(), mediaType: 'IMAGE');
+        }
+      } else if (uris.isNotEmpty) {
+        for (final uriStr in uris) {
+          final cleanPath = Uri.decodeFull(uriStr.toString().replaceAll('file://', ''));
+          
+          // Determine type based on extension
+          String mediaType = 'IMAGE';
+          final lower = cleanPath.toLowerCase();
+          if (lower.endsWith('.mp4') || lower.endsWith('.mov') || lower.endsWith('.mkv') || lower.endsWith('.avi')) {
+            mediaType = 'VIDEO';
+          } else if (lower.endsWith('.pdf') || lower.endsWith('.doc') || lower.endsWith('.zip') || lower.endsWith('.txt')) {
+            mediaType = 'FILE';
+          }
+
+          // Upload file to server
+          String mediaUrl = cleanPath;
+          final result = await apiService.uploadMedia(cleanPath);
+          if (result != null && result['url'] != null) {
+            mediaUrl = result['url'];
+            if (result['type'] != null) mediaType = result['type'];
+          }
+
+          // Send uploaded media to all selected chats
+          for (final convId in _selectedConversationIds) {
+            socketService.sendMessage(convId, '', mediaUrl: mediaUrl, mediaType: mediaType);
           }
         }
-      } catch (e) {
-        debugPrint('[ShareTarget] Error sending to $convId: $e');
       }
+    } catch (e) {
+      debugPrint('[ShareTarget] Error sending shared content: $e');
     }
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Shared successfully to ${_selectedConversationIds.length} chat(s)!'),
+          content: Text('Shared media successfully to ${_selectedConversationIds.length} contact(s)!'),
           backgroundColor: AppTheme.primaryColor,
         ),
       );

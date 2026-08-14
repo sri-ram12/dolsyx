@@ -647,7 +647,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           ? false
           : (lowDataMode
               ? {'facingMode': 'user', 'width': {'ideal': 320}, 'height': {'ideal': 240}, 'frameRate': {'ideal': 15}}
-              : {'facingMode': 'user', 'width': {'ideal': 1280}, 'height': {'ideal': 720}});
+              : {'facingMode': 'user', 'width': {'ideal': 1280}, 'height': {'ideal': 720}, 'frameRate': {'ideal': 30, 'max': 30}});
 
       try {
         _localStream = await navigator.mediaDevices.getUserMedia({
@@ -927,11 +927,80 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     }
   }
 
-  void _toggleSpeaker() {
+  String _audioOutputMode = 'speaker';
+
+  void _selectAudioOutputMode(String mode) {
     setState(() {
-      _isSpeakerOn = !_isSpeakerOn;
-      Helper.setSpeakerphoneOn(_isSpeakerOn);
+      _audioOutputMode = mode;
+      if (mode == 'speaker') {
+        _isSpeakerOn = true;
+        Helper.setSpeakerphoneOn(true);
+      } else if (mode == 'earpiece') {
+        _isSpeakerOn = false;
+        Helper.setSpeakerphoneOn(false);
+      } else if (mode == 'bluetooth') {
+        _isSpeakerOn = false;
+        Helper.setSpeakerphoneOn(false);
+      }
     });
+  }
+
+  void _toggleSpeaker() {
+    _showAudioOutputSelector();
+  }
+
+  void _showAudioOutputSelector() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E293B),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return Container(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Select Audio Output',
+                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(Icons.volume_up_rounded, color: Colors.purpleAccent),
+                title: const Text('Loudspeaker (Speakerphone)', style: TextStyle(color: Colors.white)),
+                trailing: _audioOutputMode == 'speaker' ? const Icon(Icons.check_circle, color: Colors.purpleAccent) : null,
+                onTap: () {
+                  _selectAudioOutputMode('speaker');
+                  Navigator.pop(context);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.phone_in_talk_rounded, color: Colors.blueAccent),
+                title: const Text('Ear Speaker (Phone Earpiece)', style: TextStyle(color: Colors.white)),
+                trailing: _audioOutputMode == 'earpiece' ? const Icon(Icons.check_circle, color: Colors.blueAccent) : null,
+                onTap: () {
+                  _selectAudioOutputMode('earpiece');
+                  Navigator.pop(context);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.bluetooth_audio_rounded, color: Colors.greenAccent),
+                title: const Text('Bluetooth Device / Headset', style: TextStyle(color: Colors.white)),
+                subtitle: const Text('Connects automatically if paired', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                trailing: _audioOutputMode == 'bluetooth' ? const Icon(Icons.check_circle, color: Colors.greenAccent) : null,
+                onTap: () {
+                  _selectAudioOutputMode('bluetooth');
+                  Navigator.pop(context);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _toggleScreenShare() async {

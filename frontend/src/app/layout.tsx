@@ -6,6 +6,7 @@ import { SocketProvider } from "@/context/socket-context";
 import { ThemeProvider } from "@/context/theme-context";
 import { ToastProvider } from "@/context/toast-context";
 import { E2EEProvider } from "@/context/e2ee-context";
+import InstallAppPrompt from "@/components/install-app-prompt";
 
 const geistSans = {
   variable: "font-sans",
@@ -54,7 +55,10 @@ export default function RootLayout({
           <ThemeProvider>
             <AuthProvider>
               <E2EEProvider>
-                <SocketProvider>{children}</SocketProvider>
+                <SocketProvider>
+                  {children}
+                  <InstallAppPrompt />
+                </SocketProvider>
               </E2EEProvider>
             </AuthProvider>
           </ThemeProvider>

@@ -62,12 +62,39 @@ export const getChats = async (req: AuthRequest, res: Response): Promise<void> =
       },
     });
 
+    // Batch fetch unread counts for all conversations in a single DB query
+    const conversationIds = conversations.map((c) => c.id);
+    let unreadCountMap: Record<string, number> = {};
+
+    if (conversationIds.length > 0) {
+      try {
+        const unreadCounts = await prisma.message.groupBy({
+          by: ["conversationId"],
+          where: {
+            conversationId: { in: conversationIds },
+            senderId: { not: userId },
+            receipts: {
+              none: {
+                userId,
+                status: "READ",
+              },
+            },
+          },
+          _count: { id: true },
+        });
+
+        for (const item of unreadCounts) {
+          unreadCountMap[item.conversationId] = item._count.id;
+        }
+      } catch (_) {}
+    }
+
     // Format chat list for frontend convenience
     const formattedChats = await Promise.all(
       conversations.map(async (chat) => {
         // Find the recipient (the other participant in a 1-on-1 chat)
         const otherParticipant = chat.participants.find((p) => p.userId !== userId);
-        const recipient = otherParticipant ? otherParticipant.user : null;
+        const recipient = otherParticipant ? { ...otherParticipant.user } : null;
         // Decrypt lastMessage content so the sidebar preview shows readable text
         const rawLastMessage = chat.messages[0] || null;
         const lastMessage = rawLastMessage
@@ -85,22 +112,7 @@ export const getChats = async (req: AuthRequest, res: Response): Promise<void> =
             }
           : null;
 
-        // Fast unread count query
-        let unreadCount = 0;
-        try {
-          unreadCount = await prisma.message.count({
-            where: {
-              conversationId: chat.id,
-              senderId: { not: userId },
-              receipts: {
-                none: {
-                  userId,
-                  status: "READ",
-                },
-              },
-            },
-          });
-        } catch (_) {}
+        const unreadCount = unreadCountMap[chat.id] || 0;
 
         if (recipient) {
           try {

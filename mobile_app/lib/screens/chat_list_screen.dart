@@ -324,6 +324,9 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                   : RefreshIndicator(
                       onRefresh: _fetchChats,
                       child: ListView.builder(
+                        cacheExtent: 400.0,
+                        addAutomaticKeepAlives: true,
+                        addRepaintBoundaries: true,
                         itemCount: _chats.where((c) => !c.isArchived).length + 1 + (_chats.any((c) => c.isArchived) ? 1 : 0),
                         itemBuilder: (context, index) {
                         final activeChats = _chats.where((c) => !c.isArchived).toList();

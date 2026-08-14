@@ -3076,6 +3076,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     controller: _scrollController,
                     padding: const EdgeInsets.all(16),
                     itemCount: _messages.length,
+                    cacheExtent: 500.0,
+                    addAutomaticKeepAlives: true,
+                    addRepaintBoundaries: true,
                     itemBuilder: (context, index) {
                       final message = _messages[index];
                       final isMe = currentUser != null && message.senderId == currentUser['id'];
@@ -3128,6 +3131,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                           if (isSelected && _selectedMessageIds.length == 1)
                             _buildQuickReactionPicker(message, isMe),
                           GestureDetector(
+                            key: ValueKey(message.id),
                             onLongPress: () {
                               setState(() {
                                 if (isSelected) {

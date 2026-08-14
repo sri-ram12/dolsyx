@@ -18,9 +18,11 @@
   "description": "",
   "dependencies": {
     "@prisma/client": "^5.22.0",
+    "@types/compression": "^1.8.1",
     "@types/libsodium-wrappers": "^0.7.14",
     "bcryptjs": "^3.0.3",
     "cloudinary": "^1.41.3",
+    "compression": "^1.8.1",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",

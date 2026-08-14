@@ -50,6 +50,12 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
       String scannedUserId = barcodes.first.rawValue!.trim();
       print("SCANNED RAW VALUE: $scannedUserId");
 
+      if (scannedUserId.startsWith('dolsyx_qr_session_') || scannedUserId.startsWith('dolsyx_qr_')) {
+        setState(() => _isProcessing = false);
+        _showQrLoginApprovalDialog(scannedUserId);
+        return;
+      }
+
       Map<String, dynamic>? inlineUser;
       if (scannedUserId.startsWith('dolsyx://user/')) {
         scannedUserId = scannedUserId.replaceFirst('dolsyx://user/', '');
@@ -94,6 +100,79 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
         if (mounted) setState(() => _isProcessing = false);
       }
     }
+  }
+
+  void _showQrLoginApprovalDialog(String sessionId) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: AppTheme.surfaceColor,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryColor.withOpacity(0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.laptop_mac_rounded, size: 48, color: AppTheme.primaryColor),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Approve Web Login',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Do you want to log into your DOLSYX account on this web browser / laptop?',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, color: AppTheme.textSecondary),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      setState(() => _isProcessing = false);
+                    },
+                    child: const Text('Cancel'),
+                  ),
+                  ElevatedButton(
+                    onPressed: () async {
+                      Navigator.pop(context);
+                      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+                      final token = authProvider.token ?? '';
+                      try {
+                        final success = await ApiService().approveQrWebLogin(token, sessionId);
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(success ? 'Web Login Approved!' : 'Failed to approve Web Login'),
+                              backgroundColor: success ? AppTheme.primaryColor : Colors.red,
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        debugPrint('Approve QR error: $e');
+                      }
+                      if (mounted) Navigator.pop(context);
+                    },
+                    style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryColor),
+                    child: const Text('Approve & Log In', style: TextStyle(color: Colors.white)),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   void _showUserDialog(Map<String, dynamic> user, String userId) {

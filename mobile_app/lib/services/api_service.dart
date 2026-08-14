@@ -224,10 +224,14 @@ class ApiService {
     }
   }
 
-  Future<bool> approveQrWebLogin(String token, String sessionId) async {
+  Future<bool> approveQrWebLogin(String token, String sessionId, {String? customBackendUrl}) async {
     try {
+      final targetBaseUrl = (customBackendUrl != null && customBackendUrl.isNotEmpty)
+          ? (customBackendUrl.endsWith('/api') ? customBackendUrl : '$customBackendUrl/api')
+          : baseUrl;
+
       final response = await http.post(
-        Uri.parse('$baseUrl/auth/approve-qr-session'),
+        Uri.parse('$targetBaseUrl/auth/approve-qr-session'),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',

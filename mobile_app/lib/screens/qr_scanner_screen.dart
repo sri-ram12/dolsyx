@@ -102,7 +102,15 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
     }
   }
 
-  void _showQrLoginApprovalDialog(String sessionId) {
+  void _showQrLoginApprovalDialog(String rawSessionData) {
+    String sessionId = rawSessionData;
+    String? customApiUrl;
+    if (rawSessionData.contains('||')) {
+      final parts = rawSessionData.split('||');
+      sessionId = parts[0];
+      customApiUrl = parts[1];
+    }
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -149,7 +157,7 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
                       final authProvider = Provider.of<AuthProvider>(context, listen: false);
                       final token = authProvider.token ?? '';
                       try {
-                        final success = await ApiService().approveQrWebLogin(token, sessionId);
+                        final success = await ApiService().approveQrWebLogin(token, sessionId, customBackendUrl: customApiUrl);
                         if (mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(

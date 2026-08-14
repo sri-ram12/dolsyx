@@ -766,7 +766,14 @@ export default function LoginPage() {
               >
                 <Lock className="h-4 w-4" /> Save PIN & Continue
               </button>
-              <button type="button" onClick={handleSkipPin}
+              <button
+                type="button"
+                onClick={handleSkipPin}
+                className="w-full text-center text-xs text-[var(--theme-text-secondary)] hover:text-[var(--theme-accent)] hover:underline cursor-pointer"
+              >
+                Skip for now
+              </button>
+            </div>
             <div className="pt-4 border-t border-[var(--theme-border-color)] text-center">
               <button
                 type="button"

@@ -767,7 +767,7 @@ class MessageBubble extends StatelessWidget {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          DateFormat('hh:mm a').format(message.createdAt.toLocal()),
+                          '${message.isEdited ? "edited " : ""}${DateFormat('hh:mm a').format(message.createdAt.toLocal())}',
                           style: TextStyle(
                             fontSize: 10,
                             color: secondaryTextColor,

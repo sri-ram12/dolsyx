@@ -210,16 +210,22 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           } catch (_) {}
         });
       }
-      final answererId = data['answererId'] ?? widget.remoteUserId;
+      final answererId = data['answererId']?.toString() ?? widget.remoteUserId;
       if (data['answer'] != null) {
         final answer = RTCSessionDescription(data['answer']['sdp'], data['answer']['type']);
-        try {
-          await _peerConnections[answererId]?.setRemoteDescription(answer);
-        } catch (e) {
-          debugPrint('[WebRTC] setRemoteDescription error: $e');
+        final targetPc = _peerConnections[answererId] ?? _peerConnections[widget.remoteUserId] ?? (_peerConnections.isNotEmpty ? _peerConnections.values.first : null);
+        if (targetPc != null) {
+          try {
+            await targetPc.setRemoteDescription(answer);
+          } catch (e) {
+            debugPrint('[WebRTC] setRemoteDescription error: $e');
+          }
+          if (!mounted) return;
+          await _flushIceCandidates(answererId);
+          if (answererId != widget.remoteUserId) {
+            await _flushIceCandidates(widget.remoteUserId);
+          }
         }
-        if (!mounted) return;
-        await _flushIceCandidates(answererId);
       }
       if (!mounted) return;
       if (_callTimer == null || !_callTimer!.isActive) _startTimer();
@@ -1096,8 +1102,8 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   }
 
   void _showAddParticipantModal() async {
-    if (_participants.length >= 3) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Group calls limited to 4 participants.')));
+    if (_participants.length >= 15) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Group calls limited to 15 participants.')));
       return;
     }
     final token = Provider.of<AuthProvider>(context, listen: false).token ?? '';
@@ -1340,29 +1346,43 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       );
     }
 
-    // 4 Members Layout (Matches Picture 2): 2x2 grid filling screen
-    return Column(
-      children: [
-        Expanded(
-          child: Row(
-            children: [
-              Expanded(child: views[0]),
-              const SizedBox(width: 2),
-              Expanded(child: views[1]),
-            ],
+    if (views.length == 4) {
+      return Column(
+        children: [
+          Expanded(
+            child: Row(
+              children: [
+                Expanded(child: views[0]),
+                const SizedBox(width: 2),
+                Expanded(child: views[1]),
+              ],
+            ),
           ),
-        ),
-        const SizedBox(height: 2),
-        Expanded(
-          child: Row(
-            children: [
-              Expanded(child: views[2]),
-              const SizedBox(width: 2),
-              Expanded(child: views[3]),
-            ],
+          const SizedBox(height: 2),
+          Expanded(
+            child: Row(
+              children: [
+                Expanded(child: views[2]),
+                const SizedBox(width: 2),
+                Expanded(child: views[3]),
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      );
+    }
+
+    // Dynamic grid layout for 5+ participants
+    int crossAxisCount = views.length <= 6 ? 2 : 3;
+    return GridView.builder(
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: crossAxisCount,
+        childAspectRatio: 1.0,
+        crossAxisSpacing: 2,
+        mainAxisSpacing: 2,
+      ),
+      itemCount: views.length,
+      itemBuilder: (context, index) => views[index],
     );
   }
 

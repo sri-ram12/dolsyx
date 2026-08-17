@@ -12,6 +12,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import 'chat_room_screen.dart';
 
 import 'package:local_auth/local_auth.dart';
+import 'package:image_picker/image_picker.dart';
 
 class QrScannerScreen extends StatefulWidget {
   const QrScannerScreen({super.key});
@@ -315,12 +316,48 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
     }
   }
 
+  Future<void> _scanFromGallery() async {
+    try {
+      final ImagePicker picker = ImagePicker();
+      final XFile? image = await picker.pickImage(source: ImageSource.gallery);
+      if (image == null) return;
+
+      setState(() => _isProcessing = true);
+      final BarcodeCapture? capture = await _scannerController.analyzeImage(image.path);
+      if (capture != null && capture.barcodes.isNotEmpty) {
+        _onDetect(capture);
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No QR code detected in selected image')),
+          );
+          setState(() => _isProcessing = false);
+        }
+      }
+    } catch (e) {
+      debugPrint('Gallery QR scan error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to read QR code from image')),
+        );
+        setState(() => _isProcessing = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Scan QR Code'),
         backgroundColor: AppTheme.surfaceColor,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.photo_library_outlined),
+            tooltip: 'Scan from Gallery',
+            onPressed: _scanFromGallery,
+          ),
+        ],
       ),
       body: Stack(
         children: [

@@ -3261,7 +3261,12 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             top: false,
             bottom: true,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              padding: EdgeInsets.only(
+                left: 8,
+                right: 8,
+                top: 8,
+                bottom: MediaQuery.paddingOf(context).bottom > 0 ? (MediaQuery.paddingOf(context).bottom + 4) : 10,
+              ),
               color: Colors.transparent,
               child: _isRecordingLocked
                 ? Row(

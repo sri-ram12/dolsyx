@@ -848,13 +848,71 @@ export const uploadChunk = async (req: AuthRequest, res: Response): Promise<void
       uploadId,
       chunkIndex,
       totalChunks,
-      chunkUrl,
-      isComplete: Number(chunkIndex) + 1 >= Number(totalChunks),
+export const editMessage = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.id;
+    const messageId = req.params["messageId"] as string;
+    const { content } = req.body;
+
+    if (!content || !content.trim()) {
+      res.status(400).json({ message: "Message content cannot be empty" });
+      return;
+    }
+
+    const message = await prisma.message.findUnique({ where: { id: messageId } });
+
+    if (!message) {
+      res.status(404).json({ message: "Message not found" });
+      return;
+    }
+
+    if (message.senderId !== userId) {
+      res.status(403).json({ message: "You can only edit your own messages" });
+      return;
+    }
+
+    // 15-minute edit time limit check
+    const ageInMinutes = (Date.now() - new Date(message.createdAt).getTime()) / (1000 * 60);
+    if (ageInMinutes > 15) {
+      res.status(400).json({ message: "Messages can only be edited within 15 minutes of sending" });
+      return;
+    }
+
+    const encryptedContent = encryptionService.encrypt(content.trim());
+    const updated = await prisma.message.update({
+      where: { id: messageId },
+      data: {
+        content: encryptedContent,
+        isEdited: true,
+      },
     });
+
+    const decryptedMessage = {
+      ...updated,
+      content: content.trim(),
+    };
+
+    // Socket broadcast
+    const io = (req as any).app.get("io");
+    if (io) {
+      const participants = await prisma.participant.findMany({
+        where: { conversationId: message.conversationId },
+        select: { userId: true },
+      });
+      participants.forEach((p) => {
+        io.to(p.userId).emit("message_edited", {
+          message: decryptedMessage,
+          conversationId: message.conversationId,
+        });
+      });
+    }
+
+    res.json({ message: "Message edited successfully", messageData: decryptedMessage });
   } catch (error) {
-    console.error("Upload chunk error:", error);
-    res.status(500).json({ message: "Failed to process chunk" });
+    console.error("Edit message error:", error);
+    res.status(500).json({ message: "Failed to edit message" });
   }
 };
+
 
 

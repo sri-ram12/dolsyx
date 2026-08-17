@@ -17,6 +17,7 @@ import {
   starMessage,
   pinMessage,
   deleteMessage,
+  editMessage,
   uploadChunk,
 } from "../controllers/chat.controller.js";
 import { authenticateToken } from "../middleware/auth.middleware.js";
@@ -63,6 +64,7 @@ router.delete("/:conversationId/messages", clearChatMessages as any);
 router.patch("/:conversationId/participant", updateParticipantSettings as any);
 
 // Message management routes
+router.put("/messages/:messageId", editMessage as any);
 router.post("/messages/:messageId/star", starMessage as any);
 router.delete("/messages/:messageId", deleteMessage as any);
 router.post("/:conversationId/messages/:messageId/pin", pinMessage as any);

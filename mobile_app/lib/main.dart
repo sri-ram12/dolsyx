@@ -493,6 +493,11 @@ class _DolsyxAppState extends State<DolsyxApp> {
     SoundService().stopRingtone();
     try { flutterLocalNotificationsPlugin.cancelAll(); } catch (_) {}
 
+    if (CallScreen.isCallActiveNotifier.value &&
+        CallScreen.activeConversationId == data['conversationId']) {
+      return;
+    }
+
     void navigateToCall() {
       if (navigatorKey.currentState != null) {
         navigatorKey.currentState!.push(

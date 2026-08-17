@@ -871,18 +871,16 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
         final bool wasEmpty = _messages.isEmpty;
         final List<dynamic> data = jsonDecode(response.body);
-        if (mounted) {
-          setState(() {
-            _messages = data.map((json) => Message.fromJson(json)).toList();
-            _isLoading = false;
-            try {
-              _pinnedMessage = _messages.firstWhere((m) => m.isPinned);
-            } catch (_) {}
-          });
-          if (wasEmpty) {
+          if (mounted) {
+            setState(() {
+              _messages = data.map((json) => Message.fromJson(json)).toList();
+              _isLoading = false;
+              try {
+                _pinnedMessage = _messages.firstWhere((m) => m.isPinned);
+              } catch (_) {}
+            });
             _scrollToBottom();
           }
-        }
       } else if (mounted) {
         setState(() => _isLoading = false);
       }
@@ -906,6 +904,14 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   void _editMessageDialog(Message message) {
+    final diffInMinutes = DateTime.now().difference(message.createdAt.toLocal()).inMinutes;
+    if (diffInMinutes > 15) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Messages can only be edited within 15 minutes of sending.')),
+      );
+      return;
+    }
+
     final editCtrl = TextEditingController(text: message.content);
     showDialog(
       context: context,
@@ -932,8 +938,13 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               final newText = editCtrl.text.trim();
               if (newText.isNotEmpty && newText != message.content) {
                 Navigator.pop(ctx);
+                final socketService = Provider.of<AuthProvider>(context, listen: false).socketService;
+                socketService.socket?.emit('edit_message', {
+                  'messageId': message.id,
+                  'content': newText,
+                });
                 final success = await _chatService.editMessage(message.id, newText);
-                if (success && mounted) {
+                if (mounted) {
                   setState(() {
                     final idx = _messages.indexWhere((m) => m.id == message.id);
                     if (idx != -1) {
@@ -3246,99 +3257,105 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 ],
               ),
             ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-            color: Colors.transparent,
-            child: _isRecordingLocked
-              ? Row(
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.delete, color: Colors.red),
-                      onPressed: () async {
-                        await _audioRecorder.stop();
-                        _stopRecordingTimer();
-                        setState(() {
-                          _isRecording = false;
-                          _isRecordingLocked = false;
-                        });
-                      },
-                    ),
-                    Expanded(
-                      child: Center(
-                        child: Text(
-                          _formatDuration(_recordingDuration),
-                          style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 16),
-                        ),
-                      ),
-                    ),
-                    CircleAvatar(
-                      radius: 24,
-                      backgroundColor: AppTheme.primaryColor,
-                      child: IconButton(
-                        icon: const Icon(Icons.send, color: Colors.white, size: 20),
+          SafeArea(
+            top: false,
+            bottom: true,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              color: Colors.transparent,
+              child: _isRecordingLocked
+                ? Row(
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.delete, color: Colors.red),
                         onPressed: () async {
-                          final path = await _audioRecorder.stop();
+                          await _audioRecorder.stop();
                           _stopRecordingTimer();
                           setState(() {
                             _isRecording = false;
                             _isRecordingLocked = false;
                           });
-                          if (path != null) {
-                            _uploadAndSendMedia(File(path), 'AUDIO');
-                          }
                         },
                       ),
-                    ),
-                  ],
-                )
-              : Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _messageController,
-                        focusNode: _focusNode,
-                        onTap: () {
-                          if (_isEmojiVisible) {
-                            setState(() { _isEmojiVisible = false; });
-                          }
-                        },
-                        style: TextStyle(color: AppTheme.textPrimary),
-                        decoration: InputDecoration(
-                          hintText: _isRecording ? 'Recording... Slide up to lock' : 'Message',
-                          hintStyle: TextStyle(color: _isRecording ? Colors.red : AppTheme.textSecondary),
-                          filled: true,
-                          fillColor: AppTheme.surfaceColor,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                          prefixIcon: _isRecording 
-                            ? Padding(
-                                padding: const EdgeInsets.all(12.0),
-                                child: Text(_formatDuration(_recordingDuration), style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-                              )
-                            : IconButton(
-                                icon: Icon(_isEmojiVisible ? Icons.keyboard : Icons.emoji_emotions_outlined, color: AppTheme.textSecondary),
-                                onPressed: _showEmojiPicker,
-                              ),
-                          suffixIcon: _isRecording ? null : Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                icon: Icon(Icons.attach_file, color: AppTheme.textSecondary),
-                                onPressed: _showAttachmentOptions,
-                              ),
-                              IconButton(
-                                icon: Icon(Icons.camera_alt_outlined, color: AppTheme.textSecondary),
-                                onPressed: _showCameraOptions,
-                              ),
-                            ],
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(28),
-                            borderSide: BorderSide.none,
+                      Expanded(
+                        child: Center(
+                          child: Text(
+                            _formatDuration(_recordingDuration),
+                            style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 16),
                           ),
                         ),
-                        onSubmitted: (_) => _sendMessage(),
                       ),
-                    ),
+                      CircleAvatar(
+                        radius: 24,
+                        backgroundColor: AppTheme.primaryColor,
+                        child: IconButton(
+                          icon: const Icon(Icons.send, color: Colors.white, size: 20),
+                          onPressed: () async {
+                            final path = await _audioRecorder.stop();
+                            _stopRecordingTimer();
+                            setState(() {
+                              _isRecording = false;
+                              _isRecordingLocked = false;
+                            });
+                            if (path != null) {
+                              _uploadAndSendMedia(File(path), 'AUDIO');
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _messageController,
+                          focusNode: _focusNode,
+                          keyboardType: TextInputType.multiline,
+                          minLines: 1,
+                          maxLines: 5,
+                          textInputAction: TextInputAction.newline,
+                          onTap: () {
+                            if (_isEmojiVisible) {
+                              setState(() { _isEmojiVisible = false; });
+                            }
+                          },
+                          style: TextStyle(color: AppTheme.textPrimary),
+                          decoration: InputDecoration(
+                            hintText: _isRecording ? 'Recording... Slide up to lock' : 'Message',
+                            hintStyle: TextStyle(color: _isRecording ? Colors.red : AppTheme.textSecondary),
+                            filled: true,
+                            fillColor: AppTheme.surfaceColor,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                            prefixIcon: _isRecording 
+                              ? Padding(
+                                  padding: const EdgeInsets.all(12.0),
+                                  child: Text(_formatDuration(_recordingDuration), style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                                )
+                              : IconButton(
+                                  icon: Icon(_isEmojiVisible ? Icons.keyboard : Icons.emoji_emotions_outlined, color: AppTheme.textSecondary),
+                                  onPressed: _showEmojiPicker,
+                                ),
+                            suffixIcon: _isRecording ? null : Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  icon: Icon(Icons.attach_file, color: AppTheme.textSecondary),
+                                  onPressed: _showAttachmentOptions,
+                                ),
+                                IconButton(
+                                  icon: Icon(Icons.camera_alt_outlined, color: AppTheme.textSecondary),
+                                  onPressed: _showCameraOptions,
+                                ),
+                              ],
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(28),
+                              borderSide: BorderSide.none,
+                            ),
+                          ),
+                        ),
+                      ),
                     SizedBox(width: 8),
                     ValueListenableBuilder<TextEditingValue>(
                       valueListenable: _messageController,
@@ -3408,6 +3425,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     ),
                   ],
                 ),
+            ),
           ),
           if (_isEmojiVisible)
             SizedBox(

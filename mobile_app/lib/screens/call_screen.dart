@@ -143,18 +143,16 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _initRenderers() async {
-    await _localRenderer.initialize();
+    try {
+      await _localRenderer.initialize();
+    } catch (e) {
+      debugPrint('[WebRTC] _localRenderer initialize error: $e');
+    }
     _setupSocketListeners();
 
     if (widget.isIncoming) {
-      if (widget.initialOffer != null) {
-        _acceptCall();
-      } else {
-        setState(() => _status = 'Ringing...');
-        _timeoutTimer = Timer(const Duration(minutes: 2), () {
-          if (!_callActive && mounted) _rejectCall();
-        });
-      }
+      // Always accept call when incoming screen is launched via notification action or direct accept
+      _acceptCall();
     } else {
       SoundService().startRingbackTone();
       _timeoutTimer = Timer(const Duration(minutes: 2, seconds: 30), () {
@@ -929,20 +927,40 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
 
   String _audioOutputMode = 'speaker';
 
-  void _selectAudioOutputMode(String mode) {
+  void _selectAudioOutputMode(String mode) async {
     setState(() {
       _audioOutputMode = mode;
+    });
+    try {
       if (mode == 'speaker') {
         _isSpeakerOn = true;
-        Helper.setSpeakerphoneOn(true);
+        await Helper.setSpeakerphoneOn(true);
       } else if (mode == 'earpiece') {
         _isSpeakerOn = false;
-        Helper.setSpeakerphoneOn(false);
+        await Helper.setSpeakerphoneOn(false);
       } else if (mode == 'bluetooth') {
         _isSpeakerOn = false;
-        Helper.setSpeakerphoneOn(false);
+        await Helper.setSpeakerphoneOn(false);
+        try {
+          final devices = await navigator.mediaDevices.enumerateDevices();
+          final btDevice = devices.firstWhere(
+            (d) => d.kind == 'audiooutput' && (
+              d.label.toLowerCase().contains('bluetooth') ||
+              d.label.toLowerCase().contains('headset') ||
+              d.label.toLowerCase().contains('earbuds')
+            ),
+            orElse: () => devices.firstWhere((d) => d.kind == 'audiooutput', orElse: () => devices.first),
+          );
+          if (btDevice.deviceId.isNotEmpty) {
+            await Helper.selectAudioOutput(btDevice.deviceId);
+          }
+        } catch (e) {
+          debugPrint('[AudioRoute] Bluetooth selection error: $e');
+        }
       }
-    });
+    } catch (e) {
+      debugPrint('[AudioRoute] Routing error: $e');
+    }
   }
 
   void _toggleSpeaker() {
@@ -1468,7 +1486,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
               ),
 
               // === ADD PARTICIPANT BUTTON ===
-              if (_callActive && _participants.length < 3)
+              if (_callActive && _participants.length < 15)
                 Positioned(
                   top: 12, right: 16,
                   child: GestureDetector(
@@ -1490,7 +1508,14 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
                     if (_callActive || !widget.isIncoming)
                       _ctrlBtn('mute', _isMuted ? Icons.mic_off : Icons.mic, _toggleMute, active: _isMuted),
                     if (_callActive || !widget.isIncoming)
-                      _ctrlBtn('speaker', _isSpeakerOn ? Icons.volume_up : Icons.volume_down, _toggleSpeaker, active: _isSpeakerOn),
+                      _ctrlBtn(
+                        'speaker',
+                        _audioOutputMode == 'bluetooth'
+                            ? Icons.bluetooth_audio
+                            : (_audioOutputMode == 'earpiece' ? Icons.phone_in_talk : Icons.volume_up),
+                        _toggleSpeaker,
+                        active: _isSpeakerOn || _audioOutputMode == 'bluetooth',
+                      ),
                     if (!widget.isAudioOnly && (_callActive || !widget.isIncoming))
                       _ctrlBtn('cam', Icons.flip_camera_ios, _switchCamera),
                     if (!widget.isAudioOnly && _callActive)

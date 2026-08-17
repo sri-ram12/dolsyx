@@ -104,9 +104,15 @@ class MessageBubble extends StatelessWidget {
         WidgetSpan(
           child: GestureDetector(
             onTap: () async {
-              final uri = Uri.parse(uriStr);
-              if (await canLaunchUrl(uri)) {
-                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              final uri = Uri.tryParse(uriStr);
+              if (uri != null) {
+                try {
+                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                } catch (_) {
+                  try {
+                    await launchUrl(uri, mode: LaunchMode.platformDefault);
+                  } catch (_) {}
+                }
               }
             },
             child: Text(
@@ -130,18 +136,25 @@ class MessageBubble extends StatelessWidget {
   }
 
   Widget _buildLinkPreviewCard(String url) {
-    Uri? uri;
-    try { uri = Uri.parse(url); } catch (_) {}
+    Uri? uri = Uri.tryParse(url);
     final host = uri?.host.replaceAll('www.', '') ?? 'Link';
 
     IconData icon = Icons.language;
     String badgeTitle = 'Web Link';
     Color badgeColor = const Color(0xFF3B82F6);
 
-    if (host.contains('youtube.com') || host.contains('youtu.be')) {
+    if (host.contains('facebook.com') || host.contains('fb.watch') || host.contains('fb.me') || host.contains('fb.com')) {
+      icon = Icons.facebook;
+      badgeTitle = 'Facebook Link';
+      badgeColor = const Color(0xFF1877F2);
+    } else if (host.contains('youtube.com') || host.contains('youtu.be')) {
       icon = Icons.play_circle_fill_rounded;
       badgeTitle = 'YouTube Video';
       badgeColor = Colors.redAccent;
+    } else if (host.contains('instagram.com')) {
+      icon = Icons.camera_alt_rounded;
+      badgeTitle = 'Instagram Link';
+      badgeColor = const Color(0xFFE4405F);
     } else if (host.contains('maps.google.com') || host.contains('goo.gl')) {
       icon = Icons.map_rounded;
       badgeTitle = 'Google Maps Location';
@@ -158,8 +171,15 @@ class MessageBubble extends StatelessWidget {
 
     return GestureDetector(
       onTap: () async {
-        if (uri != null && await canLaunchUrl(uri)) {
-          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        final targetUri = uri ?? Uri.tryParse(url);
+        if (targetUri != null) {
+          try {
+            await launchUrl(targetUri, mode: LaunchMode.externalApplication);
+          } catch (_) {
+            try {
+              await launchUrl(targetUri, mode: LaunchMode.platformDefault);
+            } catch (_) {}
+          }
         }
       },
       child: Container(

@@ -57,6 +57,31 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
 
+    private fun resolveUriPath(uriStr: String): String {
+        return try {
+            val uri = Uri.parse(uriStr)
+            if ("content".equals(uri.scheme, ignoreCase = true)) {
+                val inputStream = contentResolver.openInputStream(uri)
+                val ext = contentResolver.getType(uri)?.let { mime ->
+                    if (mime.contains("video")) ".mp4" else if (mime.contains("image")) ".jpg" else ".tmp"
+                } ?: ".tmp"
+                val tempFile = java.io.File.createTempFile("shared_media_", ext, cacheDir)
+                tempFile.deleteOnExit()
+                val outputStream = java.io.FileOutputStream(tempFile)
+                inputStream?.use { input ->
+                    outputStream.use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                tempFile.absolutePath
+            } else {
+                uri.path ?: uriStr
+            }
+        } catch (e: Exception) {
+            uriStr
+        }
+    }
+
     private fun handleIntent(intent: Intent?) {
         if (intent == null) return
         val action = intent.action
@@ -71,14 +96,15 @@ class MainActivity : FlutterFragmentActivity() {
             } else if (intent.hasExtra(Intent.EXTRA_STREAM)) {
                 val uri = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
                 if (uri != null) {
-                    initialSharedData = mapOf("type" to "media", "uris" to listOf(uri.toString()))
+                    val resolvedPath = resolveUriPath(uri.toString())
+                    initialSharedData = mapOf("type" to "media", "uris" to listOf(resolvedPath))
                 }
             }
         } else if (Intent.ACTION_SEND_MULTIPLE == action && intent.hasExtra(Intent.EXTRA_STREAM)) {
             val uris = intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
             if (!uris.isNullOrEmpty()) {
-                val uriStrings = uris.map { it.toString() }
-                initialSharedData = mapOf("type" to "media", "uris" to uriStrings)
+                val resolvedPaths = uris.map { resolveUriPath(it.toString()) }
+                initialSharedData = mapOf("type" to "media", "uris" to resolvedPaths)
             }
         }
     }
@@ -138,6 +164,10 @@ class MainActivity : FlutterFragmentActivity() {
                 "getInitialSharedData" -> {
                     result.success(initialSharedData)
                     initialSharedData = null
+                }
+                "resolveContentUri" -> {
+                    val uriStr = call.argument<String>("uri") ?: ""
+                    result.success(resolveUriPath(uriStr))
                 }
                 else -> result.notImplemented()
             }

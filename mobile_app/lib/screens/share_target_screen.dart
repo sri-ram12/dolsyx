@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
 import '../services/chat_service.dart';
@@ -74,8 +75,17 @@ class _ShareTargetScreenState extends State<ShareTargetScreen> {
           socketService.sendMessage(convId, text);
         }
       } else if (uris.isNotEmpty) {
+        final shareChannel = MethodChannel('com.dolsyx/share');
         for (final uriStr in uris) {
-          final cleanPath = Uri.decodeFull(uriStr.toString().replaceAll('file://', ''));
+          String cleanPath = Uri.decodeFull(uriStr.toString().replaceAll('file://', ''));
+          if (cleanPath.startsWith('content://')) {
+            try {
+              final resolved = await shareChannel.invokeMethod('resolveContentUri', {'uri': cleanPath});
+              if (resolved != null && resolved.toString().isNotEmpty) {
+                cleanPath = resolved.toString();
+              }
+            } catch (_) {}
+          }
           
           // Determine type based on extension
           String mediaType = 'IMAGE';
@@ -126,10 +136,8 @@ class _ShareTargetScreenState extends State<ShareTargetScreen> {
         name = conv['name'] ?? 'Group';
       } else {
         final participants = conv['participants'] as List<dynamic>? ?? [];
-        final other = participants.firstWhere(
-          (p) => (p['user']?['id'] ?? p['user']?['_id']) != currentUserId,
-          orElse: () => null,
-        );
+        final matching = participants.where((p) => (p['user']?['id'] ?? p['user']?['_id']) != currentUserId).toList();
+        final other = matching.isNotEmpty ? matching.first : null;
         name = other?['user']?['username'] ?? 'User';
       }
       return name.toLowerCase().contains(_searchQuery.toLowerCase());
@@ -238,10 +246,8 @@ class _ShareTargetScreenState extends State<ShareTargetScreen> {
                         avatarUrl = conv['groupAvatar'];
                       } else {
                         final participants = conv['participants'] as List<dynamic>? ?? [];
-                        final other = participants.firstWhere(
-                          (p) => (p['user']?['id'] ?? p['user']?['_id']) != currentUserId,
-                          orElse: () => null,
-                        );
+                        final matching = participants.where((p) => (p['user']?['id'] ?? p['user']?['_id']) != currentUserId).toList();
+                        final other = matching.isNotEmpty ? matching.first : null;
                         name = other?['user']?['username'] ?? 'User';
                         avatarUrl = other?['user']?['avatarUrl'];
                       }

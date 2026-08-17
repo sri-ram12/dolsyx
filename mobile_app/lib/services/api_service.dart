@@ -226,9 +226,13 @@ class ApiService {
 
   Future<bool> approveQrWebLogin(String token, String sessionId, {String? customBackendUrl}) async {
     try {
-      final targetBaseUrl = (customBackendUrl != null && customBackendUrl.isNotEmpty)
-          ? (customBackendUrl.endsWith('/api') ? customBackendUrl : '$customBackendUrl/api')
-          : baseUrl;
+      String targetBaseUrl = baseUrl;
+      if (customBackendUrl != null && customBackendUrl.isNotEmpty) {
+        final cleanUrl = customBackendUrl.trim();
+        if (!cleanUrl.contains('localhost') && !cleanUrl.contains('127.0.0.1')) {
+          targetBaseUrl = cleanUrl.endsWith('/api') ? cleanUrl : '$cleanUrl/api';
+        }
+      }
 
       final response = await http.post(
         Uri.parse('$targetBaseUrl/auth/approve-qr-session'),
@@ -238,7 +242,20 @@ class ApiService {
         },
         body: jsonEncode({'sessionId': sessionId}),
       );
-      return response.statusCode == 200 || response.statusCode == 201;
+      if (response.statusCode == 200 || response.statusCode == 201) return true;
+
+      if (targetBaseUrl != baseUrl) {
+        final fallbackResponse = await http.post(
+          Uri.parse('$baseUrl/auth/approve-qr-session'),
+          headers: {
+            'Authorization': 'Bearer $token',
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({'sessionId': sessionId}),
+        );
+        return fallbackResponse.statusCode == 200 || fallbackResponse.statusCode == 201;
+      }
+      return false;
     } catch (e) {
       print('Approve QR Web Login error: $e');
       return false;

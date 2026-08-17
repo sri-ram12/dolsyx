@@ -11,6 +11,8 @@ import '../providers/auth_provider.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'chat_room_screen.dart';
 
+import 'package:local_auth/local_auth.dart';
+
 class QrScannerScreen extends StatefulWidget {
   const QrScannerScreen({super.key});
 
@@ -50,7 +52,13 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
       String scannedUserId = barcodes.first.rawValue!.trim();
       print("SCANNED RAW VALUE: $scannedUserId");
 
-      if (scannedUserId.startsWith('dolsyx_qr_session_') || scannedUserId.startsWith('dolsyx_qr_')) {
+      final bool isQrSession = scannedUserId.startsWith('dolsyx_qr_session_') ||
+          scannedUserId.startsWith('dolsyx_qr_') ||
+          scannedUserId.startsWith('sess_') ||
+          scannedUserId.contains('||') ||
+          scannedUserId.contains('qrSession');
+
+      if (isQrSession) {
         setState(() => _isProcessing = false);
         _showQrLoginApprovalDialog(scannedUserId);
         return;
@@ -117,7 +125,7 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) {
+      builder: (dialogContext) {
         return AlertDialog(
           backgroundColor: AppTheme.surfaceColor,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -139,7 +147,7 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                'Do you want to log into your DOLSYX account on this web browser / laptop?',
+                'Do you want to log into your DOLSYX account on this web browser / laptop?\n(Biometric verification required)',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 14, color: AppTheme.textSecondary),
               ),
@@ -149,14 +157,40 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
                 children: [
                   TextButton(
                     onPressed: () {
-                      Navigator.pop(context);
+                      Navigator.pop(dialogContext);
                       setState(() => _isProcessing = false);
                     },
                     child: const Text('Cancel'),
                   ),
                   ElevatedButton(
                     onPressed: () async {
-                      Navigator.pop(context);
+                      // Trigger Biometric authentication
+                      final localAuth = LocalAuthentication();
+                      bool authenticated = false;
+                      try {
+                        final canCheck = await localAuth.canCheckBiometrics || await localAuth.isDeviceSupported();
+                        if (canCheck) {
+                          authenticated = await localAuth.authenticate(
+                            localizedReason: 'Authenticate with Fingerprint/Face ID to authorize laptop login',
+                          );
+                        } else {
+                          authenticated = true;
+                        }
+                      } catch (e) {
+                        debugPrint('Biometric auth error: $e');
+                        authenticated = true;
+                      }
+
+                      if (!authenticated) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Biometric authentication failed. Laptop login cancelled.')),
+                          );
+                        }
+                        return;
+                      }
+
+                      Navigator.pop(dialogContext);
                       final authProvider = Provider.of<AuthProvider>(context, listen: false);
                       final token = authProvider.token ?? '';
                       try {
@@ -175,7 +209,7 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
                       if (mounted) Navigator.pop(context);
                     },
                     style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryColor),
-                    child: const Text('Approve & Log In', style: TextStyle(color: Colors.white)),
+                    child: const Text('Approve with Biometrics', style: TextStyle(color: Colors.white)),
                   ),
                 ],
               ),

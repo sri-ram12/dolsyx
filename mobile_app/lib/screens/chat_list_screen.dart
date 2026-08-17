@@ -162,7 +162,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
       final cachedChats = await _chatService.getCachedChats();
       if (cachedChats.isNotEmpty) {
         setState(() {
-          _chats = cachedChats.where((c) => c.isGroup || c.lastMessage != null).toList();
+          _chats = cachedChats;
           _sortChats();
           _isLoading = false;
         });
@@ -173,7 +173,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
       final chats = await _chatService.getChats();
       if (mounted) {
         setState(() {
-          _chats = chats.where((c) => c.isGroup || c.lastMessage != null).toList();
+          _chats = chats;
           _sortChats();
           _isLoading = false;
         });

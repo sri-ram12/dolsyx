@@ -3273,7 +3273,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 left: 8,
                 right: 8,
                 top: 8,
-                bottom: MediaQuery.paddingOf(context).bottom > 0 ? (MediaQuery.paddingOf(context).bottom + 4) : 10,
+                bottom: MediaQuery.paddingOf(context).bottom > 0 ? (MediaQuery.paddingOf(context).bottom + 16) : 14,
               ),
               color: Colors.transparent,
               child: _isRecordingLocked

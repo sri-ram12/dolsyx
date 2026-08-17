@@ -22,6 +22,7 @@ class CallScreen extends StatefulWidget {
   final String? remoteAvatarUrl;
   final bool isAudioOnly;
   final bool isIncoming;
+  final bool autoAccept;
   final Map<String, dynamic>? initialOffer;
 
   const CallScreen({
@@ -32,6 +33,7 @@ class CallScreen extends StatefulWidget {
     this.remoteAvatarUrl,
     required this.isAudioOnly,
     required this.isIncoming,
+    this.autoAccept = false,
     this.initialOffer,
   });
 
@@ -151,8 +153,12 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     _setupSocketListeners();
 
     if (widget.isIncoming) {
-      // Always accept call when incoming screen is launched via notification action or direct accept
-      _acceptCall();
+      if (widget.autoAccept) {
+        _acceptCall();
+      } else {
+        SoundService().startRingtone();
+        if (mounted) setState(() => _status = 'Incoming Call...');
+      }
     } else {
       SoundService().startRingbackTone();
       _timeoutTimer = Timer(const Duration(minutes: 2, seconds: 30), () {
@@ -572,7 +578,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           });
         }
         // Enable speaker so remote audio is heard
-        Helper.setSpeakerphoneOn(true);
+        _selectAudioOutputMode(_audioOutputMode);
       } else {
         // Fallback: build a persistent stream manually and add each arriving track
         final existing = _remoteStreams[targetUserId];
@@ -591,7 +597,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
             }
           });
         }
-        Helper.setSpeakerphoneOn(true);
+        _selectAudioOutputMode(_audioOutputMode);
       }
     };
 
@@ -613,7 +619,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           _remoteRenderers[targetUserId]?.srcObject = _remoteStreams[targetUserId];
         });
       }
-      Helper.setSpeakerphoneOn(true);
+      _selectAudioOutputMode(_audioOutputMode);
     };
 
     if (_localStream == null) {

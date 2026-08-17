@@ -165,6 +165,8 @@ class ApiService {
 
       if (response.statusCode == 200) {
         return jsonDecode(response.body);
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        await logout();
       }
       return null;
     } catch (e) {

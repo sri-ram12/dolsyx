@@ -73,6 +73,10 @@ class AuthProvider with ChangeNotifier {
         return true;
       }
 
+      // If token was cleared (e.g. 401/403 Access Denied), do not fallback to cached login
+      final validToken = await _apiService.getToken();
+      if (validToken == null) return false;
+
       // Network failed — try cached user data
       final prefs = await SharedPreferences.getInstance();
       final cachedUserStr = prefs.getString('cached_user_data');
@@ -80,7 +84,7 @@ class AuthProvider with ChangeNotifier {
         final cachedUser = jsonDecode(cachedUserStr) as Map<String, dynamic>;
         _isAuthenticated = true;
         _user = cachedUser;
-        _token = tkn;
+        _token = validToken;
         await _socketService.connect(_user!['id']);
         _setupSocketListeners();
         notifyListeners();

@@ -848,6 +848,14 @@ export const uploadChunk = async (req: AuthRequest, res: Response): Promise<void
       uploadId,
       chunkIndex,
       totalChunks,
+      chunkUrl,
+    });
+  } catch (error) {
+    console.error("Upload chunk error:", error);
+    res.status(500).json({ message: "Failed to upload chunk" });
+  }
+};
+
 export const editMessage = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.user!.id;

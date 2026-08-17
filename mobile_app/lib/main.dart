@@ -427,7 +427,6 @@ class _DolsyxAppState extends State<DolsyxApp> {
     // Don't show another incoming call UI if we're already on a call with this person
     if (CallScreen.activeConversationId == conversationId) return;
 
-    // Always store banner data (so it's available when user returns to app)
     if (mounted) {
       setState(() {
         _incomingCallData = {
@@ -441,49 +440,26 @@ class _DolsyxAppState extends State<DolsyxApp> {
       });
     }
 
-    // Play ringtone via SoundService (foreground audio)
+    // Play ringtone via SoundService
     SoundService().startRingtone();
 
-    // ALWAYS fire the OS notification with ringtone so it works in ALL states:
-    // foreground (heads-up banner), background (heads-up + sound), killed (full-screen alert + sound)
-    try {
-      flutterLocalNotificationsPlugin.show(
-        id: 8888,
-        title: 'Incoming ${isAudioOnly ? 'Audio' : 'Video'} Call',
-        body: '$callerName is calling you...',
-        payload: jsonEncode({
-          'conversationId': conversationId,
-          'callerId': callerId,
-          'callerName': callerName,
-          'callerAvatarUrl': callerAvatarUrl,
-          'isAudioOnly': isAudioOnly,
-          'initialOffer': initialOffer,
-        }),
-        notificationDetails: NotificationDetails(
-          android: AndroidNotificationDetails(
-            callChannel.id,
-            callChannel.name,
-            channelDescription: callChannel.description,
-            icon: '@mipmap/ic_launcher',
-            largeIcon: const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
-            priority: Priority.max,
-            importance: Importance.max,
-            fullScreenIntent: true,
-            category: AndroidNotificationCategory.call,
-            sound: const RawResourceAndroidNotificationSound('dolsyx_ringtone'),
-            audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
-            playSound: true,
-            enableVibration: false,
-            ongoing: true,
-            autoCancel: false,
-            actions: <AndroidNotificationAction>[
-              const AndroidNotificationAction('decline', 'Decline', cancelNotification: true),
-              const AndroidNotificationAction('accept', 'Accept', cancelNotification: true),
-            ],
+    // When inside the app, launch full screen CallScreen directly for immediate full-screen call UI
+    if (navigatorKey.currentState != null) {
+      navigatorKey.currentState!.push(
+        MaterialPageRoute(
+          settings: const RouteSettings(name: 'CallScreen'),
+          builder: (_) => CallScreen(
+            conversationId: conversationId,
+            remoteUserId: callerId,
+            remoteUserName: callerName,
+            remoteAvatarUrl: callerAvatarUrl,
+            isAudioOnly: isAudioOnly,
+            isIncoming: true,
+            initialOffer: initialOffer,
           ),
         ),
       );
-    } catch (_) {}
+    }
   }
 
   void _acceptIncomingCall([Map<String, dynamic>? callData]) {

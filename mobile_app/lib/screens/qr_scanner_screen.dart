@@ -97,8 +97,8 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
       try {
         final targetUser = await ApiService().getUserById(scannedUserId);
         if (targetUser != null && mounted) {
-          setState(() => _isProcessing = false);
-          _showUserDialog(targetUser, scannedUserId);
+          final String resolvedName = targetUser['username'] ?? targetUser['name'] ?? 'User';
+          _startCommunication(scannedUserId, resolvedName, userMap: targetUser);
         } else {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('User not found')));
@@ -323,10 +323,13 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
       if (image == null) return;
 
       setState(() => _isProcessing = true);
+      try { await _scannerController.stop(); } catch (_) {}
+
       final BarcodeCapture? capture = await _scannerController.analyzeImage(image.path);
       if (capture != null && capture.barcodes.isNotEmpty) {
         _onDetect(capture);
       } else {
+        try { await _scannerController.start(); } catch (_) {}
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('No QR code detected in selected image')),
@@ -335,6 +338,7 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
         }
       }
     } catch (e) {
+      try { await _scannerController.start(); } catch (_) {}
       debugPrint('Gallery QR scan error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

@@ -988,15 +988,18 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 onTap: () async {
                   Navigator.pop(context);
                   try {
-                    final fullUrl = message.mediaUrl!.startsWith('http')
-                        ? message.mediaUrl!
-                        : 'https://dolsyx-app.onrender.com${message.mediaUrl!}';
+                    final fullUrl = ApiService.getMediaUrl(message.mediaUrl!);
                     final response = await http.get(Uri.parse(fullUrl));
                     final tempDir = await getTemporaryDirectory();
                     final ext = message.mediaType == 'VIDEO' ? 'mp4' : 'jpg';
                     final tempFile = File('${tempDir.path}/dolsyx_${DateTime.now().millisecondsSinceEpoch}.$ext');
                     await tempFile.writeAsBytes(response.bodyBytes);
                     
+                    bool hasAccess = await Gal.hasAccess();
+                    if (!hasAccess) {
+                      hasAccess = await Gal.requestAccess();
+                    }
+
                     if (message.mediaType == 'VIDEO') {
                       await Gal.putVideo(tempFile.path);
                     } else {
@@ -1008,9 +1011,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                       );
                     }
                   } catch (e) {
+                    debugPrint('Gallery save error: $e');
                     if (mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Saved to Gallery!')),
+                        const SnackBar(content: Text('Saved to Gallery!')),
                       );
                     }
                   }
@@ -2643,15 +2647,18 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                             } else if (value == 'download' && selectedMsg.mediaUrl != null) {
                               setState(() => _selectedMessageIds.clear());
                               try {
-                                final fullUrl = selectedMsg.mediaUrl!.startsWith('http')
-                                    ? selectedMsg.mediaUrl!
-                                    : 'https://dolsyx-app.onrender.com${selectedMsg.mediaUrl!}';
+                                final fullUrl = ApiService.getMediaUrl(selectedMsg.mediaUrl!);
                                 final response = await http.get(Uri.parse(fullUrl));
                                 final tempDir = await getTemporaryDirectory();
                                 final ext = selectedMsg.mediaType == 'VIDEO' ? 'mp4' : 'jpg';
                                 final tempFile = File('${tempDir.path}/dolsyx_${DateTime.now().millisecondsSinceEpoch}.$ext');
                                 await tempFile.writeAsBytes(response.bodyBytes);
                                 
+                                bool hasAccess = await Gal.hasAccess();
+                                if (!hasAccess) {
+                                  hasAccess = await Gal.requestAccess();
+                                }
+
                                 if (selectedMsg.mediaType == 'VIDEO') {
                                   await Gal.putVideo(tempFile.path);
                                 } else {
@@ -2663,6 +2670,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                   );
                                 }
                               } catch (e) {
+                                debugPrint('Popup download error: $e');
                                 if (mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(content: Text('Saved to Phone Gallery!')),

@@ -2122,7 +2122,7 @@ export default function ChatWindow({
                     {msg.parentMessage && !isMsgDeleted && (
                       <div className="rounded-lg bg-[var(--theme-bg-sidebar-search)]/80 border-l-2 border-[var(--theme-accent)] px-3 py-1.5 text-[11px] text-[var(--theme-text-secondary)] mb-1 select-none pointer-events-none max-w-sm truncate">
                         <span className="font-bold text-[var(--theme-accent)] text-[9px] block">
-                          {msg.parentMessage.sender?.username || msg.parentMessage.sender?.name || "User"}
+                          {msg.parentMessage.sender?.username || (msg.parentMessage.sender as any)?.name || "User"}
                         </span>
                         {getQuotedParentPreviewText(msg.parentMessage)}
                       </div>

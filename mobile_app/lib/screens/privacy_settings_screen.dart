@@ -5,6 +5,7 @@ import '../providers/auth_provider.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'blocked_users_screen.dart';
+import 'status_privacy_screen.dart';
 
 class PrivacySettingsScreen extends StatefulWidget {
   const PrivacySettingsScreen({super.key});
@@ -200,14 +201,14 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
           ListTile(
             title: Text('Status', style: TextStyle(color: AppTheme.textPrimary)),
             subtitle: Text(_friendlyLabel(_statusPrivacy), style: TextStyle(color: AppTheme.textSecondary)),
-            onTap: () => _showPicker('Status visibility', [
-              {'value': 'MY_CONTACTS', 'label': 'My Contacts'},
-              {'value': 'EXCEPT', 'label': 'My Contacts Except...', 'desc': 'Share with everyone except selected contacts'},
-              {'value': 'ONLY_SHARE', 'label': 'Only Share With...', 'desc': 'Only share with selected contacts'},
-            ], _statusPrivacy, (val) {
-              setState(() => _statusPrivacy = val);
-              _updatePrivacy({'statusPrivacyType': val});
-            }),
+            trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.white54),
+            onTap: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (ctx) => const StatusPrivacyScreen()),
+              );
+              _loadPrivacySettings();
+            },
           ),
 
           const Divider(color: Colors.grey),

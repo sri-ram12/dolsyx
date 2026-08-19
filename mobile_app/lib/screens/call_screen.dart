@@ -14,6 +14,7 @@ import 'chat_list_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import '../utils/e2ee/crypto_service.dart';
+import '../main.dart';
 
 class CallScreen extends StatefulWidget {
   final String conversationId;
@@ -154,7 +155,6 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       // Always accept call when incoming screen is launched via notification action or direct accept
       _acceptCall();
     } else {
-      SoundService().startRingbackTone();
       _timeoutTimer = Timer(const Duration(minutes: 2, seconds: 30), () {
         if (!_callActive && mounted) {
           _handleCallNotConnected();
@@ -861,6 +861,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     CallScreen.activeCallState = null;
     CallScreen.isCallActiveNotifier.value = false;
     SoundService().stopRingtone();
+    try { flutterLocalNotificationsPlugin.cancelAll(); } catch (_) {}
     _callTimer?.cancel();
     _timeoutTimer?.cancel();
     _callActive = false;
@@ -1044,8 +1045,10 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
             }
             // Restore mic audio
             if (micAudioTracks.isNotEmpty) {
+              final micTrack = micAudioTracks.first;
+              micTrack.enabled = true;
               for (final sender in await pc.getSenders()) {
-                if (sender.track?.kind == 'audio') await sender.replaceTrack(micAudioTracks.first);
+                if (sender.track?.kind == 'audio') await sender.replaceTrack(micTrack);
               }
             }
           }
@@ -1067,19 +1070,28 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           final audioTracks = _screenStream!.getAudioTracks();
           if (videoTracks.isNotEmpty) {
             final screenVideoTrack = videoTracks.first;
+            screenVideoTrack.enabled = true;
             for (final pc in _peerConnections.values) {
               final senders = await pc.getSenders();
               for (final sender in senders) {
                 if (sender.track?.kind == 'video') await sender.replaceTrack(screenVideoTrack);
               }
-              // Also inject screen audio so remote user hears device media
+              // Inject screen audio or ensure mic audio track is active & routed to speaker
               if (audioTracks.isNotEmpty) {
                 final screenAudioTrack = audioTracks.first;
+                screenAudioTrack.enabled = true;
                 for (final sender in await pc.getSenders()) {
                   if (sender.track?.kind == 'audio') await sender.replaceTrack(screenAudioTrack);
                 }
+              } else if (_localStream != null && _localStream!.getAudioTracks().isNotEmpty) {
+                final micTrack = _localStream!.getAudioTracks().first;
+                micTrack.enabled = true;
+                for (final sender in await pc.getSenders()) {
+                  if (sender.track?.kind == 'audio') await sender.replaceTrack(micTrack);
+                }
               }
             }
+            Helper.setSpeakerphoneOn(true);
             // Keep local renderer on local camera stream or null to avoid infinite recursive screen mirror
             _localRenderer.srcObject = _localStream;
             setState(() => _isScreenSharing = true);

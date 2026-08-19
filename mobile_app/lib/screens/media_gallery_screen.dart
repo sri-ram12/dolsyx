@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../models/message.dart';
 import '../widgets/full_screen_image_view.dart';
+import '../services/api_service.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class MediaGalleryScreen extends StatelessWidget {
@@ -50,15 +52,19 @@ class MediaGalleryScreen extends StatelessWidget {
                     itemCount: mediaMessages.length,
                     itemBuilder: (context, index) {
                       final msg = mediaMessages[index];
-                      final fullUrl = msg.mediaUrl!.startsWith('http') ? msg.mediaUrl! : 'https://dolsyx-app.onrender.com${msg.mediaUrl!}';
                       return GestureDetector(
                         onTap: () {
                           Navigator.push(
                             context,
-                            MaterialPageRoute(builder: (_) => FullScreenImageView(imageUrl: fullUrl)),
+                            MaterialPageRoute(builder: (_) => FullScreenImageView(imageUrl: msg.mediaUrl!)),
                           );
                         },
-                        child: Image.network(fullUrl, fit: BoxFit.cover),
+                        child: CachedNetworkImage(
+                          imageUrl: ApiService.getMediaUrl(msg.mediaUrl!),
+                          fit: BoxFit.cover,
+                          placeholder: (context, url) => Container(color: Colors.black12),
+                          errorWidget: (context, url, error) => const Icon(Icons.broken_image, color: Colors.grey),
+                        ),
                       );
                     },
                   ),

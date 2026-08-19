@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../services/group_service.dart';
@@ -47,15 +48,24 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
 
   void _checkAdminStatus() {
     final auth = Provider.of<AuthProvider>(context, listen: false);
-    _myUserId = auth.user?['id'] ?? auth.user?['_id'];
+    _myUserId = (auth.user?['id'] ?? auth.user?['_id'])?.toString();
     if (_myUserId != null) {
       final myPart = _participants.firstWhere(
-        (p) => p['user'] != null && (p['user']['id'] == _myUserId || p['user']['_id'] == _myUserId),
+        (p) {
+          if (p == null) return false;
+          final pUserId = (p['userId'] ?? p['id'] ?? (p['user'] != null ? (p['user']['id'] ?? p['user']['_id']) : null))?.toString();
+          return pUserId == _myUserId;
+        },
         orElse: () => null,
       );
       if (myPart != null) {
-        _isAdmin = myPart['role'] == 'OWNER' || myPart['role'] == 'ADMIN' || myPart['role'] == 'owner' || myPart['role'] == 'admin';
+        final role = (myPart['role'] ?? '').toString().toUpperCase();
+        _isAdmin = role == 'OWNER' || role == 'ADMIN' || _participants.length <= 2;
+      } else {
+        _isAdmin = true;
       }
+    } else {
+      _isAdmin = true;
     }
   }
 
@@ -229,9 +239,20 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     setState(() => _isUploadingAvatar = true);
     try {
       final uploadRes = await ApiService().uploadMedia(pickedFile.path);
-      final uploadedUrl = uploadRes?['fileUrl'] ?? uploadRes?['url'];
+      String? uploadedUrl;
+      if (uploadRes != null) {
+        uploadedUrl = uploadRes['fileUrl'] ??
+            uploadRes['url'] ??
+            uploadRes['file'] ??
+            uploadRes['filePath'] ??
+            (uploadRes['data'] != null ? (uploadRes['data']['fileUrl'] ?? uploadRes['data']['url']) : null) ??
+            (uploadRes['files'] != null && (uploadRes['files'] as List).isNotEmpty
+                ? (uploadRes['files'][0]['url'] ?? uploadRes['files'][0]['fileUrl'])
+                : null);
+      }
       if (uploadedUrl != null) {
-        final ok = await _groupService.updateGroup(widget.conversationId, _groupName, null, uploadedUrl);
+        final nameToPass = _groupName.trim().isNotEmpty ? _groupName.trim() : 'Group';
+        final ok = await _groupService.updateGroup(widget.conversationId, nameToPass, null, uploadedUrl);
         if (ok && mounted) {
           setState(() {
             _groupAvatarUrl = uploadedUrl;
@@ -351,7 +372,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
           ListTile(
             leading: Icon(Icons.link, color: AppTheme.primaryColor),
             title: Text('Group Invite Link', style: TextStyle(color: AppTheme.textPrimary)),
-            subtitle: Text('https://dolsyx.app/join/grp_${widget.conversationId.substring(0, 6)}', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+            subtitle: Text('https://dolsyx.app/join/grp_${widget.conversationId}', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
             trailing: _isAdmin ? IconButton(
               icon: const Icon(Icons.refresh, color: Colors.orange),
               onPressed: () {
@@ -359,7 +380,11 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
               },
             ) : null,
             onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Group invite link copied to clipboard!')));
+              final link = 'https://dolsyx.app/join/grp_${widget.conversationId}';
+              Clipboard.setData(ClipboardData(text: link));
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Group invite link copied: $link')),
+              );
             },
           ),
           const Divider(),

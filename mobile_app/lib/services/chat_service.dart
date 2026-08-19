@@ -339,7 +339,7 @@ class ChatService {
   Future<List<dynamic>> getCallLogs() async {
     try {
       final token = await ApiService().getToken();
-      if (token == null) return [];
+      if (token == null) return await getCachedCallLogs();
 
       final response = await http.get(
         Uri.parse('${ApiService.baseUrl}/chats/calls'),
@@ -350,12 +350,27 @@ class ChatService {
       );
 
       if (response.statusCode == 200) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('cached_call_logs', response.body);
         return jsonDecode(response.body);
       }
-      return [];
+      return await getCachedCallLogs();
     } catch (e) {
       print('Network error fetching call logs: $e');
-      return [];
+      return await getCachedCallLogs();
     }
+  }
+
+  Future<List<dynamic>> getCachedCallLogs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final String? cachedData = prefs.getString('cached_call_logs');
+      if (cachedData != null) {
+        return jsonDecode(cachedData);
+      }
+    } catch (e) {
+      print('Error parsing cached call logs: $e');
+    }
+    return [];
   }
 }

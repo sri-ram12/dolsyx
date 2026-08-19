@@ -89,6 +89,9 @@ export const getChats = async (req: AuthRequest, res: Response): Promise<void> =
       } catch (_) {}
     }
 
+    const photoPrivacyCache = new Map<string, boolean>();
+    const aboutPrivacyCache = new Map<string, boolean>();
+
     // Format chat list for frontend convenience
     const formattedChats = await Promise.all(
       conversations.map(async (chat) => {
@@ -116,10 +119,16 @@ export const getChats = async (req: AuthRequest, res: Response): Promise<void> =
 
         if (recipient) {
           try {
-            const [canViewPhoto, canViewBio] = await Promise.all([
-              canViewProfilePhoto(userId, recipient.id),
-              canViewAbout(userId, recipient.id),
-            ]);
+            let canViewPhoto = photoPrivacyCache.get(recipient.id);
+            if (canViewPhoto === undefined) {
+              canViewPhoto = await canViewProfilePhoto(userId, recipient.id);
+              photoPrivacyCache.set(recipient.id, canViewPhoto);
+            }
+            let canViewBio = aboutPrivacyCache.get(recipient.id);
+            if (canViewBio === undefined) {
+              canViewBio = await canViewAbout(userId, recipient.id);
+              aboutPrivacyCache.set(recipient.id, canViewBio);
+            }
             if (!canViewPhoto) recipient.avatarUrl = null;
             if (!canViewBio) recipient.bio = null;
           } catch (_) {}
@@ -723,7 +732,12 @@ export const deleteMessage = async (req: AuthRequest, res: Response): Promise<vo
           select: { userId: true }
         });
         participants.forEach(p => {
-          io.to(p.userId).emit("message_deleted", { messageId, conversationId: message.conversationId });
+          io.to(p.userId).emit("message_deleted", {
+            messageId: message.id,
+            conversationId: message.conversationId,
+            isDeleted: true,
+            content: "This message was deleted",
+          });
         });
       }
     } else {

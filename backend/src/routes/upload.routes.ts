@@ -35,13 +35,37 @@ router.post("/", authenticateToken, (req, res) => {
     if (!files || files.length === 0) {
       return res.status(400).json({ message: "No file uploaded" });
     }
-    const uploadedFiles = files.map(f => ({
-      url: `/uploads/${f.filename}`,
-      fileUrl: `/uploads/${f.filename}`,
-      filename: f.originalname,
-      size: f.size,
-      mimetype: f.mimetype
-    }));
+    const getCleanUrl = (f: any): string => {
+      if (f.path && (f.path.startsWith("http://") || f.path.startsWith("https://"))) {
+        return f.path;
+      }
+      if (f.secure_url) return f.secure_url;
+      if (f.url && typeof f.url === "string" && (f.url.startsWith("http://") || f.url.startsWith("https://") || f.url.startsWith("/uploads/"))) {
+        return f.url;
+      }
+      if (f.filename && f.filename !== "undefined") {
+        return `/uploads/${f.filename}`;
+      }
+      if (f.path) {
+        const norm = f.path.replace(/\\/g, "/");
+        const idx = norm.indexOf("uploads/");
+        if (idx !== -1) return `/${norm.substring(idx)}`;
+        return f.path;
+      }
+      return "";
+    };
+
+    const uploadedFiles = files.map(f => {
+      const cleanUrl = getCleanUrl(f);
+      return {
+        url: cleanUrl,
+        fileUrl: cleanUrl,
+        filename: f.originalname,
+        size: f.size,
+        mimetype: f.mimetype
+      };
+    });
+
     const first = uploadedFiles[0]!;
     return res.status(200).json({
       url: first.url,

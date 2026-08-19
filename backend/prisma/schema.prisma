@@ -69,18 +69,20 @@ model User {
 }
 
 model Status {
-  id        String       @id @default(uuid())
-  userId    String
-  mediaUrl  String?
-  mediaType String       @default("TEXT") // TEXT, IMAGE, VIDEO
-  caption   String?
-  bgColor   String?      // For text-only statuses
-  createdAt DateTime     @default(now())
-  expiresAt DateTime     // 24 hours from creation
+  id          String       @id @default(uuid())
+  userId      String
+  mediaUrl    String?
+  mediaType   String       @default("TEXT") // TEXT, IMAGE, VIDEO
+  caption     String?
+  bgColor     String?      // For text-only statuses
+  privacyType String       @default("MY_CONTACTS") // MY_CONTACTS, EXCEPT, ONLY_SHARE
+  privacyList String       @default("[]") // JSON string list of user IDs at creation
+  createdAt   DateTime     @default(now())
+  expiresAt   DateTime     // 24 hours from creation
 
-  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  views     StatusView[]
-  replies   Message[]    @relation("StatusReplies")
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  views       StatusView[]
+  replies     Message[]    @relation("StatusReplies")
 }
 
 model StatusView {

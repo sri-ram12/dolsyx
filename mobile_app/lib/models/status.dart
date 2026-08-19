@@ -24,15 +24,29 @@ class StatusModel {
   });
 
   factory StatusModel.fromJson(Map<String, dynamic> json) {
+    String extractUserId() {
+      if (json['userId'] != null && json['userId'].toString().isNotEmpty) {
+        return json['userId'].toString();
+      }
+      if (json['user'] is Map) {
+        final u = json['user'];
+        return (u['id'] ?? u['_id'] ?? '').toString();
+      }
+      if (json['user'] != null) {
+        return json['user'].toString();
+      }
+      return '';
+    }
+
     return StatusModel(
-      id: json['id'] ?? '',
-      userId: json['userId'] ?? '',
+      id: (json['id'] ?? json['_id'] ?? '').toString(),
+      userId: extractUserId(),
       mediaUrl: json['mediaUrl'] ?? '',
       mediaType: json['mediaType'] ?? 'TEXT',
       caption: json['caption'] ?? json['content'] ?? '',
       bgColor: json['bgColor'],
-      expiresAt: json['expiresAt'] != null ? DateTime.parse(json['expiresAt']) : DateTime.now(),
-      createdAt: json['createdAt'] != null ? DateTime.parse(json['createdAt']) : DateTime.now(),
+      expiresAt: json['expiresAt'] != null ? (DateTime.tryParse(json['expiresAt'].toString()) ?? DateTime.now()) : DateTime.now(),
+      createdAt: json['createdAt'] != null ? (DateTime.tryParse(json['createdAt'].toString()) ?? DateTime.now()) : DateTime.now(),
       isViewed: json['isViewed'] ?? false,
       views: json['views'],
     );

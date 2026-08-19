@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/status.dart';
 import 'api_service.dart';
 
@@ -9,19 +10,37 @@ class StatusService {
   Future<List<UserStatusGroup>> getStatuses() async {
     try {
       final token = await _apiService.getToken();
-      final response = await http.get(
-        Uri.parse('${ApiService.baseUrl}/status'),
-        headers: {
-          'Authorization': 'Bearer $token',
-        },
-      );
+      if (token != null) {
+        final response = await http.get(
+          Uri.parse('${ApiService.baseUrl}/status'),
+          headers: {
+            'Authorization': 'Bearer $token',
+          },
+        );
 
-      if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
-        return data.map((json) => UserStatusGroup.fromJson(json)).toList();
+        if (response.statusCode == 200) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('cached_statuses_v1', response.body);
+          final List<dynamic> data = jsonDecode(response.body);
+          return data.map((json) => UserStatusGroup.fromJson(json)).toList();
+        }
       }
     } catch (e) {
       print('Error getting statuses: $e');
+    }
+    return await getCachedStatuses();
+  }
+
+  Future<List<UserStatusGroup>> getCachedStatuses() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final String? cachedData = prefs.getString('cached_statuses_v1');
+      if (cachedData != null) {
+        final List<dynamic> data = jsonDecode(cachedData);
+        return data.map((json) => UserStatusGroup.fromJson(json)).toList();
+      }
+    } catch (e) {
+      print('Error reading cached statuses: $e');
     }
     return [];
   }
@@ -49,7 +68,7 @@ class StatusService {
     return null;
   }
 
-  Future<bool> createStatus(String mediaUrl, String mediaType, String content) async {
+  Future<bool> createStatus(String mediaUrl, String mediaType, String content, {String? bgColor}) async {
     try {
       final token = await _apiService.getToken();
       final response = await http.post(
@@ -59,9 +78,11 @@ class StatusService {
           'Authorization': 'Bearer $token',
         },
         body: jsonEncode({
-          'mediaUrl': mediaUrl,
+          'mediaUrl': mediaUrl.isNotEmpty ? mediaUrl : null,
           'mediaType': mediaType,
+          'caption': content.isNotEmpty ? content : null,
           'content': content,
+          'bgColor': bgColor ?? '#075E54',
         }),
       );
 

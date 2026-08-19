@@ -4,6 +4,8 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../theme/app_theme.dart';
 import '../../services/chat_service.dart';
+import '../../services/api_service.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../providers/auth_provider.dart';
 import '../../widgets/color_avatar.dart';
 import '../call_screen.dart';
@@ -309,9 +311,7 @@ class _CallsTabState extends State<CallsTab> {
                           leading: otherUser['avatarUrl'] != null && otherUser['avatarUrl'].toString().isNotEmpty
                               ? CircleAvatar(
                                   backgroundColor: AppTheme.surfaceColor,
-                                  backgroundImage: otherUser['avatarUrl'].toString().startsWith('http')
-                                      ? NetworkImage(otherUser['avatarUrl'])
-                                      : NetworkImage('https://dolsyx-app.onrender.com${otherUser['avatarUrl']}'),
+                                  backgroundImage: CachedNetworkImageProvider(ApiService.getMediaUrl(otherUser['avatarUrl'])),
                                 )
                               : ColorAvatar(
                                   name: otherUser['username'] ?? '?',

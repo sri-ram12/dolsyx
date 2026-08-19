@@ -635,8 +635,14 @@ export const initChatSocket = (io: Server) => {
             select: { userId: true },
           });
 
-          // Broadcast the updated soft-deleted message to everyone
+          // Broadcast both message_deleted and message_edited to everyone
           participants.forEach((participant) => {
+            io.to(participant.userId).emit("message_deleted", {
+              messageId,
+              conversationId: existing.conversationId,
+              isDeleted: true,
+              content: "This message was deleted",
+            });
             io.to(participant.userId).emit("message_edited", {
               message: updatedMessage,
               conversationId: existing.conversationId,

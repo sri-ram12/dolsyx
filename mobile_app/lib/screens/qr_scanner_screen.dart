@@ -49,65 +49,68 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
     if (_isProcessing) return;
     
     final List<Barcode> barcodes = capture.barcodes;
-    if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
-      String scannedUserId = barcodes.first.rawValue!.trim();
-      print("SCANNED RAW VALUE: $scannedUserId");
+    if (barcodes.isEmpty || barcodes.first.rawValue == null || barcodes.first.rawValue!.trim().isEmpty) {
+      if (mounted) setState(() => _isProcessing = false);
+      return;
+    }
 
-      final bool isQrSession = scannedUserId.startsWith('dolsyx_qr_session_') ||
-          scannedUserId.startsWith('dolsyx_qr_') ||
-          scannedUserId.startsWith('sess_') ||
-          scannedUserId.contains('||') ||
-          scannedUserId.contains('qrSession');
+    String scannedUserId = barcodes.first.rawValue!.trim();
+    print("SCANNED RAW VALUE: $scannedUserId");
 
-      if (isQrSession) {
-        setState(() => _isProcessing = false);
-        _showQrLoginApprovalDialog(scannedUserId);
-        return;
+    final bool isQrSession = scannedUserId.startsWith('dolsyx_qr_session_') ||
+        scannedUserId.startsWith('dolsyx_qr_') ||
+        scannedUserId.startsWith('sess_') ||
+        scannedUserId.contains('||') ||
+        scannedUserId.contains('qrSession');
+
+    if (isQrSession) {
+      setState(() => _isProcessing = false);
+      _showQrLoginApprovalDialog(scannedUserId);
+      return;
+    }
+
+    Map<String, dynamic>? inlineUser;
+    if (scannedUserId.startsWith('dolsyx://user/')) {
+      scannedUserId = scannedUserId.replaceFirst('dolsyx://user/', '');
+    }
+
+    try {
+      final Map<String, dynamic> parsed = jsonDecode(scannedUserId);
+      if (parsed.containsKey('id')) scannedUserId = parsed['id'];
+      else if (parsed.containsKey('_id')) scannedUserId = parsed['_id'];
+      else if (parsed.containsKey('userId')) scannedUserId = parsed['userId'];
+
+      if (parsed.containsKey('username')) {
+        inlineUser = parsed;
       }
+    } catch (e) {
+      // Not a JSON string, assume raw ID
+    }
+    
+    print("SCANNED EXTRACTED ID: $scannedUserId");
 
-      Map<String, dynamic>? inlineUser;
-      if (scannedUserId.startsWith('dolsyx://user/')) {
-        scannedUserId = scannedUserId.replaceFirst('dolsyx://user/', '');
-      }
+    setState(() => _isProcessing = true);
 
-      try {
-        final Map<String, dynamic> parsed = jsonDecode(scannedUserId);
-        if (parsed.containsKey('id')) scannedUserId = parsed['id'];
-        else if (parsed.containsKey('_id')) scannedUserId = parsed['_id'];
-        else if (parsed.containsKey('userId')) scannedUserId = parsed['userId'];
-
-        if (parsed.containsKey('username')) {
-          inlineUser = parsed;
+    // If user details are embedded in QR code, go directly to chat INSTANTLY
+    if (inlineUser != null && mounted) {
+      final name = inlineUser['username'] ?? 'User';
+      _startCommunication(scannedUserId, name, userMap: inlineUser);
+      return;
+    }
+    
+    try {
+      final targetUser = await ApiService().getUserById(scannedUserId);
+      if (targetUser != null && mounted) {
+        final String resolvedName = targetUser['username'] ?? targetUser['name'] ?? 'User';
+        _startCommunication(scannedUserId, resolvedName, userMap: targetUser);
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('User not found')));
+          setState(() => _isProcessing = false);
         }
-      } catch (e) {
-        // Not a JSON string, assume raw ID
       }
-      
-      print("SCANNED EXTRACTED ID: $scannedUserId");
-
-      setState(() => _isProcessing = true);
-
-      // If user details are embedded in QR code, go directly to chat INSTANTLY
-      if (inlineUser != null && mounted) {
-        final name = inlineUser['username'] ?? 'User';
-        _startCommunication(scannedUserId, name, userMap: inlineUser);
-        return;
-      }
-      
-      try {
-        final targetUser = await ApiService().getUserById(scannedUserId);
-        if (targetUser != null && mounted) {
-          final String resolvedName = targetUser['username'] ?? targetUser['name'] ?? 'User';
-          _startCommunication(scannedUserId, resolvedName, userMap: targetUser);
-        } else {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('User not found')));
-            setState(() => _isProcessing = false);
-          }
-        }
-      } catch (e) {
-        if (mounted) setState(() => _isProcessing = false);
-      }
+    } catch (e) {
+      if (mounted) setState(() => _isProcessing = false);
     }
   }
 
@@ -285,11 +288,18 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
     try {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       final token = authProvider.token ?? '';
+      final myUserId = (authProvider.user?['id'] ?? authProvider.user?['_id'])?.toString();
+
+      if (myUserId != null && myUserId == userId.toString()) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('This is your own QR code')));
+          setState(() => _isProcessing = false);
+        }
+        return;
+      }
       
-      // Auto save contact by ID so name is preserved instantly
-      try {
-        await ContactService.addContactById(token, userId, savedName: chatName);
-      } catch (_) {}
+      // Save contact asynchronously in background without delaying navigation
+      ContactService.addContactById(token, userId, savedName: chatName).catchError((_) {});
 
       final chat = await _chatService.createDirectChat(userId);
       if (mounted && chat != null) {
@@ -319,17 +329,21 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
   Future<void> _scanFromGallery() async {
     try {
       final ImagePicker picker = ImagePicker();
-      final XFile? image = await picker.pickImage(source: ImageSource.gallery);
+      // Downscale image to 1280x1280 max for instant local QR detection without thread blocking
+      final XFile? image = await picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1280,
+        maxHeight: 1280,
+        imageQuality: 85,
+      );
       if (image == null) return;
 
       setState(() => _isProcessing = true);
-      try { await _scannerController.stop(); } catch (_) {}
 
       final BarcodeCapture? capture = await _scannerController.analyzeImage(image.path);
       if (capture != null && capture.barcodes.isNotEmpty) {
         _onDetect(capture);
       } else {
-        try { await _scannerController.start(); } catch (_) {}
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('No QR code detected in selected image')),
@@ -338,7 +352,6 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
         }
       }
     } catch (e) {
-      try { await _scannerController.start(); } catch (_) {}
       debugPrint('Gallery QR scan error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

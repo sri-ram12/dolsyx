@@ -27,8 +27,11 @@ export const isContactOf = async (ownerId: string, contactId: string): Promise<b
 };
 
 // Helper: Check if a user is in an exception list
-const inExceptionList = (listJson: string, userId: string): boolean => {
+const inExceptionList = (listJson: string | string[], userId: string): boolean => {
   try {
+    if (Array.isArray(listJson)) {
+      return listJson.includes(userId);
+    }
     const list = JSON.parse(listJson);
     return Array.isArray(list) && list.includes(userId);
   } catch (e) {
@@ -39,42 +42,48 @@ const inExceptionList = (listJson: string, userId: string): boolean => {
 // Evaluates general privacy setting for a field (lastSeen, avatar, about)
 const evaluatePrivacySetting = async (
   requesterId: string,
-  targetUser: any, // User object containing privacy settings
-  privacyType: string, // targetUser's setting value (e.g. EVERYONE, MY_CONTACTS, EXCEPT, NOBODY)
-  exceptListJson: string // JSON array of user IDs
+  target: any,
+  privacySetting: string,
+  exceptListJson: string
 ): Promise<boolean> => {
-  // If same user, always allow
-  if (requesterId === targetUser.id) return true;
+  if (requesterId === target.id) return true;
 
-  // 1. Check if either user has blocked the other
-  const blocks = await getBlockStatus(requesterId, targetUser.id);
+  const blocks = await getBlockStatus(requesterId, target.id);
   if (blocks.isAnyBlocked) return false;
 
-  // 2. Evaluate visibility options
-  switch (privacyType) {
+  switch (privacySetting) {
     case "EVERYONE":
-    case "PUBLIC":
       return true;
 
     case "MY_CONTACTS":
-    case "CONTACTS":
-      // Requester must be in target's contacts list
-      return await isContactOf(targetUser.id, requesterId);
+      return await isContactOf(target.id, requesterId);
 
     case "EXCEPT":
-    case "MY_CONTACTS_EXCEPT":
-      // Requester must be in target's contacts AND NOT in exception list
-      const inContacts = await isContactOf(targetUser.id, requesterId);
+      const inContacts = await isContactOf(target.id, requesterId);
       if (!inContacts) return false;
       return !inExceptionList(exceptListJson, requesterId);
 
     case "NOBODY":
-    default:
       return false;
+
+    default:
+      return true;
   }
 };
 
-// 1. Can requester view target's last seen?
+// 1. Can requester view target's avatar?
+export const canViewAvatar = async (requesterId: string, targetUserId: string): Promise<boolean> => {
+  const target = await prisma.user.findUnique({ where: { id: targetUserId } });
+  if (!target) return false;
+  return await evaluatePrivacySetting(
+    requesterId,
+    target,
+    target.avatarPrivacy,
+    target.avatarPrivacyExceptList
+  );
+};
+
+// 2. Can requester view target's last seen?
 export const canViewLastSeen = async (requesterId: string, targetUserId: string): Promise<boolean> => {
   const target = await prisma.user.findUnique({ where: { id: targetUserId } });
   if (!target) return false;
@@ -86,35 +95,16 @@ export const canViewLastSeen = async (requesterId: string, targetUserId: string)
   );
 };
 
-// 2. Can requester view target's online status?
-export const canViewOnline = async (requesterId: string, targetUserId: string): Promise<boolean> => {
+// 3. Can requester view target's online status?
+export const canViewOnlineStatus = async (requesterId: string, targetUserId: string): Promise<boolean> => {
   const target = await prisma.user.findUnique({ where: { id: targetUserId } });
   if (!target) return false;
 
-  // B blocks A or A blocks B
-  const blocks = await getBlockStatus(requesterId, targetUserId);
-  if (blocks.isAnyBlocked) return false;
-
-  if (target.onlinePrivacy === "EVERYONE") return true;
-
+  if (target.onlinePrivacy === "NOBODY") return false;
   if (target.onlinePrivacy === "SAME_AS_LAST_SEEN") {
     return await canViewLastSeen(requesterId, targetUserId);
   }
-
-  // NOBODY
-  return false;
-};
-
-// 3. Can requester view target's profile photo?
-export const canViewProfilePhoto = async (requesterId: string, targetUserId: string): Promise<boolean> => {
-  const target = await prisma.user.findUnique({ where: { id: targetUserId } });
-  if (!target) return false;
-  return await evaluatePrivacySetting(
-    requesterId,
-    target,
-    target.avatarPrivacy,
-    target.avatarPrivacyExceptList
-  );
+  return true;
 };
 
 // 4. Can requester view target's about message?
@@ -130,7 +120,11 @@ export const canViewAbout = async (requesterId: string, targetUserId: string): P
 };
 
 // 5. Can requester view target's status updates?
-export const canViewStatus = async (requesterId: string, targetUserId: string): Promise<boolean> => {
+export const canViewStatus = async (
+  requesterId: string,
+  targetUserId: string,
+  statusSnapshot?: { privacyType?: string | null; privacyList?: string | string[] | null }
+): Promise<boolean> => {
   const target = await prisma.user.findUnique({ where: { id: targetUserId } });
   if (!target) return false;
 
@@ -143,15 +137,19 @@ export const canViewStatus = async (requesterId: string, targetUserId: string): 
   const inContacts = await isContactOf(targetUserId, requesterId);
   if (!inContacts) return false;
 
-  switch (target.statusPrivacyType) {
+  // Use status creation snapshot if provided, otherwise target user's current settings
+  const privacyType = statusSnapshot?.privacyType || target.statusPrivacyType;
+  const privacyList = statusSnapshot?.privacyList ?? target.statusPrivacyList;
+
+  switch (privacyType) {
     case "MY_CONTACTS":
       return true;
 
     case "EXCEPT":
-      return !inExceptionList(target.statusPrivacyList, requesterId);
+      return !inExceptionList(privacyList, requesterId);
 
     case "ONLY_SHARE":
-      return inExceptionList(target.statusPrivacyList, requesterId);
+      return inExceptionList(privacyList, requesterId);
 
     default:
       return false;
@@ -167,3 +165,6 @@ export const canExchangeReadReceipts = async (userAId: string, userBId: string):
   });
   return users.every(u => u.readReceipts === true);
 };
+
+export const canViewProfilePhoto = canViewAvatar;
+export const canViewOnline = canViewOnlineStatus;

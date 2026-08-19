@@ -1,5 +1,4 @@
 import 'package:socket_io_client/socket_io_client.dart' as IO;
-import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -11,6 +10,10 @@ import '../utils/e2ee/crypto_service.dart';
 import '../utils/e2ee/e2ee_api.dart';
 
 class SocketService {
+  static final SocketService _instance = SocketService._internal();
+  factory SocketService() => _instance;
+  SocketService._internal();
+
   IO.Socket? socket;
   final CryptoService _crypto = CryptoService();
   
@@ -116,11 +119,17 @@ class SocketService {
     // Listen for real-time E2EE encrypted messages and auto-decrypt them
     socket?.on('receive_encrypted_message', (data) async {
       try {
-        final message = data['message'] as Map<String, dynamic>;
-        final conversationId = data['conversationId'] as String;
-        final content = message['content'] as String;
-        final senderUserId = message['senderId'] as String;
+        if (data == null || data is! Map) return;
+        final rawMsg = data['message'];
+        if (rawMsg == null || rawMsg is! Map) return;
+
+        final message = Map<String, dynamic>.from(rawMsg);
+        final conversationId = (data['conversationId'] ?? '').toString();
+        final content = (message['content'] ?? '').toString();
+        final senderUserId = (message['senderId'] ?? message['sender']?['id'] ?? message['sender']?['_id'] ?? '').toString();
         
+        if (content.isEmpty || senderUserId.isEmpty) return;
+
         final payloadJson = jsonDecode(content) as Map<String, dynamic>;
         final payload = MessagePayload.fromJson(payloadJson);
         final plaintext = await _crypto.decryptMessage(
@@ -260,6 +269,7 @@ class SocketService {
     required String plaintext,
     required String token,
     required String myUserId,
+    String? parentMessageId,
   }) async {
     try {
       // Fetch recipient's public key bundle
@@ -294,6 +304,7 @@ class SocketService {
         'senderDeviceId': 1,
         'conversationId': conversationId,
         'recipients': recipients,
+        if (parentMessageId != null) 'parentMessageId': parentMessageId,
       }, token);
     } catch (e) {
       print('⚠️ E2EE encrypted message failed ($e). Falling back to standard socket delivery...');
@@ -304,7 +315,7 @@ class SocketService {
           extractedType = decoded['mediaType'];
         }
       } catch (_) {}
-      sendMessage(conversationId, plaintext, mediaType: extractedType);
+      sendMessage(conversationId, plaintext, mediaType: extractedType, parentMessageId: parentMessageId);
     }
   }
   /// Sends an E2EE encrypted message to all members in a Group Chat.
@@ -315,6 +326,7 @@ class SocketService {
     required String plaintext,
     required String token,
     required String myUserId,
+    String? parentMessageId,
   }) async {
     try {
       final List<Map<String, dynamic>> allRecipients = [];
@@ -358,13 +370,14 @@ class SocketService {
           'senderDeviceId': 1,
           'conversationId': conversationId,
           'recipients': allRecipients,
+          if (parentMessageId != null) 'parentMessageId': parentMessageId,
         }, token);
       } else {
-        sendMessage(conversationId, plaintext);
+        sendMessage(conversationId, plaintext, parentMessageId: parentMessageId);
       }
     } catch (e) {
       print('⚠️ Group E2EE encrypted message failed ($e). Falling back to standard socket delivery...');
-      sendMessage(conversationId, plaintext);
+      sendMessage(conversationId, plaintext, parentMessageId: parentMessageId);
     }
   }
 
@@ -447,6 +460,18 @@ class SocketService {
   void offMessageDeleted(Function(dynamic) callback) {
     if (socket != null) {
       socket!.off('message_deleted', callback);
+    }
+  }
+
+  void onMessageEdited(Function(dynamic) callback) {
+    if (socket != null) {
+      socket!.on('message_edited', callback);
+    }
+  }
+
+  void offMessageEdited(Function(dynamic) callback) {
+    if (socket != null) {
+      socket!.off('message_edited', callback);
     }
   }
 

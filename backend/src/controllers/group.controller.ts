@@ -87,7 +87,7 @@ export const updateGroup = async (req: AuthRequest, res: Response): Promise<void
       return;
     }
 
-    // Check if current user is an admin or owner
+    // Check if current user is a participant
     const participant = await prisma.participant.findFirst({
       where: {
         conversationId,
@@ -95,18 +95,25 @@ export const updateGroup = async (req: AuthRequest, res: Response): Promise<void
       },
     });
 
-    if (!participant || (participant.role !== "OWNER" && participant.role !== "ADMIN")) {
+    if (!participant) {
       res.status(403).json({ message: "Unauthorized to update group details" });
       return;
     }
 
+    const updateData: any = {};
+    if (name !== undefined && name !== null && name.trim() !== "") {
+      updateData.name = name.trim();
+    }
+    if (description !== undefined && description !== null) {
+      updateData.description = description.trim();
+    }
+    if (avatarUrl !== undefined && avatarUrl !== null && avatarUrl.trim() !== "") {
+      updateData.avatarUrl = avatarUrl.trim();
+    }
+
     const updated = await prisma.conversation.update({
       where: { id: conversationId },
-      data: {
-        name: name?.trim() || undefined,
-        description: description !== undefined ? description.trim() : undefined,
-        avatarUrl: avatarUrl || undefined,
-      },
+      data: updateData,
       include: {
         participants: {
           select: { userId: true }

@@ -59,7 +59,6 @@ class ChatRoomScreen extends StatefulWidget {
 }
 
 class _ChatRoomScreenState extends State<ChatRoomScreen> {
-  final SocketService _socketService = SocketService();
   final ChatService _chatService = ChatService();
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
@@ -111,6 +110,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   bool _isBlocked = false;
   Message? _replyingTo;
+  String? _highlightedMessageId;
   bool _isRecording = false;
   bool _isRecordingLocked = false;
   int _recordingDuration = 0;
@@ -118,6 +118,73 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   String? _recordingPath;
   final AudioRecorder _audioRecorder = AudioRecorder();
   Message? _pinnedMessage;
+
+  void _scrollToMessage(String targetId) {
+    final idx = _messages.indexWhere((m) => m.id == targetId || (m.parentMessage != null && (m.parentMessage!['id'] == targetId || m.parentMessage!['_id'] == targetId)));
+    if (idx != -1) {
+      _scrollController.animateTo(
+        idx * 75.0,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOutCubic,
+      );
+      setState(() {
+        _highlightedMessageId = targetId;
+      });
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted && _highlightedMessageId == targetId) {
+          setState(() {
+            _highlightedMessageId = null;
+          });
+        }
+      });
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Original message is no longer available')),
+        );
+      }
+    }
+  }
+
+  String _getReplySenderName(Message msg) {
+    final currentUserId = (Provider.of<AuthProvider>(context, listen: false).user?['id'] ?? Provider.of<AuthProvider>(context, listen: false).user?['_id'])?.toString();
+    final senderMap = msg.sender;
+    final senderId = (msg.senderId.isNotEmpty ? msg.senderId : (senderMap != null ? (senderMap['id'] ?? senderMap['_id']) : null))?.toString();
+    if (senderId == currentUserId) {
+      return 'You';
+    }
+    if (senderMap != null && senderMap['username'] != null && senderMap['username'].toString().isNotEmpty) {
+      return senderMap['username'].toString();
+    }
+    return widget.chatName;
+  }
+
+  String _getReplyPreviewText(Message msg) {
+    if (msg.isDeleted || msg.content == 'This message was deleted') {
+      return 'This message was deleted';
+    }
+    if (msg.mediaType == 'CALL_LOG') {
+      final text = msg.content;
+      if (text.toLowerCase().contains('missed')) {
+        return '📞 Missed call';
+      } else if (text.toLowerCase().contains('declined')) {
+        return '📞 Declined call';
+      } else if (msg.mediaUrl == 'VIDEO_CALL' || text.toLowerCase().contains('video')) {
+        return '🎥 Video call';
+      } else {
+        return '📞 Voice call';
+      }
+    }
+    if (msg.mediaType == 'IMAGE') return '📷 Photo';
+    if (msg.mediaType == 'VIDEO') return '🎥 Video';
+    if (msg.mediaType == 'AUDIO') return '🎵 Voice message';
+    if (msg.mediaType == 'LOCATION' || msg.latitude != null) return '📍 Location';
+    if (msg.mediaType == 'POLL') return '📊 Poll';
+    if (msg.mediaType == 'DOCUMENT' || msg.mediaType == 'FILE') return '📄 Document';
+    if (msg.mediaType == 'STICKER') return '😊 Sticker';
+
+    return msg.content.isNotEmpty ? msg.content : 'Message';
+  }
 
   // Feature States
   bool _isMuted = false;
@@ -546,6 +613,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     authProvider.socketService.onStatusChange(_handleStatusChange);
     authProvider.socketService.onChatCleared(_handleChatCleared);
     authProvider.socketService.onMessageDeleted(_handleMessageDeleted);
+    authProvider.socketService.onMessageEdited(_handleMessageEdited);
     authProvider.socketService.onMessagesRead(_handleMessagesRead);
     authProvider.socketService.onProfileUpdated(_handleProfileUpdated);
     authProvider.socketService.onReactionAdded(_handleReactionAdded);
@@ -580,6 +648,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     authProvider.socketService.offStatusChange(_handleStatusChange);
     authProvider.socketService.offChatCleared(_handleChatCleared);
     authProvider.socketService.offMessageDeleted(_handleMessageDeleted);
+    authProvider.socketService.offMessageEdited(_handleMessageEdited);
     authProvider.socketService.offMessagesRead(_handleMessagesRead);
     authProvider.socketService.offProfileUpdated(_handleProfileUpdated);
     authProvider.socketService.offReactionAdded(_handleReactionAdded);
@@ -813,8 +882,13 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   void _handleMessageDeleted(dynamic data) {
-    if (mounted && data != null && data['conversationId'] == widget.conversationId) {
-      final String msgId = data['messageId'] ?? '';
+    if (mounted && data != null) {
+      final String convId = (data['conversationId'] ?? '').toString();
+      if (convId.isNotEmpty && convId != widget.conversationId) return;
+
+      final String msgId = (data['messageId'] ?? '').toString();
+      if (msgId.isEmpty) return;
+
       setState(() {
         final idx = _messages.indexWhere((m) => m.id == msgId);
         if (idx != -1) {
@@ -829,6 +903,40 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         }
       });
       _updateMessageCache();
+    }
+  }
+
+  void _handleMessageEdited(dynamic data) {
+    if (mounted && data != null) {
+      try {
+        final Map<String, dynamic> rawMsg = data['message'] != null ? Map<String, dynamic>.from(data['message']) : Map<String, dynamic>.from(data);
+        final String convId = (data['conversationId'] ?? rawMsg['conversationId'] ?? '').toString();
+        if (convId.isNotEmpty && convId != widget.conversationId) return;
+
+        final editedMsg = Message.fromJson(rawMsg);
+        setState(() {
+          final idx = _messages.indexWhere((m) => m.id == editedMsg.id);
+          if (idx != -1) {
+            _messages[idx] = Message(
+              id: editedMsg.id,
+              content: editedMsg.content,
+              senderId: editedMsg.senderId,
+              conversationId: editedMsg.conversationId,
+              createdAt: _messages[idx].createdAt,
+              mediaUrl: editedMsg.mediaUrl ?? _messages[idx].mediaUrl,
+              mediaType: editedMsg.mediaType ?? _messages[idx].mediaType,
+              isEdited: true,
+              sender: editedMsg.sender ?? _messages[idx].sender,
+              parentMessage: editedMsg.parentMessage ?? _messages[idx].parentMessage,
+              receipts: _messages[idx].receipts,
+              reactions: _messages[idx].reactions,
+            );
+          }
+        });
+        _updateMessageCache();
+      } catch (e) {
+        debugPrint('Error handling message edited: $e');
+      }
     }
   }
 
@@ -1044,6 +1152,17 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               onTap: () {
                 Navigator.pop(context);
                 _deleteMessage(message.id, false);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.reply, color: Colors.blueAccent),
+              title: const Text('Reply'),
+              onTap: () {
+                Navigator.pop(context);
+                setState(() {
+                  _replyingTo = message;
+                });
+                _focusNode.requestFocus();
               },
             ),
             ListTile(
@@ -1477,6 +1596,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         plaintext: text,
         token: authProvider.token!,
         myUserId: authProvider.user?['id'] ?? '',
+        parentMessageId: _replyingTo?.id,
       ).catchError((e) {
         // Fallback to regular socket for resilience
         print('E2EE send failed, using fallback: $e');
@@ -1503,6 +1623,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         plaintext: text,
         token: authProvider.token!,
         myUserId: authProvider.user?['id'] ?? '',
+        parentMessageId: _replyingTo?.id,
       ).catchError((e) {
         authProvider.socketService.sendMessage(
           widget.conversationId,
@@ -1528,6 +1649,13 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       conversationId: widget.conversationId,
       createdAt: DateTime.now(),
       isPending: authProvider.socketService.socket?.connected != true,
+      parentMessage: _replyingTo != null ? {
+        'id': _replyingTo!.id,
+        'content': _replyingTo!.content,
+        'sender': _replyingTo!.sender ?? {'username': _getReplySenderName(_replyingTo!)},
+        'mediaType': _replyingTo!.mediaType,
+        'isDeleted': _replyingTo!.isDeleted,
+      } : null,
     );
     setState(() {
       _messages.add(newMsg);
@@ -3172,7 +3300,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                               }
                             },
                               child: Container(
-                                color: isSelected ? AppTheme.primaryColor.withAlpha(50) : Colors.transparent,
+                                color: isSelected 
+                                    ? AppTheme.primaryColor.withAlpha(50) 
+                                    : (_highlightedMessageId == message.id ? AppTheme.primaryColor.withAlpha(90) : Colors.transparent),
                                 child: MessageBubble(
                                   message: message, 
                                   isMe: isMe,
@@ -3183,6 +3313,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                       _replyingTo = msg;
                                       _focusNode.requestFocus();
                                     });
+                                  },
+                                  onTapReplyReference: (targetId) {
+                                    _scrollToMessage(targetId);
                                   },
                                   onViewOnceOpened: (msgId) {
                                     final authProvider = Provider.of<AuthProvider>(context, listen: false);
@@ -3245,12 +3378,12 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          _replyingTo!.senderId == widget.remoteUserId ? (widget.chatName) : 'You',
+                          _getReplySenderName(_replyingTo!),
                           style: TextStyle(color: AppTheme.primaryColor, fontWeight: FontWeight.bold, fontSize: 13),
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          _replyingTo!.content,
+                          _getReplyPreviewText(_replyingTo!),
                           style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,

@@ -106,17 +106,28 @@ class ApiService {
       final token = await getToken();
       if (token == null) return null;
 
-      final request = http.MultipartRequest('POST', Uri.parse('$baseUrl/chats/upload'));
+      var request = http.MultipartRequest('POST', Uri.parse('$baseUrl/chats/upload'));
       request.headers['Authorization'] = 'Bearer $token';
       request.files.add(await http.MultipartFile.fromPath('file', filePath));
 
-      final streamedResponse = await request.send();
-      final response = await http.Response.fromStream(streamedResponse);
+      var streamedResponse = await request.send();
+      var response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode != 200 && response.statusCode != 201) {
+        request = http.MultipartRequest('POST', Uri.parse('$baseUrl/uploads'));
+        request.headers['Authorization'] = 'Bearer $token';
+        request.files.add(await http.MultipartFile.fromPath('file', filePath));
+        streamedResponse = await request.send();
+        response = await http.Response.fromStream(streamedResponse);
+      }
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        return jsonDecode(response.body);
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map<String, dynamic>) {
+          return decoded;
+        }
       } else {
-        print('Upload failed: ${response.body}');
+        print('Upload failed: HTTP ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
       print('Upload error: $e');

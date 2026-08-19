@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../services/group_service.dart';
 import '../services/contact_service.dart';
+import '../services/api_service.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
 
@@ -23,6 +26,39 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
   final List<String> _selectedUserIds = [];
   bool _isLoading = false;
   String _searchQuery = '';
+  String? _groupAvatarUrl;
+  bool _isUploadingAvatar = false;
+
+  Future<void> _pickGroupAvatar() async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
+    if (pickedFile == null) return;
+
+    setState(() => _isUploadingAvatar = true);
+    try {
+      final uploadRes = await ApiService().uploadMedia(pickedFile.path);
+      String? uploadedUrl;
+      if (uploadRes != null) {
+        uploadedUrl = uploadRes['fileUrl'] ??
+            uploadRes['url'] ??
+            uploadRes['file'] ??
+            uploadRes['filePath'] ??
+            (uploadRes['data'] != null ? (uploadRes['data']['fileUrl'] ?? uploadRes['data']['url']) : null) ??
+            (uploadRes['files'] != null && (uploadRes['files'] as List).isNotEmpty
+                ? (uploadRes['files'][0]['url'] ?? uploadRes['files'][0]['fileUrl'])
+                : null);
+      }
+      if (uploadedUrl != null && mounted) {
+        setState(() => _groupAvatarUrl = uploadedUrl);
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Photo upload failed — no URL returned')));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload error: $e')));
+    } finally {
+      if (mounted) setState(() => _isUploadingAvatar = false);
+    }
+  }
 
   @override
   void initState() {
@@ -65,7 +101,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
     }
 
     setState(() => _isLoading = true);
-    final group = await _groupService.createGroup(name, _descController.text.trim(), null, _selectedUserIds);
+    final group = await _groupService.createGroup(name, _descController.text.trim(), _groupAvatarUrl, _selectedUserIds);
     if (mounted) {
       setState(() => _isLoading = false);
       if (group != null) {
@@ -97,6 +133,39 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
       backgroundColor: AppTheme.backgroundColor,
       body: Column(
         children: [
+          const SizedBox(height: 16),
+          Center(
+            child: GestureDetector(
+              onTap: _isUploadingAvatar ? null : _pickGroupAvatar,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  CircleAvatar(
+                    radius: 40,
+                    backgroundColor: AppTheme.surfaceColor,
+                    backgroundImage: _groupAvatarUrl != null && _groupAvatarUrl!.isNotEmpty
+                        ? CachedNetworkImageProvider(ApiService.getMediaUrl(_groupAvatarUrl!))
+                        : null,
+                    child: _groupAvatarUrl == null && !_isUploadingAvatar
+                        ? Icon(Icons.groups, size: 40, color: AppTheme.primaryColor)
+                        : null,
+                  ),
+                  if (_isUploadingAvatar)
+                    const CircularProgressIndicator(color: Colors.white)
+                  else
+                    Positioned(
+                      bottom: 0,
+                      right: 0,
+                      child: CircleAvatar(
+                        radius: 14,
+                        backgroundColor: AppTheme.primaryColor,
+                        child: const Icon(Icons.camera_alt, size: 14, color: Colors.white),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.all(16.0),
             child: TextField(

@@ -49,6 +49,32 @@ import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
 import { getDefaultAvatar, getAvatarUrl, resolveMediaUrl } from "@/utils/avatar";
 import { SoundEngine } from "@/utils/sound";
 
+function getQuotedParentPreviewText(parent: any) {
+  if (!parent) return "Message";
+  if (parent.isDeleted || parent.content === "This message was deleted") {
+    return "This message was deleted";
+  }
+  const mediaType = parent.mediaType || "TEXT";
+  const mediaUrl = parent.mediaUrl;
+  const content = String(parent.content || "");
+
+  if (mediaType === "CALL_LOG") {
+    if (content.toLowerCase().includes("missed")) return "📞 Missed call";
+    if (content.toLowerCase().includes("declined")) return "📞 Declined call";
+    if (mediaUrl === "VIDEO_CALL" || content.toLowerCase().includes("video")) return "🎥 Video call";
+    return "📞 Voice call";
+  }
+  if (mediaType === "IMAGE") return "📷 Photo";
+  if (mediaType === "VIDEO") return "🎥 Video";
+  if (mediaType === "AUDIO") return "🎵 Voice message";
+  if (mediaType === "LOCATION") return "📍 Location";
+  if (mediaType === "POLL") return "📊 Poll";
+  if (mediaType === "DOCUMENT" || mediaType === "FILE") return "📄 Document";
+  if (mediaType === "STICKER") return "😊 Sticker";
+
+  return content || "Message";
+}
+
 interface Message {
   id: string;
   content: string;
@@ -1096,9 +1122,21 @@ export default function ChatWindow({
       }
     };
 
-    const handleMessageDeleted = (data: { messageId: string; conversationId: string }) => {
+    const handleMessageDeleted = (data: { messageId: string; conversationId: string; isDeleted?: boolean; content?: string }) => {
       if (data.conversationId === chat.id) {
-        setMessages((prev) => prev.filter((msg) => msg.id !== data.messageId));
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === data.messageId
+              ? {
+                  ...msg,
+                  isDeleted: true,
+                  content: data.content || "This message was deleted",
+                  mediaUrl: undefined,
+                  mediaType: undefined,
+                }
+              : msg
+          )
+        );
       }
     };
 
@@ -2084,9 +2122,9 @@ export default function ChatWindow({
                     {msg.parentMessage && !isMsgDeleted && (
                       <div className="rounded-lg bg-[var(--theme-bg-sidebar-search)]/80 border-l-2 border-[var(--theme-accent)] px-3 py-1.5 text-[11px] text-[var(--theme-text-secondary)] mb-1 select-none pointer-events-none max-w-sm truncate">
                         <span className="font-bold text-[var(--theme-accent)] text-[9px] block">
-                          {msg.parentMessage.sender.username}
+                          {msg.parentMessage.sender?.username || msg.parentMessage.sender?.name || "User"}
                         </span>
-                        {msg.parentMessage.content}
+                        {getQuotedParentPreviewText(msg.parentMessage)}
                       </div>
                     )}
 

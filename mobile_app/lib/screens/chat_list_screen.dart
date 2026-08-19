@@ -20,6 +20,7 @@ import 'my_qr_screen.dart';
 import 'qr_scanner_screen.dart';
 import 'other_user_profile_screen.dart';
 import 'status_screen.dart';
+import 'status_privacy_screen.dart';
 import 'settings_screen.dart';
 import 'archived_chats_screen.dart';
 import 'contacts_screen.dart';
@@ -111,39 +112,49 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
   }
 
   void _handleSocketUpdate(dynamic event) {
-    if (mounted) {
+    if (!mounted) return;
+    try {
       if (event != null && event is Map<String, dynamic> && event['conversationId'] != null) {
         final conversationId = event['conversationId'];
-        final currentUserId = Provider.of<AuthProvider>(context, listen: false).user?['id'] ?? Provider.of<AuthProvider>(context, listen: false).user?['_id'];
+        String? currentUserId;
+        try {
+          final auth = Provider.of<AuthProvider>(context, listen: false);
+          currentUserId = (auth.user?['id'] ?? auth.user?['_id'])?.toString();
+        } catch (_) {}
+
         final message = event['message'];
-        final senderId = message != null ? (message['senderId'] ?? message['sender']?['id']) : null;
+        final senderId = message != null ? (message['senderId'] ?? message['sender']?['id'] ?? message['sender']?['_id'])?.toString() : null;
 
         bool found = false;
-        setState(() {
-          final index = _chats.indexWhere((c) => c.id == conversationId);
-          if (index != -1) {
-            found = true;
-            if (event['type'] == 'read') {
-               _chats[index].unreadCount = 0;
-            } else {
-               if (senderId != null && senderId.toString() != currentUserId?.toString()) {
-                 _chats[index].unreadCount += 1;
-               }
-               if (message != null) {
-                 _chats[index].lastMessage = message;
-               }
-               _chats[index].updatedAt = DateTime.now();
-               
-               // Move the updated chat to the top of the list
-               final updatedChat = _chats.removeAt(index);
-               _chats.insert(0, updatedChat);
+        if (mounted) {
+          setState(() {
+            final index = _chats.indexWhere((c) => c.id == conversationId);
+            if (index != -1) {
+              found = true;
+              if (event['type'] == 'read') {
+                 _chats[index].unreadCount = 0;
+              } else {
+                 if (senderId != null && senderId != currentUserId) {
+                   _chats[index].unreadCount += 1;
+                 }
+                 if (message != null) {
+                   _chats[index].lastMessage = message;
+                 }
+                 _chats[index].updatedAt = DateTime.now();
+                 
+                 // Move the updated chat to the top of the list
+                 final updatedChat = _chats.removeAt(index);
+                 _chats.insert(0, updatedChat);
+              }
             }
-          }
-        });
-        if (!found && message != null) {
+          });
+        }
+        if (!found && message != null && mounted) {
           _fetchChats();
         }
       }
+    } catch (e) {
+      debugPrint('Error handling socket update in ChatListScreen: $e');
     }
   }
 
@@ -324,14 +335,13 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                   : RefreshIndicator(
                       onRefresh: _fetchChats,
                       child: ListView.builder(
-                        cacheExtent: 400.0,
+                        cacheExtent: 500.0,
                         addAutomaticKeepAlives: true,
                         addRepaintBoundaries: true,
                         itemCount: _chats.where((c) => !c.isArchived).length + 1 + (_chats.any((c) => c.isArchived) ? 1 : 0),
                         itemBuilder: (context, index) {
-                        final activeChats = _chats.where((c) => !c.isArchived).toList();
-                        
-                        if (index == 0) {
+                          final activeChats = _chats.where((c) => !c.isArchived).toList();
+                          if (index == 0) {
                           return ListTile(
                             onTap: () {
                               Navigator.push(
@@ -528,10 +538,10 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                             });
                           },
                         ),
-                        );
-                      },
-                    ),
+                      );
+                    },
                   ),
+                ),
         ),
       ],
     );
@@ -696,7 +706,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                   radius: 22,
                   backgroundColor: AppTheme.primaryColor,
                   backgroundImage: avatar != null && avatar.isNotEmpty
-                      ? NetworkImage(avatar.startsWith('http') ? avatar : 'https://dolsyx-app.onrender.com$avatar')
+                      ? CachedNetworkImageProvider(ApiService.getMediaUrl(avatar))
                       : null,
                   child: avatar == null || avatar.isEmpty
                       ? Text(cleanName.isNotEmpty ? cleanName[0].toUpperCase() : 'G', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
@@ -927,9 +937,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                       ? CircleAvatar(
                           radius: 18,
                           backgroundColor: AppTheme.backgroundColor,
-                          backgroundImage: user!['avatarUrl'].toString().startsWith('http')
-                              ? NetworkImage(user!['avatarUrl'])
-                              : NetworkImage('https://dolsyx-app.onrender.com${user!['avatarUrl']}'),
+                          backgroundImage: CachedNetworkImageProvider(ApiService.getMediaUrl(user!['avatarUrl'])),
                         )
                       : ColorAvatar(
                           name: user?['username'] ?? '?',
@@ -949,7 +957,10 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
               icon: const Icon(Icons.more_vert),
               onSelected: (value) {
                 if (value == 'status_privacy') {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Status Privacy Settings coming soon')));
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const StatusPrivacyScreen()),
+                  );
                 }
               },
               itemBuilder: (context) => [

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import '../services/api_service.dart';
 
 class FullScreenImageView extends StatelessWidget {
   final String imageUrl;
@@ -7,6 +9,8 @@ class FullScreenImageView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final resolvedUrl = ApiService.getMediaUrl(imageUrl);
+
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -19,17 +23,22 @@ class FullScreenImageView extends StatelessWidget {
         child: InteractiveViewer(
           minScale: 1.0,
           maxScale: 5.0,
-          child: Image.network(
-            imageUrl,
+          child: CachedNetworkImage(
+            imageUrl: resolvedUrl,
             fit: BoxFit.contain,
-            loadingBuilder: (context, child, loadingProgress) {
-              if (loadingProgress == null) return child;
-              return const CircularProgressIndicator(color: Colors.white);
-            },
-            errorBuilder: (context, error, stackTrace) => const Icon(
-              Icons.broken_image,
-              color: Colors.grey,
-              size: 100,
+            progressIndicatorBuilder: (context, url, downloadProgress) => Center(
+              child: CircularProgressIndicator(
+                value: downloadProgress.progress,
+                color: Colors.white,
+              ),
+            ),
+            errorWidget: (context, url, error) => const Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.broken_image, color: Colors.grey, size: 80),
+                SizedBox(height: 12),
+                Text('Failed to load image', style: TextStyle(color: Colors.white70)),
+              ],
             ),
           ),
         ),

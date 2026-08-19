@@ -37,10 +37,10 @@ class MessagePayload {
       };
 
   factory MessagePayload.fromJson(Map<String, dynamic> json) => MessagePayload(
-        type: json['type'] as int,
-        senderDeviceId: json['senderDeviceId'] as int,
+        type: (json['type'] as num).toInt(),
+        senderDeviceId: (json['senderDeviceId'] as num).toInt(),
         ephemeralKeyPublic: json['ephemeralKeyPublic'] as String?,
-        oneTimePreKeyId: json['oneTimePreKeyId'] as int?,
+        oneTimePreKeyId: json['oneTimePreKeyId'] != null ? (json['oneTimePreKeyId'] as num).toInt() : null,
         ciphertext: json['ciphertext'] as String,
         nonce: json['nonce'] as String,
         tag: json['tag'] as String,
@@ -191,7 +191,7 @@ class CryptoService {
         final otpkBytes = base64Decode(otpk['publicKey'] as String);
         final dh4 = await _dh(ephemeralPrivateBytes, otpkBytes);
         dhMaterial.addAll(dh4);
-        oneTimePreKeyId = otpk['keyId'] as int;
+        oneTimePreKeyId = (otpk['keyId'] as num).toInt();
       }
 
       // HKDF to derive 32-byte session key

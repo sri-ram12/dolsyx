@@ -76,6 +76,45 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
         ),
       ),
     );
+  } else {
+    // Show notification for incoming text/media message in background/killed state
+    await flutterLocalNotificationsPlugin
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(channel);
+
+    final title = message.notification?.title ?? data['senderName'] ?? data['title'] ?? 'New Message';
+    final body = message.notification?.body ?? data['content'] ?? data['body'] ?? 'You have a new message';
+
+    await flutterLocalNotificationsPlugin.show(
+      id: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      title: title,
+      body: body,
+      payload: jsonEncode({
+        'conversationId': data['conversationId'] ?? '',
+        'senderId': data['senderId'] ?? '',
+      }),
+      notificationDetails: NotificationDetails(
+        android: AndroidNotificationDetails(
+          channel.id,
+          channel.name,
+          channelDescription: channel.description,
+          icon: '@mipmap/ic_launcher',
+          priority: Priority.high,
+          importance: Importance.max,
+          sound: const RawResourceAndroidNotificationSound('dolsyx_message'),
+          playSound: true,
+          actions: <AndroidNotificationAction>[
+            const AndroidNotificationAction(
+              'reply_msg',
+              'Reply',
+              inputs: <AndroidNotificationActionInput>[
+                AndroidNotificationActionInput(label: 'Type a message...'),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -279,21 +318,29 @@ class _DolsyxAppState extends State<DolsyxApp> {
                   return;
                 }
 
-                _incomingCallData = {
-                  'conversationId': payloadData?['conversationId'] ?? '',
-                  'callerId': payloadData?['callerId'] ?? '',
-                  'callerName': payloadData?['callerName'] ?? 'Incoming Call',
-                  'callerAvatarUrl': payloadData?['callerAvatarUrl'],
-                  'isAudioOnly': (payloadData?['callType'] ?? 'audio') == 'audio' || payloadData?['isAudioOnly'] == true,
-                  'initialOffer': payloadData?['initialOffer'],
-                };
+                // Check if this payload represents an incoming call
+                final bool isCallPayload = payloadData != null &&
+                    (payloadData.containsKey('callerId') ||
+                        payloadData.containsKey('callType') ||
+                        payloadData['isAudioOnly'] != null);
+
+                if (isCallPayload) {
+                  _incomingCallData = {
+                    'conversationId': payloadData!['conversationId'] ?? '',
+                    'callerId': payloadData['callerId'] ?? '',
+                    'callerName': payloadData['callerName'] ?? 'Incoming Call',
+                    'callerAvatarUrl': payloadData['callerAvatarUrl'],
+                    'isAudioOnly': (payloadData['callType'] ?? 'audio') == 'audio' || payloadData['isAudioOnly'] == true,
+                    'initialOffer': payloadData['initialOffer'],
+                  };
+                  final actionId = details.actionId;
+                  if (actionId == 'decline') {
+                    _declineIncomingCall(payloadData);
+                  } else {
+                    _acceptIncomingCall(payloadData);
+                  }
+                }
               } catch (_) {}
-            }
-            final actionId = details.actionId;
-            if (actionId == 'decline') {
-              _declineIncomingCall(payloadData);
-            } else {
-              _acceptIncomingCall(payloadData);
             }
           },
         );
@@ -387,10 +434,10 @@ class _DolsyxAppState extends State<DolsyxApp> {
   }
 
   void _handleCallEndedGlobal(dynamic data) {
-    if (mounted && _incomingCallData != null) {
+    try { flutterLocalNotificationsPlugin.cancelAll(); } catch (_) {}
+    SoundService().stopRingtone();
+    if (mounted) {
       setState(() => _incomingCallData = null);
-      SoundService().stopRingtone();
-      try { flutterLocalNotificationsPlugin.cancelAll(); } catch (_) {}
     }
   }
 

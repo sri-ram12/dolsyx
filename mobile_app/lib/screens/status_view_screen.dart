@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:intl/intl.dart';
 import 'package:video_player/video_player.dart';
 import 'package:provider/provider.dart';
 import '../models/status.dart';
@@ -8,7 +9,8 @@ import '../services/status_service.dart';
 import '../services/socket_service.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
-import 'chat_room_screen.dart';
+import '../services/api_service.dart';
+import '../services/chat_service.dart';
 
 class StatusViewScreen extends StatefulWidget {
   final List<UserStatusGroup> groups;
@@ -88,18 +90,23 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
     }
 
     if (status.mediaType == 'VIDEO') {
-      final url = status.mediaUrl.startsWith('http') ? status.mediaUrl : 'https://dolsyx-app.onrender.com${status.mediaUrl}';
+      final url = ApiService.getMediaUrl(status.mediaUrl);
       _videoController = VideoPlayerController.networkUrl(Uri.parse(url))
         ..initialize().then((_) {
           if (mounted) {
             setState(() {
               _isLoading = false;
+              _videoController!.setLooping(false);
               _videoController!.play();
             });
             _startVideoTimer();
           }
         }).catchError((error) {
-          if (mounted) setState(() => _isLoading = false); // Show error
+          debugPrint('Status video load error: $error');
+          if (mounted) {
+            setState(() => _isLoading = false);
+            _startImageTimer();
+          }
         });
     } else if (status.mediaType == 'TEXT') {
       setState(() => _isLoading = false);
@@ -158,15 +165,7 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
         _loadStatus(_currentIndex);
       });
     } else {
-      if (_currentGroupIndex < widget.groups.length - 1) {
-        setState(() {
-          _currentGroupIndex++;
-          _currentIndex = 0;
-          _loadStatus(0);
-        });
-      } else {
-        if (mounted) WidgetsBinding.instance.addPostFrameCallback((_) => Navigator.pop(context));
-      }
+      _nextGroup();
     }
   }
 
@@ -177,20 +176,39 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
         _loadStatus(_currentIndex);
       });
     } else {
-      if (_currentGroupIndex > 0) {
-        setState(() {
-          _currentGroupIndex--;
-          _currentIndex = widget.groups[_currentGroupIndex].statuses.length - 1;
-          _loadStatus(_currentIndex);
-        });
-      } else {
-        _progress = 0.0;
-        // Restart current
-      }
+      _prevGroup();
+    }
+  }
+
+  void _nextGroup() {
+    if (_currentGroupIndex < widget.groups.length - 1) {
+      setState(() {
+        _currentGroupIndex++;
+        _currentIndex = 0;
+        _loadStatus(0);
+      });
+    } else {
+      if (mounted) WidgetsBinding.instance.addPostFrameCallback((_) => Navigator.pop(context));
+    }
+  }
+
+  void _prevGroup() {
+    if (_currentGroupIndex > 0) {
+      setState(() {
+        _currentGroupIndex--;
+        _currentIndex = 0;
+        _loadStatus(0);
+      });
+    } else {
+      setState(() {
+        _currentIndex = 0;
+        _loadStatus(0);
+      });
     }
   }
 
   void _onTapDown(TapDownDetails details) {
+    if (_showSeenBy || _isReplying) return;
     final screenWidth = MediaQuery.of(context).size.width;
     final dx = details.globalPosition.dx;
     if (dx < screenWidth / 3) {
@@ -233,22 +251,40 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
     );
   }
 
-  void _sendReply(String content) {
+  Future<void> _sendReply(String content) async {
     if (content.trim().isEmpty) return;
     
-    // In a real implementation, we'd navigate to the chat room or send via socket right here
-    // Let's just simulate sending via SocketService or API. 
-    // Usually WhatsApp replies just show up in the chat.
     final status = currentGroup.statuses[_currentIndex];
+    final recipientId = (currentGroup.user['id'] ?? currentGroup.user['_id'])?.toString();
+    if (recipientId == null || recipientId.isEmpty) return;
+
+    final replyText = content.trim();
+    final captionText = status.caption ?? '';
+    final statusSnippet = captionText.isNotEmpty 
+        ? captionText 
+        : (status.mediaType == 'IMAGE' ? '📷 Photo' : (status.mediaType == 'VIDEO' ? '🎥 Video' : 'Status'));
     
-    // For now we'll just close and show a toast
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Reply sent!')));
+    final formattedMessage = 'Replying to status: "$statusSnippet"\n\n$replyText';
+
     setState(() {
       _isReplying = false;
       _replyController.clear();
       _isPaused = false;
     });
     _videoController?.play();
+
+    final chat = await ChatService().createDirectChat(recipientId);
+    if (chat != null && mounted) {
+      final socket = Provider.of<AuthProvider>(context, listen: false).socketService.socket;
+      socket?.emit('send_message', {
+        'conversationId': chat.id,
+        'content': formattedMessage,
+        'replyToStatusId': status.id,
+      });
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Status reply sent!')));
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to send status reply')));
+    }
   }
 
   void _showSeenByBottomSheet() {
@@ -344,29 +380,14 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
           onLongPressUp: _onLongPressUp,
           onLongPressCancel: _onLongPressUp,
           onHorizontalDragEnd: (details) {
+            if (_showSeenBy || _isReplying) return;
             if (details.primaryVelocity != null) {
               if (details.primaryVelocity! > 0) {
-                // Swipe right -> Previous group
-                if (_currentGroupIndex > 0) {
-                  setState(() {
-                    _currentGroupIndex--;
-                    _currentIndex = 0;
-                    _loadStatus(0);
-                  });
-                } else {
-                  _progress = 0.0;
-                }
+                // Swipe right -> Previous user group
+                _prevGroup();
               } else if (details.primaryVelocity! < 0) {
-                // Swipe left -> Next group
-                if (_currentGroupIndex < widget.groups.length - 1) {
-                  setState(() {
-                    _currentGroupIndex++;
-                    _currentIndex = 0;
-                    _loadStatus(0);
-                  });
-                } else {
-                  Navigator.pop(context);
-                }
+                // Swipe left -> Next user group
+                _nextGroup();
               }
             }
           },
@@ -392,7 +413,7 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
               // Media Layer
               if (status.mediaType == 'IMAGE')
                 CachedNetworkImage(
-                  imageUrl: status.mediaUrl.startsWith('http') ? status.mediaUrl : 'https://dolsyx-app.onrender.com${status.mediaUrl}',
+                  imageUrl: ApiService.getMediaUrl(status.mediaUrl),
                   fit: BoxFit.contain,
                   progressIndicatorBuilder: (context, url, dp) {
                     if (!_isLoading) WidgetsBinding.instance.addPostFrameCallback((_) { if(mounted) setState(() => _isLoading = true); });
@@ -448,11 +469,27 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
                         children: [
                           IconButton(icon: Icon(Icons.arrow_back, color: Colors.white), onPressed: () => Navigator.pop(context)),
                           CircleAvatar(
-                            radius: 18, backgroundColor: Colors.grey,
-                            backgroundImage: avatarUrl != null && avatarUrl.startsWith('http') ? NetworkImage(avatarUrl) : null,
+                            radius: 18,
+                            backgroundColor: Colors.grey.shade800,
+                            backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
+                                ? CachedNetworkImageProvider(ApiService.getMediaUrl(avatarUrl))
+                                : null,
+                            child: avatarUrl == null || avatarUrl.isEmpty
+                                ? const Icon(Icons.person, color: Colors.white70, size: 20)
+                                : null,
                           ),
                           const SizedBox(width: 8),
-                          Text(username, style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(username, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                              Text(
+                                _formatStatusTime(status.createdAt),
+                                style: const TextStyle(color: Colors.white70, fontSize: 12),
+                              ),
+                            ],
+                          ),
                           const Spacer(),
                           if (isMine)
                             IconButton(
@@ -462,7 +499,7 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
                                 final success = await _statusService.deleteStatus(status.id);
                                 if (success && mounted) {
                                   Navigator.pop(context);
-                                } else {
+                                } else if (mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to delete status')));
                                 }
                               },
@@ -534,5 +571,30 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
         ),
       ),
     );
+  }
+
+  String _formatStatusTime(DateTime dt) {
+    final now = DateTime.now();
+    final localDt = dt.toLocal();
+    final difference = now.difference(localDt);
+
+    if (difference.inMinutes < 1) {
+      return 'Just now';
+    } else if (difference.inHours < 1) {
+      return '${difference.inMinutes}m ago';
+    } else {
+      final isToday = localDt.year == now.year && localDt.month == now.month && localDt.day == now.day;
+      final yesterday = now.subtract(const Duration(days: 1));
+      final isYesterday = localDt.year == yesterday.year && localDt.month == yesterday.month && localDt.day == yesterday.day;
+
+      final timeStr = DateFormat('h:mm a').format(localDt);
+      if (isToday) {
+        return 'Today, $timeStr';
+      } else if (isYesterday) {
+        return 'Yesterday, $timeStr';
+      } else {
+        return DateFormat('MMM d, h:mm a').format(localDt);
+      }
+    }
   }
 }

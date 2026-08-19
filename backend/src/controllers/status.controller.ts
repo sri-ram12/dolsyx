@@ -1,6 +1,7 @@
 import type { Response } from "express";
 import { prisma } from "../config/db.js";
 import type { AuthRequest } from "../middleware/auth.middleware.js";
+import { canViewStatus } from "../utils/privacy.engine.js";
 
 // Create a new status (24h story)
 export const createStatus = async (req: AuthRequest, res: Response): Promise<void> => {
@@ -15,6 +16,13 @@ export const createStatus = async (req: AuthRequest, res: Response): Promise<voi
 
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
+    const creator = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { statusPrivacyType: true, statusPrivacyList: true },
+    });
+    const privacyType = creator?.statusPrivacyType || "MY_CONTACTS";
+    const privacyList = creator?.statusPrivacyList || [];
+
     const status = await prisma.status.create({
       data: {
         userId,
@@ -22,6 +30,8 @@ export const createStatus = async (req: AuthRequest, res: Response): Promise<voi
         mediaType: mediaType || "TEXT",
         caption: caption || null,
         bgColor: bgColor || null,
+        privacyType,
+        privacyList: typeof privacyList === "string" ? privacyList : JSON.stringify(privacyList),
         expiresAt,
       },
       include: {
@@ -32,42 +42,36 @@ export const createStatus = async (req: AuthRequest, res: Response): Promise<voi
       },
     });
 
-    // Emit socket event so contacts see the new status in real-time
+    // Emit socket event so eligible contacts see the new status in real-time
     const io = (req as any).app.get("io");
     if (io) {
-      // Find all users this person has chatted with
+      const savedContacts = await prisma.contact.findMany({
+        where: { userId },
+        select: { contactId: true },
+      });
       const conversations = await prisma.participant.findMany({
         where: { userId },
         select: { conversationId: true },
       });
-
       const conversationIds = conversations.map((p) => p.conversationId);
-      const contacts = await prisma.participant.findMany({
+      const chatParticipants = await prisma.participant.findMany({
         where: {
           conversationId: { in: conversationIds },
           userId: { not: userId },
         },
         select: { userId: true },
-        distinct: ["userId"],
       });
 
-      // Apply privacy settings: My Contacts, My Contacts Except..., Only Share With...
-      const me = await prisma.user.findUnique({ where: { id: userId }, select: { statusPrivacyType: true, statusPrivacyList: true } });
-      const privacyType = me?.statusPrivacyType || "MY_CONTACTS";
-      let privacyList: string[] = [];
-      try { privacyList = JSON.parse(me?.statusPrivacyList || "[]"); } catch (e) {}
+      const candidateIds = Array.from(
+        new Set([...savedContacts.map((c) => c.contactId), ...chatParticipants.map((c) => c.userId)])
+      );
 
-      contacts.forEach((contact) => {
-        let canSee = true;
-        if (privacyType === "EXCEPT" && privacyList.includes(contact.userId)) {
-          canSee = false;
-        } else if (privacyType === "ONLY_SHARE" && !privacyList.includes(contact.userId)) {
-          canSee = false;
-        }
+      for (const candidateId of candidateIds) {
+        const canSee = await canViewStatus(candidateId, userId, { privacyType, privacyList });
         if (canSee) {
-          io.to(contact.userId).emit("new_status", { status });
+          io.to(candidateId).emit("new_status", { status });
         }
-      });
+      }
     }
 
     res.status(201).json(status);
@@ -77,30 +81,32 @@ export const createStatus = async (req: AuthRequest, res: Response): Promise<voi
   }
 };
 
-// Get all active statuses from contacts (people user has chatted with)
+// Get all active statuses from contacts that user is authorized to view
 export const getStatuses = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.user!.id;
     const now = new Date();
 
-    // Find all contact IDs (users this person has had conversations with)
+    const savedContacts = await prisma.contact.findMany({
+      where: { userId },
+      select: { contactId: true },
+    });
     const conversations = await prisma.participant.findMany({
       where: { userId },
       select: { conversationId: true },
     });
-
     const conversationIds = conversations.map((p) => p.conversationId);
-    const contacts = await prisma.participant.findMany({
+    const chatParticipants = await prisma.participant.findMany({
       where: {
         conversationId: { in: conversationIds },
         userId: { not: userId },
       },
       select: { userId: true },
-      distinct: ["userId"],
     });
 
-    const contactIds = contacts.map((c) => c.userId);
-    // Include current user so they can see their own status
+    const contactIds = Array.from(
+      new Set([...savedContacts.map((c) => c.contactId), ...chatParticipants.map((c) => c.userId)])
+    );
     const userIds = [userId, ...contactIds];
 
     const statuses = await prisma.status.findMany({
@@ -117,29 +123,31 @@ export const getStatuses = async (req: AuthRequest, res: Response): Promise<void
             viewerId: true,
             viewedAt: true,
             viewer: {
-              select: { id: true, username: true, avatarUrl: true, readReceipts: true }
-            }
+              select: { id: true, username: true, avatarUrl: true, readReceipts: true },
+            },
           },
         },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: { createdAt: "asc" },
     });
 
     const mutes = await prisma.statusMute.findMany({
       where: { muterId: userId },
-      select: { mutedId: true }
+      select: { mutedId: true },
     });
-    const mutedSet = new Set(mutes.map(m => m.mutedId));
+    const mutedSet = new Set(mutes.map((m) => m.mutedId));
 
-    // Group by user
+    const privacyCache = new Map<string, boolean>();
     const grouped: Record<string, any> = {};
     for (const s of statuses) {
       if (s.userId !== userId) {
-        const pType = s.user.statusPrivacyType;
-        let pList: string[] = [];
-        try { pList = JSON.parse(s.user.statusPrivacyList); } catch (e) {}
-        if (pType === "EXCEPT" && pList.includes(userId)) continue;
-        if (pType === "ONLY_SHARE" && !pList.includes(userId)) continue;
+        const cacheKey = `${userId}:${s.userId}:${s.privacyType}:${s.privacyList}`;
+        let canSee = privacyCache.get(cacheKey);
+        if (canSee === undefined) {
+          canSee = await canViewStatus(userId, s.userId, { privacyType: s.privacyType, privacyList: s.privacyList });
+          privacyCache.set(cacheKey, canSee);
+        }
+        if (!canSee) continue;
       }
 
       if (!grouped[s.userId]) {
@@ -147,15 +155,13 @@ export const getStatuses = async (req: AuthRequest, res: Response): Promise<void
           user: { id: s.user.id, username: s.user.username, avatarUrl: s.user.avatarUrl },
           statuses: [],
           hasUnread: false,
-          isMuted: mutedSet.has(s.userId)
+          isMuted: mutedSet.has(s.userId),
         };
       }
-      
+
       const isViewed = s.views.some((v) => v.viewerId === userId);
-      
-      // Filter out seenBy viewers if they disabled readReceipts (except self)
-      const visibleViews = s.views.filter(v => v.viewer.readReceipts || v.viewerId === s.userId);
-      
+      const visibleViews = s.views.filter((v) => v.viewer.readReceipts || v.viewerId === s.userId);
+
       grouped[s.userId].statuses.push({ ...s, isViewed, views: visibleViews });
       if (!isViewed && s.userId !== userId) {
         grouped[s.userId].hasUnread = true;
@@ -169,15 +175,66 @@ export const getStatuses = async (req: AuthRequest, res: Response): Promise<void
   }
 };
 
-// Mark a status as viewed
+// Fetch single status by ID with privacy authorization check
+export const getStatusById = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const statusId = req.params.statusId as string;
+    const userId = req.user!.id;
+
+    const status = await prisma.status.findUnique({
+      where: { id: statusId },
+      include: {
+        user: { select: { id: true, username: true, email: true, avatarUrl: true } },
+      },
+    });
+
+    if (!status) {
+      res.status(404).json({ message: "Status not found" });
+      return;
+    }
+
+    if (status.expiresAt < new Date()) {
+      res.status(410).json({ message: "Status has expired" });
+      return;
+    }
+
+    if (status.userId !== userId) {
+      const canSee = await canViewStatus(userId, status.userId, { privacyType: status.privacyType, privacyList: status.privacyList });
+      if (!canSee) {
+        res.status(403).json({ message: "Forbidden: Not authorized to view status" });
+        return;
+      }
+    }
+
+    res.json(status);
+  } catch (error) {
+    console.error("getStatusById error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+// Mark a status as viewed with privacy authorization check
 export const viewStatus = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const statusId = req.params.statusId as string;
     const viewerId = req.user!.id;
 
+    const status = await prisma.status.findUnique({ where: { id: statusId } });
+    if (!status) {
+      res.status(404).json({ message: "Status not found" });
+      return;
+    }
+
+    if (status.userId !== viewerId) {
+      const allowed = await canViewStatus(viewerId, status.userId, { privacyType: status.privacyType, privacyList: status.privacyList });
+      if (!allowed) {
+        res.status(403).json({ message: "Forbidden: Not authorized to view status" });
+        return;
+      }
+    }
+
     const viewer = await prisma.user.findUnique({ where: { id: viewerId } });
     if (!viewer?.readReceipts) {
-      // If viewer disabled read receipts, we don't save their view in DB to protect privacy!
       res.json({ message: "Viewed (anonymous)" });
       return;
     }
@@ -188,9 +245,7 @@ export const viewStatus = async (req: AuthRequest, res: Response): Promise<void>
       create: { statusId, viewerId },
     });
 
-    // Optionally emit event to uploader
-    const status = await prisma.status.findUnique({ where: { id: statusId } });
-    if (status && status.userId !== viewerId) {
+    if (status.userId !== viewerId) {
       const io = (req as any).app.get("io");
       io?.to(status.userId).emit("status_viewed", { statusId, viewerId });
     }

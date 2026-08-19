@@ -6,12 +6,14 @@ import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/status.dart';
 import '../services/status_service.dart';
+import '../services/api_service.dart';
 import '../services/socket_service.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
 import '../utils/e2ee/crypto_service.dart';
 import 'package:path_provider/path_provider.dart';
 import 'status_view_screen.dart';
+import 'status_privacy_screen.dart';
 import 'video_trimmer_screen.dart';
 
 class StatusScreen extends StatefulWidget {
@@ -84,23 +86,7 @@ class _StatusScreenState extends State<StatusScreen> {
 
         setState(() => _isLoading = true);
         
-        String uploadPath = mediaPath;
-        File? tempEncFile;
-        try {
-          final rawBytes = await File(mediaPath).readAsBytes();
-          final encResult = await CryptoService().encryptFileBytes(rawBytes);
-          final tempDir = await getTemporaryDirectory();
-          tempEncFile = File('${tempDir.path}/${DateTime.now().millisecondsSinceEpoch}.enc');
-          await tempEncFile.writeAsBytes(encResult['encryptedBytes'] as List<int>);
-          uploadPath = tempEncFile.path;
-        } catch (e2eeErr) {
-          print('Status E2EE pre-encryption fallback: $e2eeErr');
-        }
-
-        final uploadResponse = await _statusService.uploadStatusMedia(uploadPath);
-        if (tempEncFile != null && await tempEncFile.exists()) {
-          await tempEncFile.delete().catchError((_) => tempEncFile!);
-        }
+        final uploadResponse = await _statusService.uploadStatusMedia(mediaPath);
         
         if (uploadResponse != null && uploadResponse['fileUrl'] != null) {
           final success = await _statusService.createStatus(
@@ -128,47 +114,159 @@ class _StatusScreenState extends State<StatusScreen> {
 
   void _showTextStatusDialog() {
     final TextEditingController controller = TextEditingController();
-    showDialog(
+    String selectedBgColor = '#075E54';
+    final List<String> bgColors = [
+      '#075E54',
+      '#6200EE',
+      '#1A237E',
+      '#880E4F',
+      '#004D40',
+      '#212121',
+      '#4A148C',
+    ];
+
+    showModalBottomSheet(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: AppTheme.surfaceColor,
-        title: Text('Add Text Status', style: TextStyle(color: AppTheme.textPrimary)),
-        content: TextField(
-          controller: controller,
-          style: TextStyle(color: AppTheme.textPrimary),
-          decoration: InputDecoration(hintText: 'Type a status...', hintStyle: TextStyle(color: AppTheme.textSecondary)),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: Text('Cancel')),
-          ElevatedButton(
-            onPressed: () async {
-              if (controller.text.isNotEmpty) {
-                Navigator.pop(context);
-                setState(() => _isLoading = true);
-                final success = await _statusService.createStatus('', 'TEXT', controller.text);
-                if (success) _fetchStatuses();
-                else setState(() => _isLoading = false);
-              }
-            },
-            child: Text('Post'),
-          ),
-        ],
-      ),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final colorValue = Color(int.parse(selectedBgColor.replaceFirst('#', '0xFF')));
+            return Container(
+              height: MediaQuery.of(context).size.height * 0.85,
+              decoration: BoxDecoration(
+                color: colorValue,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+                top: 20,
+                left: 20,
+                right: 20,
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Colors.white, size: 28),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                      const Text(
+                        'Type Status',
+                        style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.palette_outlined, color: Colors.white, size: 28),
+                        onPressed: () {
+                          setModalState(() {
+                            final currentIndex = bgColors.indexOf(selectedBgColor);
+                            selectedBgColor = bgColors[(currentIndex + 1) % bgColors.length];
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: bgColors.map((hex) {
+                        final c = Color(int.parse(hex.replaceFirst('#', '0xFF')));
+                        final isSelected = hex == selectedBgColor;
+                        return GestureDetector(
+                          onTap: () => setModalState(() => selectedBgColor = hex),
+                          child: Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 6),
+                            width: 32,
+                            height: 32,
+                            decoration: BoxDecoration(
+                              color: c,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: isSelected ? Colors.white : Colors.transparent,
+                                width: isSelected ? 3 : 0,
+                              ),
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                  const Expanded(child: SizedBox()),
+                  TextField(
+                    controller: controller,
+                    autofocus: true,
+                    maxLines: 5,
+                    minLines: 1,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w600),
+                    decoration: const InputDecoration(
+                      hintText: 'Type a status...',
+                      hintStyle: TextStyle(color: Colors.white60, fontSize: 24),
+                      border: InputBorder.none,
+                    ),
+                  ),
+                  const Expanded(child: SizedBox()),
+                  Align(
+                    alignment: Alignment.bottomRight,
+                    child: FloatingActionButton(
+                      backgroundColor: Colors.white,
+                      child: Icon(Icons.send, color: colorValue),
+                      onPressed: () async {
+                        final text = controller.text.trim();
+                        if (text.isNotEmpty) {
+                          Navigator.pop(context);
+                          setState(() => _isLoading = true);
+                          final success = await _statusService.createStatus(
+                            '',
+                            'TEXT',
+                            text,
+                            bgColor: selectedBgColor,
+                          );
+                          if (success) {
+                            _fetchStatuses();
+                          } else {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Failed to post status')),
+                              );
+                              setState(() => _isLoading = false);
+                            }
+                          }
+                        }
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
+  }
+
+  bool _isUserMatch(Map<String, dynamic>? userMap, String? targetId) {
+    if (userMap == null || targetId == null || targetId.isEmpty) return false;
+    final uid = (userMap['id'] ?? userMap['_id'])?.toString();
+    return uid != null && uid == targetId;
   }
 
   void _viewStatus(UserStatusGroup group) {
     final currentUser = Provider.of<AuthProvider>(context, listen: false).user;
-    final currentUserId = currentUser?['id'];
+    final currentUserId = (currentUser?['id'] ?? currentUser?['_id'])?.toString();
     
-    // Compute the ordered list of groups just like in build()
     UserStatusGroup? myGroup;
     List<UserStatusGroup> recentUpdates = [];
     List<UserStatusGroup> viewedUpdates = [];
     List<UserStatusGroup> mutedUpdates = [];
 
     for (var g in _groups) {
-      if (g.user['id'] == currentUserId) {
+      if (_isUserMatch(g.user, currentUserId)) {
         myGroup = g;
       } else if (g.isMuted) {
         mutedUpdates.add(g);
@@ -185,7 +283,8 @@ class _StatusScreenState extends State<StatusScreen> {
     allViewableGroups.addAll(viewedUpdates);
     allViewableGroups.addAll(mutedUpdates);
     
-    int initialIndex = allViewableGroups.indexWhere((g) => g.user['id'] == group.user['id']);
+    final targetGroupId = (group.user['id'] ?? group.user['_id'])?.toString();
+    int initialIndex = allViewableGroups.indexWhere((g) => (g.user['id'] ?? g.user['_id'])?.toString() == targetGroupId);
     if (initialIndex == -1) {
       allViewableGroups = [group];
       initialIndex = 0;
@@ -204,7 +303,7 @@ class _StatusScreenState extends State<StatusScreen> {
 
   void _toggleMute(UserStatusGroup group) async {
     final isMuted = group.isMuted;
-    final contactId = group.user['id'];
+    final contactId = (group.user['id'] ?? group.user['_id'])?.toString() ?? '';
     
     showDialog(
       context: context,
@@ -236,7 +335,7 @@ class _StatusScreenState extends State<StatusScreen> {
   @override
   Widget build(BuildContext context) {
     final currentUser = Provider.of<AuthProvider>(context).user;
-    final currentUserId = currentUser?['id'];
+    final currentUserId = (currentUser?['id'] ?? currentUser?['_id'])?.toString();
 
     UserStatusGroup? myGroup;
     List<UserStatusGroup> recentUpdates = [];
@@ -244,7 +343,7 @@ class _StatusScreenState extends State<StatusScreen> {
     List<UserStatusGroup> mutedUpdates = [];
 
     for (var group in _groups) {
-      if (group.user['id'] == currentUserId) {
+      if (_isUserMatch(group.user, currentUserId)) {
         myGroup = group;
       } else if (group.isMuted) {
         mutedUpdates.add(group);
@@ -349,10 +448,10 @@ class _StatusScreenState extends State<StatusScreen> {
                           child: CircleAvatar(
                             radius: 26,
                             backgroundColor: AppTheme.surfaceColor,
-                            backgroundImage: (currentUser != null && currentUser['avatarUrl'] != null)
-                                ? NetworkImage(currentUser['avatarUrl'].startsWith('http') ? currentUser['avatarUrl'] : 'https://dolsyx-app.onrender.com${currentUser['avatarUrl']}')
+                            backgroundImage: (currentUser != null && currentUser['avatarUrl'] != null && currentUser['avatarUrl'].toString().isNotEmpty)
+                                ? CachedNetworkImageProvider(ApiService.getMediaUrl(currentUser['avatarUrl']))
                                 : null,
-                            child: (currentUser == null || currentUser['avatarUrl'] == null)
+                            child: (currentUser == null || currentUser['avatarUrl'] == null || currentUser['avatarUrl'].toString().isEmpty)
                                 ? Icon(Icons.person, color: AppTheme.textSecondary)
                                 : null,
                           ),
@@ -463,10 +562,10 @@ class _StatusScreenState extends State<StatusScreen> {
         child: CircleAvatar(
           radius: 24,
           backgroundColor: AppTheme.surfaceColor,
-          backgroundImage: avatarUrl != null && avatarUrl.startsWith('http')
-              ? NetworkImage(avatarUrl)
+          backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
+              ? CachedNetworkImageProvider(ApiService.getMediaUrl(avatarUrl))
               : null,
-          child: (avatarUrl == null || !avatarUrl.startsWith('http'))
+          child: (avatarUrl == null || avatarUrl.isEmpty)
               ? Icon(Icons.person, color: AppTheme.textSecondary)
               : null,
         ),

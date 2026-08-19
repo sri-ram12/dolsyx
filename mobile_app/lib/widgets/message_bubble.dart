@@ -14,6 +14,7 @@ import 'package:http/http.dart' as http;
 
 import '../services/api_service.dart';
 import '../screens/view_once_screen.dart';
+import 'full_screen_image_view.dart';
 
 class MessageBubble extends StatelessWidget {
   final Message message;
@@ -24,6 +25,7 @@ class MessageBubble extends StatelessWidget {
   final Function(bool isVideo)? onTapCall;
   final String? searchQuery;
   final Function(String)? onViewOnceOpened;
+  final Function(String)? onTapReplyReference;
 
   const MessageBubble({
     super.key,
@@ -35,6 +37,7 @@ class MessageBubble extends StatelessWidget {
     this.onTapCall,
     this.searchQuery,
     this.onViewOnceOpened,
+    this.onTapReplyReference,
   });
 
   Widget _buildMessageText(String text, Color textColor, double fontSize) {
@@ -265,43 +268,41 @@ class MessageBubble extends StatelessWidget {
     final Color secondaryTextColor = textColor.withOpacity(0.7);
 
     if (message.isDeleted) {
-      return Align(
-        alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-        child: Container(
-          margin: const EdgeInsets.only(bottom: 8),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          decoration: BoxDecoration(
-            color: isMe ? AppTheme.bubbleSender.withOpacity(0.5) : AppTheme.bubbleReceiver.withOpacity(0.5),
-            borderRadius: BorderRadius.circular(16).copyWith(
-              bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(16),
-              bottomLeft: !isMe ? const Radius.circular(4) : const Radius.circular(16),
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.block, size: 14, color: secondaryTextColor),
-              const SizedBox(width: 6),
-              Text(
-                'This message was deleted',
-                style: TextStyle(
-                  color: secondaryTextColor,
-                  fontStyle: FontStyle.italic,
-                  fontSize: userFontSize,
-                ),
-              ),
-            ],
+      final deletedWidget = Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: isMe ? AppTheme.bubbleSender.withOpacity(0.5) : AppTheme.bubbleReceiver.withOpacity(0.5),
+          borderRadius: BorderRadius.circular(16).copyWith(
+            bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(16),
+            bottomLeft: !isMe ? const Radius.circular(4) : const Radius.circular(16),
           ),
         ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.block, size: 14, color: secondaryTextColor),
+            const SizedBox(width: 6),
+            Text(
+              'This message was deleted',
+              style: TextStyle(
+                color: secondaryTextColor,
+                fontStyle: FontStyle.italic,
+                fontSize: userFontSize,
+              ),
+            ),
+          ],
+        ),
       );
+      return _wrapSwipeable(deletedWidget);
     }
 
     if (message.mediaType == 'CALL_LOG') {
-      return _buildCallLogBubble(context);
+      return _wrapSwipeable(_buildCallLogBubble(context));
     }
     
     if (message.mediaType == 'LOCATION' || message.latitude != null) {
-      return _buildLocationBubble(context);
+      return _wrapSwipeable(_buildLocationBubble(context));
     }
 
 
@@ -355,36 +356,44 @@ class MessageBubble extends StatelessWidget {
                       ),
                     ),
                   if (message.parentMessage != null)
-                    Container(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.black12,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border(left: BorderSide(color: isMe ? Colors.white : AppTheme.primaryColor, width: 4)),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            message.parentMessage!['sender']?['username'] ?? 'User',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12,
-                              color: textColor,
+                    GestureDetector(
+                      onTap: () {
+                        final parentId = (message.parentMessage!['id'] ?? message.parentMessage!['_id'])?.toString();
+                        if (parentId != null && onTapReplyReference != null) {
+                          onTapReplyReference!(parentId);
+                        }
+                      },
+                      child: Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.black12,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border(left: BorderSide(color: isMe ? Colors.white : AppTheme.primaryColor, width: 4)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _getQuotedSenderName(message.parentMessage),
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                                color: textColor,
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            message.parentMessage!['content'] ?? 'Message',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: secondaryTextColor,
+                            const SizedBox(height: 4),
+                            Text(
+                              _getQuotedContentText(message.parentMessage),
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: secondaryTextColor,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   if (message.isViewOnce)
@@ -596,22 +605,53 @@ class MessageBubble extends StatelessWidget {
                     })
                   else if (message.mediaUrl != null && message.mediaUrl!.isNotEmpty) ...[
                     if (message.mediaType == 'IMAGE')
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(isOnlyImage ? 16 : 8).copyWith(
-                          bottomRight: (isMe && isOnlyImage) ? const Radius.circular(4) : null,
-                          bottomLeft: (!isMe && isOnlyImage) ? const Radius.circular(4) : null,
-                        ),
-                        child: CachedNetworkImage(
-                          imageUrl: ApiService.getMediaUrl(message.mediaUrl),
-                          width: imageSize,
-                          fit: BoxFit.contain,
-                          placeholder: (context, url) => Container(
-                            width: imageSize,
-                            height: imageSize,
-                            color: Colors.black12,
-                            child: const Center(child: CircularProgressIndicator()),
-                          ),
-                          errorWidget: (context, url, error) => const Icon(Icons.broken_image, size: 50, color: Colors.grey),
+                      GestureDetector(
+                        onTap: () {
+                          if (message.mediaUrl != null && message.mediaUrl!.isNotEmpty) {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (ctx) => FullScreenImageView(
+                                  imageUrl: message.mediaUrl!,
+                                ),
+                              ),
+                            );
+                          }
+                        },
+                        child: Stack(
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(isOnlyImage ? 16 : 8).copyWith(
+                                bottomRight: (isMe && isOnlyImage) ? const Radius.circular(4) : null,
+                                bottomLeft: (!isMe && isOnlyImage) ? const Radius.circular(4) : null,
+                              ),
+                              child: CachedNetworkImage(
+                                imageUrl: ApiService.getMediaUrl(message.mediaUrl),
+                                width: imageSize,
+                                fit: BoxFit.contain,
+                                placeholder: (context, url) => Container(
+                                  width: imageSize,
+                                  height: imageSize,
+                                  color: Colors.black12,
+                                  child: const Center(child: CircularProgressIndicator()),
+                                ),
+                                errorWidget: (context, url, error) => const Icon(Icons.broken_image, size: 50, color: Colors.grey),
+                              ),
+                            ),
+                            if (isOnlyImage)
+                              Positioned(
+                                bottom: 6,
+                                right: 6,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withOpacity(0.55),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: _buildReadReceiptInfo(Colors.white),
+                                ),
+                              ),
+                          ],
                         ),
                       )
                       else if (message.mediaType == 'VIDEO')
@@ -680,6 +720,19 @@ class MessageBubble extends StatelessWidget {
                                       ),
                                     ],
                                   ),
+                                  if (isOnlyImage)
+                                    Positioned(
+                                      bottom: 6,
+                                      right: 6,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                        decoration: BoxDecoration(
+                                          color: Colors.black.withOpacity(0.55),
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                        child: _buildReadReceiptInfo(Colors.white),
+                                      ),
+                                    ),
                                 ],
                               ),
                             ),
@@ -756,50 +809,22 @@ class MessageBubble extends StatelessWidget {
                         ),
                     if (message.content.isNotEmpty) const SizedBox(height: 8),
                   ],
-                  if (message.content.isNotEmpty && message.mediaType != 'CALL_LOG' && message.mediaType != 'POLL' && message.mediaType != 'LOCATION')
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Flexible(
-                          child: _buildMessageText(message.content, textColor, fontSize),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          '${message.isEdited ? "edited " : ""}${DateFormat('hh:mm a').format(message.createdAt.toLocal())}',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: secondaryTextColor,
-                          ),
-                        ),
-                        if (isMe) ...[
-                          const SizedBox(width: 4),
-                          Builder(
-                            builder: (context) {
-                              bool isRead = false;
-                              bool isDelivered = false;
-                              if (message.receipts != null && message.receipts!.isNotEmpty) {
-                                if (message.receipts!.any((r) => r['status'] == 'READ')) {
-                                  isRead = true;
-                                } else if (message.receipts!.any((r) => r['status'] == 'DELIVERED')) {
-                                  isDelivered = true;
-                                }
-                              }
-                              
-                              if (message.isPending) {
-                                return const Icon(Icons.access_time, size: 15, color: Colors.white70);
-                              } else if (isRead) {
-                                return const Icon(Icons.done_all, size: 16, color: Colors.cyanAccent);
-                              } else if (isDelivered) {
-                                return const Icon(Icons.done_all, size: 16, color: Colors.white70);
-                              } else {
-                                return const Icon(Icons.check, size: 16, color: Colors.white70);
-                              }
-                            },
-                          ),
+                  if (!isOnlyImage && message.mediaType != 'CALL_LOG' && message.mediaType != 'POLL' && message.mediaType != 'LOCATION')
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4.0),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          if (message.content.isNotEmpty)
+                            Flexible(
+                              child: _buildMessageText(message.content, textColor, fontSize),
+                            ),
+                          const SizedBox(width: 8),
+                          _buildReadReceiptInfo(textColor),
                         ],
-                      ],
+                      ),
                     ),
                 ],
               ),
@@ -845,6 +870,10 @@ class MessageBubble extends StatelessWidget {
           ],
         );
 
+    return _wrapSwipeable(bubbleContent);
+  }
+
+  Widget _wrapSwipeable(Widget child) {
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: onSwipeReply != null
@@ -854,17 +883,109 @@ class MessageBubble extends StatelessWidget {
               onDismissed: (_) {},
               confirmDismiss: (direction) async {
                 onSwipeReply!(message);
-                return false; 
+                return false;
               },
               background: Container(
                 alignment: Alignment.centerLeft,
                 padding: const EdgeInsets.only(left: 20),
                 child: const Icon(Icons.reply, color: Colors.white, size: 28),
               ),
-              child: bubbleContent,
+              child: child,
             )
-          : bubbleContent,
+          : child,
     );
+  }
+
+  Widget _buildReadReceiptInfo(Color textColor) {
+    final secondaryColor = textColor.withOpacity(0.8);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Text(
+          '${message.isEdited ? "edited • " : ""}${DateFormat('hh:mm a').format(message.createdAt.toLocal())}',
+          style: TextStyle(
+            fontSize: 10,
+            color: secondaryColor,
+            fontStyle: message.isEdited ? FontStyle.italic : FontStyle.normal,
+          ),
+        ),
+        if (isMe) ...[
+          const SizedBox(width: 4),
+          Builder(
+            builder: (context) {
+              bool isRead = false;
+              bool isDelivered = false;
+              if (message.receipts != null && message.receipts!.isNotEmpty) {
+                if (message.receipts!.any((r) => r['status'] == 'READ')) {
+                  isRead = true;
+                } else if (message.receipts!.any((r) => r['status'] == 'DELIVERED')) {
+                  isDelivered = true;
+                }
+              }
+              
+              if (message.isPending) {
+                return Icon(Icons.access_time, size: 15, color: secondaryColor);
+              } else if (isRead) {
+                return const Icon(Icons.done_all, size: 16, color: Colors.cyanAccent);
+              } else if (isDelivered) {
+                return Icon(Icons.done_all, size: 16, color: secondaryColor);
+              } else {
+                return Icon(Icons.check, size: 16, color: secondaryColor);
+              }
+            },
+          ),
+        ],
+      ],
+    );
+  }
+
+  String _getQuotedSenderName(dynamic parent) {
+    if (parent == null) return 'User';
+    if (parent is Map) {
+      final sender = parent['sender'];
+      if (sender is Map) {
+        return (sender['username'] ?? sender['name'] ?? 'User').toString();
+      }
+      if (parent['senderName'] != null) {
+        return parent['senderName'].toString();
+      }
+    }
+    return 'User';
+  }
+
+  String _getQuotedContentText(dynamic parent) {
+    if (parent == null) return 'Message';
+    if (parent is Map) {
+      if (parent['isDeleted'] == true || parent['content'] == 'This message was deleted') {
+        return 'This message was deleted';
+      }
+      final mediaType = parent['mediaType'] ?? 'TEXT';
+      final mediaUrl = parent['mediaUrl'];
+      final content = (parent['content'] ?? '').toString();
+
+      if (mediaType == 'CALL_LOG') {
+        if (content.toLowerCase().contains('missed')) {
+          return '📞 Missed call';
+        } else if (content.toLowerCase().contains('declined')) {
+          return '📞 Declined call';
+        } else if (mediaUrl == 'VIDEO_CALL' || content.toLowerCase().contains('video')) {
+          return '🎥 Video call';
+        } else {
+          return '📞 Voice call';
+        }
+      }
+      if (mediaType == 'IMAGE') return '📷 Photo';
+      if (mediaType == 'VIDEO') return '🎥 Video';
+      if (mediaType == 'AUDIO') return '🎵 Voice message';
+      if (mediaType == 'LOCATION') return '📍 Location';
+      if (mediaType == 'POLL') return '📊 Poll';
+      if (mediaType == 'DOCUMENT' || mediaType == 'FILE') return '📄 Document';
+      if (mediaType == 'STICKER') return '😊 Sticker';
+
+      if (content.isNotEmpty) return content;
+    }
+    return 'Message';
   }
 
   static final Map<String, String> _placeNameCache = {};
@@ -962,9 +1083,7 @@ class MessageBubble extends StatelessWidget {
       }
     }
 
-    return Align(
-      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-      child: GestureDetector(
+    return GestureDetector(
         onTap: openMapApp,
         child: Container(
           margin: const EdgeInsets.only(bottom: 8),
@@ -1179,9 +1298,8 @@ class MessageBubble extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
+      );
+    }
 
   Widget _buildCallLogBubble(BuildContext context) {
     final bool isVideo = message.mediaUrl == 'video';
@@ -1212,9 +1330,7 @@ class MessageBubble extends StatelessWidget {
       }
     }
 
-    return Align(
-      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-      child: GestureDetector(
+    return GestureDetector(
         onTap: () => onTapCall?.call(isVideo),
         child: Container(
           margin: const EdgeInsets.only(bottom: 8),
@@ -1266,9 +1382,8 @@ class MessageBubble extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
+      );
+    }
 }
 
 class AudioPlayWidget extends StatefulWidget {

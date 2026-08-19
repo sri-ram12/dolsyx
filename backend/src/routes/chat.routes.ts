@@ -85,11 +85,24 @@ router.post("/upload", (req: any, res: any) => {
         return;
       }
 
-      const getCleanUrl = (f: Express.Multer.File) => {
+      const getCleanUrl = (f: any): string => {
         if (f.path && (f.path.startsWith("http://") || f.path.startsWith("https://"))) {
           return f.path;
         }
-        return `/uploads/${f.filename}`;
+        if (f.secure_url) return f.secure_url;
+        if (f.url && typeof f.url === "string" && (f.url.startsWith("http://") || f.url.startsWith("https://") || f.url.startsWith("/uploads/"))) {
+          return f.url;
+        }
+        if (f.filename && f.filename !== "undefined") {
+          return `/uploads/${f.filename}`;
+        }
+        if (f.path) {
+          const norm = f.path.replace(/\\/g, "/");
+          const idx = norm.indexOf("uploads/");
+          if (idx !== -1) return `/${norm.substring(idx)}`;
+          return f.path;
+        }
+        return "";
       };
 
       const uploadedFiles = files.map((f) => ({

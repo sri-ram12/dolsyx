@@ -805,6 +805,24 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     socket?.on('message_unpinned', _handleMessageUnpinned);
     socket?.on('poll_updated', _handlePollUpdated);
 
+    // Scheduled Messages real-time sync
+    _loadScheduledMessages();
+    socket?.on('scheduled_messages_updated', (data) {
+      if (mounted && data != null && data['conversationId'] == widget.conversationId) {
+        setState(() {
+          _scheduledMessages = List<Map<String, dynamic>>.from(data['scheduledMessages'] ?? []);
+          _scheduledMessages.sort((a, b) => (a['scheduledFor'] as int).compareTo(b['scheduledFor'] as int));
+        });
+      }
+    });
+    socket?.on('scheduled_message_executed', (data) {
+      if (mounted && data != null && data['conversationId'] == widget.conversationId) {
+        setState(() {
+          _scheduledMessages.removeWhere((m) => m['id'] == data['id']);
+        });
+      }
+    });
+
     _messageController.addListener(_onTextChanged);
     
     // Set initial status from socket and widget
@@ -819,6 +837,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   @override
   void dispose() {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final socket = authProvider.socketService.socket;
+    socket?.off('scheduled_messages_updated');
+    socket?.off('scheduled_message_executed');
     authProvider.socketService.leaveConversation(widget.conversationId);
     authProvider.socketService.offMessageReceived(_handleIncomingMessage);
     authProvider.socketService.offEncryptedMessageReceived(_handleEncryptedMessage);
@@ -2172,6 +2193,15 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     );
   }
 
+  List<Map<String, dynamic>> _scheduledMessages = [];
+
+  void _loadScheduledMessages() {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    authProvider.socketService.socket?.emit('get_scheduled_messages', {
+      'conversationId': widget.conversationId,
+    });
+  }
+
   void _showScheduleMessageModal() async {
     final DateTime? pickedDate = await showDatePicker(
       context: context,
@@ -2195,99 +2225,269 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       pickedTime.minute,
     );
 
+    if (scheduledDateTime.isBefore(DateTime.now())) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please choose a future date and time.')),
+        );
+      }
+      return;
+    }
+
     final textController = TextEditingController(text: _messageController.text);
     if (!mounted) return;
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Schedule Message'),
+        backgroundColor: AppTheme.surfaceColor,
+        title: Text('Schedule Message', style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Scheduled for: ${DateFormat('EEE, MMM d, yyyy @ h:mm a').format(scheduledDateTime)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.orange.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.schedule, color: Colors.orange, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Sends: ${DateFormat('EEE, MMM d @ h:mm a').format(scheduledDateTime)}',
+                      style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
             TextField(
               controller: textController,
-              decoration: const InputDecoration(hintText: 'Enter scheduled message text...'),
+              style: TextStyle(color: AppTheme.textPrimary),
+              maxLines: 3,
+              decoration: InputDecoration(
+                hintText: 'Enter scheduled message text...',
+                hintStyle: TextStyle(color: AppTheme.textSecondary),
+                filled: true,
+                fillColor: AppTheme.backgroundColor.withValues(alpha: 0.5),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              ),
             ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('Cancel', style: TextStyle(color: AppTheme.textSecondary)),
+          ),
           ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFF9800),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
             onPressed: () {
               final text = textController.text.trim();
               if (text.isNotEmpty) {
                 Navigator.pop(ctx);
-                final delay = scheduledDateTime.difference(DateTime.now());
+                _messageController.clear();
+
                 final authProvider = Provider.of<AuthProvider>(context, listen: false);
-                final conversationId = widget.conversationId;
-                final remoteEmail = widget.remoteUser?['email'] as String?;
-                final token = authProvider.token;
-                final myUserId = authProvider.user?['id'] ?? authProvider.user?['_id'] ?? '';
-                final socketService = authProvider.socketService;
+                final socket = authProvider.socketService.socket;
 
-                final List<String> memberEmails = [];
-                if (widget.remoteUser != null && widget.remoteUser!['participants'] is List) {
-                  for (final p in widget.remoteUser!['participants']) {
-                    final u = p['user'] ?? p;
-                    if (u is Map && u['email'] != null) {
-                      memberEmails.add(u['email'].toString());
-                    }
-                  }
-                }
+                final scheduledMsg = {
+                  'id': 'sched_${DateTime.now().millisecondsSinceEpoch}',
+                  'conversationId': widget.conversationId,
+                  'content': text,
+                  'scheduledFor': scheduledDateTime.millisecondsSinceEpoch,
+                  'createdAt': DateTime.now().millisecondsSinceEpoch,
+                };
 
-                Timer(delay.isNegative ? Duration.zero : delay, () {
-                  final isDirectMessage = remoteEmail != null && remoteEmail.isNotEmpty;
-                  if (isDirectMessage && token != null) {
-                    socketService.sendEncryptedMessage(
-                      conversationId: conversationId,
-                      recipientEmail: remoteEmail,
-                      plaintext: text,
-                      token: token,
-                      myUserId: myUserId,
-                    ).catchError((e) {
-                      socketService.sendMessage(conversationId, text);
-                    });
-                  } else if (token != null && memberEmails.isNotEmpty) {
-                    socketService.sendEncryptedGroupMessage(
-                      conversationId: conversationId,
-                      memberEmails: memberEmails,
-                      plaintext: text,
-                      token: token,
-                      myUserId: myUserId,
-                    ).catchError((e) {
-                      socketService.sendMessage(conversationId, text);
-                    });
-                  } else {
-                    socketService.sendMessage(conversationId, text);
-                  }
+                // Optimistic local add
+                setState(() {
+                  _scheduledMessages.add(scheduledMsg);
+                  _scheduledMessages.sort((a, b) => (a['scheduledFor'] as int).compareTo(b['scheduledFor'] as int));
+                });
 
-                  if (mounted) {
-                    final newMsg = Message(
-                      id: 'temp-${DateTime.now().millisecondsSinceEpoch}',
-                      content: text,
-                      senderId: myUserId,
-                      conversationId: conversationId,
-                      createdAt: DateTime.now(),
-                      isPending: socketService.socket?.connected != true,
-                    );
-                    setState(() {
-                      _messages.add(newMsg);
-                    });
-                    _scrollToBottom();
-                  }
+                // Server persistent emit (works even when app is closed or offline)
+                socket?.emit('schedule_message', {
+                  'conversationId': widget.conversationId,
+                  'content': text,
+                  'scheduledFor': scheduledDateTime.millisecondsSinceEpoch,
                 });
 
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Message scheduled for ${DateFormat('h:mm a').format(scheduledDateTime)}')),
+                  SnackBar(
+                    backgroundColor: const Color(0xFF1E293B),
+                    content: Row(
+                      children: [
+                        const Icon(Icons.check_circle, color: Color(0xFFFF9800), size: 20),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Message scheduled for ${DateFormat('MMM d @ h:mm a').format(scheduledDateTime)}',
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 );
               }
             },
-            child: const Text('Schedule'),
+            child: const Text('Schedule', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildScheduledMessagesBar() {
+    if (_scheduledMessages.isEmpty) return const SizedBox.shrink();
+    final firstSched = _scheduledMessages.first;
+    final scheduledDate = DateTime.fromMillisecondsSinceEpoch(firstSched['scheduledFor'] as int);
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E293B),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.orange.withValues(alpha: 0.4)),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 6, offset: const Offset(0, 2)),
+        ],
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.schedule, color: Colors.orange, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '${_scheduledMessages.length} Scheduled Message${_scheduledMessages.length > 1 ? 's' : ''}',
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                ),
+                Text(
+                  'Next: ${DateFormat('h:mm a, MMM d').format(scheduledDate)}',
+                  style: TextStyle(color: Colors.orange.withValues(alpha: 0.9), fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              backgroundColor: Colors.orange.withValues(alpha: 0.2),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: _showScheduledMessagesManagerModal,
+            child: const Text('Manage', style: TextStyle(color: Colors.orange, fontSize: 12, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showScheduledMessagesManagerModal() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppTheme.surfaceColor,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (modalCtx, setModalState) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Scheduled Messages (${_scheduledMessages.length})',
+                        style: TextStyle(color: AppTheme.textPrimary, fontSize: 18, fontWeight: FontWeight.bold)),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white70),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                if (_scheduledMessages.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 24),
+                    child: Center(
+                      child: Text('No pending scheduled messages', style: TextStyle(color: AppTheme.textSecondary)),
+                    ),
+                  )
+                else
+                  Flexible(
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: _scheduledMessages.length,
+                      separatorBuilder: (_, __) => const Divider(color: Colors.white12),
+                      itemBuilder: (context, index) {
+                        final msg = _scheduledMessages[index];
+                        final time = DateTime.fromMillisecondsSinceEpoch(msg['scheduledFor'] as int);
+                        final authProvider = Provider.of<AuthProvider>(context, listen: false);
+                        return ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const CircleAvatar(
+                            backgroundColor: Color(0xFF332005),
+                            child: Icon(Icons.access_time_rounded, color: Colors.orange, size: 22),
+                          ),
+                          title: Text(msg['content'] ?? '', style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.w600, fontSize: 14)),
+                          subtitle: Text(DateFormat('EEE, MMM d @ h:mm a').format(time), style: const TextStyle(color: Colors.orange, fontSize: 12)),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                tooltip: 'Send Now',
+                                icon: const Icon(Icons.send_rounded, color: Colors.green, size: 20),
+                                onPressed: () {
+                                  authProvider.socketService.socket?.emit('send_scheduled_message_now', {'id': msg['id']});
+                                  setModalState(() {
+                                    _scheduledMessages.removeAt(index);
+                                  });
+                                  setState(() {});
+                                  if (_scheduledMessages.isEmpty) Navigator.pop(ctx);
+                                },
+                              ),
+                              IconButton(
+                                tooltip: 'Delete',
+                                icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 20),
+                                onPressed: () {
+                                  authProvider.socketService.socket?.emit('cancel_scheduled_message', {
+                                    'id': msg['id'],
+                                    'conversationId': widget.conversationId,
+                                  });
+                                  setModalState(() {
+                                    _scheduledMessages.removeAt(index);
+                                  });
+                                  setState(() {});
+                                  if (_scheduledMessages.isEmpty) Navigator.pop(ctx);
+                                },
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -3585,6 +3785,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     },
                   ),
           ),
+          _buildScheduledMessagesBar(),
           if (_replyingTo != null)
             Container(
               margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),

@@ -116,8 +116,9 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
 
     CallScreen.activeConversationId = widget.conversationId;
     CallScreen.activeCallState = this;
+    final initialName = (widget.remoteUserName.isNotEmpty) ? widget.remoteUserName : 'User';
     _participants[widget.remoteUserId] = {
-      'username': widget.remoteUserName,
+      'username': initialName,
       'avatarUrl': widget.remoteAvatarUrl,
     };
 
@@ -284,10 +285,12 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           'offerToReceiveVideo': widget.isAudioOnly ? 0 : 1,
         };
         final offer = await pc.createOffer(offerConstraints);
-        await pc.setLocalDescription(offer);
+        final optimizedSdp = _optimizeSdpForHdCall(offer.sdp, isAudioOnly: widget.isAudioOnly);
+        final optimizedOffer = RTCSessionDescription(optimizedSdp, offer.type);
+        await pc.setLocalDescription(optimizedOffer);
         _socket?.emit('call_offer', {
           'targetUserId': requesterId,
-          'offer': {'sdp': offer.sdp, 'type': offer.type},
+          'offer': {'sdp': optimizedOffer.sdp, 'type': optimizedOffer.type},
           'callType': widget.isAudioOnly ? 'audio' : 'video',
           'conversationId': widget.conversationId,
         });
@@ -318,10 +321,12 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           'offerToReceiveVideo': widget.isAudioOnly ? 0 : 1,
         };
         final answer = await pc.createAnswer(answerConstraints);
-        await pc.setLocalDescription(answer);
+        final optimizedSdp = _optimizeSdpForHdCall(answer.sdp, isAudioOnly: widget.isAudioOnly);
+        final optimizedAnswer = RTCSessionDescription(optimizedSdp, answer.type);
+        await pc.setLocalDescription(optimizedAnswer);
         _socket?.emit('call_answer', {
           'callerId': callerId,
-          'answer': {'sdp': answer.sdp, 'type': answer.type},
+          'answer': {'sdp': optimizedAnswer.sdp, 'type': optimizedAnswer.type},
         });
         if (mounted && !_isDisposed) {
           setState(() {
@@ -644,8 +649,13 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       final videoConstraints = widget.isAudioOnly
           ? false
           : (lowDataMode
-              ? {'facingMode': 'user', 'width': {'ideal': 320}, 'height': {'ideal': 240}, 'frameRate': {'ideal': 15}}
-              : {'facingMode': 'user', 'width': {'ideal': 1280}, 'height': {'ideal': 720}, 'frameRate': {'ideal': 30, 'max': 30}});
+              ? {'facingMode': 'user', 'width': {'ideal': 640}, 'height': {'ideal': 480}, 'frameRate': {'ideal': 24}}
+              : {
+                  'facingMode': 'user',
+                  'width': {'ideal': 1920, 'min': 1280},
+                  'height': {'ideal': 1080, 'min': 720},
+                  'frameRate': {'ideal': 30, 'max': 60},
+                });
 
       try {
         _localStream = await navigator.mediaDevices.getUserMedia({
@@ -653,13 +663,26 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
             'echoCancellation': true,
             'noiseSuppression': true,
             'autoGainControl': true,
+            'googEchoCancellation': true,
+            'googAutoGainControl': true,
+            'googNoiseSuppression': true,
+            'googHighpassFilter': true,
+            'googNoiseSuppression2': true,
+            'googEchoCancellation2': true,
+            'googTypingNoiseDetection': true,
+            'sampleRate': 48000,
+            'channelCount': 1,
           },
           'video': videoConstraints,
         });
       } catch (_) {
         // Fallback for strict Web browsers or devices
         _localStream = await navigator.mediaDevices.getUserMedia({
-          'audio': true,
+          'audio': {
+            'echoCancellation': true,
+            'noiseSuppression': true,
+            'autoGainControl': true,
+          },
           'video': widget.isAudioOnly ? false : true,
         });
       }
@@ -673,7 +696,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       _localRenderer.srcObject = _localStream;
       if (widget.isAudioOnly) _isVideoOff = true;
 
-      // Always use speakerphone so remote voice is audible \u2014 user can toggle via UI
+      // Always use speakerphone so remote voice is audible — user can toggle via UI
       _isSpeakerOn = true;
       Helper.setSpeakerphoneOn(widget.isIncoming ? true : false);
       _localStream?.getAudioTracks().forEach((track) {
@@ -684,6 +707,31 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       debugPrint('[WebRTC] getUserMedia error: $e');
       return false;
     }
+  }
+
+  String _optimizeSdpForHdCall(String? sdp, {bool isAudioOnly = false}) {
+    if (sdp == null || sdp.isEmpty) return sdp ?? '';
+    var modified = sdp;
+    // 1. Opus high-fidelity HD voice: 64kbps bitrate, Forward Error Correction, CBR for low latency
+    if (modified.contains('opus/48000')) {
+      modified = modified.replaceAllMapped(
+        RegExp(r'(a=fmtp:\d+ [^\r\n]*)'),
+        (match) {
+          final line = match.group(0)!;
+          if (line.contains('opus') || line.contains('minptime') || line.contains('useinbandfec') || modified.contains('a=rtpmap:111 opus/48000')) {
+            if (!line.contains('useinbandfec=1')) {
+              return '$line;useinbandfec=1;maxaveragebitrate=64000;cbr=1;stereo=0;sprop-maxcapturerate=48000';
+            }
+          }
+          return line;
+        },
+      );
+    }
+    // 2. Set video bandwidth for HD calling (2.5 Mbps = 2500 kbps)
+    if (!isAudioOnly && modified.contains('m=video')) {
+      modified = modified.replaceAll('m=video', 'm=video\r\nb=AS:2500\r\nb=TIAS:2500000');
+    }
+    return modified;
   }
 
   Future<void> _startCall() async {
@@ -714,10 +762,12 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         'offerToReceiveVideo': widget.isAudioOnly ? 0 : 1,
       };
       final offer = await pc.createOffer(offerConstraints);
-      await pc.setLocalDescription(offer);
+      final optimizedSdp = _optimizeSdpForHdCall(offer.sdp, isAudioOnly: widget.isAudioOnly);
+      final optimizedOffer = RTCSessionDescription(optimizedSdp, offer.type);
+      await pc.setLocalDescription(optimizedOffer);
       authProvider.socketService.socket?.emit('call_offer', {
         'targetUserId': widget.remoteUserId,
-        'offer': {'sdp': offer.sdp, 'type': offer.type},
+        'offer': {'sdp': optimizedOffer.sdp, 'type': optimizedOffer.type},
         'callType': widget.isAudioOnly ? 'audio' : 'video',
         'conversationId': widget.conversationId,
         'callerName': authProvider.user?['username'],
@@ -770,10 +820,12 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           'offerToReceiveVideo': widget.isAudioOnly ? 0 : 1,
         };
         final answer = await pc.createAnswer(answerConstraints);
-        await pc.setLocalDescription(answer);
+        final optimizedSdp = _optimizeSdpForHdCall(answer.sdp, isAudioOnly: widget.isAudioOnly);
+        final optimizedAnswer = RTCSessionDescription(optimizedSdp, answer.type);
+        await pc.setLocalDescription(optimizedAnswer);
         authProvider.socketService.socket?.emit('call_answer', {
           'callerId': widget.remoteUserId,
-          'answer': {'sdp': answer.sdp, 'type': answer.type},
+          'answer': {'sdp': optimizedAnswer.sdp, 'type': optimizedAnswer.type},
         });
         _startTimer();
       } catch (e) {
@@ -1108,8 +1160,8 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   }
 
   void _showAddParticipantModal() async {
-    if (_participants.length >= 3) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Group calls limited to 4 participants.')));
+    if (_participants.length >= 11) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Group calls limited to 12 participants.')));
       return;
     }
     final token = Provider.of<AuthProvider>(context, listen: false).token ?? '';
@@ -1121,20 +1173,20 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (context) {
         final available = contacts.where((c) {
-          final id = c['contact']['id'] ?? c['contact']['_id'];
-          return !_participants.containsKey(id) && id != widget.remoteUserId;
+          final id = (c['contact']['id'] ?? c['contact']['_id'])?.toString();
+          return id != null && !_participants.containsKey(id) && id != widget.remoteUserId;
         }).toList();
         return Column(
           children: [
-            Padding(padding: const EdgeInsets.all(16), child: Text('Add to Call', style: TextStyle(color: AppTheme.textPrimary, fontSize: 18, fontWeight: FontWeight.bold))),
+            Padding(padding: const EdgeInsets.all(16), child: Text('Add to Call (Up to 12 Members)', style: TextStyle(color: AppTheme.textPrimary, fontSize: 18, fontWeight: FontWeight.bold))),
             Expanded(
               child: available.isEmpty
-                ? Center(child: Text('No contacts available', style: TextStyle(color: AppTheme.textSecondary)))
+                ? Center(child: Text('No contacts available to add', style: TextStyle(color: AppTheme.textSecondary)))
                 : ListView.builder(
                   itemCount: available.length,
                   itemBuilder: (ctx, i) {
                     final c = available[i];
-                    final name = c['savedName'] ?? c['contact']['username'] ?? 'User';
+                    final name = (c['savedName'] ?? c['contact']['username'] ?? 'User').toString();
                     return ListTile(
                       leading: ColorAvatar(name: name, radius: 20, fontSize: 16),
                       title: Text(name, style: TextStyle(color: AppTheme.textPrimary)),
@@ -1150,8 +1202,9 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   }
 
   void _addParticipant(dynamic contact) async {
-    final newUserId = contact['contact']['id'] ?? contact['contact']['_id'];
-    final newUserName = contact['savedName'] ?? contact['contact']['username'];
+    final newUserId = (contact['contact']['id'] ?? contact['contact']['_id'])?.toString();
+    if (newUserId == null || newUserId.isEmpty) return;
+    final newUserName = (contact['savedName'] ?? contact['contact']['username'] ?? 'User').toString();
     final newUserAvatar = contact['contact']['avatarUrl'];
     setState(() => _participants[newUserId] = {'username': newUserName, 'avatarUrl': newUserAvatar});
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
@@ -1159,30 +1212,40 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     final myUserName = myUser?['username'] ?? 'User';
     final socket = authProvider.socketService.socket;
 
-    // Create offer from me (caller) to new user
-    final pc = await _createPeerConnection(newUserId);
-    final offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    socket?.emit('call_offer', {
-      'targetUserId': newUserId,
-      'offer': {'sdp': offer.sdp, 'type': offer.type},
-      'callType': widget.isAudioOnly ? 'audio' : 'video',
-      'conversationId': widget.conversationId,
-      'callerName': myUserName,
-      'callerAvatar': myUser?['avatarUrl'],
-    });
+    try {
+      // Create offer from me to new user
+      final pc = await _createPeerConnection(newUserId);
+      final offerConstraints = <String, dynamic>{
+        'offerToReceiveAudio': 1,
+        'offerToReceiveVideo': widget.isAudioOnly ? 0 : 1,
+      };
+      final offer = await pc.createOffer(offerConstraints);
+      final optimizedSdp = _optimizeSdpForHdCall(offer.sdp, isAudioOnly: widget.isAudioOnly);
+      final optimizedOffer = RTCSessionDescription(optimizedSdp, offer.type);
+      await pc.setLocalDescription(optimizedOffer);
+      socket?.emit('call_offer', {
+        'targetUserId': newUserId,
+        'offer': {'sdp': optimizedOffer.sdp, 'type': optimizedOffer.type},
+        'callType': widget.isAudioOnly ? 'audio' : 'video',
+        'conversationId': widget.conversationId,
+        'callerName': myUserName,
+        'callerAvatar': myUser?['avatarUrl'],
+      });
 
-    // Notify all existing participants to connect to new user
-    for (final existingPeerId in _peerConnections.keys) {
-      if (existingPeerId != newUserId) {
-        socket?.emit('user_added_to_call', {
-          'targetUserId': existingPeerId,
-          'newUserId': newUserId,
-          'newUserName': newUserName,
-          'conversationId': widget.conversationId,
-          'callType': widget.isAudioOnly ? 'audio' : 'video',
-        });
+      // Notify all existing participants to mesh connect to new user
+      for (final existingPeerId in _participants.keys) {
+        if (existingPeerId != newUserId) {
+          socket?.emit('user_added_to_call', {
+            'targetUserId': existingPeerId,
+            'newUserId': newUserId,
+            'newUserName': newUserName,
+            'conversationId': widget.conversationId,
+            'callType': widget.isAudioOnly ? 'audio' : 'video',
+          });
+        }
       }
+    } catch (e) {
+      debugPrint('[WebRTC] _addParticipant error: $e');
     }
   }
 
@@ -1272,6 +1335,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
 
     _participants.forEach((id, data) {
       final renderer = _remoteRenderers[id];
+      final usernameStr = (data['username'] ?? 'User').toString();
       views.add(Stack(
         fit: StackFit.expand,
         children: [
@@ -1280,23 +1344,37 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
                 renderer,
                 objectFit: _isScreenSharing ? RTCVideoViewObjectFit.RTCVideoViewObjectFitContain : RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
               )
-            : Container(color: Colors.grey[900], child: Center(child: ColorAvatar(name: data['username'] ?? '?', radius: 36, fontSize: 22))),
+            : Container(
+                color: Colors.grey[900],
+                child: Center(
+                  child: ColorAvatar(
+                    name: usernameStr,
+                    radius: views.length > 4 ? 26 : 36,
+                    fontSize: views.length > 4 ? 16 : 22,
+                  ),
+                ),
+              ),
           Positioned(
-            bottom: 8, left: 8,
+            bottom: 6, left: 6,
             child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(12)),
-                  child: Text(data['username'] ?? 'User', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(10)),
+                  child: Text(
+                    usernameStr,
+                    style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-                const SizedBox(width: 6),
+                const SizedBox(width: 4),
                 GestureDetector(
-                  onTap: () => _showEndCallWithDialog(id, data['username'] ?? 'User'),
+                  onTap: () => _showEndCallWithDialog(id, usernameStr),
                   child: Container(
-                    padding: const EdgeInsets.all(5),
-                    decoration: BoxDecoration(color: Colors.red.withValues(alpha: 0.85), borderRadius: BorderRadius.circular(10)),
-                    child: const Icon(Icons.call_end, color: Colors.white, size: 14),
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(color: Colors.red.withValues(alpha: 0.85), borderRadius: BorderRadius.circular(8)),
+                    child: const Icon(Icons.call_end, color: Colors.white, size: 12),
                   ),
                 ),
               ],
@@ -1317,11 +1395,11 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
             objectFit: _isScreenSharing ? RTCVideoViewObjectFit.RTCVideoViewObjectFitContain : RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
           ),
           Positioned(
-            bottom: 8, left: 8,
+            bottom: 6, left: 6,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(12)),
-              child: const Text('You', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(10)),
+              child: const Text('You', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
             ),
           ),
         ],
@@ -1334,7 +1412,6 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       return Column(children: [Expanded(child: views[0]), const SizedBox(height: 2), Expanded(child: views[1])]);
     }
     if (views.length == 3) {
-      // 3 Members Layout (Matches Picture 1): Top half 2 tiles side-by-side, Bottom half 1 large tile
       return Column(
         children: [
           Expanded(
@@ -1351,30 +1428,45 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         ],
       );
     }
+    if (views.length == 4) {
+      return Column(
+        children: [
+          Expanded(
+            child: Row(
+              children: [
+                Expanded(child: views[0]),
+                const SizedBox(width: 2),
+                Expanded(child: views[1]),
+              ],
+            ),
+          ),
+          const SizedBox(height: 2),
+          Expanded(
+            child: Row(
+              children: [
+                Expanded(child: views[2]),
+                const SizedBox(width: 2),
+                Expanded(child: views[3]),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
 
-    // 4 Members Layout (Matches Picture 2): 2x2 grid filling screen
-    return Column(
-      children: [
-        Expanded(
-          child: Row(
-            children: [
-              Expanded(child: views[0]),
-              const SizedBox(width: 2),
-              Expanded(child: views[1]),
-            ],
-          ),
-        ),
-        const SizedBox(height: 2),
-        Expanded(
-          child: Row(
-            children: [
-              Expanded(child: views[2]),
-              const SizedBox(width: 2),
-              Expanded(child: views[3]),
-            ],
-          ),
-        ),
-      ],
+    // Dynamic grid for 5 to 12+ participants (2 or 3 columns, auto-balanced)
+    final int crossAxisCount = views.length <= 6 ? 2 : 3;
+    return GridView.builder(
+      physics: views.length <= 6 ? const NeverScrollableScrollPhysics() : const BouncingScrollPhysics(),
+      padding: EdgeInsets.zero,
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: crossAxisCount,
+        childAspectRatio: crossAxisCount == 2 ? 0.75 : 0.65,
+        crossAxisSpacing: 2,
+        mainAxisSpacing: 2,
+      ),
+      itemCount: views.length,
+      itemBuilder: (ctx, i) => views[i],
     );
   }
 

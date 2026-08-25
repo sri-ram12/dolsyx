@@ -135,6 +135,28 @@ class ApiService {
     return null;
   }
 
+  Future<Map<String, dynamic>?> getProfile([String? customToken]) async {
+    try {
+      final token = customToken ?? await getToken();
+      if (token == null) return null;
+
+      final response = await http.get(
+        Uri.parse('$baseUrl/auth/me'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map<String, dynamic>) {
+          return (decoded['user'] is Map<String, dynamic>) ? decoded['user'] : decoded;
+        }
+      }
+    } catch (e) {
+      print('Get profile error: $e');
+    }
+    return null;
+  }
+
   Future<Map<String, dynamic>?> updateProfile({String? bio, String? username, String? avatarUrl}) async {
     try {
       final token = await getToken();

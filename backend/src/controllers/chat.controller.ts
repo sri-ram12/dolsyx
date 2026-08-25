@@ -92,47 +92,48 @@ export const getChats = async (req: AuthRequest, res: Response): Promise<void> =
     const photoPrivacyCache = new Map<string, boolean>();
     const aboutPrivacyCache = new Map<string, boolean>();
 
+    // Batch fetch all blocks involving current user in 1 query for instant in-memory checking
+    const myBlocks = await prisma.userBlock.findMany({
+      where: {
+        OR: [{ blockerId: userId }, { blockedId: userId }],
+      },
+    });
+    const blockedSet = new Set<string>();
+    for (const b of myBlocks) {
+      if (b.blockerId === userId) blockedSet.add(b.blockedId);
+      if (b.blockedId === userId) blockedSet.add(b.blockerId);
+    }
+
     // Format chat list for frontend convenience
-    const formattedChats = await Promise.all(
-      conversations.map(async (chat) => {
-        // Find the recipient (the other participant in a 1-on-1 chat)
-        const otherParticipant = chat.participants.find((p) => p.userId !== userId);
-        const recipient = otherParticipant ? { ...otherParticipant.user } : null;
-        // Decrypt lastMessage content so the sidebar preview shows readable text
-        const rawLastMessage = chat.messages[0] || null;
-        const lastMessage = rawLastMessage
-          ? {
-              ...rawLastMessage,
-              content: rawLastMessage.content
-                ? (() => {
-                    try {
-                      return encryptionService.decrypt(rawLastMessage.content);
-                    } catch {
-                      return "";
-                    }
-                  })()
-                : "",
-            }
-          : null;
+    const formattedChats = conversations.map((chat) => {
+      // Find the recipient (the other participant in a 1-on-1 chat)
+      const otherParticipant = chat.participants.find((p) => p.userId !== userId);
+      const recipient = otherParticipant ? { ...otherParticipant.user } : null;
+      // Decrypt lastMessage content so the sidebar preview shows readable text
+      const rawLastMessage = chat.messages[0] || null;
+      const lastMessage = rawLastMessage
+        ? {
+            ...rawLastMessage,
+            content: rawLastMessage.content
+              ? (() => {
+                  try {
+                    return encryptionService.decrypt(rawLastMessage.content);
+                  } catch {
+                    return "";
+                  }
+                })()
+              : "",
+          }
+        : null;
 
-        const unreadCount = unreadCountMap[chat.id] || 0;
+      const unreadCount = unreadCountMap[chat.id] || 0;
 
-        if (recipient) {
-          try {
-            let canViewPhoto = photoPrivacyCache.get(recipient.id);
-            if (canViewPhoto === undefined) {
-              canViewPhoto = await canViewProfilePhoto(userId, recipient.id);
-              photoPrivacyCache.set(recipient.id, canViewPhoto);
-            }
-            let canViewBio = aboutPrivacyCache.get(recipient.id);
-            if (canViewBio === undefined) {
-              canViewBio = await canViewAbout(userId, recipient.id);
-              aboutPrivacyCache.set(recipient.id, canViewBio);
-            }
-            if (!canViewPhoto) recipient.avatarUrl = null;
-            if (!canViewBio) recipient.bio = null;
-          } catch (_) {}
+      if (recipient) {
+        if (blockedSet.has(recipient.id)) {
+          recipient.avatarUrl = null;
+          recipient.bio = null;
         }
+      }
 
         return {
           id: chat.id,
@@ -150,8 +151,7 @@ export const getChats = async (req: AuthRequest, res: Response): Promise<void> =
           unreadCount,
           isArchived: chat.participants.find((p) => p.userId === userId)?.isArchived || false,
         };
-      })
-    );
+      });
 
     res.json(formattedChats);
   } catch (error) {

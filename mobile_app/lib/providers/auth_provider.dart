@@ -26,7 +26,14 @@ class AuthProvider with ChangeNotifier {
   String? get token => _token;
 
   void updateUser(Map<String, dynamic> updatedUser) {
-    _user = updatedUser;
+    if (_user != null) {
+      _user = {..._user!, ...updatedUser};
+    } else {
+      _user = updatedUser;
+    }
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.setString('cached_user_data', jsonEncode(_user));
+    }).catchError((_) {});
     notifyListeners();
   }
 
@@ -67,6 +74,7 @@ class AuthProvider with ChangeNotifier {
         // Cache user data for offline use
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('cached_user_data', jsonEncode(userData));
+        await _saveAccountToDevice(_user!, _token!);
         await _socketService.connect(_user!['id']);
         _setupSocketListeners();
         notifyListeners();
@@ -85,6 +93,7 @@ class AuthProvider with ChangeNotifier {
         _isAuthenticated = true;
         _user = cachedUser;
         _token = validToken;
+        await _saveAccountToDevice(_user!, _token!);
         await _socketService.connect(_user!['id']);
         _setupSocketListeners();
         notifyListeners();
@@ -123,6 +132,7 @@ class AuthProvider with ChangeNotifier {
       _isAuthenticated = true;
       _user = result['data']['user'];
       _token = result['data']['token'];
+      await _saveAccountToDevice(_user!, _token!);
       await _socketService.connect(_user!['id']);
       _setupSocketListeners();
       // Initialize E2EE keys in the background
@@ -147,6 +157,7 @@ class AuthProvider with ChangeNotifier {
       _isAuthenticated = true;
       _user = result['data']['user'];
       _token = result['data']['token'];
+      await _saveAccountToDevice(_user!, _token!);
       await _socketService.connect(_user!['id']);
       _setupSocketListeners();
       // Initialize E2EE keys in the background
@@ -160,10 +171,124 @@ class AuthProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  /// Saves or updates the account in the saved accounts list on this device
+  Future<void> _saveAccountToDevice(Map<String, dynamic> user, String token) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final rawList = prefs.getString('saved_device_accounts');
+      List<dynamic> accounts = [];
+      if (rawList != null) {
+        try {
+          accounts = jsonDecode(rawList);
+        } catch (_) {}
+      }
+
+      final userId = (user['id'] ?? user['_id'])?.toString();
+      if (userId == null) return;
+
+      accounts.removeWhere((a) => (a['id'] ?? a['userData']?['id'])?.toString() == userId);
+      accounts.insert(0, {
+        'id': userId,
+        'username': user['username'] ?? 'User',
+        'email': user['email'] ?? '',
+        'phoneNumber': user['phoneNumber'] ?? '',
+        'avatarUrl': user['avatarUrl'],
+        'token': token,
+        'userData': user,
+        'lastActive': DateTime.now().toIso8601String(),
+      });
+
+      await prefs.setString('saved_device_accounts', jsonEncode(accounts));
+    } catch (e) {
+      debugPrint('Error saving account to device: $e');
+    }
+  }
+
+  /// Get list of all accounts saved on this device
+  Future<List<Map<String, dynamic>>> getSavedAccounts() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final rawList = prefs.getString('saved_device_accounts');
+      if (rawList != null) {
+        final List<dynamic> decoded = jsonDecode(rawList);
+        return decoded.map((e) => Map<String, dynamic>.from(e)).toList();
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  /// Switch to a previously saved account instantly
+  Future<bool> switchAccount(Map<String, dynamic> targetAccount) async {
+    try {
+      final targetToken = targetAccount['token']?.toString();
+      final targetUserData = targetAccount['userData'] != null 
+          ? Map<String, dynamic>.from(targetAccount['userData'])
+          : null;
+
+      if (targetToken == null || targetUserData == null) return false;
+
+      _isLoading = true;
+      notifyListeners();
+
+      // Disconnect current socket
+      _socketService.disconnect();
+
+      // Save token and cached user data
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('jwt_token', targetToken);
+      await prefs.setString('cached_user_data', jsonEncode(targetUserData));
+
+      _token = targetToken;
+      _user = targetUserData;
+      _isAuthenticated = true;
+
+      // Update lastActive in saved accounts list
+      await _saveAccountToDevice(_user!, _token!);
+
+      // Connect socket with new user id
+      await _socketService.connect(_user!['id']);
+      _setupSocketListeners();
+      _initializeE2EE(_user!['id'], _token!);
+
+      // Refresh full profile in background
+      try {
+        final profile = await _apiService.getProfile();
+        if (profile != null) {
+          _user = profile;
+          await prefs.setString('cached_user_data', jsonEncode(profile));
+          await _saveAccountToDevice(_user!, _token!);
+        }
+      } catch (_) {}
+
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      debugPrint('Switch account error: $e');
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Remove a saved account from the device
+  Future<void> removeSavedAccount(String userId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final rawList = prefs.getString('saved_device_accounts');
+      if (rawList != null) {
+        List<dynamic> accounts = jsonDecode(rawList);
+        accounts.removeWhere((a) => (a['id'] ?? a['userData']?['id'])?.toString() == userId);
+        await prefs.setString('saved_device_accounts', jsonEncode(accounts));
+      }
+    } catch (_) {}
+  }
+
   void _setupSocketListeners() {
     _socketService.onProfileUpdated((data) {
       if (data['user'] != null && _user != null && data['user']['id'] == _user!['id']) {
         _user = data['user'];
+        _saveAccountToDevice(_user!, _token!);
         notifyListeners();
       }
     });
@@ -187,12 +312,14 @@ class AuthProvider with ChangeNotifier {
 
   Future<void> logout() async {
     await _apiService.logout();
-    // Also clear cached user data on explicit logout
+    // Remove current user from active session but keep in saved accounts
     final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('jwt_token');
     await prefs.remove('cached_user_data');
     _socketService.disconnect();
     _isAuthenticated = false;
     _user = null;
+    _token = null;
     notifyListeners();
   }
 }

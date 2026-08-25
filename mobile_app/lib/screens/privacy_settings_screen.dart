@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
 import '../providers/auth_provider.dart';
+import '../services/api_service.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'blocked_users_screen.dart';
@@ -53,11 +54,8 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
     setState(() => _isSaving = true);
     try {
       final response = await http.put(
-        Uri.parse('https://dolsyx-app.onrender.com/api/auth/profile'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
+        Uri.parse('${ApiService.baseUrl}/auth/profile'),
+        headers: ApiService.authHeaders(token),
         body: json.encode(fields),
       );
 

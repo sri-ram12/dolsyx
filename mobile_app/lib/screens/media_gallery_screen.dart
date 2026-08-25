@@ -18,9 +18,10 @@ class MediaGalleryScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final mediaMessages = messages.where((m) => m.mediaUrl != null && m.mediaUrl!.isNotEmpty).toList();
-    final docMessages = messages.where((m) => m.mediaType == 'DOCUMENT' || m.mediaType == 'FILE').toList();
-    final linkMessages = messages.where((m) => m.content.contains('http://') || m.content.contains('https://')).toList();
+    final urlRegex = RegExp(r'(https?:\/\/[^\s]+|www\.[^\s]+)', caseSensitive: false);
+    final mediaMessages = messages.where((m) => m.mediaUrl != null && m.mediaUrl!.trim().isNotEmpty && (m.mediaType == 'IMAGE' || m.mediaType == 'VIDEO' || m.mediaUrl!.contains('.jpg') || m.mediaUrl!.contains('.png') || m.mediaUrl!.contains('.mp4') || m.mediaUrl!.contains('.webp'))).toList();
+    final docMessages = messages.where((m) => m.mediaType == 'DOCUMENT' || m.mediaType == 'FILE' || (m.mediaUrl != null && RegExp(r'\.(pdf|docx?|xlsx?|pptx?|txt|zip|rar|apk|csv)($|\?)', caseSensitive: false).hasMatch(m.mediaUrl!))).toList();
+    final linkMessages = messages.where((m) => urlRegex.hasMatch(m.content)).toList();
 
     return DefaultTabController(
       length: 3,
@@ -52,15 +53,16 @@ class MediaGalleryScreen extends StatelessWidget {
                     itemCount: mediaMessages.length,
                     itemBuilder: (context, index) {
                       final msg = mediaMessages[index];
+                      final fullUrl = ApiService.getMediaUrl(msg.mediaUrl!);
                       return GestureDetector(
                         onTap: () {
                           Navigator.push(
                             context,
-                            MaterialPageRoute(builder: (_) => FullScreenImageView(imageUrl: msg.mediaUrl!)),
+                            MaterialPageRoute(builder: (_) => FullScreenImageView(imageUrl: fullUrl)),
                           );
                         },
                         child: CachedNetworkImage(
-                          imageUrl: ApiService.getMediaUrl(msg.mediaUrl!),
+                          imageUrl: fullUrl,
                           fit: BoxFit.cover,
                           placeholder: (context, url) => Container(color: Colors.black12),
                           errorWidget: (context, url, error) => const Icon(Icons.broken_image, color: Colors.grey),
@@ -77,12 +79,24 @@ class MediaGalleryScreen extends StatelessWidget {
                     itemCount: docMessages.length,
                     itemBuilder: (context, index) {
                       final msg = docMessages[index];
+                      final name = msg.content.trim().isNotEmpty
+                          ? msg.content.trim()
+                          : (msg.mediaUrl != null ? msg.mediaUrl!.split('/').last : 'Document');
                       return Card(
                         color: AppTheme.surfaceColor,
                         child: ListTile(
                           leading: const Icon(Icons.insert_drive_file, color: Colors.blueAccent),
-                          title: Text(msg.content.isNotEmpty ? msg.content : 'Document Attachment', style: TextStyle(color: AppTheme.textPrimary)),
+                          title: Text(name, style: TextStyle(color: AppTheme.textPrimary)),
                           subtitle: Text(msg.createdAt.toString().split('.')[0], style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+                          onTap: () async {
+                            if (msg.mediaUrl != null && msg.mediaUrl!.isNotEmpty) {
+                              final fullUrl = ApiService.getMediaUrl(msg.mediaUrl!);
+                              final uri = Uri.tryParse(fullUrl);
+                              if (uri != null && await canLaunchUrl(uri)) {
+                                await launchUrl(uri, mode: LaunchMode.externalApplication);
+                              }
+                            }
+                          },
                         ),
                       );
                     },
@@ -96,13 +110,17 @@ class MediaGalleryScreen extends StatelessWidget {
                     itemCount: linkMessages.length,
                     itemBuilder: (context, index) {
                       final msg = linkMessages[index];
+                      final match = urlRegex.firstMatch(msg.content);
+                      final linkUrl = match != null ? match.group(0)! : msg.content;
+                      final effectiveUrl = linkUrl.startsWith('http') ? linkUrl : 'https://$linkUrl';
                       return Card(
                         color: AppTheme.surfaceColor,
                         child: ListTile(
                           leading: const Icon(Icons.link, color: Colors.green),
                           title: Text(msg.content, style: const TextStyle(color: Colors.lightBlueAccent, decoration: TextDecoration.underline)),
+                          subtitle: Text(msg.createdAt.toString().split('.')[0], style: TextStyle(color: AppTheme.textSecondary, fontSize: 11)),
                           onTap: () async {
-                            final uri = Uri.tryParse(msg.content);
+                            final uri = Uri.tryParse(effectiveUrl);
                             if (uri != null && await canLaunchUrl(uri)) {
                               await launchUrl(uri, mode: LaunchMode.externalApplication);
                             }

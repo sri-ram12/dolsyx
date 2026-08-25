@@ -32,6 +32,7 @@ import '../widgets/full_screen_image_view.dart';
 import 'call_screen.dart';
 import 'wallpaper_settings_screen.dart';
 import 'group_settings_screen.dart';
+import 'whatsapp_media_picker_screen.dart';
 import '../utils/e2ee/crypto_service.dart';
 import '../utils/e2ee/e2ee_api.dart';
 import '../widgets/app_lock_wrapper.dart';
@@ -113,11 +114,182 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   String? _highlightedMessageId;
   bool _isRecording = false;
   bool _isRecordingLocked = false;
+  bool _isRecordingPaused = false;
+  bool _isVoiceViewOnce = false;
   int _recordingDuration = 0;
   Timer? _recordingTimer;
   String? _recordingPath;
+  Offset? _micDragStartOffset;
+  DateTime? _micPressStartTime;
   final AudioRecorder _audioRecorder = AudioRecorder();
   Message? _pinnedMessage;
+
+  final List<Map<String, dynamic>> _pendingMediaUploadQueue = [];
+  Timer? _mediaUploadRetryTimer;
+
+  void _startMediaRetryTimer() {
+    _mediaUploadRetryTimer?.cancel();
+    _mediaUploadRetryTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      if (_pendingMediaUploadQueue.isNotEmpty && mounted) {
+        _processPendingMediaQueue();
+      }
+    });
+  }
+
+  Future<void> _processPendingMediaQueue() async {
+    if (_pendingMediaUploadQueue.isEmpty) return;
+    final itemsToProcess = List<Map<String, dynamic>>.from(_pendingMediaUploadQueue);
+    for (final item in itemsToProcess) {
+      if (!mounted) break;
+      try {
+        final apiService = ApiService();
+        final file = item['file'] as File;
+        final tempId = item['tempId'] as String;
+        final caption = item['caption'] as String;
+        final mediaType = item['mediaType'] as String;
+        final isViewOnce = item['isViewOnce'] as bool;
+
+        if (!file.existsSync()) {
+          _pendingMediaUploadQueue.removeWhere((q) => q['tempId'] == tempId);
+          continue;
+        }
+
+        final response = await apiService.uploadMedia(file.path);
+        if (response != null && response['fileUrl'] != null && mounted) {
+          _pendingMediaUploadQueue.removeWhere((q) => q['tempId'] == tempId);
+          setState(() {
+            _messages.removeWhere((m) => m.id == tempId);
+          });
+          final authProvider = Provider.of<AuthProvider>(context, listen: false);
+          authProvider.socketService.sendMessage(
+            widget.conversationId,
+            caption,
+            mediaUrl: response['fileUrl'],
+            mediaType: mediaType,
+            isViewOnce: isViewOnce,
+          );
+        }
+      } catch (_) {}
+    }
+  }
+
+  void _startRecordingTimer() {
+    _recordingTimer?.cancel();
+    _recordingDuration = 0;
+    _recordingTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (mounted && !_isRecordingPaused) {
+        setState(() {
+          _recordingDuration++;
+        });
+      }
+    });
+  }
+
+  void _stopRecordingTimer() {
+    _recordingTimer?.cancel();
+    _recordingTimer = null;
+  }
+
+  String _formatDuration(int seconds) {
+    final mins = (seconds ~/ 60).toString().padLeft(1, '0');
+    final secs = (seconds % 60).toString().padLeft(2, '0');
+    return '$mins:$secs';
+  }
+
+  Future<void> _startVoiceRecording({bool locked = false}) async {
+    try {
+      if (await _audioRecorder.hasPermission()) {
+        final directory = await getTemporaryDirectory();
+        final path = '${directory.path}/audio_${DateTime.now().millisecondsSinceEpoch}.m4a';
+        _recordingPath = path;
+        await _audioRecorder.start(const RecordConfig(), path: path);
+        _startRecordingTimer();
+        if (mounted) {
+          setState(() {
+            _isRecording = true;
+            _isRecordingLocked = locked;
+            _isRecordingPaused = false;
+            _isVoiceViewOnce = false;
+          });
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Microphone permission denied')),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Voice recording start error: $e');
+    }
+  }
+
+  Future<void> _pauseOrResumeVoiceRecording() async {
+    try {
+      if (_isRecordingPaused) {
+        await _audioRecorder.resume();
+        if (mounted) setState(() => _isRecordingPaused = false);
+      } else {
+        await _audioRecorder.pause();
+        if (mounted) setState(() => _isRecordingPaused = true);
+      }
+    } catch (e) {
+      debugPrint('Voice pause/resume error: $e');
+    }
+  }
+
+  Future<void> _cancelVoiceRecording() async {
+    try {
+      await _audioRecorder.stop();
+      _stopRecordingTimer();
+      if (_recordingPath != null) {
+        try {
+          final f = File(_recordingPath!);
+          if (await f.exists()) await f.delete();
+        } catch (_) {}
+      }
+    } catch (e) {
+      debugPrint('Voice cancel error: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isRecording = false;
+          _isRecordingLocked = false;
+          _isRecordingPaused = false;
+          _recordingDuration = 0;
+          _recordingPath = null;
+        });
+      }
+    }
+  }
+
+  Future<void> _sendVoiceRecording() async {
+    try {
+      final path = await _audioRecorder.stop();
+      _stopRecordingTimer();
+      final bool isViewOnce = _isVoiceViewOnce;
+      final filePath = path ?? _recordingPath;
+
+      if (mounted) {
+        setState(() {
+          _isRecording = false;
+          _isRecordingLocked = false;
+          _isRecordingPaused = false;
+          _recordingDuration = 0;
+          _recordingPath = null;
+        });
+      }
+
+      if (filePath != null) {
+        final audioFile = File(filePath);
+        if (await audioFile.exists()) {
+          await _uploadAndSendMedia(audioFile, 'AUDIO', isViewOnce: isViewOnce);
+        }
+      }
+    } catch (e) {
+      debugPrint('Voice send error: $e');
+    }
+  }
 
   void _scrollToMessage(String targetId) {
     final idx = _messages.indexWhere((m) => m.id == targetId || (m.parentMessage != null && (m.parentMessage!['id'] == targetId || m.parentMessage!['_id'] == targetId)));
@@ -658,6 +830,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     _scrollController.dispose();
     _typingTimer?.cancel();
     _recordingTimer?.cancel();
+    _mediaUploadRetryTimer?.cancel();
+    _cacheDebounceTimer?.cancel();
     _audioRecorder.dispose();
     super.dispose();
   }
@@ -669,26 +843,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         super.setState(fn);
       } catch (_) {}
     }
-  }
-
-  void _startRecordingTimer() {
-    _recordingDuration = 0;
-    _recordingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      setState(() {
-        _recordingDuration++;
-      });
-    });
-  }
-
-  void _stopRecordingTimer() {
-    _recordingTimer?.cancel();
-    _recordingTimer = null;
-  }
-
-  String _formatDuration(int seconds) {
-    final minutes = seconds ~/ 60;
-    final remainingSeconds = seconds % 60;
-    return '${minutes.toString().padLeft(2, '0')}:${remainingSeconds.toString().padLeft(2, '0')}';
   }
 
   void _onTextChanged() {
@@ -862,14 +1016,19 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     }
   }
 
-  void _updateMessageCache() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final encoded = jsonEncode(_messages.map((m) => m.toJson()).toList());
-      await prefs.setString('cached_messages_${widget.conversationId}', encoded);
-    } catch (e) {
-      print('Error updating message cache: $e');
-    }
+  Timer? _cacheDebounceTimer;
+
+  void _updateMessageCache() {
+    _cacheDebounceTimer?.cancel();
+    _cacheDebounceTimer = Timer(const Duration(milliseconds: 300), () async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final encoded = jsonEncode(_messages.map((m) => m.toJson()).toList());
+        await prefs.setString('cached_messages_${widget.conversationId}', encoded);
+      } catch (e) {
+        print('Error updating message cache: $e');
+      }
+    });
   }
 
   void _handleChatCleared(dynamic data) {
@@ -1822,53 +1981,142 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   void _showCameraOptions() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (sheetContext) => SlidingCameraOptionsSheet(
-        onTakePhoto: () => _pickImage(ImageSource.camera),
-        onTakeVideo: () => _pickVideo(ImageSource.camera),
-        onDirectGallery: () => _pickGalleryMedia(),
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => WhatsAppMediaPickerScreen(
+          onSend: (selectedMedia, caption, isViewOnce) {
+            final entries = selectedMedia.map((m) => MapEntry(m.file, m.type)).toList();
+            if (entries.length == 1) {
+              _uploadAndSendMedia(entries.first.key, entries.first.value, caption: caption, isViewOnce: isViewOnce);
+            } else {
+              _uploadAndSendMultipleMedia(entries, caption: caption, isViewOnce: isViewOnce);
+            }
+          },
+        ),
       ),
     );
   }
 
-  Future<void> _uploadAndSendMedia(File file, String mediaType, {bool isViewOnce = false, bool showLoadingState = true}) async {
-    if (!mounted) return;
-    if (showLoadingState) setState(() => _isLoading = true);
+  Future<void> _pickGalleryMedia() async {
+    GlobalAppLockWrapper.isMediaPickerActive = true;
     try {
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      final apiService = ApiService();
+      final picker = ImagePicker();
+      List<XFile> pickedFiles = [];
+      try {
+        pickedFiles = await picker.pickMultipleMedia();
+      } catch (_) {
+        final XFile? single = await picker.pickImage(source: ImageSource.gallery, imageQuality: 95);
+        if (single != null) pickedFiles = [single];
+      }
 
+      if (!mounted) return;
+      if (pickedFiles.isNotEmpty) {
+        final items = pickedFiles.map((f) {
+          final ext = f.path.split('.').last.toLowerCase();
+          final isVid = ['mp4', 'mov', 'avi', 'mkv', 'webm', '3gp', 'flv', 'm4v'].contains(ext);
+          return MediaItem(file: File(f.path), type: isVid ? 'VIDEO' : 'IMAGE');
+        }).toList();
+
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => WhatsAppMediaPreviewScreen(
+              initialItems: items,
+              onSend: (selectedList, caption, isViewOnce, isHD) {
+                final entries = selectedList.map((m) => MapEntry(m.file, m.type)).toList();
+                if (entries.length == 1) {
+                  _uploadAndSendMedia(entries.first.key, entries.first.value, caption: caption, isViewOnce: isViewOnce, isHD: isHD);
+                } else {
+                  _uploadAndSendMultipleMedia(entries, caption: caption, isViewOnce: isViewOnce, isHD: isHD);
+                }
+              },
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error picking gallery media: $e')));
+    } finally {
+      Future.delayed(const Duration(seconds: 1), () {
+        GlobalAppLockWrapper.isMediaPickerActive = false;
+      });
+    }
+  }
+
+  Future<void> _uploadAndSendMedia(File file, String mediaType, {String caption = '', bool isViewOnce = false, bool isHD = false, bool showLoadingState = false}) async {
+    if (!mounted) return;
+    final tempId = 'temp_${DateTime.now().millisecondsSinceEpoch}_${file.path.hashCode}';
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final myUserId = (authProvider.user?['id'] ?? authProvider.user?['_id'])?.toString() ?? '';
+
+    // 🟢 Instantly show the media bubble in chat with WhatsApp-style buffering overlay
+    final tempMsg = Message(
+      id: tempId,
+      content: caption,
+      senderId: myUserId,
+      conversationId: widget.conversationId,
+      mediaUrl: file.path,
+      mediaType: mediaType,
+      isViewOnce: isViewOnce,
+      isPending: true,
+      createdAt: DateTime.now(),
+    );
+
+    setState(() {
+      _messages.add(tempMsg);
+    });
+    _scrollToBottom();
+
+    // 🟢 Queue for reliable background upload & retry without error popups
+    _pendingMediaUploadQueue.add({
+      'tempId': tempId,
+      'file': file,
+      'mediaType': mediaType,
+      'caption': caption,
+      'isViewOnce': isViewOnce,
+      'isHD': isHD,
+    });
+    _startMediaRetryTimer();
+
+    try {
+      final apiService = ApiService();
       final response = await apiService.uploadMedia(file.path);
-      if (response != null && response['fileUrl'] != null) {
+      if (response != null && response['fileUrl'] != null && mounted) {
+        _pendingMediaUploadQueue.removeWhere((q) => q['tempId'] == tempId);
+        setState(() {
+          _messages.removeWhere((m) => m.id == tempId);
+        });
         authProvider.socketService.sendMessage(
           widget.conversationId, 
-          '', 
+          caption, 
           mediaUrl: response['fileUrl'], 
           mediaType: mediaType,
           isViewOnce: isViewOnce,
         );
-      } else {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload failed.')));
       }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload error: $e')));
-    } finally {
-      if (mounted && showLoadingState) setState(() => _isLoading = false);
+    } catch (_) {
+      // 🟢 Offline/Network failure: Keep message buffering in chat without showing error snackbars or deleting!
     }
   }
 
-  Future<void> _uploadAndSendMultipleMedia(List<MapEntry<File, String>> files, {bool isViewOnce = false}) async {
+  Future<void> _uploadAndSendMultipleMedia(List<MapEntry<File, String>> files, {String caption = '', bool isViewOnce = false, bool isHD = false}) async {
     if (!mounted || files.isEmpty) return;
     int sent = 0;
     int failed = 0;
     setState(() => _isLoading = true);
-    for (final entry in files) {
+    for (int i = 0; i < files.length; i++) {
       if (!mounted) break;
+      final entry = files[i];
       try {
-        await _uploadAndSendMedia(entry.key, entry.value, isViewOnce: isViewOnce, showLoadingState: false);
+        await _uploadAndSendMedia(
+          entry.key, 
+          entry.value, 
+          caption: i == 0 ? caption : '', 
+          isViewOnce: isViewOnce,
+          isHD: isHD,
+          showLoadingState: false,
+        );
         sent++;
       } catch (_) {
         failed++;
@@ -1881,36 +2129,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           SnackBar(content: Text('$sent sent, $failed failed.')),
         );
       }
-    }
-  }
-
-  Future<void> _pickGalleryMedia() async {
-    GlobalAppLockWrapper.isMediaPickerActive = true;
-    try {
-      final picker = ImagePicker();
-      final pickedFiles = await picker.pickMultipleMedia();
-
-      if (!mounted) return;
-      if (pickedFiles.isNotEmpty) {
-        final isViewOnce = await _promptViewOnceMode() ?? false;
-        final entries = pickedFiles.map((f) {
-          final ext = f.path.split('.').last.toLowerCase();
-          final isVideo = ['mp4', 'mov', 'avi', 'mkv', 'webm', '3gp', 'flv', 'm4v'].contains(ext);
-          return MapEntry(File(f.path), isVideo ? 'VIDEO' : 'IMAGE');
-        }).toList();
-
-        if (entries.length == 1) {
-          await _uploadAndSendMedia(entries.first.key, entries.first.value, isViewOnce: isViewOnce);
-        } else {
-          await _uploadAndSendMultipleMedia(entries, isViewOnce: isViewOnce);
-        }
-      }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error picking gallery media: $e')));
-    } finally {
-      Future.delayed(const Duration(seconds: 1), () {
-        GlobalAppLockWrapper.isMediaPickerActive = false;
-      });
     }
   }
 
@@ -3357,11 +3575,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     },
                   ),
           ),
-          if (_isLoading && _messages.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: LinearProgressIndicator(color: AppTheme.primaryColor),
-            ),
           if (_replyingTo != null)
             Container(
               margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -3409,47 +3622,172 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 bottom: MediaQuery.paddingOf(context).bottom > 0 ? (MediaQuery.paddingOf(context).bottom + 16) : 14,
               ),
               color: Colors.transparent,
-              child: _isRecordingLocked
-                ? Row(
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.delete, color: Colors.red),
-                        onPressed: () async {
-                          await _audioRecorder.stop();
-                          _stopRecordingTimer();
-                          setState(() {
-                            _isRecording = false;
-                            _isRecordingLocked = false;
-                          });
-                        },
-                      ),
-                      Expanded(
-                        child: Center(
-                          child: Text(
-                            _formatDuration(_recordingDuration),
-                            style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 16),
-                          ),
+              child: _isRecording || _isRecordingLocked
+                ? Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: AppTheme.surfaceColor,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.white10),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Top Row: Timer, Waveform visualizer, View-Once toggle
+                        Row(
+                          children: [
+                            Container(
+                              width: 10,
+                              height: 10,
+                              decoration: BoxDecoration(
+                                color: _isRecordingPaused ? Colors.grey : Colors.red,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              _formatDuration(_recordingDuration),
+                              style: TextStyle(
+                                color: AppTheme.textPrimary,
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            // Waveform visualizer bars
+                            Expanded(
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: List.generate(14, (i) {
+                                  final heights = [10.0, 16.0, 22.0, 14.0, 28.0, 18.0, 24.0, 12.0, 20.0, 15.0, 26.0, 14.0, 18.0, 10.0];
+                                  final h = _isRecordingPaused ? 6.0 : heights[i % heights.length];
+                                  return Container(
+                                    width: 3,
+                                    height: h,
+                                    margin: const EdgeInsets.symmetric(horizontal: 2),
+                                    decoration: BoxDecoration(
+                                      color: _isRecordingPaused ? AppTheme.textSecondary : AppTheme.primaryColor,
+                                      borderRadius: BorderRadius.circular(2),
+                                    ),
+                                  );
+                                }),
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            // View Once (1) Button
+                            GestureDetector(
+                              onTap: () {
+                                setState(() {
+                                  _isVoiceViewOnce = !_isVoiceViewOnce;
+                                });
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(_isVoiceViewOnce ? 'Voice message set to view once' : 'View once turned off'),
+                                    duration: const Duration(seconds: 1),
+                                  ),
+                                );
+                              },
+                              child: Container(
+                                width: 28,
+                                height: 28,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: _isVoiceViewOnce ? AppTheme.primaryColor : AppTheme.textSecondary,
+                                    width: 2,
+                                  ),
+                                  color: _isVoiceViewOnce ? AppTheme.primaryColor.withOpacity(0.25) : Colors.transparent,
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    '1',
+                                    style: TextStyle(
+                                      color: _isVoiceViewOnce ? AppTheme.primaryColor : AppTheme.textSecondary,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                      CircleAvatar(
-                        radius: 24,
-                        backgroundColor: AppTheme.primaryColor,
-                        child: IconButton(
-                          icon: const Icon(Icons.send, color: Colors.white, size: 20),
-                          onPressed: () async {
-                            final path = await _audioRecorder.stop();
-                            _stopRecordingTimer();
-                            setState(() {
-                              _isRecording = false;
-                              _isRecordingLocked = false;
-                            });
-                            if (path != null) {
-                              _uploadAndSendMedia(File(path), 'AUDIO');
-                            }
-                          },
+                        const SizedBox(height: 12),
+                        // Bottom Row: Trash icon, Pause/Resume capsule, Send button
+                        Row(
+                          children: [
+                            // Delete / Trash button
+                            GestureDetector(
+                              onTap: _cancelVoiceRecording,
+                              child: Container(
+                                width: 44,
+                                height: 44,
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFF2E141D),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(Icons.delete_outline_rounded, color: Color(0xFFFF4B60), size: 22),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            // Center Pause / Resume Pill
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: _pauseOrResumeVoiceRecording,
+                                child: Container(
+                                  height: 44,
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.backgroundColor,
+                                    borderRadius: BorderRadius.circular(22),
+                                    border: Border.all(color: Colors.white10),
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        _isRecordingPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
+                                        color: AppTheme.textPrimary,
+                                        size: 22,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        _isRecordingPaused ? 'Resume' : 'Pause',
+                                        style: TextStyle(
+                                          color: AppTheme.textPrimary,
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            // Send Action Button
+                            GestureDetector(
+                              onTap: _sendVoiceRecording,
+                              child: Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  color: AppTheme.primaryColor,
+                                  shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: AppTheme.primaryColor.withOpacity(0.4),
+                                      blurRadius: 6,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                                child: const Icon(Icons.send_rounded, color: Colors.white, size: 20),
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   )
                 : Row(
                     children: [
@@ -3468,31 +3806,27 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                           },
                           style: TextStyle(color: AppTheme.textPrimary),
                           decoration: InputDecoration(
-                            hintText: _isRecording ? 'Recording... Slide up to lock' : 'Message',
-                            hintStyle: TextStyle(color: _isRecording ? Colors.red : AppTheme.textSecondary),
+                            hintText: 'Message',
+                            hintStyle: TextStyle(color: AppTheme.textSecondary),
                             filled: true,
                             fillColor: AppTheme.surfaceColor,
                             contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                            prefixIcon: _isRecording 
-                              ? Padding(
-                                  padding: const EdgeInsets.all(12.0),
-                                  child: Text(_formatDuration(_recordingDuration), style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-                                )
-                              : IconButton(
-                                  icon: Icon(_isEmojiVisible ? Icons.keyboard : Icons.emoji_emotions_outlined, color: AppTheme.textSecondary),
-                                  onPressed: _showEmojiPicker,
-                                ),
-                            suffixIcon: _isRecording ? null : Row(
+                            prefixIcon: IconButton(
+                              icon: Icon(_isEmojiVisible ? Icons.keyboard : Icons.emoji_emotions_outlined, color: AppTheme.textSecondary),
+                              onPressed: _showEmojiPicker,
+                            ),
+                            suffixIcon: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 IconButton(
-                                  icon: Icon(Icons.attach_file, color: AppTheme.textSecondary),
+                                  icon: Icon(Icons.attach_file_rounded, color: AppTheme.textSecondary, size: 22),
                                   onPressed: _showAttachmentOptions,
                                 ),
                                 IconButton(
-                                  icon: Icon(Icons.camera_alt_outlined, color: AppTheme.textSecondary),
+                                  icon: Icon(Icons.camera_alt_rounded, color: AppTheme.textSecondary, size: 22),
                                   onPressed: _showCameraOptions,
                                 ),
+                                const SizedBox(width: 4),
                               ],
                             ),
                             border: OutlineInputBorder(
@@ -3502,68 +3836,77 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                           ),
                         ),
                       ),
-                    SizedBox(width: 8),
+                    const SizedBox(width: 6),
                     ValueListenableBuilder<TextEditingValue>(
                       valueListenable: _messageController,
                       builder: (context, value, child) {
                         final hasText = value.text.trim().isNotEmpty;
                         if (hasText) {
-                          return CircleAvatar(
-                            radius: 24,
-                            backgroundColor: AppTheme.primaryColor,
+                          return Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              color: AppTheme.primaryColor,
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(color: AppTheme.primaryColor.withOpacity(0.35), blurRadius: 6, offset: const Offset(0, 2)),
+                              ],
+                            ),
                             child: IconButton(
-                              icon: const Icon(Icons.send, color: Colors.white, size: 20),
+                              icon: const Icon(Icons.send_rounded, color: Colors.white, size: 20),
                               onPressed: _sendMessage,
                             ),
                           );
                         }
-                        return GestureDetector(
-                          onLongPressStart: (_) async {
-                            if (await _audioRecorder.hasPermission()) {
-                              final directory = await getTemporaryDirectory();
-                              final path = '${directory.path}/audio_${DateTime.now().millisecondsSinceEpoch}.m4a';
-                              await _audioRecorder.start(const RecordConfig(), path: path);
-                              _startRecordingTimer();
-                              setState(() {
-                                _isRecording = true;
-                              });
-                            } else {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Microphone permission denied')),
-                              );
-                            }
+                        return Listener(
+                          onPointerDown: (event) {
+                            _micDragStartOffset = event.position;
+                            _micPressStartTime = DateTime.now();
+                            _startVoiceRecording(locked: false);
                           },
-                          onLongPressMoveUpdate: (details) {
-                            if (_isRecording && !_isRecordingLocked && details.localOffsetFromOrigin.dy < -50) {
-                              setState(() {
-                                _isRecordingLocked = true;
-                              });
-                            }
-                          },
-                          onLongPressEnd: (_) async {
-                            if (_isRecording && !_isRecordingLocked) {
-                              final path = await _audioRecorder.stop();
-                              _stopRecordingTimer();
-                              setState(() {
-                                _isRecording = false;
-                              });
-                              if (path != null) {
-                                _uploadAndSendMedia(File(path), 'AUDIO');
+                          onPointerMove: (event) {
+                            if (_isRecording && !_isRecordingLocked && _micDragStartOffset != null) {
+                              final dy = event.position.dy - _micDragStartOffset!.dy;
+                              final dx = event.position.dx - _micDragStartOffset!.dx;
+                              if (dy < -25) {
+                                HapticFeedback.mediumImpact();
+                                setState(() {
+                                  _isRecordingLocked = true;
+                                });
+                              } else if (dx < -50) {
+                                HapticFeedback.lightImpact();
+                                _cancelVoiceRecording();
                               }
                             }
                           },
-                          onTap: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Hold to record, release to send')),
-                            );
+                          onPointerUp: (event) {
+                            if (_isRecording && !_isRecordingLocked) {
+                              final pressDuration = _micPressStartTime != null ? DateTime.now().difference(_micPressStartTime!) : Duration.zero;
+                              if (pressDuration.inMilliseconds < 350) {
+                                // Tap -> lock into hands-free mode
+                                setState(() {
+                                  _isRecordingLocked = true;
+                                });
+                              } else {
+                                // Release after holding -> send
+                                _sendVoiceRecording();
+                              }
+                            }
                           },
-                          child: CircleAvatar(
-                            radius: 24,
-                            backgroundColor: AppTheme.primaryColor,
-                            child: Icon(
-                              _isRecording ? Icons.mic : Icons.mic_none,
+                          child: Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              color: AppTheme.primaryColor,
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(color: AppTheme.primaryColor.withOpacity(0.35), blurRadius: 6, offset: const Offset(0, 2)),
+                              ],
+                            ),
+                            child: const Icon(
+                              Icons.mic_rounded,
                               color: Colors.white, 
-                              size: 20,
+                              size: 24,
                             ),
                           ),
                         );

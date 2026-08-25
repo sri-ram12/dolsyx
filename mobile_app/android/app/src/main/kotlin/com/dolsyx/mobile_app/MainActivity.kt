@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.res.Configuration
+import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -19,6 +20,7 @@ class MainActivity : FlutterFragmentActivity() {
     private val SCREEN_SHARE_CHANNEL = "com.dolsyx/screen_share"
     private val PIP_CHANNEL = "com.dolsyx/pip"
     private val SHARE_CHANNEL = "com.dolsyx/share"
+    private val RINGTONE_CHANNEL = "com.dolsyx/ringtones"
 
     private var isCallActive = false
     private var pipMethodChannel: MethodChannel? = null
@@ -187,6 +189,63 @@ class MainActivity : FlutterFragmentActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        // Ringtone / Notification sound lister via RingtoneManager
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, RINGTONE_CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "getNotificationSounds" -> {
+                    result.success(getSystemSounds(RingtoneManager.TYPE_NOTIFICATION))
+                }
+                "getRingtones" -> {
+                    result.success(getSystemSounds(RingtoneManager.TYPE_RINGTONE))
+                }
+                "playTone" -> {
+                    val uriStr = call.argument<String>("uri")
+                    try {
+                        activeRingtone?.stop()
+                        if (uriStr != null && uriStr.isNotEmpty()) {
+                            val uri = Uri.parse(uriStr)
+                            val ringtone = RingtoneManager.getRingtone(this, uri)
+                            ringtone?.play()
+                            activeRingtone = ringtone
+                        }
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("PLAY_ERROR", e.message, null)
+                    }
+                }
+                "stopTone" -> {
+                    try {
+                        activeRingtone?.stop()
+                        activeRingtone = null
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("STOP_ERROR", e.message, null)
+                    }
+                }
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    private var activeRingtone: android.media.Ringtone? = null
+
+    private fun getSystemSounds(type: Int): List<Map<String, String>> {
+        val list = mutableListOf<Map<String, String>>()
+        try {
+            val manager = RingtoneManager(this)
+            manager.setType(type)
+            val cursor = manager.cursor
+            while (cursor.moveToNext()) {
+                val title = cursor.getString(RingtoneManager.TITLE_COLUMN_INDEX) ?: continue
+                val uri = manager.getRingtoneUri(cursor.position)?.toString() ?: continue
+                list.add(mapOf("title" to title, "uri" to uri))
+            }
+            cursor.close()
+        } catch (e: Exception) {
+            // return empty list on permission error
+        }
+        return list
     }
 
     private fun updateCallState(active: Boolean) {

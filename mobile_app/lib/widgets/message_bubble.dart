@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
+import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'dart:async';
@@ -15,6 +16,7 @@ import 'package:http/http.dart' as http;
 import '../services/api_service.dart';
 import '../screens/view_once_screen.dart';
 import 'full_screen_image_view.dart';
+import 'animated_emoji.dart';
 
 class MessageBubble extends StatelessWidget {
   final Message message;
@@ -40,9 +42,37 @@ class MessageBubble extends StatelessWidget {
     this.onTapReplyReference,
   });
 
+  static final RegExp _urlRegex = RegExp(r'(https?://[^\s]+|www\.[^\s]+)', caseSensitive: false);
+
   Widget _buildMessageText(String text, Color textColor, double fontSize) {
-    final urlRegex = RegExp(r'(https?://[^\s]+|www\.[^\s]+)', caseSensitive: false);
-    final matches = urlRegex.allMatches(text);
+    if (EmojiUtils.isOnlyEmojis(text)) {
+      final emojiChars = text.trim().characters.toList();
+      if (emojiChars.length == 1) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 6),
+          child: AnimatedEmoji(
+            emoji: emojiChars[0],
+            size: 38.0,
+            animateLoop: true,
+          ),
+        );
+      } else if (emojiChars.length <= 3) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
+          child: Wrap(
+            spacing: 6,
+            alignment: WrapAlignment.center,
+            children: emojiChars.map((e) => AnimatedEmoji(
+              emoji: e,
+              size: 28.0,
+              animateLoop: true,
+            )).toList(),
+          ),
+        );
+      }
+    }
+
+    final matches = _urlRegex.allMatches(text);
 
     if (matches.isEmpty) {
       final query = searchQuery?.trim() ?? '';
@@ -235,18 +265,12 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
-  bool _isOnlyEmojis(String text) {
-    if (text.trim().isEmpty) return false;
-    final regex = RegExp(r'^(?:[\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF]|\s)+$');
-    return regex.hasMatch(text.trim());
-  }
-
   double _getEmojiFontSize(String text) {
     int count = text.characters.where((c) => c.trim().isNotEmpty).length;
-    if (count == 1) return 48.0;
-    if (count == 2) return 40.0;
-    if (count == 3) return 32.0;
-    return 22.0;
+    if (count == 1) return 38.0;
+    if (count == 2) return 28.0;
+    if (count == 3) return 24.0;
+    return 18.0;
   }
 
   @override
@@ -258,7 +282,7 @@ class MessageBubble extends StatelessWidget {
 
     final imageSize = MediaQuery.of(context).size.width * 0.75;
     
-    final bool emojiOnly = message.mediaUrl == null && _isOnlyEmojis(message.content);
+    final bool emojiOnly = message.mediaUrl == null && EmojiUtils.isOnlyEmojis(message.content) && EmojiUtils.emojiCount(message.content) <= 3;
     final double userFontSize = Provider.of<ThemeProvider>(context).currentFontSize;
     final double fontSize = emojiOnly ? _getEmojiFontSize(message.content) : userFontSize;
 
@@ -619,25 +643,69 @@ class MessageBubble extends StatelessWidget {
                           }
                         },
                         child: Stack(
+                          alignment: Alignment.center,
                           children: [
                             ClipRRect(
                               borderRadius: BorderRadius.circular(isOnlyImage ? 16 : 8).copyWith(
                                 bottomRight: (isMe && isOnlyImage) ? const Radius.circular(4) : null,
                                 bottomLeft: (!isMe && isOnlyImage) ? const Radius.circular(4) : null,
                               ),
-                              child: CachedNetworkImage(
-                                imageUrl: ApiService.getMediaUrl(message.mediaUrl),
-                                width: imageSize,
-                                fit: BoxFit.contain,
-                                placeholder: (context, url) => Container(
-                                  width: imageSize,
-                                  height: imageSize,
-                                  color: Colors.black12,
-                                  child: const Center(child: CircularProgressIndicator()),
-                                ),
-                                errorWidget: (context, url, error) => const Icon(Icons.broken_image, size: 50, color: Colors.grey),
-                              ),
+                              child: message.mediaUrl != null && !message.mediaUrl!.startsWith('http') && File(message.mediaUrl!).existsSync()
+                                  ? Image.file(
+                                      File(message.mediaUrl!),
+                                      width: imageSize,
+                                      fit: BoxFit.cover,
+                                    )
+                                  : CachedNetworkImage(
+                                      imageUrl: ApiService.getMediaUrl(message.mediaUrl),
+                                      width: imageSize,
+                                      fit: BoxFit.cover,
+                                      memCacheWidth: 600,
+                                      memCacheHeight: 600,
+                                      placeholder: (context, url) => Container(
+                                        width: imageSize,
+                                        height: imageSize * 0.75,
+                                        color: Colors.black26,
+                                        child: Center(
+                                          child: SizedBox(
+                                            width: 32,
+                                            height: 32,
+                                            child: CircularProgressIndicator(strokeWidth: 2.5, color: AppTheme.primaryColor),
+                                          ),
+                                        ),
+                                      ),
+                                      errorWidget: (context, url, error) => Container(
+                                        width: imageSize,
+                                        height: 140,
+                                        color: Colors.black26,
+                                        child: const Icon(Icons.broken_image_rounded, size: 44, color: Colors.grey),
+                                      ),
+                                    ),
                             ),
+                            // 🟢 WhatsApp In-Bubble Circular Buffering Indicator
+                            if (message.isPending)
+                              Container(
+                                width: 48,
+                                height: 48,
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(0.6),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Stack(
+                                  alignment: Alignment.center,
+                                  children: [
+                                    SizedBox(
+                                      width: 44,
+                                      height: 44,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2.8,
+                                        valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primaryColor),
+                                      ),
+                                    ),
+                                    const Icon(Icons.close_rounded, color: Colors.white, size: 22),
+                                  ],
+                                ),
+                              ),
                             if (isOnlyImage)
                               Positioned(
                                 bottom: 6,
@@ -676,10 +744,9 @@ class MessageBubble extends StatelessWidget {
                             ),
                             child: Container(
                               width: imageSize,
-                              height: 160,
+                              height: 180,
                               decoration: BoxDecoration(
-                                color: Colors.black,
-                                border: Border.all(color: Colors.white.withOpacity(0.3), width: 0.8),
+                                color: const Color(0xFF182229),
                                 borderRadius: BorderRadius.circular(isOnlyImage ? 16 : 8).copyWith(
                                   bottomRight: (isMe && isOnlyImage) ? const Radius.circular(4) : null,
                                   bottomLeft: (!isMe && isOnlyImage) ? const Radius.circular(4) : null,
@@ -690,35 +757,72 @@ class MessageBubble extends StatelessWidget {
                                 children: [
                                   Positioned.fill(
                                     child: Container(
-                                      decoration: BoxDecoration(
+                                      decoration: const BoxDecoration(
                                         gradient: LinearGradient(
-                                          colors: [Colors.black54, Colors.black87],
+                                          colors: [Colors.black38, Colors.black87],
                                           begin: Alignment.topCenter,
                                           end: Alignment.bottomCenter,
                                         ),
                                       ),
                                     ),
                                   ),
-                                  Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.all(12),
-                                        decoration: BoxDecoration(
-                                          color: AppTheme.primaryColor.withOpacity(0.9),
-                                          shape: BoxShape.circle,
-                                          boxShadow: const [
-                                            BoxShadow(color: Colors.black45, blurRadius: 8),
-                                          ],
-                                        ),
-                                        child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 36),
+                                  // 🟢 WhatsApp In-Bubble Buffering / Play Action
+                                  if (message.isPending)
+                                    Container(
+                                      width: 48,
+                                      height: 48,
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withOpacity(0.6),
+                                        shape: BoxShape.circle,
                                       ),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        'Tap to play video',
-                                        style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w500),
+                                      child: Stack(
+                                        alignment: Alignment.center,
+                                        children: [
+                                          SizedBox(
+                                            width: 44,
+                                            height: 44,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2.8,
+                                              valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primaryColor),
+                                            ),
+                                          ),
+                                          const Icon(Icons.close_rounded, color: Colors.white, size: 22),
+                                        ],
                                       ),
-                                    ],
+                                    )
+                                  else
+                                    Container(
+                                      width: 48,
+                                      height: 48,
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withOpacity(0.6),
+                                        shape: BoxShape.circle,
+                                        border: Border.all(color: Colors.white70, width: 1.5),
+                                      ),
+                                      child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 32),
+                                    ),
+                                  // Bottom Left Video Duration Pill
+                                  Positioned(
+                                    bottom: 6,
+                                    left: 8,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withOpacity(0.65),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: const Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(Icons.videocam_rounded, color: Colors.white70, size: 12),
+                                          SizedBox(width: 4),
+                                          Text(
+                                            'VIDEO',
+                                            style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
                                   ),
                                   if (isOnlyImage)
                                     Positioned(
@@ -742,6 +846,7 @@ class MessageBubble extends StatelessWidget {
                         AudioPlayWidget(
                           url: message.mediaUrl!,
                           color: isMe ? Colors.white : AppTheme.textPrimary,
+                          isPending: message.isPending,
                         )
                       else 
                         GestureDetector(
@@ -822,7 +927,7 @@ class MessageBubble extends StatelessWidget {
                               child: _buildMessageText(message.content, textColor, fontSize),
                             ),
                           const SizedBox(width: 8),
-                          _buildReadReceiptInfo(textColor),
+                          _buildReadReceiptInfo(textColor, isEmojiOnly: emojiOnly),
                         ],
                       ),
                     ),
@@ -848,12 +953,16 @@ class MessageBubble extends StatelessWidget {
                           .where((r) => r is Map && r['emoji'] != null)
                           .map((r) => r['emoji'].toString())
                           .toSet()
-                          .map((emoji) => Text(
-                                emoji,
-                                style: const TextStyle(fontSize: 12),
+                          .map((emoji) => Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 1.5),
+                                child: AnimatedEmoji(
+                                  emoji: emoji,
+                                  size: 14,
+                                  animateLoop: false,
+                                ),
                               )),
                       if (message.reactions!.length > 1) ...[
-                        const SizedBox(width: 2),
+                        const SizedBox(width: 3),
                         Text(
                           message.reactions!.length.toString(),
                           style: TextStyle(
@@ -896,9 +1005,9 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
-  Widget _buildReadReceiptInfo(Color textColor) {
-    final secondaryColor = textColor.withOpacity(0.8);
-    return Row(
+  Widget _buildReadReceiptInfo(Color textColor, {bool isEmojiOnly = false}) {
+    final effectiveColor = isEmojiOnly ? Colors.white70 : textColor.withOpacity(0.8);
+    final rowContent = Row(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
@@ -906,7 +1015,7 @@ class MessageBubble extends StatelessWidget {
           '${message.isEdited ? "edited • " : ""}${DateFormat('hh:mm a').format(message.createdAt.toLocal())}',
           style: TextStyle(
             fontSize: 10,
-            color: secondaryColor,
+            color: effectiveColor,
             fontStyle: message.isEdited ? FontStyle.italic : FontStyle.normal,
           ),
         ),
@@ -925,19 +1034,32 @@ class MessageBubble extends StatelessWidget {
               }
               
               if (message.isPending) {
-                return Icon(Icons.access_time, size: 15, color: secondaryColor);
+                return Icon(Icons.access_time, size: 15, color: effectiveColor);
               } else if (isRead) {
                 return const Icon(Icons.done_all, size: 16, color: Colors.cyanAccent);
               } else if (isDelivered) {
-                return Icon(Icons.done_all, size: 16, color: secondaryColor);
+                return Icon(Icons.done_all, size: 16, color: effectiveColor);
               } else {
-                return Icon(Icons.check, size: 16, color: secondaryColor);
+                return Icon(Icons.check, size: 16, color: effectiveColor);
               }
             },
           ),
         ],
       ],
     );
+
+    if (isEmojiOnly) {
+      return Container(
+        margin: const EdgeInsets.only(top: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.35),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: rowContent,
+      );
+    }
+    return rowContent;
   }
 
   String _getQuotedSenderName(dynamic parent) {
@@ -1389,8 +1511,14 @@ class MessageBubble extends StatelessWidget {
 class AudioPlayWidget extends StatefulWidget {
   final String url;
   final Color color;
+  final bool isPending;
 
-  const AudioPlayWidget({super.key, required this.url, required this.color});
+  const AudioPlayWidget({
+    super.key,
+    required this.url,
+    required this.color,
+    this.isPending = false,
+  });
 
   @override
   State<AudioPlayWidget> createState() => _AudioPlayWidgetState();
@@ -1450,18 +1578,25 @@ class _AudioPlayWidgetState extends State<AudioPlayWidget> {
   }
 
   void _togglePlay() async {
+    if (widget.isPending) return;
     try {
       if (_isPlaying) {
         await _player.pause();
         if (mounted) setState(() => _isPlaying = false);
       } else {
-        final fullUrl = ApiService.getMediaUrl(widget.url);
-        await _player.play(UrlSource(fullUrl));
+        Source source;
+        if (!widget.url.startsWith('http') && File(widget.url).existsSync()) {
+          source = DeviceFileSource(widget.url);
+        } else {
+          final fullUrl = ApiService.getMediaUrl(widget.url);
+          source = UrlSource(fullUrl);
+        }
+        await _player.play(source);
         await _player.setPlaybackRate(_playbackSpeed);
         if (mounted) setState(() => _isPlaying = true);
       }
     } catch (e) {
-      print('Audio play error: $e');
+      debugPrint('Audio play error: $e');
     }
   }
 
@@ -1470,12 +1605,37 @@ class _AudioPlayWidgetState extends State<AudioPlayWidget> {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        IconButton(
-          constraints: const BoxConstraints(),
-          padding: EdgeInsets.zero,
-          icon: Icon(_isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill, color: widget.color, size: 36),
-          onPressed: _togglePlay,
-        ),
+        if (widget.isPending)
+          Container(
+            width: 36,
+            height: 36,
+            margin: const EdgeInsets.symmetric(horizontal: 4),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.4),
+              shape: BoxShape.circle,
+            ),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                SizedBox(
+                  width: 32,
+                  height: 32,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.5,
+                    valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primaryColor),
+                  ),
+                ),
+                const Icon(Icons.close_rounded, color: Colors.white, size: 16),
+              ],
+            ),
+          )
+        else
+          IconButton(
+            constraints: const BoxConstraints(),
+            padding: EdgeInsets.zero,
+            icon: Icon(_isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill, color: widget.color, size: 36),
+            onPressed: _togglePlay,
+          ),
         const SizedBox(width: 8),
         Text(
           '${_formatDuration(_position)} / ${_formatDuration(_duration)}',

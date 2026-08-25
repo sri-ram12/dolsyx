@@ -21,23 +21,21 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
   String _callRingtone = 'Marimba Melody';
   bool _highPriorityNotifications = true;
   String? _customDeviceTonePath;
-  
+
   final AudioPlayer _audioPlayer = AudioPlayer();
 
-  final List<String> _messageTones = [
+  final List<String> _appMessageTones = [
     'Default (Chime)',
     'Pop',
     'Whistle',
     'Gentle Drop',
-    'Custom Tone from Device Storage...',
   ];
 
-  final List<String> _callRingtones = [
+  final List<String> _appCallRingtones = [
     'Default (DOLSYX Bell)',
     'Classic Telephone',
     'Digital Pulse',
     'Marimba Melody',
-    'Custom Ringtone from Device Storage...',
   ];
 
   @override
@@ -49,6 +47,7 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
   @override
   void dispose() {
     _audioPlayer.dispose();
+    SoundService().playPreviewTone('', false);
     super.dispose();
   }
 
@@ -57,6 +56,7 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
     setState(() {
       _conversationTones = prefs.getBool('notif_conversation_tones') ?? true;
       _vibrate = prefs.getBool('notif_vibrate') ?? true;
+      _vibrationPattern = prefs.getString('notif_vibration_pattern') ?? 'Default';
       _messageTone = prefs.getString('notif_message_tone') ?? 'Pop';
       _callRingtone = prefs.getString('notif_call_ringtone') ?? 'Marimba Melody';
       _highPriorityNotifications = prefs.getBool('notif_high_priority') ?? true;
@@ -111,22 +111,98 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
           await _saveString('notif_message_tone', label);
         }
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Set custom tone: $fileName')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Set custom tone: $fileName')),
+          );
+        }
 
         // Play preview of selected file
         await _audioPlayer.stop();
         await _audioPlayer.play(DeviceFileSource(filePath));
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not load audio file: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not load audio file: $e')),
+        );
+      }
     }
   }
 
-  void _showPicker(String title, String current, List<String> options, bool isCallRingtone, Function(String) onSelect) {
+  void _showTonePickerModal({
+    required String title,
+    required String currentTitle,
+    required List<String> appTones,
+    required bool isCallRingtone,
+    required Function(String title) onSelect,
+  }) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppTheme.surfaceColor,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 12),
+              Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[600], borderRadius: BorderRadius.circular(2))),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(title, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.grey),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+
+              // Custom Storage Option
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: AppTheme.primaryColor.withOpacity(0.15), shape: BoxShape.circle),
+                  child: Icon(Icons.folder_open, color: AppTheme.primaryColor, size: 20),
+                ),
+                title: Text('Custom Tone from Device Storage...', style: TextStyle(color: AppTheme.primaryColor, fontWeight: FontWeight.w600)),
+                subtitle: Text('Pick any MP3 / WAV audio file from phone', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  await _pickCustomAudioFile(isCallRingtone);
+                },
+              ),
+              const Divider(height: 1),
+
+              // App Tones List
+              ...appTones.map((toneName) {
+                final isSelected = currentTitle == toneName;
+                return ListTile(
+                  title: Text(toneName, style: TextStyle(color: AppTheme.textPrimary, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
+                  leading: Icon(Icons.music_note, color: isSelected ? AppTheme.primaryColor : Colors.grey),
+                  trailing: isSelected ? Icon(Icons.check_circle, color: AppTheme.primaryColor) : null,
+                  onTap: () async {
+                    onSelect(toneName);
+                    await _playSoundPreview(toneName, isCallRingtone);
+                    Navigator.pop(ctx);
+                  },
+                );
+              }),
+              const SizedBox(height: 20),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _showPatternPicker(String title, String current, List<String> options, Function(String) onSelect) {
     showModalBottomSheet(
       context: context,
       backgroundColor: AppTheme.surfaceColor,
@@ -144,19 +220,11 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
             const Divider(height: 1),
             ...options.map((opt) => ListTile(
                   title: Text(opt, style: TextStyle(color: AppTheme.textPrimary)),
-                  leading: Icon(
-                    opt.contains('Custom') ? Icons.folder_open : Icons.music_note,
-                    color: AppTheme.primaryColor,
-                  ),
+                  leading: Icon(Icons.vibration, color: AppTheme.primaryColor),
                   trailing: opt == current ? Icon(Icons.check_circle, color: AppTheme.primaryColor) : null,
-                  onTap: () async {
+                  onTap: () {
                     Navigator.pop(context);
-                    if (opt.contains('Custom')) {
-                      await _pickCustomAudioFile(isCallRingtone);
-                    } else {
-                      onSelect(opt);
-                      await _playSoundPreview(opt, isCallRingtone);
-                    }
+                    onSelect(opt);
                   },
                 )),
             const SizedBox(height: 20),
@@ -170,7 +238,7 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Notification & Ringtone Tones'),
+        title: const Text('Notifications & Sounds'),
         backgroundColor: AppTheme.surfaceColor,
       ),
       backgroundColor: AppTheme.backgroundColor,
@@ -196,10 +264,16 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
               onPressed: () => _playSoundPreview(_messageTone, false),
             ),
             onTap: () {
-              _showPicker('Select Notification Tone', _messageTone, _messageTones, false, (val) {
-                setState(() => _messageTone = val);
-                _saveString('notif_message_tone', val);
-              });
+              _showTonePickerModal(
+                title: 'Select Notification Tone',
+                currentTitle: _messageTone,
+                appTones: _appMessageTones,
+                isCallRingtone: false,
+                onSelect: (title) async {
+                  setState(() => _messageTone = title);
+                  await _saveString('notif_message_tone', title);
+                },
+              );
             },
           ),
           SwitchListTile(
@@ -217,8 +291,9 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
             subtitle: Text(_vibrationPattern, style: TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
             leading: Icon(Icons.vibration, color: AppTheme.primaryColor),
             onTap: () {
-              _showPicker('Select Vibration Pattern', _vibrationPattern, ['Default', 'Short Pulse', 'Long Vibration', 'Heartbeat', 'Rapid'], false, (val) {
+              _showPatternPicker('Select Vibration Pattern', _vibrationPattern, ['Default', 'Short Pulse', 'Long Vibration', 'Heartbeat', 'Rapid'], (val) {
                 setState(() => _vibrationPattern = val);
+                _saveString('notif_vibration_pattern', val);
               });
             },
           ),
@@ -247,10 +322,16 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
               onPressed: () => _playSoundPreview(_callRingtone, true),
             ),
             onTap: () {
-              _showPicker('Select Call Ringtone', _callRingtone, _callRingtones, true, (val) {
-                setState(() => _callRingtone = val);
-                _saveString('notif_call_ringtone', val);
-              });
+              _showTonePickerModal(
+                title: 'Select Call Ringtone',
+                currentTitle: _callRingtone,
+                appTones: _appCallRingtones,
+                isCallRingtone: true,
+                onSelect: (title) async {
+                  setState(() => _callRingtone = title);
+                  await _saveString('notif_call_ringtone', title);
+                },
+              );
             },
           ),
           ListTile(

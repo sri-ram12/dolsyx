@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
+import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
 import 'verify_safety_number_screen.dart';
 import '../services/api_service.dart';
@@ -377,13 +378,18 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
         final List<dynamic> mediaMessages = jsonDecode(res.body);
         final List<dynamic> media = [];
         final List<dynamic> docs = [];
+        final List<dynamic> links = [];
+
+        final urlRegex = RegExp(r'(https?:\/\/[^\s]+|www\.[^\s]+)', caseSensitive: false);
 
         for (final m in mediaMessages) {
           final rawUrl = (m['mediaUrl'] ?? '').toString().trim();
           final mediaType = (m['mediaType'] ?? '').toString().toUpperCase();
+          final content = (m['content'] ?? '').toString().trim();
           final isVideo = mediaType == 'VIDEO' ||
               RegExp(r'\.(mp4|mov|avi|mkv|webm|3gp)($|\?)', caseSensitive: false).hasMatch(rawUrl);
-          final isDoc = mediaType == 'FILE' || mediaType == 'DOCUMENT';
+          final isDoc = mediaType == 'FILE' || mediaType == 'DOCUMENT' ||
+              RegExp(r'\.(pdf|docx?|xlsx?|pptx?|txt|zip|rar|apk|csv)($|\?)', caseSensitive: false).hasMatch(rawUrl);
 
           if (rawUrl.isNotEmpty) {
             if (isDoc) {
@@ -392,13 +398,27 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
               media.add({...m, '_resolvedUrl': rawUrl, '_isVideo': isVideo});
             }
           }
+
+          if (content.isNotEmpty && urlRegex.hasMatch(content)) {
+            final matches = urlRegex.allMatches(content);
+            for (final match in matches) {
+              final linkUrl = match.group(0);
+              if (linkUrl != null && linkUrl.isNotEmpty) {
+                links.add({
+                  ...m,
+                  '_linkUrl': linkUrl.startsWith('http') ? linkUrl : 'https://$linkUrl',
+                  '_displayTitle': content,
+                });
+              }
+            }
+          }
         }
 
         if (mounted) {
           setState(() {
             _mediaItems = media;
             _docItems = docs;
-            _linkItems = [];   // links not returned by media endpoint
+            _linkItems = links;
             _isLoadingMedia = false;
           });
         }
@@ -540,11 +560,24 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
                               )
                             : Column(
                                 children: _docItems.map((doc) {
-                                  final name = doc['content'] ?? 'Document';
+                                  final name = (doc['content'] != null && doc['content'].toString().trim().isNotEmpty)
+                                      ? doc['content'].toString().trim()
+                                      : (doc['_resolvedUrl'] != null ? doc['_resolvedUrl'].toString().split('/').last : 'Document');
+                                  final docUrl = doc['_resolvedUrl'] ?? doc['mediaUrl'] ?? '';
                                   return ListTile(
                                     dense: true,
                                     leading: Icon(Icons.description, color: AppTheme.primaryColor),
-                                    title: Text(name, style: TextStyle(color: AppTheme.textPrimary, fontSize: 13)),
+                                    title: Text(name, style: TextStyle(color: AppTheme.textPrimary, fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                    subtitle: Text('Tap to view document', style: TextStyle(color: AppTheme.textSecondary, fontSize: 11)),
+                                    onTap: () async {
+                                      if (docUrl.isNotEmpty) {
+                                        final fullUrl = ApiService.getMediaUrl(docUrl);
+                                        final uri = Uri.tryParse(fullUrl);
+                                        if (uri != null && await canLaunchUrl(uri)) {
+                                          await launchUrl(uri, mode: LaunchMode.externalApplication);
+                                        }
+                                      }
+                                    },
                                   );
                                 }).toList(),
                               ))
@@ -561,11 +594,18 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
                               )
                             : Column(
                                 children: _linkItems.map((link) {
-                                  final urlStr = link['url'] ?? '';
+                                  final urlStr = link['_linkUrl'] ?? link['content'] ?? '';
+                                  final title = (link['_displayTitle'] ?? urlStr).toString().trim();
                                   return ListTile(
                                     dense: true,
                                     leading: Icon(Icons.link, color: AppTheme.primaryColor),
-                                    title: Text(urlStr, style: TextStyle(color: AppTheme.primaryColor, fontSize: 13, decoration: TextDecoration.underline)),
+                                    title: Text(title, style: TextStyle(color: AppTheme.primaryColor, fontSize: 13, decoration: TextDecoration.underline), maxLines: 2, overflow: TextOverflow.ellipsis),
+                                    onTap: () async {
+                                      final uri = Uri.tryParse(urlStr);
+                                      if (uri != null && await canLaunchUrl(uri)) {
+                                        await launchUrl(uri, mode: LaunchMode.externalApplication);
+                                      }
+                                    },
                                   );
                                 }).toList(),
                               )),

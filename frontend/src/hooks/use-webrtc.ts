@@ -87,12 +87,19 @@ export const useWebRTC = ({ onIceCandidate }: UseWebRTCOptions) => {
 
   const getMedia = useCallback(async (callType: "audio" | "video") => {
     const constraints: MediaStreamConstraints = {
-      audio: { echoCancellation: true, noiseSuppression: true },
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        sampleRate: { ideal: 48000 },
+        channelCount: { ideal: 1 },
+      },
       video:
         callType === "video"
           ? {
-              width: { ideal: 640 },
-              height: { ideal: 480 },
+              width: { ideal: 1920, min: 1280 },
+              height: { ideal: 1080, min: 720 },
+              frameRate: { ideal: 30, max: 60 },
               facingMode: "user",
             }
           : false,

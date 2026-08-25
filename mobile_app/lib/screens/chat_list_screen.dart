@@ -27,6 +27,7 @@ import 'contacts_screen.dart';
 import 'group_settings_screen.dart';
 import 'dolsyx_ai_screen.dart';
 import 'starred_messages_screen.dart';
+import '../widgets/switch_account_modal.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
 class ChatListScreen extends StatefulWidget {
@@ -70,13 +71,17 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
         _handleSocketUpdate(data);
       });
       _onlineSubscription = authProvider.socketService.onlineUsersStream.stream.listen((users) {
-        if (mounted) setState(() { _onlineUsers = users; });
+        if (mounted && (users.length != _onlineUsers.length || !users.containsAll(_onlineUsers))) {
+          setState(() { _onlineUsers = users; });
+        }
       });
       _typingSubscription = authProvider.socketService.typingUpdates.stream.listen((data) {
         if (mounted) {
           final convId = data['conversationId'];
-          final isTyping = data['isTyping'];
-          setState(() { _typingStatus[convId] = isTyping; });
+          final isTyping = data['isTyping'] == true;
+          if (_typingStatus[convId] != isTyping) {
+            setState(() { _typingStatus[convId] = isTyping; });
+          }
         }
       });
     });
@@ -1011,6 +1016,8 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
                 } else if (value == 'starred') {
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const StarredMessagesScreen(starredMessages: [])));
+                } else if (value == 'switch_account') {
+                  SwitchAccountModal.show(context);
                 } else if (value == 'logout') {
                   _handleLogout();
                 } else if (value == 'new_group') {

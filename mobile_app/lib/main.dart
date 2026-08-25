@@ -546,15 +546,19 @@ class _DolsyxAppState extends State<DolsyxApp> {
     }
 
     void navigateToCall() {
+      final callerNameStr = (data['callerName'] ?? 'User').toString();
+      final callerIdStr = (data['callerId'] ?? '').toString();
+      final convIdStr = (data['conversationId'] ?? '').toString();
+
       if (navigatorKey.currentState != null) {
         navigatorKey.currentState!.push(
           MaterialPageRoute(
             settings: const RouteSettings(name: 'CallScreen'),
             builder: (_) => CallScreen(
-              conversationId: data['conversationId'],
-              remoteUserId: data['callerId'],
-              remoteUserName: data['callerName'],
-              remoteAvatarUrl: data['callerAvatarUrl'],
+              conversationId: convIdStr,
+              remoteUserId: callerIdStr,
+              remoteUserName: callerNameStr,
+              remoteAvatarUrl: data['callerAvatarUrl']?.toString(),
               isAudioOnly: data['isAudioOnly'] ?? true,
               isIncoming: true,
               initialOffer: data['initialOffer'],
@@ -568,10 +572,10 @@ class _DolsyxAppState extends State<DolsyxApp> {
               MaterialPageRoute(
                 settings: const RouteSettings(name: 'CallScreen'),
                 builder: (_) => CallScreen(
-                  conversationId: data['conversationId'],
-                  remoteUserId: data['callerId'],
-                  remoteUserName: data['callerName'],
-                  remoteAvatarUrl: data['callerAvatarUrl'],
+                  conversationId: convIdStr,
+                  remoteUserId: callerIdStr,
+                  remoteUserName: callerNameStr,
+                  remoteAvatarUrl: data['callerAvatarUrl']?.toString(),
                   isAudioOnly: data['isAudioOnly'] ?? true,
                   isIncoming: true,
                   initialOffer: data['initialOffer'],

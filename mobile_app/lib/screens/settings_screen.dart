@@ -6,6 +6,7 @@ import 'app_lock_screen.dart';
 import 'chat_settings_screen.dart';
 import 'notification_settings_screen.dart';
 import 'storage_settings_screen.dart';
+import '../widgets/switch_account_modal.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 
@@ -43,6 +44,9 @@ class SettingsScreen extends StatelessWidget {
               },
             ),
             const Divider(color: Colors.grey, height: 1),
+            _buildSettingItem(context, Icons.switch_account, 'Switch Account', 'Switch between logged-in accounts or add account', () {
+              SwitchAccountModal.show(context);
+            }),
             _buildSettingItem(context, Icons.notifications, 'Notification Tones & Call Ringtones', 'Message sounds, caller tones, custom device tones', () {
               Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationSettingsScreen()));
             }),

@@ -1,4 +1,5 @@
 import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class SoundService {
@@ -6,9 +7,35 @@ class SoundService {
   factory SoundService() => _instance;
   SoundService._internal();
 
+  static const MethodChannel _ringtoneChannel = MethodChannel('com.dolsyx/ringtones');
+
   final AudioPlayer _notificationPlayer = AudioPlayer();
   final AudioPlayer _ringtonePlayer = AudioPlayer();
   bool _isRingtonePlaying = false;
+
+  Future<List<Map<String, String>>> fetchSystemNotificationSounds() async {
+    try {
+      final List<dynamic>? res = await _ringtoneChannel.invokeMethod('getNotificationSounds');
+      if (res != null) {
+        return res.map((e) => Map<String, String>.from(e as Map)).toList();
+      }
+    } catch (e) {
+      print('Error fetching system notification sounds: $e');
+    }
+    return [];
+  }
+
+  Future<List<Map<String, String>>> fetchSystemRingtones() async {
+    try {
+      final List<dynamic>? res = await _ringtoneChannel.invokeMethod('getRingtones');
+      if (res != null) {
+        return res.map((e) => Map<String, String>.from(e as Map)).toList();
+      }
+    } catch (e) {
+      print('Error fetching system ringtones: $e');
+    }
+    return [];
+  }
 
   Future<void> _setNotificationAudioContext() async {
     try {
@@ -79,7 +106,13 @@ class SoundService {
       if (!tonesEnabled) return;
 
       final toneName = prefs.getString('notif_message_tone') ?? 'Pop';
+      final toneUri = prefs.getString('notif_message_tone_uri');
       final customPath = prefs.getString('notif_custom_device_path');
+
+      if (toneUri != null && toneUri.startsWith('content://')) {
+        await _ringtoneChannel.invokeMethod('playTone', {'uri': toneUri});
+        return;
+      }
 
       await _setNotificationAudioContext();
       await _notificationPlayer.stop();
@@ -90,10 +123,22 @@ class SoundService {
     }
   }
 
-  Future<void> playPreviewTone(String toneName, bool isCallRingtone) async {
+  Future<void> playPreviewTone(String toneName, bool isCallRingtone, {String? toneUri}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final customPath = prefs.getString('notif_custom_device_path');
+
+      if (toneUri != null && toneUri.startsWith('content://')) {
+        await _notificationPlayer.stop();
+        await _ringtonePlayer.stop();
+        await _ringtoneChannel.invokeMethod('playTone', {'uri': toneUri});
+        return;
+      }
+
+      // Stop native tone if running
+      try {
+        await _ringtoneChannel.invokeMethod('stopTone');
+      } catch (_) {}
 
       if (isCallRingtone) {
         await _setRingtoneAudioContext();
@@ -118,7 +163,13 @@ class SoundService {
       _isRingtonePlaying = true;
       final prefs = await SharedPreferences.getInstance();
       final toneName = prefs.getString('notif_call_ringtone') ?? 'Marimba Melody';
+      final toneUri = prefs.getString('notif_call_ringtone_uri');
       final customPath = prefs.getString('notif_custom_device_path');
+
+      if (toneUri != null && toneUri.startsWith('content://')) {
+        await _ringtoneChannel.invokeMethod('playTone', {'uri': toneUri});
+        return;
+      }
 
       await _setRingtoneAudioContext();
       await _ringtonePlayer.setReleaseMode(ReleaseMode.loop);

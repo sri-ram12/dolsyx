@@ -626,18 +626,21 @@ class _DolsyxAppState extends State<DolsyxApp> {
                 child: Column(
                   children: [
                     // ── Modern Floating Incoming Call Alert Popup ──
-                    if (_incomingCallData != null)
-                      Material(
-                        color: Colors.transparent,
-                        child: GestureDetector(
-                          onTap: _acceptIncomingCall,
-                          child: Container(
-                            margin: EdgeInsets.only(
-                              top: MediaQuery.of(context).padding.top + 10,
-                              left: 14,
-                              right: 14,
-                              bottom: 10,
-                            ),
+                    ValueListenableBuilder<bool>(
+                      valueListenable: CallScreen.isCallActiveNotifier,
+                      builder: (context, isCallActive, _) {
+                        if (_incomingCallData == null || isCallActive) return const SizedBox.shrink();
+                        return Material(
+                          color: Colors.transparent,
+                          child: GestureDetector(
+                            onTap: _acceptIncomingCall,
+                            child: Container(
+                              margin: EdgeInsets.only(
+                                top: MediaQuery.of(context).padding.top + 10,
+                                left: 14,
+                                right: 14,
+                                bottom: 10,
+                              ),
                             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
                             decoration: BoxDecoration(
                               gradient: const LinearGradient(
@@ -734,7 +737,9 @@ class _DolsyxAppState extends State<DolsyxApp> {
                             ),
                           ),
                         ),
-                      ),
+                      );
+                    },
+                  ),
                     // ── Ongoing Call Banner ──
                     ValueListenableBuilder<bool>(
                       valueListenable: CallScreen.isCallActiveNotifier,

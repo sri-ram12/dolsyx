@@ -1638,70 +1638,18 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     return Color(int.parse(buffer.toString(), radix: 16));
   }
 
-  // Clean Plain Theme & Wallpaper Background (No dots/doodles)
+  // Permanent Plain Dark Solid Background (No theme-driven changes or dots)
   Widget _buildThemeBackground(ChatThemeModel chatTheme, WallpaperConfig wallpaperConfig) {
-    if (wallpaperConfig.type == WallpaperType.solidColor && wallpaperConfig.value != null) {
-      return Container(
-        color: _fromHex(wallpaperConfig.value!),
-      );
-    } else if (wallpaperConfig.type == WallpaperType.pattern && wallpaperConfig.value != null) {
-      final colors = wallpaperConfig.value!.split(',').map((c) => _fromHex(c.trim())).toList();
-      return Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: colors.length > 1 ? colors : [colors.first, colors.first.withValues(alpha: 0.75)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-      );
-    } else if (wallpaperConfig.type == WallpaperType.customFile && wallpaperConfig.value != null) {
-      final file = File(wallpaperConfig.value!);
-      if (file.existsSync()) {
-        return Container(
-          decoration: BoxDecoration(
-            image: DecorationImage(
-              image: FileImage(file),
-              fit: BoxFit.cover,
-              colorFilter: wallpaperConfig.opacity < 1.0
-                  ? ColorFilter.mode(Colors.black.withOpacity(1.0 - wallpaperConfig.opacity), BlendMode.dstATop)
-                  : null,
-            ),
-          ),
-        );
-      }
-    }
-
-    // Clean Plain Solid Background Matching Active Theme
     return Container(
-      color: chatTheme.backgroundColor,
+      color: const Color(0xFF0B141B),
     );
   }
 
-  // Soft glowing theme aura behind caller profile avatar
-  Widget _buildProfileAura(ChatThemeModel chatTheme, {required double radius}) {
-    return Container(
-      width: (radius + 24) * 2,
-      height: (radius + 24) * 2,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: RadialGradient(
-          colors: [
-            chatTheme.primaryColor.withValues(alpha: 0.4),
-            chatTheme.secondaryColor.withValues(alpha: 0.15),
-            Colors.transparent,
-          ],
-          stops: const [0.0, 0.55, 1.0],
-        ),
-      ),
-    );
-  }
-
-  // WhatsApp-Style Incoming Call Screen (Theme-Aware Matching Screenshot 3)
+  // WhatsApp-Style Incoming Call Screen
   Widget _buildIncomingCallScreen(ChatThemeModel chatTheme, WallpaperConfig wallpaperConfig) {
     return Stack(
       children: [
-        // 1. Dynamic Theme/Wallpaper Background
+        // 1. Permanent Plain Dark Background
         Positioned.fill(
           child: _buildThemeBackground(chatTheme, wallpaperConfig),
         ),
@@ -1714,22 +1662,16 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Avatar with Theme Aura Backdrop
-              Stack(
-                alignment: Alignment.center,
-                children: [
-                  _buildProfileAura(chatTheme, radius: 54),
-                  if (widget.remoteAvatarUrl != null && widget.remoteAvatarUrl!.trim().isNotEmpty)
-                    CircleAvatar(
-                      radius: 54,
-                      backgroundImage: widget.remoteAvatarUrl!.startsWith('http')
-                          ? NetworkImage(widget.remoteAvatarUrl!)
-                          : NetworkImage('https://dolsyx-app.onrender.com${widget.remoteAvatarUrl!}'),
-                    )
-                  else
-                    ColorAvatar(name: widget.remoteUserName, radius: 54, fontSize: 42),
-                ],
-              ),
+              // Clean Avatar on Plain Background
+              if (widget.remoteAvatarUrl != null && widget.remoteAvatarUrl!.trim().isNotEmpty)
+                CircleAvatar(
+                  radius: 54,
+                  backgroundImage: widget.remoteAvatarUrl!.startsWith('http')
+                      ? NetworkImage(widget.remoteAvatarUrl!)
+                      : NetworkImage('https://dolsyx-app.onrender.com${widget.remoteAvatarUrl!}'),
+                )
+              else
+                ColorAvatar(name: widget.remoteUserName, radius: 54, fontSize: 42),
 
               const SizedBox(height: 20),
 
@@ -1887,34 +1829,22 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 if (!_isGroupCall) ...[
-                  Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      _buildProfileAura(chatTheme, radius: 72),
-                      if (widget.remoteAvatarUrl != null && widget.remoteAvatarUrl!.trim().isNotEmpty)
-                        CircleAvatar(
-                          radius: 72,
-                          backgroundImage: widget.remoteAvatarUrl!.startsWith('http')
-                              ? NetworkImage(widget.remoteAvatarUrl!)
-                              : NetworkImage('https://dolsyx-app.onrender.com${widget.remoteAvatarUrl!}'),
-                        )
-                      else
-                        ColorAvatar(name: widget.remoteUserName, radius: 72, fontSize: 52),
-                    ],
-                  ),
+                  if (widget.remoteAvatarUrl != null && widget.remoteAvatarUrl!.trim().isNotEmpty)
+                    CircleAvatar(
+                      radius: 72,
+                      backgroundImage: widget.remoteAvatarUrl!.startsWith('http')
+                          ? NetworkImage(widget.remoteAvatarUrl!)
+                          : NetworkImage('https://dolsyx-app.onrender.com${widget.remoteAvatarUrl!}'),
+                    )
+                  else
+                    ColorAvatar(name: widget.remoteUserName, radius: 72, fontSize: 52),
                 ] else ...[
                   Wrap(
                     spacing: 20, runSpacing: 16, alignment: WrapAlignment.center,
                     children: _participants.values.map((p) => Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            _buildProfileAura(chatTheme, radius: 44),
-                            ColorAvatar(name: p['username'] ?? '?', radius: 44, fontSize: 26),
-                          ],
-                        ),
+                        ColorAvatar(name: p['username'] ?? '?', radius: 44, fontSize: 26),
                         const SizedBox(height: 6),
                         Text(p['username'] ?? '', style: const TextStyle(color: Colors.white, fontSize: 13)),
                       ],
@@ -1946,11 +1876,11 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     return PopScope(
       canPop: !_callActive,
       child: Scaffold(
-        backgroundColor: chatTheme.backgroundColor,
+        backgroundColor: const Color(0xFF0B141B),
         body: SafeArea(
           child: Stack(
             children: [
-              // === 1. MAIN CALL CONTENT (Theme & Wallpaper Aware) ===
+              // === 1. MAIN CALL CONTENT (Permanent Plain Dark Background) ===
               if (widget.isIncoming && !_callActive)
                 _buildIncomingCallScreen(chatTheme, wallpaperConfig)
               else if (!widget.isAudioOnly && _callActive)

@@ -6,7 +6,10 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:provider/provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../providers/auth_provider.dart';
+import '../providers/theme_provider.dart';
+import '../providers/wallpaper_provider.dart';
 import '../theme/app_theme.dart';
+import '../theme/chat_theme_model.dart';
 import '../widgets/color_avatar.dart';
 import '../services/sound_service.dart';
 import '../services/contact_service.dart';
@@ -1617,18 +1620,85 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     );
   }
 
-  // WhatsApp-Style Incoming Call Screen (Matching Screenshot 3)
-  Widget _buildIncomingCallScreen() {
-    return Stack(
-      children: [
-        // WhatsApp Dark Doodle Pattern Wallpaper
-        Positioned.fill(
-          child: CustomPaint(
-            painter: _WhatsAppDoodlePainter(),
+  Color _fromHex(String hexString) {
+    final buffer = StringBuffer();
+    if (hexString.length == 6 || hexString.length == 7) buffer.write('ff');
+    buffer.write(hexString.replaceFirst('#', ''));
+    return Color(int.parse(buffer.toString(), radix: 16));
+  }
+
+  // Dynamic Theme & Wallpaper Background
+  Widget _buildThemeBackground(ChatThemeModel chatTheme, WallpaperConfig wallpaperConfig) {
+    if (wallpaperConfig.type == WallpaperType.solidColor && wallpaperConfig.value != null) {
+      return Container(
+        color: _fromHex(wallpaperConfig.value!),
+      );
+    } else if (wallpaperConfig.type == WallpaperType.pattern && wallpaperConfig.value != null) {
+      final colors = wallpaperConfig.value!.split(',').map((c) => _fromHex(c.trim())).toList();
+      return Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: colors.length > 1 ? colors : [colors.first, colors.first.withValues(alpha: 0.75)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
           ),
         ),
+      );
+    } else if (wallpaperConfig.type == WallpaperType.customFile && wallpaperConfig.value != null) {
+      final file = File(wallpaperConfig.value!);
+      if (file.existsSync()) {
+        return Container(
+          decoration: BoxDecoration(
+            image: DecorationImage(
+              image: FileImage(file),
+              fit: BoxFit.cover,
+              colorFilter: wallpaperConfig.opacity < 1.0
+                  ? ColorFilter.mode(Colors.black.withOpacity(1.0 - wallpaperConfig.opacity), BlendMode.dstATop)
+                  : null,
+            ),
+          ),
+        );
+      }
+    }
 
-        // Caller Info Section (Top Half)
+    // Default Theme-Aware WhatsApp Doodle Background
+    return CustomPaint(
+      painter: _WhatsAppDoodlePainter(
+        backgroundColor: chatTheme.backgroundColor,
+        accentColor: chatTheme.primaryColor,
+      ),
+    );
+  }
+
+  // Soft glowing theme aura behind caller profile avatar
+  Widget _buildProfileAura(ChatThemeModel chatTheme, {required double radius}) {
+    return Container(
+      width: (radius + 24) * 2,
+      height: (radius + 24) * 2,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: RadialGradient(
+          colors: [
+            chatTheme.primaryColor.withValues(alpha: 0.4),
+            chatTheme.secondaryColor.withValues(alpha: 0.15),
+            Colors.transparent,
+          ],
+          stops: const [0.0, 0.55, 1.0],
+        ),
+      ),
+    );
+  }
+
+  // WhatsApp-Style Incoming Call Screen (Theme-Aware Matching Screenshot 3)
+  Widget _buildIncomingCallScreen(ChatThemeModel chatTheme, WallpaperConfig wallpaperConfig) {
+    return Stack(
+      children: [
+        // 1. Dynamic Theme/Wallpaper Background
+        Positioned.fill(
+          child: _buildThemeBackground(chatTheme, wallpaperConfig),
+        ),
+
+        // 2. Caller Info Section (Top Half)
         Positioned(
           top: 60,
           left: 20,
@@ -1636,16 +1706,22 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Circular Avatar
-              if (widget.remoteAvatarUrl != null && widget.remoteAvatarUrl!.trim().isNotEmpty)
-                CircleAvatar(
-                  radius: 54,
-                  backgroundImage: widget.remoteAvatarUrl!.startsWith('http')
-                      ? NetworkImage(widget.remoteAvatarUrl!)
-                      : NetworkImage('https://dolsyx-app.onrender.com${widget.remoteAvatarUrl!}'),
-                )
-              else
-                ColorAvatar(name: widget.remoteUserName, radius: 54, fontSize: 42),
+              // Avatar with Theme Aura Backdrop
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  _buildProfileAura(chatTheme, radius: 54),
+                  if (widget.remoteAvatarUrl != null && widget.remoteAvatarUrl!.trim().isNotEmpty)
+                    CircleAvatar(
+                      radius: 54,
+                      backgroundImage: widget.remoteAvatarUrl!.startsWith('http')
+                          ? NetworkImage(widget.remoteAvatarUrl!)
+                          : NetworkImage('https://dolsyx-app.onrender.com${widget.remoteAvatarUrl!}'),
+                    )
+                  else
+                    ColorAvatar(name: widget.remoteUserName, radius: 54, fontSize: 42),
+                ],
+              ),
 
               const SizedBox(height: 20),
 
@@ -1676,7 +1752,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           ),
         ),
 
-        // Center Pulsating Upward Chevrons (Swipe Up Indicator)
+        // 3. Center Pulsating Upward Chevrons (Swipe Up Indicator)
         Positioned(
           bottom: 150,
           left: 0,
@@ -1698,7 +1774,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           ),
         ),
 
-        // Bottom Action Buttons (Decline, Accept, Quick Reply)
+        // 4. Bottom Action Buttons (Decline, Accept, Quick Reply)
         Positioned(
           bottom: 44,
           left: 32,
@@ -1767,42 +1843,52 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     );
   }
 
-  // Audio Call UI with WhatsApp Center Avatar (Matching Screenshot 2)
-  Widget _buildAudioCallScreen() {
+  // Audio Call UI with WhatsApp Center Avatar (Theme-Aware Matching Screenshot 2)
+  Widget _buildAudioCallScreen(ChatThemeModel chatTheme, WallpaperConfig wallpaperConfig) {
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
       onTap: _toggleControlsVisibility,
       child: Stack(
         children: [
-          // WhatsApp Dark Doodle Pattern Wallpaper
+          // 1. Dynamic Theme/Wallpaper Background
           Positioned.fill(
-            child: CustomPaint(
-              painter: _WhatsAppDoodlePainter(),
-            ),
+            child: _buildThemeBackground(chatTheme, wallpaperConfig),
           ),
 
-          // Center Large Avatar
+          // 2. Center Large Avatar with Theme Glowing Aura
           Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 if (!_isGroupCall) ...[
-                  if (widget.remoteAvatarUrl != null && widget.remoteAvatarUrl!.trim().isNotEmpty)
-                    CircleAvatar(
-                      radius: 72,
-                      backgroundImage: widget.remoteAvatarUrl!.startsWith('http')
-                          ? NetworkImage(widget.remoteAvatarUrl!)
-                          : NetworkImage('https://dolsyx-app.onrender.com${widget.remoteAvatarUrl!}'),
-                    )
-                  else
-                    ColorAvatar(name: widget.remoteUserName, radius: 72, fontSize: 52),
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      _buildProfileAura(chatTheme, radius: 72),
+                      if (widget.remoteAvatarUrl != null && widget.remoteAvatarUrl!.trim().isNotEmpty)
+                        CircleAvatar(
+                          radius: 72,
+                          backgroundImage: widget.remoteAvatarUrl!.startsWith('http')
+                              ? NetworkImage(widget.remoteAvatarUrl!)
+                              : NetworkImage('https://dolsyx-app.onrender.com${widget.remoteAvatarUrl!}'),
+                        )
+                      else
+                        ColorAvatar(name: widget.remoteUserName, radius: 72, fontSize: 52),
+                    ],
+                  ),
                 ] else ...[
                   Wrap(
                     spacing: 20, runSpacing: 16, alignment: WrapAlignment.center,
                     children: _participants.values.map((p) => Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        ColorAvatar(name: p['username'] ?? '?', radius: 44, fontSize: 26),
+                        Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            _buildProfileAura(chatTheme, radius: 44),
+                            ColorAvatar(name: p['username'] ?? '?', radius: 44, fontSize: 26),
+                          ],
+                        ),
                         const SizedBox(height: 6),
                         Text(p['username'] ?? '', style: const TextStyle(color: Colors.white, fontSize: 13)),
                       ],
@@ -1826,23 +1912,28 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
+    final wallpaperProvider = Provider.of<WallpaperProvider>(context);
+    final chatTheme = themeProvider.currentTheme;
+    final wallpaperConfig = wallpaperProvider.getWallpaperForChat(widget.conversationId);
+
     return PopScope(
       canPop: !_callActive,
       child: Scaffold(
-        backgroundColor: const Color(0xFF0F141A),
+        backgroundColor: chatTheme.backgroundColor,
         body: SafeArea(
           child: Stack(
             children: [
-              // === 1. MAIN CALL CONTENT ===
+              // === 1. MAIN CALL CONTENT (Theme & Wallpaper Aware) ===
               if (widget.isIncoming && !_callActive)
-                _buildIncomingCallScreen()
+                _buildIncomingCallScreen(chatTheme, wallpaperConfig)
               else if (!widget.isAudioOnly && _callActive)
                 Positioned.fill(
                   child: _isGroupCall ? _buildGroupVideoGrid() : _buildOneToOneVideoView(),
                 )
               else
                 Positioned.fill(
-                  child: _buildAudioCallScreen(),
+                  child: _buildAudioCallScreen(chatTheme, wallpaperConfig),
                 ),
 
               // === 2. TOP BANNER / HEADER (Matching Screenshots 1 & 2) ===
@@ -2030,21 +2121,32 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   }
 }
 
-// Custom Painter for WhatsApp Dark Theme Doodle Background Pattern
+// Custom Painter for WhatsApp Theme-Aware Doodle Background Pattern
 class _WhatsAppDoodlePainter extends CustomPainter {
+  final Color backgroundColor;
+  final Color accentColor;
+
+  _WhatsAppDoodlePainter({
+    this.backgroundColor = const Color(0xFF0B141B),
+    this.accentColor = const Color(0xFF25D366),
+  });
+
   @override
   void paint(Canvas canvas, Size size) {
-    // Fill deep charcoal background
-    final bgPaint = Paint()..color = const Color(0xFF0B141B);
+    // Fill theme background color
+    final bgPaint = Paint()..color = backgroundColor;
     canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), bgPaint);
 
+    final isLight = backgroundColor.computeLuminance() > 0.5;
+    final doodleBaseColor = isLight ? Colors.black : Colors.white;
+
     final doodlePaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.035)
+      ..color = doodleBaseColor.withValues(alpha: isLight ? 0.06 : 0.04)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.4;
 
     final dotPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.04)
+      ..color = accentColor.withValues(alpha: 0.15)
       ..style = PaintingStyle.fill;
 
     // Draw repeating pattern of subtle icons
@@ -2055,7 +2157,7 @@ class _WhatsAppDoodlePainter extends CustomPainter {
 
         // Subtle geometric doodle elements
         canvas.drawCircle(Offset(drawX, y), 8, doodlePaint);
-        canvas.drawCircle(Offset(drawX + 16, y + 16), 2, dotPaint);
+        canvas.drawCircle(Offset(drawX + 16, y + 16), 2.5, dotPaint);
         canvas.drawRRect(
           RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(drawX + 24, y), width: 14, height: 10), const Radius.circular(3)),
           doodlePaint,
@@ -2065,6 +2167,8 @@ class _WhatsAppDoodlePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _WhatsAppDoodlePainter oldDelegate) =>
+      oldDelegate.backgroundColor != backgroundColor || oldDelegate.accentColor != accentColor;
 }
+
 

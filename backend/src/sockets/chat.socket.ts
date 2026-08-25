@@ -21,8 +21,8 @@ export interface ScheduledMsg {
   senderId: string;
   content: string;
   scheduledFor: number; // epoch ms
-  mediaUrl?: string;
-  mediaType?: string;
+  mediaUrl?: string | null | undefined;
+  mediaType?: string | null | undefined;
   createdAt: number;
 }
 const scheduledMessagesStore = new Map<string, ScheduledMsg>();

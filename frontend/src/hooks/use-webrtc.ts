@@ -268,11 +268,10 @@ export const useWebRTC = ({ onIceCandidate }: UseWebRTCOptions) => {
         // Start 60fps zero-lag ultra-low latency screen share
         const screenStream = await navigator.mediaDevices.getDisplayMedia({
           video: {
-            cursor: "always",
             frameRate: { ideal: 60, max: 60 },
             width: { max: 1920 },
             height: { max: 1080 },
-          },
+          } as any,
           audio: {
             echoCancellation: true,
             noiseSuppression: true,

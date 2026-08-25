@@ -243,17 +243,15 @@ export const getMediaMessages = async (req: AuthRequest, res: Response): Promise
       return;
     }
 
-    // Fetch only media messages (IMAGE, VIDEO, FILE/DOCUMENT)
-    const mediaMessages = await prisma.message.findMany({
+    // Fetch messages for conversation
+    const messages = await prisma.message.findMany({
       where: {
         conversationId,
-        mediaUrl: { not: null },
-        mediaType: { in: ["IMAGE", "VIDEO", "FILE", "DOCUMENT"] },
         isDeleted: false,
         deletedForUsers: { none: { userId } },
       },
       orderBy: { createdAt: "desc" },
-      take: 200,
+      take: 500,
       select: {
         id: true,
         mediaUrl: true,
@@ -267,7 +265,20 @@ export const getMediaMessages = async (req: AuthRequest, res: Response): Promise
       },
     });
 
-    res.json(mediaMessages);
+    // Decrypt all contents and filter for media, files, and links
+    const decryptedMediaMessages = messages
+      .map((msg) => ({
+        ...msg,
+        content: encryptionService.decrypt(msg.content),
+      }))
+      .filter((msg) => {
+        const hasMedia = !!msg.mediaUrl && msg.mediaUrl.trim().length > 0;
+        const text = msg.content || "";
+        const hasLink = text.includes("http://") || text.includes("https://") || text.includes("www.") || /(https?:\/\/[^\s]+|www\.[^\s]+)/i.test(text);
+        return hasMedia || hasLink;
+      });
+
+    res.json(decryptedMediaMessages);
   } catch (error) {
     console.error("GetMediaMessages error:", error);
     res.status(500).json({ message: "Internal server error" });

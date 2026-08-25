@@ -1903,7 +1903,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   Future<void> _pickAudio() async {
     GlobalAppLockWrapper.isMediaPickerActive = true;
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         allowMultiple: true,
         type: FileType.audio,
       );
@@ -1927,7 +1927,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   Future<void> _pickFile() async {
     GlobalAppLockWrapper.isMediaPickerActive = true;
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         allowMultiple: true,
         type: FileType.any,
       );
@@ -1979,7 +1979,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
       // 1. First try FilePicker for reliable multi-media selection (both images and videos together)
       try {
-        final result = await FilePicker.platform.pickFiles(
+        final result = await FilePicker.pickFiles(
           allowMultiple: true,
           type: FileType.media,
         );

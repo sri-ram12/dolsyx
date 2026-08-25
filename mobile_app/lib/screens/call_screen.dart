@@ -1624,7 +1624,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           TextButton(onPressed: () => Navigator.pop(ctx), child: Text('Cancel', style: TextStyle(color: AppTheme.textSecondary))),
           TextButton(
             onPressed: () { Navigator.pop(ctx); _endCallWith(userId); },
-            child: const Text('End Call', style: const TextStyle(color: Colors.red)),
+            child: const Text('End Call', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),

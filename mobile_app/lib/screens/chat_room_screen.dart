@@ -1898,55 +1898,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     );
   }
 
-  Future<void> _pickImage(ImageSource source) async {
-    GlobalAppLockWrapper.isMediaPickerActive = true;
-    try {
-      final picker = ImagePicker();
-      if (source == ImageSource.camera) {
-        final pickedFile = await picker.pickImage(source: ImageSource.camera);
-        if (!mounted) return;
-        if (pickedFile != null) {
-          final isViewOnce = await _promptViewOnceMode() ?? false;
-          await _uploadAndSendMedia(File(pickedFile.path), 'IMAGE', isViewOnce: isViewOnce);
-        }
-      } else {
-        final pickedFiles = await picker.pickMultiImage();
-        if (!mounted) return;
-        if (pickedFiles.isNotEmpty) {
-          final isViewOnce = await _promptViewOnceMode() ?? false;
-          await _uploadAndSendMultipleMedia(
-            pickedFiles.map((f) => MapEntry(File(f.path), 'IMAGE')).toList(),
-            isViewOnce: isViewOnce,
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error picking image: $e')));
-    } finally {
-      Future.delayed(const Duration(seconds: 1), () {
-        GlobalAppLockWrapper.isMediaPickerActive = false;
-      });
-    }
-  }
 
-  Future<void> _pickVideo(ImageSource source) async {
-    GlobalAppLockWrapper.isMediaPickerActive = true;
-    try {
-      final picker = ImagePicker();
-      final pickedFile = await picker.pickVideo(source: source);
-      if (!mounted) return;
-      if (pickedFile != null) {
-        final isViewOnce = await _promptViewOnceMode() ?? false;
-        await _uploadAndSendMedia(File(pickedFile.path), 'VIDEO', isViewOnce: isViewOnce);
-      }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error picking video: $e')));
-    } finally {
-      Future.delayed(const Duration(seconds: 1), () {
-        GlobalAppLockWrapper.isMediaPickerActive = false;
-      });
-    }
-  }
 
   Future<void> _pickAudio() async {
     GlobalAppLockWrapper.isMediaPickerActive = true;

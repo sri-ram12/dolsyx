@@ -1948,10 +1948,34 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     }
   }
 
+  Future<void> _pickAudio() async {
+    GlobalAppLockWrapper.isMediaPickerActive = true;
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        allowMultiple: true,
+        type: FileType.audio,
+      );
+      if (!mounted) return;
+      if (result != null && result.files.isNotEmpty) {
+        final entries = result.files
+            .where((f) => f.path != null)
+            .map((f) => MapEntry(File(f.path!), 'AUDIO'))
+            .toList();
+        await _uploadAndSendMultipleMedia(entries);
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error picking audio: $e')));
+    } finally {
+      Future.delayed(const Duration(seconds: 1), () {
+        GlobalAppLockWrapper.isMediaPickerActive = false;
+      });
+    }
+  }
+
   Future<void> _pickFile() async {
     GlobalAppLockWrapper.isMediaPickerActive = true;
     try {
-      final result = await FilePicker.pickFiles(
+      final result = await FilePicker.platform.pickFiles(
         allowMultiple: true,
         type: FileType.any,
       );
@@ -1963,7 +1987,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           final ext = f.extension?.toLowerCase() ?? '';
           String type = 'FILE';
           if (['jpg', 'jpeg', 'png', 'gif', 'webp'].contains(ext)) type = 'IMAGE';
-          else if (['mp4', 'mov', 'avi', 'mkv', 'webm'].contains(ext)) type = 'VIDEO';
+          else if (['mp4', 'mov', 'avi', 'mkv', 'webm', '3gp', 'm4v'].contains(ext)) type = 'VIDEO';
+          else if (['mp3', 'm4a', 'wav', 'aac', 'ogg', 'flac'].contains(ext)) type = 'AUDIO';
           return MapEntry(File(f.path!), type);
         }).toList();
         await _uploadAndSendMultipleMedia(entries);
@@ -1998,40 +2023,65 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   Future<void> _pickGalleryMedia() async {
     GlobalAppLockWrapper.isMediaPickerActive = true;
     try {
-      final picker = ImagePicker();
-      List<XFile> pickedFiles = [];
+      List<MediaItem> items = [];
+
+      // 1. First try FilePicker for reliable multi-media selection (both images and videos together)
       try {
-        pickedFiles = await picker.pickMultipleMedia();
-      } catch (_) {
-        final XFile? single = await picker.pickImage(source: ImageSource.gallery, imageQuality: 95);
-        if (single != null) pickedFiles = [single];
-      }
-
-      if (!mounted) return;
-      if (pickedFiles.isNotEmpty) {
-        final items = pickedFiles.map((f) {
-          final ext = f.path.split('.').last.toLowerCase();
-          final isVid = ['mp4', 'mov', 'avi', 'mkv', 'webm', '3gp', 'flv', 'm4v'].contains(ext);
-          return MediaItem(file: File(f.path), type: isVid ? 'VIDEO' : 'IMAGE');
-        }).toList();
-
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => WhatsAppMediaPreviewScreen(
-              initialItems: items,
-              onSend: (selectedList, caption, isViewOnce, isHD) {
-                final entries = selectedList.map((m) => MapEntry(m.file, m.type)).toList();
-                if (entries.length == 1) {
-                  _uploadAndSendMedia(entries.first.key, entries.first.value, caption: caption, isViewOnce: isViewOnce, isHD: isHD);
-                } else {
-                  _uploadAndSendMultipleMedia(entries, caption: caption, isViewOnce: isViewOnce, isHD: isHD);
-                }
-              },
-            ),
-          ),
+        final result = await FilePicker.platform.pickFiles(
+          allowMultiple: true,
+          type: FileType.media,
         );
+        if (result != null && result.files.isNotEmpty) {
+          items = result.files.where((f) => f.path != null).map((f) {
+            final ext = f.extension?.toLowerCase() ?? '';
+            final isVid = ['mp4', 'mov', 'avi', 'mkv', 'webm', '3gp', 'flv', 'm4v'].contains(ext);
+            return MediaItem(file: File(f.path!), type: isVid ? 'VIDEO' : 'IMAGE');
+          }).toList();
+        }
+      } catch (_) {}
+
+      // 2. If empty, fall back to ImagePicker.pickMultipleMedia() or pickMultiImage()
+      if (items.isEmpty) {
+        final picker = ImagePicker();
+        List<XFile> pickedFiles = [];
+        try {
+          pickedFiles = await picker.pickMultipleMedia();
+        } catch (_) {
+          try {
+            pickedFiles = await picker.pickMultiImage();
+          } catch (_) {
+            final XFile? single = await picker.pickImage(source: ImageSource.gallery, imageQuality: 95);
+            if (single != null) pickedFiles = [single];
+          }
+        }
+
+        if (pickedFiles.isNotEmpty) {
+          items = pickedFiles.map((f) {
+            final ext = f.path.split('.').last.toLowerCase();
+            final isVid = ['mp4', 'mov', 'avi', 'mkv', 'webm', '3gp', 'flv', 'm4v'].contains(ext);
+            return MediaItem(file: File(f.path), type: isVid ? 'VIDEO' : 'IMAGE');
+          }).toList();
+        }
       }
+
+      if (!mounted || items.isEmpty) return;
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => WhatsAppMediaPreviewScreen(
+            initialItems: items,
+            onSend: (selectedList, caption, isViewOnce, isHD) {
+              final entries = selectedList.map((m) => MapEntry(m.file, m.type)).toList();
+              if (entries.length == 1) {
+                _uploadAndSendMedia(entries.first.key, entries.first.value, caption: caption, isViewOnce: isViewOnce, isHD: isHD);
+              } else {
+                _uploadAndSendMultipleMedia(entries, caption: caption, isViewOnce: isViewOnce, isHD: isHD);
+              }
+            },
+          ),
+        ),
+      );
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error picking gallery media: $e')));
     } finally {
@@ -2084,7 +2134,20 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       if (response != null && response['fileUrl'] != null && mounted) {
         _pendingMediaUploadQueue.removeWhere((q) => q['tempId'] == tempId);
         setState(() {
-          _messages.removeWhere((m) => m.id == tempId);
+          final idx = _messages.indexWhere((m) => m.id == tempId);
+          if (idx != -1) {
+            _messages[idx] = Message(
+              id: tempId,
+              content: caption,
+              senderId: myUserId,
+              conversationId: widget.conversationId,
+              mediaUrl: response['fileUrl'],
+              mediaType: mediaType,
+              isViewOnce: isViewOnce,
+              isPending: false,
+              createdAt: _messages[idx].createdAt,
+            );
+          }
         });
         authProvider.socketService.sendMessage(
           widget.conversationId, 
@@ -2103,34 +2166,23 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   Future<void> _uploadAndSendMultipleMedia(List<MapEntry<File, String>> files, {String caption = '', bool isViewOnce = false, bool isHD = false}) async {
     if (!mounted || files.isEmpty) return;
-    int sent = 0;
-    int failed = 0;
-    setState(() => _isLoading = true);
+    
+    // Concurrently upload all selected media files without locking the UI
+    final futures = <Future>[];
     for (int i = 0; i < files.length; i++) {
-      if (!mounted) break;
       final entry = files[i];
-      try {
-        await _uploadAndSendMedia(
+      futures.add(
+        _uploadAndSendMedia(
           entry.key, 
           entry.value, 
           caption: i == 0 ? caption : '', 
           isViewOnce: isViewOnce,
           isHD: isHD,
           showLoadingState: false,
-        );
-        sent++;
-      } catch (_) {
-        failed++;
-      }
+        ),
+      );
     }
-    if (mounted) {
-      setState(() => _isLoading = false);
-      if (failed > 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('$sent sent, $failed failed.')),
-        );
-      }
-    }
+    await Future.wait(futures);
   }
 
   void _showAttachmentOptions() {
@@ -2152,6 +2204,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 _buildAttachGridItem(sheetContext, 'Document', Icons.insert_drive_file, const Color(0xFF7F66FF), _pickFile),
                 _buildAttachGridItem(sheetContext, 'Camera', Icons.camera_alt, const Color(0xFFEC407A), _showCameraOptions),
                 _buildAttachGridItem(sheetContext, 'Gallery', Icons.photo_library, const Color(0xFFAB47BC), _pickGalleryMedia),
+                _buildAttachGridItem(sheetContext, 'Audio', Icons.headphones_rounded, const Color(0xFFFF6D00), _pickAudio),
                 _buildAttachGridItem(sheetContext, 'Location', Icons.location_on, const Color(0xFF09AF79), _showLocationOptions),
                 _buildAttachGridItem(sheetContext, 'Poll', Icons.poll_rounded, const Color(0xFF00BFA5), _showPollCreationModal),
                 _buildAttachGridItem(sheetContext, 'Schedule', Icons.schedule, const Color(0xFFFF9800), _showScheduleMessageModal),

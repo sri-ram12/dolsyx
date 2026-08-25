@@ -2791,17 +2791,27 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     });
   }
 
-  void _scrollToBottom() {
-    if (_scrollController.hasClients) {
-      Future.delayed(const Duration(milliseconds: 100), () {
-        if (!mounted || !_scrollController.hasClients) return;
+  void _scrollToBottom({bool animate = false}) {
+    void scrollAction() {
+      if (!mounted || !_scrollController.hasClients) return;
+      final target = _scrollController.position.maxScrollExtent;
+      if (target <= 0) return;
+      if (animate) {
         _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
+          target,
+          duration: const Duration(milliseconds: 250),
           curve: Curves.easeOut,
         );
-      });
+      } else {
+        _scrollController.jumpTo(target);
+      }
     }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      scrollAction();
+      Future.delayed(const Duration(milliseconds: 60), scrollAction);
+      Future.delayed(const Duration(milliseconds: 180), scrollAction);
+    });
   }
 
   String _formatLastSeen(DateTime date) {

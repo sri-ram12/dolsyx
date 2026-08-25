@@ -449,14 +449,12 @@ class _DolsyxAppState extends State<DolsyxApp> {
     });
     _bindSocketListeners();
 
-    // When call ends (from any side), cancel the OS notification and clear banner
+    // When call ends (from any side), cancel the OS notification and clear banner immediately
     CallScreen.isCallActiveNotifier.addListener(() {
-      if (!CallScreen.isCallActiveNotifier.value) {
-        try { flutterLocalNotificationsPlugin.cancelAll(); } catch (_) {}
-        if (mounted && _incomingCallData != null) {
-          setState(() => _incomingCallData = null);
-          SoundService().stopRingtone();
-        }
+      try { flutterLocalNotificationsPlugin.cancelAll(); } catch (_) {}
+      if (mounted) {
+        setState(() => _incomingCallData = null);
+        SoundService().stopRingtone();
       }
     });
   }

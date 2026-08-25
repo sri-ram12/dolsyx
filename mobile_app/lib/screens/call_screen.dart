@@ -1638,7 +1638,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     return Color(int.parse(buffer.toString(), radix: 16));
   }
 
-  // Dynamic Theme & Wallpaper Background
+  // Clean Plain Theme & Wallpaper Background (No dots/doodles)
   Widget _buildThemeBackground(ChatThemeModel chatTheme, WallpaperConfig wallpaperConfig) {
     if (wallpaperConfig.type == WallpaperType.solidColor && wallpaperConfig.value != null) {
       return Container(
@@ -1672,12 +1672,9 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       }
     }
 
-    // Default Theme-Aware WhatsApp Doodle Background
-    return CustomPaint(
-      painter: _WhatsAppDoodlePainter(
-        backgroundColor: chatTheme.backgroundColor,
-        accentColor: chatTheme.primaryColor,
-      ),
+    // Clean Plain Solid Background Matching Active Theme
+    return Container(
+      color: chatTheme.backgroundColor,
     );
   }
 
@@ -2150,54 +2147,6 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   }
 }
 
-// Custom Painter for WhatsApp Theme-Aware Doodle Background Pattern
-class _WhatsAppDoodlePainter extends CustomPainter {
-  final Color backgroundColor;
-  final Color accentColor;
 
-  _WhatsAppDoodlePainter({
-    this.backgroundColor = const Color(0xFF0B141B),
-    this.accentColor = const Color(0xFF25D366),
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    // Fill theme background color
-    final bgPaint = Paint()..color = backgroundColor;
-    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), bgPaint);
-
-    final isLight = backgroundColor.computeLuminance() > 0.5;
-    final doodleBaseColor = isLight ? Colors.black : Colors.white;
-
-    final doodlePaint = Paint()
-      ..color = doodleBaseColor.withValues(alpha: isLight ? 0.06 : 0.04)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.4;
-
-    final dotPaint = Paint()
-      ..color = accentColor.withValues(alpha: 0.15)
-      ..style = PaintingStyle.fill;
-
-    // Draw repeating pattern of subtle icons
-    for (double y = 20; y < size.height; y += 70) {
-      for (double x = 20; x < size.width; x += 70) {
-        final double offset = ((y ~/ 70) % 2 == 0) ? 0 : 35;
-        final double drawX = (x + offset) % size.width;
-
-        // Subtle geometric doodle elements
-        canvas.drawCircle(Offset(drawX, y), 8, doodlePaint);
-        canvas.drawCircle(Offset(drawX + 16, y + 16), 2.5, dotPaint);
-        canvas.drawRRect(
-          RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(drawX + 24, y), width: 14, height: 10), const Radius.circular(3)),
-          doodlePaint,
-        );
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _WhatsAppDoodlePainter oldDelegate) =>
-      oldDelegate.backgroundColor != backgroundColor || oldDelegate.accentColor != accentColor;
-}
 
 

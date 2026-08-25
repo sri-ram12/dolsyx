@@ -145,10 +145,13 @@ export const initChatSocket = (io: Server) => {
           processedContent = `[⚠️ Spam Shield Flagged] ${content}`;
         }
 
-        // Find conversation participants first (needed for block check)
+        // Find conversation participants (with conversation info)
         const participants = await prisma.participant.findMany({
           where: { conversationId },
-          select: { userId: true },
+          select: {
+            userId: true,
+            conversation: { select: { isGroup: true, name: true } },
+          },
         });
 
         // Check if either user has blocked the other
@@ -167,6 +170,7 @@ export const initChatSocket = (io: Server) => {
             return;
           }
         }
+
         // Save message to database with encrypted content
         const encryptedContent = content ? encryptionService.encrypt(content.trim()) : "";
         const message = await prisma.message.create({
@@ -207,7 +211,7 @@ export const initChatSocket = (io: Server) => {
           },
         });
 
-        // Decrypt the message content for broadcasting
+        // Decrypt the message content for real-time delivery
         const decryptedMessage = {
           ...message,
           content: content ? content.trim() : "",
@@ -219,46 +223,45 @@ export const initChatSocket = (io: Server) => {
             : null,
         };
 
-        // Touch conversation timestamp
-        await prisma.conversation.update({
-          where: { id: conversationId },
-          data: { updatedAt: new Date() },
-        });
-
-        // Fetch conversation to determine if group and get name
-        const conversation = await prisma.conversation.findUnique({
-          where: { id: conversationId },
-          select: { isGroup: true, name: true },
-        });
-
-        // Batch create Message Receipts for all other participants
-        const otherParticipants = participants.filter((p) => p.userId !== userId);
-        const receiptsToCreate = otherParticipants.map((p) => ({
-          messageId: message.id,
-          userId: p.userId,
-          status: onlineUsers.has(p.userId) ? "DELIVERED" : "SENT",
-        }));
-
-        if (receiptsToCreate.length > 0) {
-          await prisma.messageReceipt.createMany({
-            data: receiptsToCreate,
-            skipDuplicates: true,
+        // 🚀 REAL-TIME ZERO-LAG BROADCAST: Emit IMMEDIATELY to all participants
+        participants.forEach((participant) => {
+          io.to(participant.userId).emit("new_message", {
+            message: decryptedMessage,
+            conversationId,
           });
-        }
-
-        const receiptsData = await prisma.messageReceipt.findMany({
-          where: { messageId: message.id },
         });
-        (decryptedMessage as any).receipts = receiptsData;
 
-        // Async Push Notifications for offline recipients (non-blocking)
-        const offlineParticipantIds = receiptsToCreate
-          .filter((r) => r.status === "SENT")
-          .map((r) => r.userId);
+        // Run persistence touch, receipts, and offline push in the background (non-blocking)
+        setImmediate(async () => {
+          try {
+            // Touch conversation timestamp
+            await prisma.conversation.update({
+              where: { id: conversationId },
+              data: { updatedAt: new Date() },
+            });
 
-        if (offlineParticipantIds.length > 0) {
-          (async () => {
-            try {
+            // Batch create Message Receipts for all other participants
+            const otherParticipants = participants.filter((p) => p.userId !== userId);
+            const receiptsToCreate = otherParticipants.map((p) => ({
+              messageId: message.id,
+              userId: p.userId,
+              status: onlineUsers.has(p.userId) ? "DELIVERED" : "SENT",
+            }));
+
+            if (receiptsToCreate.length > 0) {
+              await prisma.messageReceipt.createMany({
+                data: receiptsToCreate,
+                skipDuplicates: true,
+              });
+            }
+
+            // Async Push Notifications for offline recipients
+            const offlineParticipantIds = receiptsToCreate
+              .filter((r) => r.status === "SENT")
+              .map((r) => r.userId);
+
+            if (offlineParticipantIds.length > 0) {
+              const convInfo = participants[0]?.conversation;
               const [sender, recipientUsers] = await Promise.all([
                 prisma.user.findUnique({ where: { id: userId }, select: { username: true } }),
                 prisma.user.findMany({
@@ -266,8 +269,8 @@ export const initChatSocket = (io: Server) => {
                   select: { fcmToken: true },
                 }),
               ]);
-              const pushTitle = conversation?.isGroup ? `${conversation.name}` : `${sender?.username}`;
-              const pushBody = conversation?.isGroup
+              const pushTitle = convInfo?.isGroup ? `${convInfo.name}` : `${sender?.username}`;
+              const pushBody = convInfo?.isGroup
                 ? `${sender?.username}: ${decryptedMessage.content || "Media message"}`
                 : `${decryptedMessage.content || "Media message"}`;
 
@@ -279,18 +282,10 @@ export const initChatSocket = (io: Server) => {
                   });
                 }
               }
-            } catch (e) {
-              console.error("Push notification send error:", e);
             }
-          })();
-        }
-
-        // Broadcast to all participants using their personal user rooms
-        participants.forEach((participant) => {
-          io.to(participant.userId).emit("new_message", {
-            message: decryptedMessage,
-            conversationId,
-          });
+          } catch (bgErr) {
+            console.error("Background task error in send_message:", bgErr);
+          }
         });
       } catch (error) {
         console.error("Socket send_message error:", error);

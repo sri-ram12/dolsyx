@@ -285,12 +285,10 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           'offerToReceiveVideo': widget.isAudioOnly ? 0 : 1,
         };
         final offer = await pc.createOffer(offerConstraints);
-        final optimizedSdp = _optimizeSdpForHdCall(offer.sdp, isAudioOnly: widget.isAudioOnly);
-        final optimizedOffer = RTCSessionDescription(optimizedSdp, offer.type);
-        await pc.setLocalDescription(optimizedOffer);
+        await pc.setLocalDescription(offer);
         _socket?.emit('call_offer', {
           'targetUserId': requesterId,
-          'offer': {'sdp': optimizedOffer.sdp, 'type': optimizedOffer.type},
+          'offer': {'sdp': offer.sdp, 'type': offer.type},
           'callType': widget.isAudioOnly ? 'audio' : 'video',
           'conversationId': widget.conversationId,
         });
@@ -321,12 +319,10 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           'offerToReceiveVideo': widget.isAudioOnly ? 0 : 1,
         };
         final answer = await pc.createAnswer(answerConstraints);
-        final optimizedSdp = _optimizeSdpForHdCall(answer.sdp, isAudioOnly: widget.isAudioOnly);
-        final optimizedAnswer = RTCSessionDescription(optimizedSdp, answer.type);
-        await pc.setLocalDescription(optimizedAnswer);
+        await pc.setLocalDescription(answer);
         _socket?.emit('call_answer', {
           'callerId': callerId,
-          'answer': {'sdp': optimizedAnswer.sdp, 'type': optimizedAnswer.type},
+          'answer': {'sdp': answer.sdp, 'type': answer.type},
         });
         if (mounted && !_isDisposed) {
           setState(() {
@@ -755,22 +751,18 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     }
     try {
       final pc = await _createPeerConnection(widget.remoteUserId);
-      // Explicit offer constraints are required on some Android WebRTC builds.
-      // Without them, createOffer() can fail with WEBRTC_CREATE_OFFER_ERROR.
       final offerConstraints = <String, dynamic>{
         'offerToReceiveAudio': 1,
         'offerToReceiveVideo': widget.isAudioOnly ? 0 : 1,
       };
       final offer = await pc.createOffer(offerConstraints);
-      final optimizedSdp = _optimizeSdpForHdCall(offer.sdp, isAudioOnly: widget.isAudioOnly);
-      final optimizedOffer = RTCSessionDescription(optimizedSdp, offer.type);
-      await pc.setLocalDescription(optimizedOffer);
+      await pc.setLocalDescription(offer);
       authProvider.socketService.socket?.emit('call_offer', {
         'targetUserId': widget.remoteUserId,
-        'offer': {'sdp': optimizedOffer.sdp, 'type': optimizedOffer.type},
+        'offer': {'sdp': offer.sdp, 'type': offer.type},
         'callType': widget.isAudioOnly ? 'audio' : 'video',
         'conversationId': widget.conversationId,
-        'callerName': authProvider.user?['username'],
+        'callerName': authProvider.user?['username'] ?? 'User',
         'callerAvatar': authProvider.user?['avatarUrl'],
       });
     } catch (e) {
@@ -814,18 +806,15 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         final offer = RTCSessionDescription(widget.initialOffer!['sdp'], widget.initialOffer!['type']);
         await pc.setRemoteDescription(offer);
         await _flushIceCandidates(widget.remoteUserId);
-        // Explicit answer constraints for compatibility with Android WebRTC builds
         final answerConstraints = <String, dynamic>{
           'offerToReceiveAudio': 1,
           'offerToReceiveVideo': widget.isAudioOnly ? 0 : 1,
         };
         final answer = await pc.createAnswer(answerConstraints);
-        final optimizedSdp = _optimizeSdpForHdCall(answer.sdp, isAudioOnly: widget.isAudioOnly);
-        final optimizedAnswer = RTCSessionDescription(optimizedSdp, answer.type);
-        await pc.setLocalDescription(optimizedAnswer);
+        await pc.setLocalDescription(answer);
         authProvider.socketService.socket?.emit('call_answer', {
           'callerId': widget.remoteUserId,
-          'answer': {'sdp': optimizedAnswer.sdp, 'type': optimizedAnswer.type},
+          'answer': {'sdp': answer.sdp, 'type': answer.type},
         });
         _startTimer();
       } catch (e) {

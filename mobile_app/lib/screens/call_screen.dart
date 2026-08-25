@@ -77,8 +77,132 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   void endCallFromBanner() => _endCall();
 
   // 1-on-1 PiP dragging
-  double _localVideoRight = 20;
-  double _localVideoBottom = 140;
+  double _localVideoRight = 16;
+  double _localVideoBottom = 100;
+
+  // Touch screen to show/hide controls (WhatsApp-style auto-hide)
+  bool _areControlsVisible = true;
+  Timer? _controlsHideTimer;
+
+  void _toggleControlsVisibility() {
+    setState(() {
+      _areControlsVisible = !_areControlsVisible;
+    });
+    if (_areControlsVisible) {
+      _startControlsAutoHideTimer();
+    } else {
+      _controlsHideTimer?.cancel();
+    }
+  }
+
+  void _startControlsAutoHideTimer() {
+    _controlsHideTimer?.cancel();
+    if (!_callActive) return; // Keep visible while ringing/incoming
+    _controlsHideTimer = Timer(const Duration(seconds: 4), () {
+      if (mounted && _areControlsVisible && _callActive) {
+        setState(() {
+          _areControlsVisible = false;
+        });
+      }
+    });
+  }
+
+  void _minimizeCall() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        settings: const RouteSettings(name: 'ChatListScreen'),
+        builder: (_) => const ChatListScreen(),
+      ),
+    );
+  }
+
+  void _showMoreCallOptions() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E2428),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              margin: const EdgeInsets.only(top: 8, bottom: 8),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
+            ),
+            if (!widget.isAudioOnly)
+              ListTile(
+                leading: Icon(_isScreenSharing ? Icons.stop_screen_share_rounded : Icons.screen_share_rounded, color: Colors.white),
+                title: Text(_isScreenSharing ? 'Stop Screen Sharing' : 'Share Screen', style: const TextStyle(color: Colors.white)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _toggleScreenShare();
+                },
+              ),
+            if (!widget.isAudioOnly)
+              ListTile(
+                leading: const Icon(Icons.flip_camera_ios_rounded, color: Colors.white),
+                title: const Text('Switch Camera', style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _switchCamera();
+                },
+              ),
+            ListTile(
+              leading: const Icon(Icons.person_add_rounded, color: Colors.white),
+              title: const Text('Add Participant', style: TextStyle(color: Colors.white)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showAddParticipantModal();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showQuickReplyModal() {
+    final replies = [
+      "Can't talk now. What's up?",
+      "I'll call you right back.",
+      "I'm on my way.",
+      "Call me later.",
+    ];
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E2428),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              margin: const EdgeInsets.only(top: 8, bottom: 8),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
+            ),
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Text('Reply with message', style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.bold)),
+            ),
+            ...replies.map((reply) => ListTile(
+              title: Text(reply, style: const TextStyle(color: Colors.white)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _rejectCall();
+                final auth = Provider.of<AuthProvider>(context, listen: false);
+                auth.socketService.sendMessage(widget.conversationId, reply);
+              },
+            )),
+          ],
+        ),
+      ),
+    );
+  }
 
   // Screen Sharing
   bool _isScreenSharing = false;
@@ -1268,57 +1392,93 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     super.dispose();
   }
 
-  String _formatDuration(int s) => '${(s ~/ 60).toString().padLeft(2, '0')}:${(s % 60).toString().padLeft(2, '0')}';
+  String _formatDuration(int s) => '${(s ~/ 3600 > 0 ? '${(s ~/ 3600).toString().padLeft(2, '0')}:' : '')}${(s % 3600 ~/ 60).toString().padLeft(2, '0')}:${(s % 60).toString().padLeft(2, '0')}';
 
   bool get _isGroupCall => _participants.length > 1;
 
-  // 1-on-1 video: classic fullscreen remote + draggable PiP local
+  // 1-on-1 video: Fullscreen remote + Draggable PiP with switch camera button (Matching Screenshot 1)
   Widget _buildOneToOneVideoView() {
     final mainRenderer = _isScreenSharing ? _localRenderer : (_remoteRenderers[widget.remoteUserId] ?? _localRenderer);
     final pipRenderer = _isScreenSharing ? (_remoteRenderers[widget.remoteUserId]) : _localRenderer;
 
-    return Stack(
-      children: [
-        // Fullscreen main video
-        Positioned.fill(
-          child: RTCVideoView(
-            mainRenderer,
-            objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-            mirror: false,
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onTap: _toggleControlsVisibility,
+      child: Stack(
+        children: [
+          // Fullscreen main video
+          Positioned.fill(
+            child: RTCVideoView(
+              mainRenderer,
+              objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+              mirror: false,
+            ),
           ),
-        ),
-        // Draggable PiP
-        if (pipRenderer != null && !_isVideoOff)
-          Positioned(
-            right: _localVideoRight,
-            bottom: _localVideoBottom,
-            width: 110,
-            height: 160,
-            child: GestureDetector(
-              onPanUpdate: (d) {
-                setState(() {
-                  _localVideoRight = (_localVideoRight - d.delta.dx).clamp(0.0, 300.0);
-                  _localVideoBottom = (_localVideoBottom - d.delta.dy).clamp(0.0, 600.0);
-                });
-              },
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
+          // Draggable PiP (WhatsApp-style rounded with flip camera button)
+          if (pipRenderer != null && !_isVideoOff)
+            Positioned(
+              right: _localVideoRight,
+              bottom: _localVideoBottom,
+              width: 125,
+              height: 180,
+              child: GestureDetector(
+                onPanUpdate: (d) {
+                  setState(() {
+                    _localVideoRight = (_localVideoRight - d.delta.dx).clamp(8.0, 260.0);
+                    _localVideoBottom = (_localVideoBottom - d.delta.dy).clamp(80.0, 560.0);
+                  });
+                },
                 child: Container(
-                  color: Colors.grey[900],
-                  child: RTCVideoView(
-                    pipRenderer,
-                    mirror: !_isScreenSharing,
-                    objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.25), width: 1.5),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.5),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(18),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        RTCVideoView(
+                          pipRenderer,
+                          mirror: !_isScreenSharing,
+                          objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                        ),
+                        // Flip Camera Button inside PiP (Top-Right)
+                        Positioned(
+                          top: 8,
+                          right: 8,
+                          child: GestureDetector(
+                            onTap: _switchCamera,
+                            child: Container(
+                              width: 32,
+                              height: 32,
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.55),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.flip_camera_ios_rounded, color: Colors.white, size: 16),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 
-  // Group call: Responsive 3 & 4 member grid layout (Matching reference UI)
+  // Group call: Responsive dynamic grid
   Widget _buildGroupVideoGrid() {
     final List<Widget> views = [];
 
@@ -1334,7 +1494,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
                 objectFit: _isScreenSharing ? RTCVideoViewObjectFit.RTCVideoViewObjectFitContain : RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
               )
             : Container(
-                color: Colors.grey[900],
+                color: const Color(0xFF111B21),
                 child: Center(
                   child: ColorAvatar(
                     name: usernameStr,
@@ -1396,66 +1556,47 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     }
 
     if (views.isEmpty) return const SizedBox.shrink();
-    if (views.length == 1) return views.first;
-    if (views.length == 2) {
-      return Column(children: [Expanded(child: views[0]), const SizedBox(height: 2), Expanded(child: views[1])]);
-    }
-    if (views.length == 3) {
-      return Column(
+    Widget gridContent;
+    if (views.length == 1) {
+      gridContent = views.first;
+    } else if (views.length == 2) {
+      gridContent = Column(children: [Expanded(child: views[0]), const SizedBox(height: 2), Expanded(child: views[1])]);
+    } else if (views.length == 3) {
+      gridContent = Column(
         children: [
-          Expanded(
-            child: Row(
-              children: [
-                Expanded(child: views[0]),
-                const SizedBox(width: 2),
-                Expanded(child: views[1]),
-              ],
-            ),
-          ),
+          Expanded(child: Row(children: [Expanded(child: views[0]), const SizedBox(width: 2), Expanded(child: views[1])])),
           const SizedBox(height: 2),
           Expanded(child: views[2]),
         ],
       );
-    }
-    if (views.length == 4) {
-      return Column(
+    } else if (views.length == 4) {
+      gridContent = Column(
         children: [
-          Expanded(
-            child: Row(
-              children: [
-                Expanded(child: views[0]),
-                const SizedBox(width: 2),
-                Expanded(child: views[1]),
-              ],
-            ),
-          ),
+          Expanded(child: Row(children: [Expanded(child: views[0]), const SizedBox(width: 2), Expanded(child: views[1])])),
           const SizedBox(height: 2),
-          Expanded(
-            child: Row(
-              children: [
-                Expanded(child: views[2]),
-                const SizedBox(width: 2),
-                Expanded(child: views[3]),
-              ],
-            ),
-          ),
+          Expanded(child: Row(children: [Expanded(child: views[2]), const SizedBox(width: 2), Expanded(child: views[3])])),
         ],
+      );
+    } else {
+      final int crossAxisCount = views.length <= 6 ? 2 : 3;
+      gridContent = GridView.builder(
+        physics: views.length <= 6 ? const NeverScrollableScrollPhysics() : const BouncingScrollPhysics(),
+        padding: EdgeInsets.zero,
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: crossAxisCount,
+          childAspectRatio: crossAxisCount == 2 ? 0.75 : 0.65,
+          crossAxisSpacing: 2,
+          mainAxisSpacing: 2,
+        ),
+        itemCount: views.length,
+        itemBuilder: (ctx, i) => views[i],
       );
     }
 
-    // Dynamic grid for 5 to 12+ participants (2 or 3 columns, auto-balanced)
-    final int crossAxisCount = views.length <= 6 ? 2 : 3;
-    return GridView.builder(
-      physics: views.length <= 6 ? const NeverScrollableScrollPhysics() : const BouncingScrollPhysics(),
-      padding: EdgeInsets.zero,
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: crossAxisCount,
-        childAspectRatio: crossAxisCount == 2 ? 0.75 : 0.65,
-        crossAxisSpacing: 2,
-        mainAxisSpacing: 2,
-      ),
-      itemCount: views.length,
-      itemBuilder: (ctx, i) => views[i],
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onTap: _toggleControlsVisibility,
+      child: gridContent,
     );
   }
 
@@ -1469,7 +1610,214 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           TextButton(onPressed: () => Navigator.pop(ctx), child: Text('Cancel', style: TextStyle(color: AppTheme.textSecondary))),
           TextButton(
             onPressed: () { Navigator.pop(ctx); _endCallWith(userId); },
-            child: const Text('End Call', style: TextStyle(color: Colors.red)),
+            child: const Text('End Call', style: const TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // WhatsApp-Style Incoming Call Screen (Matching Screenshot 3)
+  Widget _buildIncomingCallScreen() {
+    return Stack(
+      children: [
+        // WhatsApp Dark Doodle Pattern Wallpaper
+        Positioned.fill(
+          child: CustomPaint(
+            painter: _WhatsAppDoodlePainter(),
+          ),
+        ),
+
+        // Caller Info Section (Top Half)
+        Positioned(
+          top: 60,
+          left: 20,
+          right: 20,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Circular Avatar
+              if (widget.remoteAvatarUrl != null && widget.remoteAvatarUrl!.trim().isNotEmpty)
+                CircleAvatar(
+                  radius: 54,
+                  backgroundImage: widget.remoteAvatarUrl!.startsWith('http')
+                      ? NetworkImage(widget.remoteAvatarUrl!)
+                      : NetworkImage('https://dolsyx-app.onrender.com${widget.remoteAvatarUrl!}'),
+                )
+              else
+                ColorAvatar(name: widget.remoteUserName, radius: 54, fontSize: 42),
+
+              const SizedBox(height: 20),
+
+              // Caller Name
+              Text(
+                widget.remoteUserName,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.4,
+                ),
+                textAlign: TextAlign.center,
+              ),
+
+              const SizedBox(height: 6),
+
+              // Call Type Subtitle
+              Text(
+                widget.isAudioOnly ? 'DOLSYX voice call' : 'DOLSYX video call',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.75),
+                  fontSize: 16,
+                  fontWeight: FontWeight.w400,
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // Center Pulsating Upward Chevrons (Swipe Up Indicator)
+        Positioned(
+          bottom: 150,
+          left: 0,
+          right: 0,
+          child: Column(
+            children: [
+              Icon(Icons.keyboard_arrow_up_rounded, color: Colors.white.withValues(alpha: 0.25), size: 28),
+              Icon(Icons.keyboard_arrow_up_rounded, color: Colors.white.withValues(alpha: 0.5), size: 28),
+              Icon(Icons.keyboard_arrow_up_rounded, color: Colors.white.withValues(alpha: 0.8), size: 28),
+              const SizedBox(height: 4),
+              Text(
+                'Swipe up or tap to answer',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.6),
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // Bottom Action Buttons (Decline, Accept, Quick Reply)
+        Positioned(
+          bottom: 44,
+          left: 32,
+          right: 32,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // Decline Button (Red)
+              GestureDetector(
+                onTap: _rejectCall,
+                child: Container(
+                  width: 58,
+                  height: 58,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFEA0038),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.call_end_rounded, color: Colors.white, size: 28),
+                ),
+              ),
+
+              // Prominent Accept Button (WhatsApp Green)
+              GestureDetector(
+                onTap: _acceptCall,
+                child: Container(
+                  width: 72,
+                  height: 72,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF25D366),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF25D366).withValues(alpha: 0.4),
+                        blurRadius: 20,
+                        spreadRadius: 4,
+                      ),
+                    ],
+                  ),
+                  child: Icon(
+                    widget.isAudioOnly ? Icons.call_rounded : Icons.videocam_rounded,
+                    color: Colors.white,
+                    size: 36,
+                  ),
+                ),
+              ),
+
+              // Quick Message Reply Button (Dark Charcoal)
+              GestureDetector(
+                onTap: _showQuickReplyModal,
+                child: Container(
+                  width: 58,
+                  height: 58,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1E2428).withValues(alpha: 0.8),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white24, width: 1),
+                  ),
+                  child: const Icon(Icons.chat_bubble_outline_rounded, color: Colors.white, size: 24),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // Audio Call UI with WhatsApp Center Avatar (Matching Screenshot 2)
+  Widget _buildAudioCallScreen() {
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onTap: _toggleControlsVisibility,
+      child: Stack(
+        children: [
+          // WhatsApp Dark Doodle Pattern Wallpaper
+          Positioned.fill(
+            child: CustomPaint(
+              painter: _WhatsAppDoodlePainter(),
+            ),
+          ),
+
+          // Center Large Avatar
+          Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (!_isGroupCall) ...[
+                  if (widget.remoteAvatarUrl != null && widget.remoteAvatarUrl!.trim().isNotEmpty)
+                    CircleAvatar(
+                      radius: 72,
+                      backgroundImage: widget.remoteAvatarUrl!.startsWith('http')
+                          ? NetworkImage(widget.remoteAvatarUrl!)
+                          : NetworkImage('https://dolsyx-app.onrender.com${widget.remoteAvatarUrl!}'),
+                    )
+                  else
+                    ColorAvatar(name: widget.remoteUserName, radius: 72, fontSize: 52),
+                ] else ...[
+                  Wrap(
+                    spacing: 20, runSpacing: 16, alignment: WrapAlignment.center,
+                    children: _participants.values.map((p) => Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ColorAvatar(name: p['username'] ?? '?', radius: 44, fontSize: 26),
+                        const SizedBox(height: 6),
+                        Text(p['username'] ?? '', style: const TextStyle(color: Colors.white, fontSize: 13)),
+                      ],
+                    )).toList(),
+                  ),
+                ],
+                if (!_callActive) ...[
+                  const SizedBox(height: 24),
+                  Text(
+                    _status,
+                    style: TextStyle(color: Colors.white.withValues(alpha: 0.75), fontSize: 16),
+                  ),
+                ],
+              ],
+            ),
           ),
         ],
       ),
@@ -1479,156 +1827,179 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      // Block ALL back-button pops during an active call.
-      // User must use the red hang-up button to end, or the minimize button to go home.
       canPop: !_callActive,
       child: Scaffold(
-        backgroundColor: Colors.black,
+        backgroundColor: const Color(0xFF0F141A),
         body: SafeArea(
           child: Stack(
             children: [
-              // === VIDEO VIEWS ===
-              if (!widget.isAudioOnly && _callActive)
+              // === 1. MAIN CALL CONTENT ===
+              if (widget.isIncoming && !_callActive)
+                _buildIncomingCallScreen()
+              else if (!widget.isAudioOnly && _callActive)
                 Positioned.fill(
                   child: _isGroupCall ? _buildGroupVideoGrid() : _buildOneToOneVideoView(),
+                )
+              else
+                Positioned.fill(
+                  child: _buildAudioCallScreen(),
                 ),
 
-              // === AUDIO ONLY / CONNECTING UI ===
-              if (widget.isAudioOnly || !_callActive)
-                Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      if (!_isGroupCall) ...[
-                        if (widget.remoteAvatarUrl != null && widget.remoteAvatarUrl!.trim().isNotEmpty)
-                          CircleAvatar(
-                            radius: 60,
-                            backgroundImage: widget.remoteAvatarUrl!.startsWith('http')
-                              ? NetworkImage(widget.remoteAvatarUrl!)
-                              : NetworkImage('https://dolsyx-app.onrender.com${widget.remoteAvatarUrl!}'),
-                          )
-                        else
-                          ColorAvatar(name: widget.remoteUserName, radius: 60, fontSize: 40),
-                        const SizedBox(height: 20),
-                        Text(widget.remoteUserName, style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
-                      ] else ...[
-                        Wrap(
-                          spacing: 24, runSpacing: 16, alignment: WrapAlignment.center,
-                          children: _participants.values.map((p) => Column(mainAxisSize: MainAxisSize.min, children: [
-                            ColorAvatar(name: p['username'] ?? '?', radius: 40, fontSize: 24),
-                            const SizedBox(height: 6),
-                            Text(p['username'] ?? '', style: const TextStyle(color: Colors.white, fontSize: 13)),
-                          ])).toList(),
-                        ),
-                      ],
-                      const SizedBox(height: 16),
-                      Text(
-                        _callActive ? _formatDuration(_callDuration) : _status,
-                        style: const TextStyle(color: Colors.white70, fontSize: 16),
-                      ),
-                      if (_hardwareFailed)
-                        const Padding(
-                          padding: EdgeInsets.all(16.0),
-                          child: Text("Camera/mic unavailable on this device.", textAlign: TextAlign.center, style: TextStyle(color: Colors.redAccent, fontSize: 14)),
-                        ),
-                    ],
-                  ),
-                ),
-
-              // === TOP TIMER & SIGNAL QUALITY BAR ===
-              if (_callActive)
+              // === 2. TOP BANNER / HEADER (Matching Screenshots 1 & 2) ===
+              if (_callActive || (!widget.isIncoming && !_callActive))
                 Positioned(
-                  top: 12, left: 0, right: 0,
-                  child: Center(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                      decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(20)),
+                  top: 10,
+                  left: 16,
+                  right: 16,
+                  child: AnimatedOpacity(
+                    opacity: _areControlsVisible ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 200),
+                    child: IgnorePointer(
+                      ignoring: !_areControlsVisible,
                       child: Row(
-                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          Icon(Icons.signal_cellular_alt, color: Colors.greenAccent, size: 16),
-                          const SizedBox(width: 6),
-                          Text('HD • ${_formatDuration(_callDuration)}', style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+                          // Top-Left: Minimize Button (Semi-transparent circle)
+                          GestureDetector(
+                            onTap: _minimizeCall,
+                            child: Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.45),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.close_fullscreen_rounded, color: Colors.white, size: 20),
+                            ),
+                          ),
+
+                          // Top-Center: Caller Name & Call Duration / Status
+                          Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                _isGroupCall ? 'Group Call (${_participants.length + 1})' : widget.remoteUserName,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: 0.3,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                _callActive ? _formatDuration(_callDuration) : _status,
+                                style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.75),
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w400,
+                                ),
+                              ),
+                            ],
+                          ),
+
+                          // Top-Right: Add Participant Button (Semi-transparent circle)
+                          GestureDetector(
+                            onTap: _showAddParticipantModal,
+                            child: Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.45),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.person_add_rounded, color: Colors.white, size: 20),
+                            ),
+                          ),
                         ],
                       ),
                     ),
                   ),
                 ),
 
-              // === MINIMIZE BUTTON ===
-              Positioned(
-                top: 12, left: 16,
-                child: GestureDetector(
-                  onTap: () {
-                    // Push the home screen ON TOP of CallScreen so CallScreen
-                    // stays alive in the navigation stack. The green banner in
-                    // main.dart lets the user tap back into this CallScreen.
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        settings: const RouteSettings(name: 'ChatListScreen'),
-                        builder: (_) => const ChatListScreen(),
-                      ),
-                    );
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(24)),
-                    child: const Icon(Icons.keyboard_arrow_down, color: Colors.white, size: 24),
-                  ),
-                ),
-              ),
-
-              // === ADD PARTICIPANT BUTTON ===
-              if (_callActive && _participants.length < 15)
+              // === 3. FLOATING BOTTOM CONTROL CAPSULE (Matching Screenshots 1 & 2) ===
+              if (_callActive || (!widget.isIncoming && !_callActive))
                 Positioned(
-                  top: 12, right: 16,
-                  child: GestureDetector(
-                    onTap: _showAddParticipantModal,
-                    child: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(24)),
-                      child: const Icon(Icons.person_add, color: Colors.white, size: 22),
+                  bottom: 24,
+                  left: 16,
+                  right: 16,
+                  child: AnimatedOpacity(
+                    opacity: _areControlsVisible ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 200),
+                    child: IgnorePointer(
+                      ignoring: !_areControlsVisible,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1E2428).withValues(alpha: 0.94),
+                          borderRadius: BorderRadius.circular(36),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.45),
+                              blurRadius: 16,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            // 1. More Options (•••)
+                            _buildCapsuleButton(
+                              icon: Icons.more_horiz_rounded,
+                              bgColor: Colors.white.withValues(alpha: 0.12),
+                              iconColor: Colors.white,
+                              onTap: _showMoreCallOptions,
+                            ),
+
+                            // 2. Video Camera Toggle
+                            if (!widget.isAudioOnly)
+                              _buildCapsuleButton(
+                                icon: _isVideoOff ? Icons.videocam_off_rounded : Icons.videocam_rounded,
+                                bgColor: _isVideoOff ? Colors.white : Colors.white.withValues(alpha: 0.12),
+                                iconColor: _isVideoOff ? Colors.black : Colors.white,
+                                onTap: _toggleVideo,
+                              )
+                            else
+                              _buildCapsuleButton(
+                                icon: Icons.videocam_rounded,
+                                bgColor: Colors.white.withValues(alpha: 0.12),
+                                iconColor: Colors.white70,
+                                onTap: _toggleVideo,
+                              ),
+
+                            // 3. Speaker Toggle
+                            _buildCapsuleButton(
+                              icon: _audioOutputMode == 'bluetooth'
+                                  ? Icons.bluetooth_audio_rounded
+                                  : (_audioOutputMode == 'earpiece' ? Icons.phone_in_talk_rounded : Icons.volume_up_rounded),
+                              bgColor: _isSpeakerOn ? Colors.white.withValues(alpha: 0.22) : Colors.white.withValues(alpha: 0.12),
+                              iconColor: Colors.white,
+                              onTap: _toggleSpeaker,
+                            ),
+
+                            // 4. Mute Microphone (White bg with red icon when muted!)
+                            _buildCapsuleButton(
+                              icon: _isMuted ? Icons.mic_off_rounded : Icons.mic_rounded,
+                              bgColor: _isMuted ? Colors.white : Colors.white.withValues(alpha: 0.12),
+                              iconColor: _isMuted ? const Color(0xFFEA0038) : Colors.white,
+                              onTap: _toggleMute,
+                            ),
+
+                            // 5. Red End Call Button
+                            _buildCapsuleButton(
+                              icon: Icons.call_end_rounded,
+                              bgColor: const Color(0xFFEA0038),
+                              iconColor: Colors.white,
+                              onTap: _endCall,
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ),
-
-              // === CONTROL BUTTONS ===
-              Positioned(
-                bottom: 40, left: 0, right: 0,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    if (_callActive || !widget.isIncoming)
-                      _ctrlBtn('mute', _isMuted ? Icons.mic_off : Icons.mic, _toggleMute, active: _isMuted),
-                    if (_callActive || !widget.isIncoming)
-                      _ctrlBtn(
-                        'speaker',
-                        _audioOutputMode == 'bluetooth'
-                            ? Icons.bluetooth_audio
-                            : (_audioOutputMode == 'earpiece' ? Icons.phone_in_talk : Icons.volume_up),
-                        _toggleSpeaker,
-                        active: _isSpeakerOn || _audioOutputMode == 'bluetooth',
-                      ),
-                    if (!widget.isAudioOnly && (_callActive || !widget.isIncoming))
-                      _ctrlBtn('cam', Icons.flip_camera_ios, _switchCamera),
-                    if (!widget.isAudioOnly && _callActive)
-                      _ctrlBtn('screen', _isScreenSharing ? Icons.stop_screen_share : Icons.screen_share, _toggleScreenShare, highlight: _isScreenSharing),
-                    if (!widget.isAudioOnly && (_callActive || !widget.isIncoming))
-                      _ctrlBtn('video', _isVideoOff ? Icons.videocam_off : Icons.videocam, _toggleVideo, active: _isVideoOff),
-
-                    if (widget.isIncoming && !_callActive)
-                      FloatingActionButton(heroTag: 'reject', backgroundColor: Colors.red, onPressed: _rejectCall, child: const Icon(Icons.call_end, color: Colors.white))
-                    else
-                      FloatingActionButton(heroTag: 'end', backgroundColor: Colors.red, onPressed: _endCall, child: const Icon(Icons.call_end, color: Colors.white)),
-
-                    if (widget.isIncoming && !_callActive && !_hardwareFailed)
-                      FloatingActionButton(
-                        heroTag: 'accept', backgroundColor: Colors.green, onPressed: _acceptCall,
-                        child: Icon(widget.isAudioOnly ? Icons.call : Icons.videocam, color: Colors.white),
-                      ),
-                  ],
-                ),
-              ),
             ],
           ),
         ),
@@ -1636,13 +2007,64 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _ctrlBtn(String tag, IconData icon, VoidCallback onTap, {bool active = false, bool highlight = false}) {
-    return FloatingActionButton(
-      heroTag: tag,
-      mini: true,
-      backgroundColor: highlight ? Colors.blue : (active ? Colors.white : Colors.white24),
-      onPressed: onTap,
-      child: Icon(icon, color: (active && !highlight) ? Colors.black : Colors.white),
+  Widget _buildCapsuleButton({
+    required IconData icon,
+    required Color bgColor,
+    required Color iconColor,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 48,
+        height: 48,
+        decoration: BoxDecoration(
+          color: bgColor,
+          shape: BoxShape.circle,
+        ),
+        child: Center(
+          child: Icon(icon, color: iconColor, size: 24),
+        ),
+      ),
     );
   }
 }
+
+// Custom Painter for WhatsApp Dark Theme Doodle Background Pattern
+class _WhatsAppDoodlePainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Fill deep charcoal background
+    final bgPaint = Paint()..color = const Color(0xFF0B141B);
+    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), bgPaint);
+
+    final doodlePaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.035)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.4;
+
+    final dotPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.04)
+      ..style = PaintingStyle.fill;
+
+    // Draw repeating pattern of subtle icons
+    for (double y = 20; y < size.height; y += 70) {
+      for (double x = 20; x < size.width; x += 70) {
+        final double offset = ((y ~/ 70) % 2 == 0) ? 0 : 35;
+        final double drawX = (x + offset) % size.width;
+
+        // Subtle geometric doodle elements
+        canvas.drawCircle(Offset(drawX, y), 8, doodlePaint);
+        canvas.drawCircle(Offset(drawX + 16, y + 16), 2, dotPaint);
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(drawX + 24, y), width: 14, height: 10), const Radius.circular(3)),
+          doodlePaint,
+        );
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+

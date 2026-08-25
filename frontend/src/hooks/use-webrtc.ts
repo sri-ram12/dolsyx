@@ -265,10 +265,27 @@ export const useWebRTC = ({ onIceCandidate }: UseWebRTCOptions) => {
         }
         setIsScreenSharing(false);
       } else {
-        // Start screen share
-        const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+        // Start 60fps zero-lag ultra-low latency screen share
+        const screenStream = await navigator.mediaDevices.getDisplayMedia({
+          video: {
+            cursor: "always",
+            frameRate: { ideal: 60, max: 60 },
+            width: { max: 1920 },
+            height: { max: 1080 },
+          },
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
         const screenTrack = screenStream.getVideoTracks()[0];
         if (!screenTrack) return;
+
+        // Set low-latency motion hint for zero-lag 60fps screen sharing
+        try {
+          (screenTrack as any).contentHint = "motion";
+        } catch (_) {}
 
         const pc = pcRef.current;
         if (pc) {
@@ -276,10 +293,30 @@ export const useWebRTC = ({ onIceCandidate }: UseWebRTCOptions) => {
           const videoSender = senders.find((s) => s.track?.kind === "video" || (s.track && s.track.kind === "video"));
           if (videoSender) {
             await videoSender.replaceTrack(screenTrack);
+            try {
+              const params = videoSender.getParameters();
+              if (!params.encodings || params.encodings.length === 0) {
+                params.encodings = [{}];
+              }
+              params.encodings[0].maxBitrate = 4000000; // 4 Mbps
+              params.encodings[0].maxFramerate = 60;
+              params.encodings[0].priority = "high";
+              params.encodings[0].networkPriority = "high";
+              (params as any).degradationPreference = "maintain-framerate";
+              await videoSender.setParameters(params);
+            } catch (_) {}
           } else {
             // Audio call converted to screen share: add track
             if (localStreamRef.current) {
-              pc.addTrack(screenTrack, localStreamRef.current);
+              const sender = pc.addTrack(screenTrack, localStreamRef.current);
+              try {
+                const params = sender.getParameters();
+                if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
+                params.encodings[0].maxBitrate = 4000000;
+                params.encodings[0].maxFramerate = 60;
+                (params as any).degradationPreference = "maintain-framerate";
+                await sender.setParameters(params);
+              } catch (_) {}
             } else {
               pc.addTrack(screenTrack, screenStream);
             }

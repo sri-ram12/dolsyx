@@ -129,7 +129,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   void _startMediaRetryTimer() {
     _mediaUploadRetryTimer?.cancel();
-    _mediaUploadRetryTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+    _mediaUploadRetryTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       if (_pendingMediaUploadQueue.isNotEmpty && mounted) {
         _processPendingMediaQueue();
       }
@@ -141,6 +141,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     final itemsToProcess = List<Map<String, dynamic>>.from(_pendingMediaUploadQueue);
     for (final item in itemsToProcess) {
       if (!mounted) break;
+      if (item['isUploading'] == true) continue; // Skip in-flight uploads to prevent duplicate sends
+      item['isUploading'] = true;
       try {
         final apiService = ApiService();
         final file = item['file'] as File;
@@ -168,8 +170,12 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             mediaType: mediaType,
             isViewOnce: isViewOnce,
           );
+        } else {
+          item['isUploading'] = false;
         }
-      } catch (_) {}
+      } catch (_) {
+        item['isUploading'] = false;
+      }
     }
   }
 
@@ -2069,14 +2075,16 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     _scrollToBottom();
 
     // 🟢 Queue for reliable background upload & retry without error popups
-    _pendingMediaUploadQueue.add({
+    final queueItem = <String, dynamic>{
       'tempId': tempId,
       'file': file,
       'mediaType': mediaType,
       'caption': caption,
       'isViewOnce': isViewOnce,
       'isHD': isHD,
-    });
+      'isUploading': true,
+    };
+    _pendingMediaUploadQueue.add(queueItem);
     _startMediaRetryTimer();
 
     try {
@@ -2094,9 +2102,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           mediaType: mediaType,
           isViewOnce: isViewOnce,
         );
+      } else {
+        queueItem['isUploading'] = false;
       }
     } catch (_) {
-      // 🟢 Offline/Network failure: Keep message buffering in chat without showing error snackbars or deleting!
+      queueItem['isUploading'] = false;
     }
   }
 

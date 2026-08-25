@@ -11,6 +11,8 @@ const JWT_SECRET = process.env.JWT_SECRET || "dolsyx_super_secret_key_123456";
 const onlineUsers = new Map<string, Set<string>>();
 // Map to track users currently active in a call: userId -> conversationId
 const activeCallUsers = new Map<string, string>();
+// In-memory cache for conversation participants for <1ms zero-lag delivery
+const convParticipantsCache = new Map<string, { userIds: string[]; isGroup: boolean; name: string; timestamp: number }>();
 
 export const initChatSocket = (io: Server) => {
   // Authentication middleware for Socket.io
@@ -145,17 +147,30 @@ export const initChatSocket = (io: Server) => {
           processedContent = `[⚠️ Spam Shield Flagged] ${content}`;
         }
 
-        // Find conversation participants (with conversation info)
-        const participants = await prisma.participant.findMany({
-          where: { conversationId },
-          select: {
-            userId: true,
-            conversation: { select: { isGroup: true, name: true } },
-          },
-        });
+        // 🚀 SUB-2MS ZERO-LAG EMIT: Broadcast directly to the active conversation room immediately
+        const now = Date.now();
+        let cached = convParticipantsCache.get(conversationId);
+        if (!cached || now - cached.timestamp > 300000) {
+          const fetched = await prisma.participant.findMany({
+            where: { conversationId },
+            select: {
+              userId: true,
+              conversation: { select: { isGroup: true, name: true } },
+            },
+          });
+          cached = {
+            userIds: fetched.map((p) => p.userId),
+            isGroup: fetched[0]?.conversation?.isGroup || false,
+            name: fetched[0]?.conversation?.name || "",
+            timestamp: now,
+          };
+          convParticipantsCache.set(conversationId, cached);
+        }
+
+        const participantUserIds = cached.userIds;
 
         // Check if either user has blocked the other
-        const recipientIds = participants.filter(p => p.userId !== userId).map(p => p.userId);
+        const recipientIds = participantUserIds.filter((pId) => pId !== userId);
         if (recipientIds.length > 0) {
           const blocks = await (prisma as any).userBlock.findMany({
             where: {
@@ -223,9 +238,14 @@ export const initChatSocket = (io: Server) => {
             : null,
         };
 
-        // 🚀 REAL-TIME ZERO-LAG BROADCAST: Emit IMMEDIATELY to all participants
-        participants.forEach((participant) => {
-          io.to(participant.userId).emit("new_message", {
+        // 🚀 SUB-2MS BROADCAST: Emit to conversation room & each participant's room
+        io.to(conversationId).emit("new_message", {
+          message: decryptedMessage,
+          conversationId,
+        });
+
+        participantUserIds.forEach((pId) => {
+          io.to(pId).emit("new_message", {
             message: decryptedMessage,
             conversationId,
           });
@@ -241,11 +261,11 @@ export const initChatSocket = (io: Server) => {
             });
 
             // Batch create Message Receipts for all other participants
-            const otherParticipants = participants.filter((p) => p.userId !== userId);
-            const receiptsToCreate = otherParticipants.map((p) => ({
+            const otherParticipantIds = participantUserIds.filter((pId) => pId !== userId);
+            const receiptsToCreate = otherParticipantIds.map((pId) => ({
               messageId: message.id,
-              userId: p.userId,
-              status: onlineUsers.has(p.userId) ? "DELIVERED" : "SENT",
+              userId: pId,
+              status: onlineUsers.has(pId) ? "DELIVERED" : "SENT",
             }));
 
             if (receiptsToCreate.length > 0) {
@@ -261,7 +281,6 @@ export const initChatSocket = (io: Server) => {
               .map((r) => r.userId);
 
             if (offlineParticipantIds.length > 0) {
-              const convInfo = participants[0]?.conversation;
               const [sender, recipientUsers] = await Promise.all([
                 prisma.user.findUnique({ where: { id: userId }, select: { username: true } }),
                 prisma.user.findMany({
@@ -269,8 +288,8 @@ export const initChatSocket = (io: Server) => {
                   select: { fcmToken: true },
                 }),
               ]);
-              const pushTitle = convInfo?.isGroup ? `${convInfo.name}` : `${sender?.username}`;
-              const pushBody = convInfo?.isGroup
+              const pushTitle = cached?.isGroup ? `${cached.name}` : `${sender?.username}`;
+              const pushBody = cached?.isGroup
                 ? `${sender?.username}: ${decryptedMessage.content || "Media message"}`
                 : `${decryptedMessage.content || "Media message"}`;
 

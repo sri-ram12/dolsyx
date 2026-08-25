@@ -83,6 +83,9 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   double _localVideoRight = 16;
   double _localVideoBottom = 100;
 
+  // Drag-to-answer swipe up offset for incoming calls
+  double _swipeUpOffset = 0.0;
+
   // Touch screen to show/hide controls (WhatsApp-style auto-hide)
   bool _areControlsVisible = true;
   Timer? _controlsHideTimer;
@@ -280,8 +283,16 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     _setupSocketListeners();
 
     if (widget.isIncoming) {
-      // Always accept call when incoming screen is launched via notification action or direct accept
-      _acceptCall();
+      // 🟢 Wait for user interaction: do NOT automatically lift call!
+      setState(() {
+        _status = 'Incoming call...';
+      });
+      SoundService().startRingtone();
+      _timeoutTimer = Timer(const Duration(seconds: 60), () {
+        if (!_callActive && mounted) {
+          _rejectCall();
+        }
+      });
     } else {
       _timeoutTimer = Timer(const Duration(minutes: 2, seconds: 30), () {
         if (!_callActive && mounted) {
@@ -1752,29 +1763,30 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           ),
         ),
 
-        // 3. Center Pulsating Upward Chevrons (Swipe Up Indicator)
+        // 3. Center Pulsating Upward Chevrons (Swipe Up Indicator with live drag feedback)
         Positioned(
-          bottom: 150,
+          bottom: 144 + _swipeUpOffset * 0.45,
           left: 0,
           right: 0,
           child: Column(
             children: [
-              Icon(Icons.keyboard_arrow_up_rounded, color: Colors.white.withValues(alpha: 0.25), size: 28),
-              Icon(Icons.keyboard_arrow_up_rounded, color: Colors.white.withValues(alpha: 0.5), size: 28),
+              Icon(Icons.keyboard_arrow_up_rounded, color: Colors.white.withValues(alpha: 0.25 + (_swipeUpOffset / 200).clamp(0.0, 0.75)), size: 28),
+              Icon(Icons.keyboard_arrow_up_rounded, color: Colors.white.withValues(alpha: 0.5 + (_swipeUpOffset / 200).clamp(0.0, 0.5)), size: 28),
               Icon(Icons.keyboard_arrow_up_rounded, color: Colors.white.withValues(alpha: 0.8), size: 28),
               const SizedBox(height: 4),
               Text(
-                'Swipe up or tap to answer',
+                _swipeUpOffset > 50 ? 'Release to answer' : 'Swipe up or tap to answer',
                 style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.6),
+                  color: _swipeUpOffset > 50 ? const Color(0xFF25D366) : Colors.white.withValues(alpha: 0.6),
                   fontSize: 13,
+                  fontWeight: _swipeUpOffset > 50 ? FontWeight.bold : FontWeight.normal,
                 ),
               ),
             ],
           ),
         ),
 
-        // 4. Bottom Action Buttons (Decline, Accept, Quick Reply)
+        // 4. Bottom Action Buttons (Decline, Draggable Accept, Quick Reply)
         Positioned(
           bottom: 44,
           left: 32,
@@ -1797,27 +1809,44 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
                 ),
               ),
 
-              // Prominent Accept Button (WhatsApp Green)
+              // Draggable Prominent Accept Button (WhatsApp Green - Swipe Up to Lift Call)
               GestureDetector(
+                onVerticalDragUpdate: (details) {
+                  if (details.primaryDelta != null) {
+                    setState(() {
+                      _swipeUpOffset = (_swipeUpOffset - details.primaryDelta!).clamp(0.0, 140.0);
+                    });
+                  }
+                },
+                onVerticalDragEnd: (details) {
+                  if (_swipeUpOffset > 55.0) {
+                    _acceptCall();
+                  } else {
+                    setState(() => _swipeUpOffset = 0.0);
+                  }
+                },
                 onTap: _acceptCall,
-                child: Container(
-                  width: 72,
-                  height: 72,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF25D366),
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF25D366).withValues(alpha: 0.4),
-                        blurRadius: 20,
-                        spreadRadius: 4,
-                      ),
-                    ],
-                  ),
-                  child: Icon(
-                    widget.isAudioOnly ? Icons.call_rounded : Icons.videocam_rounded,
-                    color: Colors.white,
-                    size: 36,
+                child: Transform.translate(
+                  offset: Offset(0, -_swipeUpOffset),
+                  child: Container(
+                    width: 72,
+                    height: 72,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF25D366),
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF25D366).withValues(alpha: 0.4 + (_swipeUpOffset / 200).clamp(0.0, 0.4)),
+                          blurRadius: 20 + _swipeUpOffset * 0.2,
+                          spreadRadius: 4 + _swipeUpOffset * 0.1,
+                        ),
+                      ],
+                    ),
+                    child: Icon(
+                      widget.isAudioOnly ? Icons.call_rounded : Icons.videocam_rounded,
+                      color: Colors.white,
+                      size: 36,
+                    ),
                   ),
                 ),
               ),

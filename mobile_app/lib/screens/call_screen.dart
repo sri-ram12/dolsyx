@@ -41,6 +41,7 @@ class CallScreen extends StatefulWidget {
 
   static String? activeConversationId;
   static ValueNotifier<bool> isCallActiveNotifier = ValueNotifier<bool>(false);
+  static ValueNotifier<String?> callEndedNotifier = ValueNotifier<String?>(null);
   static dynamic activeCallState;
 
   @override
@@ -79,9 +80,11 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   String get formattedDuration => _formatDuration(_callDuration);
   void endCallFromBanner() => _endCall();
 
-  // 1-on-1 PiP dragging
+  // 1-on-1 PiP dragging & Double-Tap Video Swap
   double _localVideoRight = 16;
   double _localVideoBottom = 100;
+  bool _isSwappedVideo = false;
+  String? _focusedParticipantId;
 
   // Drag-to-answer swipe up offset for incoming calls
   double _swipeUpOffset = 0.0;
@@ -261,6 +264,17 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     });
 
     _initRenderers();
+    _checkAudioDevicesAndRoute();
+    try {
+      navigator.mediaDevices.ondevicechange = (_) {
+        if (mounted) _checkAudioDevicesAndRoute();
+      };
+    } catch (_) {}
+    _audioRouteCheckTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (mounted && _callActive) {
+        _checkAudioDevicesAndRoute();
+      }
+    });
   }
 
   @override
@@ -673,8 +687,8 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
 
     pc.onConnectionState = (state) {
       if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected && mounted) {
-        // Ensure speaker is set correctly when connection is established
-        Helper.setSpeakerphoneOn(_isSpeakerOn);
+        // Ensure audio is routed to ear speaker or bluetooth automatically
+        _checkAudioDevicesAndRoute();
         // Make sure all local audio tracks are enabled and unmuted
         _localStream?.getAudioTracks().forEach((t) { t.enabled = !_isMuted; });
         // Force a UI rebuild so remote video appears immediately
@@ -704,8 +718,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
             _remoteRenderers[targetUserId]?.srcObject = incomingStream;
           });
         }
-        // Enable speaker so remote audio is heard
-        Helper.setSpeakerphoneOn(true);
+        _checkAudioDevicesAndRoute();
       } else {
         // Fallback: build a persistent stream manually and add each arriving track
         final existing = _remoteStreams[targetUserId];
@@ -724,7 +737,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
             }
           });
         }
-        Helper.setSpeakerphoneOn(true);
+        _checkAudioDevicesAndRoute();
       }
     };
 
@@ -746,7 +759,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           _remoteRenderers[targetUserId]?.srcObject = _remoteStreams[targetUserId];
         });
       }
-      Helper.setSpeakerphoneOn(true);
+      _checkAudioDevicesAndRoute();
     };
 
     if (_localStream == null) {
@@ -830,9 +843,8 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       _localRenderer.srcObject = _localStream;
       if (widget.isAudioOnly) _isVideoOff = true;
 
-      // Always use speakerphone so remote voice is audible — user can toggle via UI
-      _isSpeakerOn = true;
-      Helper.setSpeakerphoneOn(widget.isIncoming ? true : false);
+      // Check connected devices and route automatically (Bluetooth -> Earpiece)
+      await _checkAudioDevicesAndRoute();
       _localStream?.getAudioTracks().forEach((track) {
         track.enabled = true;
       });
@@ -1039,6 +1051,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     CallScreen.activeConversationId = null;
     CallScreen.activeCallState = null;
     CallScreen.isCallActiveNotifier.value = false;
+    CallScreen.callEndedNotifier.value = reason;
     SoundService().stopRingtone();
     try { flutterLocalNotificationsPlugin.cancelAll(); } catch (_) {}
     _callTimer?.cancel();
@@ -1105,9 +1118,65 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     }
   }
 
-  String _audioOutputMode = 'speaker';
+  String _audioOutputMode = 'earpiece';
+  bool _hasBluetoothConnected = false;
+  String? _userSelectedRoute;
+  String? _connectedBtDeviceName;
+  Timer? _audioRouteCheckTimer;
+
+  Future<void> _checkAudioDevicesAndRoute() async {
+    try {
+      final devices = await navigator.mediaDevices.enumerateDevices();
+      final btDevices = devices.where((d) {
+        final label = d.label.toLowerCase();
+        final id = d.deviceId.toLowerCase();
+        final group = d.groupId?.toLowerCase() ?? '';
+        return label.contains('bluetooth') ||
+            label.contains('headset') ||
+            label.contains('earbuds') ||
+            label.contains('airpods') ||
+            label.contains('bt') ||
+            label.contains('wireless') ||
+            label.contains('buds') ||
+            label.contains('pod') ||
+            label.contains('handsfree') ||
+            id.contains('bluetooth') ||
+            id.contains('sco') ||
+            id.contains('headset') ||
+            group.contains('bluetooth');
+      }).toList();
+
+      if (btDevices.isNotEmpty) {
+        _hasBluetoothConnected = true;
+        final bt = btDevices.first;
+        _connectedBtDeviceName = bt.label.isNotEmpty ? bt.label : 'Bluetooth Headset';
+        if (_userSelectedRoute == null || _userSelectedRoute == 'bluetooth') {
+          _audioOutputMode = 'bluetooth';
+          _isSpeakerOn = false;
+          await Helper.setSpeakerphoneOn(false);
+          if (bt.deviceId.isNotEmpty) {
+            await Helper.selectAudioOutput(bt.deviceId);
+          }
+        }
+      } else {
+        _hasBluetoothConnected = false;
+        _connectedBtDeviceName = null;
+        if (_audioOutputMode == 'bluetooth') {
+          _audioOutputMode = (_userSelectedRoute != null && _userSelectedRoute != 'bluetooth')
+              ? _userSelectedRoute!
+              : 'earpiece';
+        }
+        _isSpeakerOn = (_audioOutputMode == 'speaker');
+        await Helper.setSpeakerphoneOn(_isSpeakerOn);
+      }
+      if (mounted) setState(() {});
+    } catch (e) {
+      debugPrint('[AudioRoute] Device check error: $e');
+    }
+  }
 
   void _selectAudioOutputMode(String mode) async {
+    _userSelectedRoute = mode;
     setState(() {
       _audioOutputMode = mode;
     });
@@ -1123,16 +1192,21 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         await Helper.setSpeakerphoneOn(false);
         try {
           final devices = await navigator.mediaDevices.enumerateDevices();
-          final btDevice = devices.firstWhere(
-            (d) => d.kind == 'audiooutput' && (
-              d.label.toLowerCase().contains('bluetooth') ||
-              d.label.toLowerCase().contains('headset') ||
-              d.label.toLowerCase().contains('earbuds')
-            ),
-            orElse: () => devices.firstWhere((d) => d.kind == 'audiooutput', orElse: () => devices.first),
-          );
-          if (btDevice.deviceId.isNotEmpty) {
-            await Helper.selectAudioOutput(btDevice.deviceId);
+          final btDevices = devices.where((d) {
+            final label = d.label.toLowerCase();
+            final id = d.deviceId.toLowerCase();
+            return label.contains('bluetooth') ||
+                label.contains('headset') ||
+                label.contains('earbuds') ||
+                label.contains('airpods') ||
+                label.contains('bt') ||
+                label.contains('wireless') ||
+                id.contains('bluetooth') ||
+                id.contains('sco') ||
+                id.contains('headset');
+          }).toList();
+          if (btDevices.isNotEmpty && btDevices.first.deviceId.isNotEmpty) {
+            await Helper.selectAudioOutput(btDevices.first.deviceId);
           }
         } catch (e) {
           debugPrint('[AudioRoute] Bluetooth selection error: $e');
@@ -1150,54 +1224,136 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   void _showAudioOutputSelector() {
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF1E293B),
+      backgroundColor: const Color(0xFF0F172A),
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (context) {
+      builder: (ctx) {
         return Container(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Select Audio Output',
-                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Audio Output Route',
+                    style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: _audioOutputMode == 'bluetooth'
+                          ? const Color(0xFF00A884).withValues(alpha: 0.2)
+                          : (_audioOutputMode == 'speaker'
+                              ? Colors.purpleAccent.withValues(alpha: 0.2)
+                              : Colors.blueAccent.withValues(alpha: 0.2)),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      _audioOutputMode.toUpperCase(),
+                      style: TextStyle(
+                        color: _audioOutputMode == 'bluetooth'
+                            ? const Color(0xFF00A884)
+                            : (_audioOutputMode == 'speaker' ? Colors.purpleAccent : Colors.blueAccent),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 16),
-              ListTile(
-                leading: const Icon(Icons.volume_up_rounded, color: Colors.purpleAccent),
-                title: const Text('Loudspeaker (Speakerphone)', style: TextStyle(color: Colors.white)),
-                trailing: _audioOutputMode == 'speaker' ? const Icon(Icons.check_circle, color: Colors.purpleAccent) : null,
-                onTap: () {
-                  _selectAudioOutputMode('speaker');
-                  Navigator.pop(context);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.phone_in_talk_rounded, color: Colors.blueAccent),
-                title: const Text('Ear Speaker (Phone Earpiece)', style: TextStyle(color: Colors.white)),
-                trailing: _audioOutputMode == 'earpiece' ? const Icon(Icons.check_circle, color: Colors.blueAccent) : null,
+              const SizedBox(height: 18),
+              if (_hasBluetoothConnected) ...[
+                _buildAudioOptionTile(
+                  title: _connectedBtDeviceName ?? 'Bluetooth Device / Headset',
+                  subtitle: 'Audio active on Bluetooth',
+                  icon: Icons.bluetooth_audio_rounded,
+                  color: const Color(0xFF00A884),
+                  isSelected: _audioOutputMode == 'bluetooth',
+                  onTap: () {
+                    _selectAudioOutputMode('bluetooth');
+                    Navigator.pop(ctx);
+                  },
+                ),
+                const SizedBox(height: 10),
+              ],
+              _buildAudioOptionTile(
+                title: 'Ear Speaker (Phone Earpiece)',
+                subtitle: 'Default private in-ear call audio',
+                icon: Icons.phone_in_talk_rounded,
+                color: Colors.blueAccent,
+                isSelected: _audioOutputMode == 'earpiece',
                 onTap: () {
                   _selectAudioOutputMode('earpiece');
-                  Navigator.pop(context);
+                  Navigator.pop(ctx);
                 },
               ),
-              ListTile(
-                leading: const Icon(Icons.bluetooth_audio_rounded, color: Colors.greenAccent),
-                title: const Text('Bluetooth Device / Headset', style: TextStyle(color: Colors.white)),
-                subtitle: const Text('Connects automatically if paired', style: TextStyle(color: Colors.white54, fontSize: 12)),
-                trailing: _audioOutputMode == 'bluetooth' ? const Icon(Icons.check_circle, color: Colors.greenAccent) : null,
+              const SizedBox(height: 10),
+              _buildAudioOptionTile(
+                title: 'Loudspeaker (Speakerphone)',
+                subtitle: 'Hands-free loud call speaker',
+                icon: Icons.volume_up_rounded,
+                color: Colors.purpleAccent,
+                isSelected: _audioOutputMode == 'speaker',
                 onTap: () {
-                  _selectAudioOutputMode('bluetooth');
-                  Navigator.pop(context);
+                  _selectAudioOutputMode('speaker');
+                  Navigator.pop(ctx);
                 },
               ),
             ],
           ),
         );
       },
+    );
+  }
+
+  Widget _buildAudioOptionTile({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: isSelected ? color.withValues(alpha: 0.15) : const Color(0xFF1E293B),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isSelected ? color : Colors.white.withValues(alpha: 0.08),
+          width: isSelected ? 2 : 1,
+        ),
+      ),
+      child: ListTile(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        leading: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.2),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(icon, color: color, size: 22),
+        ),
+        title: Text(
+          title,
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: isSelected ? FontWeight.w800 : FontWeight.w700,
+            fontSize: 15,
+          ),
+        ),
+        subtitle: Text(
+          subtitle,
+          style: const TextStyle(color: Colors.white60, fontSize: 12, fontWeight: FontWeight.w500),
+        ),
+        trailing: isSelected
+            ? Icon(Icons.check_circle_rounded, color: color, size: 24)
+            : null,
+        onTap: onTap,
+      ),
     );
   }
 
@@ -1270,7 +1426,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
                 }
               }
             }
-            Helper.setSpeakerphoneOn(true);
+            _checkAudioDevicesAndRoute();
             // Keep local renderer on local camera stream or null to avoid infinite recursive screen mirror
             _localRenderer.srcObject = _localStream;
             setState(() => _isScreenSharing = true);
@@ -1385,6 +1541,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     SoundService().stopRingtone();
     _callTimer?.cancel();
     _timeoutTimer?.cancel();
+    _audioRouteCheckTimer?.cancel();
     // Use stored _socket reference to remove listeners — NEVER call Provider.of(context) in dispose()
     _socket?.off('call_answered', _onCallAnswered);
     _socket?.off('call_rejected', _onCallRejected);
@@ -1410,25 +1567,62 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
 
   bool get _isGroupCall => _participants.length > 1;
 
-  // 1-on-1 video: Fullscreen remote + Draggable PiP with switch camera button (Matching Screenshot 1)
+  // 1-on-1 video: Fullscreen remote/local + Draggable PiP with switch camera button
+  // Double-tap anywhere or tap PiP switches/swaps videos between main screen and PiP
   Widget _buildOneToOneVideoView() {
-    final mainRenderer = _isScreenSharing ? _localRenderer : (_remoteRenderers[widget.remoteUserId] ?? _localRenderer);
-    final pipRenderer = _isScreenSharing ? (_remoteRenderers[widget.remoteUserId]) : _localRenderer;
+    final remoteRenderer = _remoteRenderers[widget.remoteUserId];
+    
+    // If not swapped: Main is Remote, PiP is Local
+    // If swapped: Main is Local, PiP is Remote
+    RTCVideoRenderer? mainRenderer;
+    RTCVideoRenderer? pipRenderer;
+    bool mainMirror = false;
+    bool pipMirror = false;
+
+    if (_isScreenSharing) {
+      mainRenderer = _localRenderer;
+      pipRenderer = remoteRenderer;
+      mainMirror = false;
+      pipMirror = false;
+    } else if (!_isSwappedVideo) {
+      mainRenderer = remoteRenderer ?? _localRenderer;
+      pipRenderer = _localRenderer;
+      mainMirror = (remoteRenderer == null) && !_isScreenSharing;
+      pipMirror = !_isScreenSharing;
+    } else {
+      mainRenderer = _localRenderer;
+      pipRenderer = remoteRenderer ?? _localRenderer;
+      mainMirror = !_isScreenSharing;
+      pipMirror = false;
+    }
 
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
       onTap: _toggleControlsVisibility,
+      onDoubleTap: () {
+        setState(() {
+          _isSwappedVideo = !_isSwappedVideo;
+        });
+      },
       child: Stack(
         children: [
           // Fullscreen main video
           Positioned.fill(
-            child: RTCVideoView(
-              mainRenderer,
-              objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-              mirror: false,
-            ),
+            child: mainRenderer != null
+                ? RTCVideoView(
+                    mainRenderer,
+                    objectFit: _isScreenSharing ? RTCVideoViewObjectFit.RTCVideoViewObjectFitContain : RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                    mirror: mainMirror,
+                  )
+                : Container(
+                    color: const Color(0xFF0B141B),
+                    child: Center(
+                      child: ColorAvatar(name: widget.remoteUserName, radius: 64, fontSize: 36),
+                    ),
+                  ),
           ),
-          // Draggable PiP (WhatsApp-style rounded with flip camera button)
+
+          // Draggable PiP (WhatsApp-style rounded with flip camera button and tap-to-swap)
           if (pipRenderer != null && !_isVideoOff)
             Positioned(
               right: _localVideoRight,
@@ -1436,6 +1630,16 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
               width: 125,
               height: 180,
               child: GestureDetector(
+                onTap: () {
+                  setState(() {
+                    _isSwappedVideo = !_isSwappedVideo;
+                  });
+                },
+                onDoubleTap: () {
+                  setState(() {
+                    _isSwappedVideo = !_isSwappedVideo;
+                  });
+                },
                 onPanUpdate: (d) {
                   setState(() {
                     _localVideoRight = (_localVideoRight - d.delta.dx).clamp(8.0, 260.0);
@@ -1461,9 +1665,32 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
                       children: [
                         RTCVideoView(
                           pipRenderer,
-                          mirror: !_isScreenSharing,
+                          mirror: pipMirror,
                           objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
                         ),
+
+                        // Switch / Swap videos indicator button (Top-Left)
+                        Positioned(
+                          top: 8,
+                          left: 8,
+                          child: GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                _isSwappedVideo = !_isSwappedVideo;
+                              });
+                            },
+                            child: Container(
+                              width: 32,
+                              height: 32,
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.55),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.swap_horizontal_circle_outlined, color: Colors.white, size: 18),
+                            ),
+                          ),
+                        ),
+
                         // Flip Camera Button inside PiP (Top-Right)
                         Positioned(
                           top: 8,
@@ -2016,13 +2243,19 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
                                 onTap: _toggleVideo,
                               ),
 
-                            // 3. Speaker Toggle
+                            // 3. Audio Route Toggle (Bluetooth / Loudspeaker / Ear Speaker)
                             _buildCapsuleButton(
                               icon: _audioOutputMode == 'bluetooth'
                                   ? Icons.bluetooth_audio_rounded
-                                  : (_audioOutputMode == 'earpiece' ? Icons.phone_in_talk_rounded : Icons.volume_up_rounded),
-                              bgColor: _isSpeakerOn ? Colors.white.withValues(alpha: 0.22) : Colors.white.withValues(alpha: 0.12),
-                              iconColor: Colors.white,
+                                  : (_audioOutputMode == 'speaker' ? Icons.volume_up_rounded : Icons.phone_in_talk_rounded),
+                              bgColor: _audioOutputMode == 'bluetooth'
+                                  ? const Color(0xFF00A884)
+                                  : (_audioOutputMode == 'speaker'
+                                      ? Colors.purpleAccent.withValues(alpha: 0.35)
+                                      : Colors.white.withValues(alpha: 0.15)),
+                              iconColor: _audioOutputMode == 'bluetooth'
+                                  ? Colors.white
+                                  : (_audioOutputMode == 'speaker' ? Colors.purpleAccent : Colors.white),
                               onTap: _toggleSpeaker,
                             ),
 

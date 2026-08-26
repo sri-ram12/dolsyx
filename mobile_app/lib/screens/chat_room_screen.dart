@@ -35,6 +35,7 @@ import 'group_settings_screen.dart';
 import 'whatsapp_media_picker_screen.dart';
 import '../utils/e2ee/crypto_service.dart';
 import '../utils/e2ee/e2ee_api.dart';
+import '../services/auto_download_service.dart';
 import '../widgets/app_lock_wrapper.dart';
 
 class ChatRoomScreen extends StatefulWidget {
@@ -69,6 +70,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   bool _isEmojiVisible = false;
   bool _isContact = true;
   FocusNode _focusNode = FocusNode();
+  DateTime? _activeScheduledTime;
+  Message? _editingMessage;
   bool _isRemoteUserTyping = false;
   bool _isRemoteUserOnline = false;
   DateTime? _remoteUserLastSeen;
@@ -793,6 +796,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     authProvider.socketService.onMessageDeleted(_handleMessageDeleted);
     authProvider.socketService.onMessageEdited(_handleMessageEdited);
     authProvider.socketService.onMessagesRead(_handleMessagesRead);
+    authProvider.socketService.onMessagesDelivered(_handleMessagesDelivered);
     authProvider.socketService.onProfileUpdated(_handleProfileUpdated);
     authProvider.socketService.onReactionAdded(_handleReactionAdded);
     authProvider.socketService.onReactionRemoved(_handleReactionRemoved);
@@ -849,6 +853,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     authProvider.socketService.offMessageDeleted(_handleMessageDeleted);
     authProvider.socketService.offMessageEdited(_handleMessageEdited);
     authProvider.socketService.offMessagesRead(_handleMessagesRead);
+    authProvider.socketService.offMessagesDelivered(_handleMessagesDelivered);
     authProvider.socketService.offProfileUpdated(_handleProfileUpdated);
     authProvider.socketService.offReactionAdded(_handleReactionAdded);
     authProvider.socketService.offReactionRemoved(_handleReactionRemoved);
@@ -971,6 +976,61 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     }
   }
 
+  void _handleMessagesDelivered(dynamic data) {
+    if (!mounted || data == null) return;
+    if (data['conversationId'] == widget.conversationId) {
+      final deliveredUserId = data['userId'];
+      final List<dynamic> messageIds = data['messageIds'] != null ? List<dynamic>.from(data['messageIds']) : [];
+      if (deliveredUserId == null) return;
+      setState(() {
+        for (int i = 0; i < _messages.length; i++) {
+          final msg = _messages[i];
+          if (messageIds.isEmpty || messageIds.contains(msg.id)) {
+            if (msg.senderId != deliveredUserId) {
+              final receiptsList = List<dynamic>.from(msg.receipts ?? []);
+              final existingIdx = receiptsList.indexWhere((r) => r['userId'] == deliveredUserId);
+              if (existingIdx != -1) {
+                if (receiptsList[existingIdx]['status'] != 'READ') {
+                  receiptsList[existingIdx] = {'userId': deliveredUserId, 'status': 'DELIVERED'};
+                }
+              } else {
+                receiptsList.add({'userId': deliveredUserId, 'status': 'DELIVERED'});
+              }
+              _messages[i] = Message(
+                id: msg.id,
+                content: msg.content,
+                senderId: msg.senderId,
+                conversationId: msg.conversationId,
+                parentMessageId: msg.parentMessageId,
+                isEdited: msg.isEdited,
+                isDeleted: msg.isDeleted,
+                isForwarded: msg.isForwarded,
+                mediaUrl: msg.mediaUrl,
+                mediaType: msg.mediaType,
+                isViewOnce: msg.isViewOnce,
+                isViewed: msg.isViewed,
+                latitude: msg.latitude,
+                longitude: msg.longitude,
+                locationTitle: msg.locationTitle,
+                isLiveLocation: msg.isLiveLocation,
+                liveExpiresAt: msg.liveExpiresAt,
+                isLiveEnded: msg.isLiveEnded,
+                receipts: receiptsList,
+                reactions: msg.reactions,
+                createdAt: msg.createdAt,
+                parentMessage: msg.parentMessage,
+                sender: msg.sender,
+                isPending: false,
+                isPinned: msg.isPinned,
+              );
+            }
+          }
+        }
+      });
+      _updateMessageCache();
+    }
+  }
+
   void _handleProfileUpdated(dynamic data) {
     if (mounted && data['user'] != null && data['user']['id'] == widget.remoteUserId) {
       setState(() {
@@ -986,10 +1046,27 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     if (mounted) {
       try {
         if (data['conversationId'] != widget.conversationId) return;
+        final msg = Message.fromJson(data['message']);
         setState(() {
-          final msg = Message.fromJson(data['message']);
-          final tempIndex = _messages.indexWhere((m) =>
-            m.id.startsWith('temp-') && m.content == msg.content);
+          // Deduplicate: replace optimistic temp message (text or media)
+          final tempIndex = _messages.indexWhere((m) {
+            if (m.id == msg.id) return true;
+            if (m.id.startsWith('temp')) {
+              // Media message match by URL or filename
+              if (msg.mediaUrl != null && msg.mediaUrl!.isNotEmpty) {
+                final filename = msg.mediaUrl!.split('/').last;
+                if (m.mediaUrl == msg.mediaUrl || (m.mediaUrl != null && m.mediaUrl!.contains(filename))) {
+                  return true;
+                }
+              }
+              // Text message match by content and sender
+              if (msg.content.isNotEmpty && m.content == msg.content && m.senderId == msg.senderId) {
+                return true;
+              }
+            }
+            return false;
+          });
+
           if (tempIndex != -1) {
             _messages[tempIndex] = msg;
           } else if (!_messages.any((m) => m.id == msg.id)) {
@@ -999,6 +1076,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         _scrollToBottom();
         _updateMessageCache();
         
+        // Auto-download media according to storage settings
+        AutoDownloadService.checkAndAutoDownload(msg);
+
         // Clear unread count for the new incoming message
         final authProvider = Provider.of<AuthProvider>(context, listen: false);
         authProvider.socketService.socket?.emit('mark_read', {
@@ -1020,10 +1100,24 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         final msgData = data['message'] as Map<String, dynamic>;
         final msg = Message.fromJson(msgData);
 
-        // Replace temp optimistic message if content matches
+        // Replace temp optimistic message if content or media matches
         setState(() {
-          final tempIndex = _messages.indexWhere((m) =>
-            m.id.startsWith('temp-') && m.content == msg.content);
+          final tempIndex = _messages.indexWhere((m) {
+            if (m.id == msg.id) return true;
+            if (m.id.startsWith('temp')) {
+              if (msg.mediaUrl != null && msg.mediaUrl!.isNotEmpty) {
+                final filename = msg.mediaUrl!.split('/').last;
+                if (m.mediaUrl == msg.mediaUrl || (m.mediaUrl != null && m.mediaUrl!.contains(filename))) {
+                  return true;
+                }
+              }
+              if (msg.content.isNotEmpty && m.content == msg.content && m.senderId == msg.senderId) {
+                return true;
+              }
+            }
+            return false;
+          });
+
           if (tempIndex != -1) {
             _messages[tempIndex] = msg;
           } else if (!_messages.any((m) => m.id == msg.id)) {
@@ -1032,6 +1126,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         });
         _scrollToBottom();
         _updateMessageCache();
+
+        // Auto-download media according to storage settings
+        AutoDownloadService.checkAndAutoDownload(msg);
 
         final authProvider = Provider.of<AuthProvider>(context, listen: false);
         authProvider.socketService.socket?.emit('mark_read', {
@@ -1174,6 +1271,12 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               } catch (_) {}
             });
             _scrollToBottom();
+            // Check auto-downloads for recent media
+            for (final msg in _messages.reversed.take(10)) {
+              if (msg.mediaUrl != null && msg.mediaUrl!.isNotEmpty) {
+                AutoDownloadService.checkAndAutoDownload(msg);
+              }
+            }
           }
       } else if (mounted) {
         setState(() => _isLoading = false);
@@ -1198,7 +1301,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   void _editMessageDialog(Message message) {
-    final diffInMinutes = DateTime.now().difference(message.createdAt.toLocal()).inMinutes;
+    final diffInMinutes = DateTime.now().toUtc().difference(message.createdAt.toUtc()).inMinutes.abs();
     if (diffInMinutes > 15) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Messages can only be edited within 15 minutes of sending.')),
@@ -1206,66 +1309,21 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       return;
     }
 
-    final editCtrl = TextEditingController(text: message.content);
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppTheme.surfaceColor,
-        title: Text('Edit Message', style: TextStyle(color: AppTheme.textPrimary)),
-        content: TextField(
-          controller: editCtrl,
-          style: TextStyle(color: AppTheme.textPrimary),
-          autofocus: true,
-          decoration: InputDecoration(
-            hintText: 'Type updated message…',
-            hintStyle: TextStyle(color: AppTheme.textSecondary),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text('Cancel', style: TextStyle(color: AppTheme.textSecondary)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryColor),
-            onPressed: () async {
-              final newText = editCtrl.text.trim();
-              if (newText.isNotEmpty && newText != message.content) {
-                Navigator.pop(ctx);
-                final socketService = Provider.of<AuthProvider>(context, listen: false).socketService;
-                socketService.socket?.emit('edit_message', {
-                  'messageId': message.id,
-                  'content': newText,
-                });
-                final success = await _chatService.editMessage(message.id, newText);
-                if (mounted) {
-                  setState(() {
-                    final idx = _messages.indexWhere((m) => m.id == message.id);
-                    if (idx != -1) {
-                      _messages[idx] = Message(
-                        id: message.id,
-                        content: newText,
-                        senderId: message.senderId,
-                        conversationId: message.conversationId,
-                        createdAt: message.createdAt,
-                        isEdited: true,
-                        mediaType: message.mediaType,
-                        mediaUrl: message.mediaUrl,
-                      );
-                    }
-                  });
-                }
-              }
-            },
-            child: const Text('Save', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
+    setState(() {
+      _editingMessage = message;
+      _activeScheduledTime = null;
+      _replyingTo = null;
+      _selectedMessageIds.clear();
+      _messageController.text = message.content;
+      _messageController.selection = TextSelection.fromPosition(
+        TextPosition(offset: _messageController.text.length),
+      );
+    });
+    _focusNode.requestFocus();
   }
 
   void _showMessageOptions(Message message, bool isMe) {
-    final isWithinTimeLimit = DateTime.now().difference(message.createdAt).inMinutes <= 15;
+    final isWithinTimeLimit = DateTime.now().toUtc().difference(message.createdAt.toUtc()).inMinutes.abs() <= 15;
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -1770,6 +1828,42 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
 
+    if (_editingMessage != null) {
+      final msgToEdit = _editingMessage!;
+      _messageController.clear();
+      setState(() {
+        _editingMessage = null;
+      });
+
+      if (text != msgToEdit.content) {
+        final authProvider = Provider.of<AuthProvider>(context, listen: false);
+        authProvider.socketService.socket?.emit('edit_message', {
+          'messageId': msgToEdit.id,
+          'content': text,
+        });
+        _chatService.editMessage(msgToEdit.id, text);
+        if (mounted) {
+          setState(() {
+            final idx = _messages.indexWhere((m) => m.id == msgToEdit.id);
+            if (idx != -1) {
+              _messages[idx] = Message(
+                id: msgToEdit.id,
+                content: text,
+                senderId: msgToEdit.senderId,
+                conversationId: msgToEdit.conversationId,
+                createdAt: msgToEdit.createdAt,
+                isEdited: true,
+                mediaType: msgToEdit.mediaType,
+                mediaUrl: msgToEdit.mediaUrl,
+                reactions: _messages[idx].reactions,
+              );
+            }
+          });
+        }
+      }
+      return;
+    }
+
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final replying = _replyingTo;
 
@@ -1807,14 +1901,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     });
     _scrollToBottom(animate: true);
 
-    // 3. Instant Socket Transmission (sub-0.2ms zero-lag pipeline)
-    authProvider.socketService.sendMessage(
-      widget.conversationId,
-      text,
-      parentMessageId: replying?.id,
-    );
-
-    // 4. Background E2EE synchronization if enabled
+    // 3. Instant Socket Transmission (sub-0.2ms zero-lag single pipeline)
     final isDirectMessage = widget.remoteUser != null;
     final remoteEmail = widget.remoteUser?['email'] as String?;
     if (isDirectMessage && remoteEmail != null && authProvider.token != null) {
@@ -1825,7 +1912,19 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         token: authProvider.token!,
         myUserId: authProvider.user?['id'] ?? '',
         parentMessageId: replying?.id,
-      ).catchError((_) {});
+      ).catchError((err) {
+        authProvider.socketService.sendMessage(
+          widget.conversationId,
+          text,
+          parentMessageId: replying?.id,
+        );
+      });
+    } else {
+      authProvider.socketService.sendMessage(
+        widget.conversationId,
+        text,
+        parentMessageId: replying?.id,
+      );
     }
   }
 
@@ -1954,17 +2053,17 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     }
   }
 
-  void _showCameraOptions() {
+  void _showCameraOptions() async {
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => WhatsAppMediaPickerScreen(
-          onSend: (selectedMedia, caption, isViewOnce) {
-            final entries = selectedMedia.map((m) => MapEntry(m.file, m.type)).toList();
+          onSend: (selectedList, caption, isViewOnce, isHD) {
+            final entries = selectedList.map((m) => MapEntry(m.file, m.type)).toList();
             if (entries.length == 1) {
-              _uploadAndSendMedia(entries.first.key, entries.first.value, caption: caption, isViewOnce: isViewOnce);
+              _uploadAndSendMedia(entries.first.key, entries.first.value, caption: caption, isViewOnce: isViewOnce, isHD: isHD);
             } else {
-              _uploadAndSendMultipleMedia(entries, caption: caption, isViewOnce: isViewOnce);
+              _uploadAndSendMultipleMedia(entries, caption: caption, isViewOnce: isViewOnce, isHD: isHD);
             }
           },
         ),
@@ -1972,51 +2071,65 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     );
   }
 
+  Future<void> _captureCameraMedia({bool isVideo = false}) async {
+    GlobalAppLockWrapper.isMediaPickerActive = true;
+    try {
+      final picker = ImagePicker();
+      final XFile? file = isVideo
+          ? await picker.pickVideo(source: ImageSource.camera, maxDuration: const Duration(minutes: 5))
+          : await picker.pickImage(source: ImageSource.camera, imageQuality: 95);
+
+      if (file != null && mounted) {
+        final item = MediaItem(file: File(file.path), type: isVideo ? 'VIDEO' : 'IMAGE');
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => WhatsAppMediaPreviewScreen(
+              initialItems: [item],
+              onSend: (selectedList, caption, isViewOnce, isHD) {
+                final entries = selectedList.map((m) => MapEntry(m.file, m.type)).toList();
+                if (entries.length == 1) {
+                  _uploadAndSendMedia(entries.first.key, entries.first.value, caption: caption, isViewOnce: isViewOnce, isHD: isHD);
+                } else {
+                  _uploadAndSendMultipleMedia(entries, caption: caption, isViewOnce: isViewOnce, isHD: isHD);
+                }
+              },
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error opening camera: $e')));
+    } finally {
+      Future.delayed(const Duration(seconds: 1), () {
+        GlobalAppLockWrapper.isMediaPickerActive = false;
+      });
+    }
+  }
+
   Future<void> _pickGalleryMedia() async {
     GlobalAppLockWrapper.isMediaPickerActive = true;
     try {
-      List<MediaItem> items = [];
-
-      // 1. First try FilePicker for reliable multi-media selection (both images and videos together)
+      final picker = ImagePicker();
+      List<XFile> pickedFiles = [];
       try {
-        final result = await FilePicker.pickFiles(
-          allowMultiple: true,
-          type: FileType.media,
-        );
-        if (result != null && result.files.isNotEmpty) {
-          items = result.files.where((f) => f.path != null).map((f) {
-            final ext = f.extension?.toLowerCase() ?? '';
-            final isVid = ['mp4', 'mov', 'avi', 'mkv', 'webm', '3gp', 'flv', 'm4v'].contains(ext);
-            return MediaItem(file: File(f.path!), type: isVid ? 'VIDEO' : 'IMAGE');
-          }).toList();
-        }
-      } catch (_) {}
-
-      // 2. If empty, fall back to ImagePicker.pickMultipleMedia() or pickMultiImage()
-      if (items.isEmpty) {
-        final picker = ImagePicker();
-        List<XFile> pickedFiles = [];
+        pickedFiles = await picker.pickMultipleMedia();
+      } catch (_) {
         try {
-          pickedFiles = await picker.pickMultipleMedia();
+          pickedFiles = await picker.pickMultiImage();
         } catch (_) {
-          try {
-            pickedFiles = await picker.pickMultiImage();
-          } catch (_) {
-            final XFile? single = await picker.pickImage(source: ImageSource.gallery, imageQuality: 95);
-            if (single != null) pickedFiles = [single];
-          }
-        }
-
-        if (pickedFiles.isNotEmpty) {
-          items = pickedFiles.map((f) {
-            final ext = f.path.split('.').last.toLowerCase();
-            final isVid = ['mp4', 'mov', 'avi', 'mkv', 'webm', '3gp', 'flv', 'm4v'].contains(ext);
-            return MediaItem(file: File(f.path), type: isVid ? 'VIDEO' : 'IMAGE');
-          }).toList();
+          final XFile? single = await picker.pickImage(source: ImageSource.gallery, imageQuality: 95);
+          if (single != null) pickedFiles = [single];
         }
       }
 
-      if (!mounted || items.isEmpty) return;
+      if (!mounted || pickedFiles.isEmpty) return;
+
+      final items = pickedFiles.map((f) {
+        final ext = f.path.split('.').last.toLowerCase();
+        final isVid = ['mp4', 'mov', 'avi', 'mkv', 'webm', '3gp', 'flv', 'm4v'].contains(ext);
+        return MediaItem(file: File(f.path), type: isVid ? 'VIDEO' : 'IMAGE');
+      }).toList();
 
       Navigator.push(
         context,
@@ -2178,17 +2291,20 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   void _showScheduleMessageModal() async {
+    final DateTime now = DateTime.now();
     final DateTime? pickedDate = await showDatePicker(
       context: context,
-      initialDate: DateTime.now().add(const Duration(minutes: 30)),
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
+      initialDate: _activeScheduledTime ?? now.add(const Duration(minutes: 30)),
+      firstDate: now,
+      lastDate: now.add(const Duration(days: 365)),
     );
     if (pickedDate == null) return;
 
     final TimeOfDay? pickedTime = await showTimePicker(
       context: context,
-      initialTime: TimeOfDay.now(),
+      initialTime: _activeScheduledTime != null 
+          ? TimeOfDay.fromDateTime(_activeScheduledTime!)
+          : TimeOfDay.fromDateTime(now.add(const Duration(minutes: 30))),
     );
     if (pickedTime == null) return;
 
@@ -2209,115 +2325,88 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       return;
     }
 
-    final textController = TextEditingController(text: _messageController.text);
-    if (!mounted) return;
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppTheme.surfaceColor,
-        title: Text('Schedule Message', style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
+    if (mounted) {
+      setState(() {
+        _activeScheduledTime = scheduledDateTime;
+      });
+      _focusNode.requestFocus();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: const Color(0xFF1E293B),
+          content: Row(
+            children: [
+              const Icon(Icons.schedule, color: Color(0xFFFF9800), size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Schedule mode active: ${DateFormat('EEE, MMM d @ h:mm a').format(scheduledDateTime)}. Type your message below and tap the clock icon.',
+                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
+  void _sendScheduledMessageDirectly() {
+    if (_activeScheduledTime == null) return;
+    final text = _messageController.text.trim();
+    if (text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a message to schedule')),
+      );
+      _focusNode.requestFocus();
+      return;
+    }
+
+    final scheduledDateTime = _activeScheduledTime!;
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final socket = authProvider.socketService.socket;
+
+    _messageController.clear();
+    setState(() {
+      _activeScheduledTime = null;
+    });
+
+    final scheduledMsg = {
+      'id': 'sched_${DateTime.now().millisecondsSinceEpoch}',
+      'conversationId': widget.conversationId,
+      'content': text,
+      'scheduledFor': scheduledDateTime.millisecondsSinceEpoch,
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+    };
+
+    // Optimistic local add
+    setState(() {
+      _scheduledMessages.add(scheduledMsg);
+      _scheduledMessages.sort((a, b) => (a['scheduledFor'] as int).compareTo(b['scheduledFor'] as int));
+    });
+
+    // Server persistent emit (works even when app is closed or offline)
+    socket?.emit('schedule_message', {
+      'conversationId': widget.conversationId,
+      'content': text,
+      'scheduledFor': scheduledDateTime.millisecondsSinceEpoch,
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: const Color(0xFF1E293B),
+        content: Row(
           children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.orange.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.schedule, color: Colors.orange, size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Sends: ${DateFormat('EEE, MMM d @ h:mm a').format(scheduledDateTime)}',
-                      style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.bold, fontSize: 13),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 14),
-            TextField(
-              controller: textController,
-              style: TextStyle(color: AppTheme.textPrimary),
-              maxLines: 3,
-              decoration: InputDecoration(
-                hintText: 'Enter scheduled message text...',
-                hintStyle: TextStyle(color: AppTheme.textSecondary),
-                filled: true,
-                fillColor: AppTheme.backgroundColor.withValues(alpha: 0.5),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            const Icon(Icons.check_circle, color: Color(0xFFFF9800), size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Message scheduled for ${DateFormat('MMM d @ h:mm a').format(scheduledDateTime)}',
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
               ),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text('Cancel', style: TextStyle(color: AppTheme.textSecondary)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFFF9800),
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-            onPressed: () {
-              final text = textController.text.trim();
-              if (text.isNotEmpty) {
-                Navigator.pop(ctx);
-                _messageController.clear();
-
-                final authProvider = Provider.of<AuthProvider>(context, listen: false);
-                final socket = authProvider.socketService.socket;
-
-                final scheduledMsg = {
-                  'id': 'sched_${DateTime.now().millisecondsSinceEpoch}',
-                  'conversationId': widget.conversationId,
-                  'content': text,
-                  'scheduledFor': scheduledDateTime.millisecondsSinceEpoch,
-                  'createdAt': DateTime.now().millisecondsSinceEpoch,
-                };
-
-                // Optimistic local add
-                setState(() {
-                  _scheduledMessages.add(scheduledMsg);
-                  _scheduledMessages.sort((a, b) => (a['scheduledFor'] as int).compareTo(b['scheduledFor'] as int));
-                });
-
-                // Server persistent emit (works even when app is closed or offline)
-                socket?.emit('schedule_message', {
-                  'conversationId': widget.conversationId,
-                  'content': text,
-                  'scheduledFor': scheduledDateTime.millisecondsSinceEpoch,
-                });
-
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    backgroundColor: const Color(0xFF1E293B),
-                    content: Row(
-                      children: [
-                        const Icon(Icons.check_circle, color: Color(0xFFFF9800), size: 20),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            'Message scheduled for ${DateFormat('MMM d @ h:mm a').format(scheduledDateTime)}',
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }
-            },
-            child: const Text('Schedule', style: TextStyle(fontWeight: FontWeight.bold)),
-          ),
-        ],
       ),
     );
   }
@@ -2961,9 +3050,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         image: DecorationImage(
           image: FileImage(File(wallpaperConfig.value!)),
           fit: BoxFit.cover,
-          colorFilter: wallpaperConfig.opacity < 1.0 
-              ? ColorFilter.mode(Colors.black.withOpacity(1.0 - wallpaperConfig.opacity), BlendMode.dstATop)
-              : null,
         ),
       );
     }
@@ -3049,6 +3135,27 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     );
                   },
                 ),
+                if (_selectedMessageIds.length == 1)
+                  Builder(
+                    builder: (context) {
+                      final myId = currentUser?['id'] ?? currentUser?['_id'];
+                      final selectedMsg = _messages.firstWhere((m) => m.id == _selectedMessageIds.first, orElse: () => _messages.first);
+                      final isMine = selectedMsg.senderId == myId || (selectedMsg.sender != null && (selectedMsg.sender!['id'] == myId || selectedMsg.sender!['_id'] == myId));
+                      final isTextOnly = selectedMsg.mediaUrl == null;
+                      final isRecent = DateTime.now().toUtc().difference(selectedMsg.createdAt.toUtc()).inMinutes.abs() <= 15;
+                      if (isMine && isTextOnly && isRecent) {
+                        return IconButton(
+                          icon: const Icon(Icons.edit_rounded),
+                          tooltip: 'Edit Message',
+                          onPressed: () {
+                            setState(() => _selectedMessageIds.clear());
+                            _editMessageDialog(selectedMsg);
+                          },
+                        );
+                      }
+                      return const SizedBox.shrink();
+                    },
+                  ),
                 PopupMenuButton<String>(
                   icon: const Icon(Icons.more_vert),
                   onSelected: (value) {
@@ -3557,20 +3664,20 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           if (wallpaperDecoration != null)
             Positioned.fill(
               child: Opacity(
-                opacity: themeProvider.wallpaperOpacity.clamp(0.0, 1.0),
-                child: Container(
-                  decoration: wallpaperDecoration,
-                ),
-              ),
-            ),
-          if (themeProvider.wallpaperBlur > 0.0)
-            Positioned.fill(
-              child: BackdropFilter(
-                filter: ImageFilter.blur(
-                  sigmaX: themeProvider.wallpaperBlur,
-                  sigmaY: themeProvider.wallpaperBlur,
-                ),
-                child: Container(color: Colors.transparent),
+                opacity: (wallpaperConfig.opacity * themeProvider.wallpaperOpacity).clamp(0.0, 1.0),
+                child: (wallpaperConfig.blur > 0.0 || themeProvider.wallpaperBlur > 0.0)
+                    ? ImageFiltered(
+                        imageFilter: ImageFilter.blur(
+                          sigmaX: wallpaperConfig.blur > 0.0 ? wallpaperConfig.blur : themeProvider.wallpaperBlur,
+                          sigmaY: wallpaperConfig.blur > 0.0 ? wallpaperConfig.blur : themeProvider.wallpaperBlur,
+                        ),
+                        child: Container(
+                          decoration: wallpaperDecoration,
+                        ),
+                      )
+                    : Container(
+                        decoration: wallpaperDecoration,
+                      ),
               ),
             ),
           Column(
@@ -3807,6 +3914,83 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 ],
               ),
             ),
+          if (_editingMessage != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryColor.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppTheme.primaryColor.withValues(alpha: 0.4)),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.edit_rounded, color: AppTheme.primaryColor, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Editing Message', style: TextStyle(color: AppTheme.primaryColor, fontWeight: FontWeight.bold, fontSize: 13)),
+                        Text(
+                          _editingMessage!.content,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _editingMessage = null;
+                        _messageController.clear();
+                      });
+                    },
+                    child: Icon(Icons.close, color: AppTheme.primaryColor, size: 18),
+                  ),
+                ],
+              ),
+            ),
+          if (_activeScheduledTime != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryColor.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppTheme.primaryColor.withValues(alpha: 0.4)),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.schedule, color: AppTheme.primaryColor, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Scheduling for: ${DateFormat('EEE, MMM d, yyyy @ hh:mm a').format(_activeScheduledTime!)}',
+                      style: TextStyle(color: AppTheme.primaryColor, fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: _showScheduleMessageModal,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      margin: const EdgeInsets.only(right: 6),
+                      decoration: BoxDecoration(
+                        color: AppTheme.primaryColor.withValues(alpha: 0.25),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text('Change', style: TextStyle(color: AppTheme.primaryColor, fontSize: 11, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: () => setState(() => _activeScheduledTime = null),
+                    child: Icon(Icons.close, color: AppTheme.primaryColor, size: 18),
+                  ),
+                ],
+              ),
+            ),
           SafeArea(
             top: false,
             bottom: true,
@@ -4002,8 +4186,14 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                           },
                           style: TextStyle(color: AppTheme.textPrimary),
                           decoration: InputDecoration(
-                            hintText: 'Message',
-                            hintStyle: TextStyle(color: AppTheme.textSecondary),
+                            hintText: _editingMessage != null
+                                ? 'Edit message...'
+                                : (_activeScheduledTime != null ? 'Type scheduled message...' : 'Message'),
+                            hintStyle: TextStyle(
+                              color: (_editingMessage != null || _activeScheduledTime != null)
+                                  ? AppTheme.primaryColor.withValues(alpha: 0.8)
+                                  : AppTheme.textSecondary,
+                            ),
                             filled: true,
                             fillColor: AppTheme.surfaceColor,
                             contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -4027,7 +4217,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                             ),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(28),
-                              borderSide: BorderSide.none,
+                              borderSide: (_editingMessage != null || _activeScheduledTime != null) ? BorderSide(color: AppTheme.primaryColor, width: 1.5) : BorderSide.none,
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(28),
+                              borderSide: (_editingMessage != null || _activeScheduledTime != null) ? BorderSide(color: AppTheme.primaryColor, width: 1.5) : BorderSide.none,
                             ),
                           ),
                         ),
@@ -4037,6 +4231,24 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                       valueListenable: _messageController,
                       builder: (context, value, child) {
                         final hasText = value.text.trim().isNotEmpty;
+                        if (_activeScheduledTime != null) {
+                          return Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              color: AppTheme.primaryColor,
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(color: AppTheme.primaryColor.withValues(alpha: 0.4), blurRadius: 6, offset: const Offset(0, 2)),
+                              ],
+                            ),
+                            child: IconButton(
+                              icon: const Icon(Icons.schedule_send_rounded, color: Colors.white, size: 22),
+                              tooltip: 'Schedule Message',
+                              onPressed: _sendScheduledMessageDirectly,
+                            ),
+                          );
+                        }
                         if (hasText) {
                           return Container(
                             width: 48,

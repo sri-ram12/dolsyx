@@ -637,6 +637,10 @@ class MessageBubble extends StatelessWidget {
                               MaterialPageRoute(
                                 builder: (ctx) => FullScreenImageView(
                                   imageUrl: message.mediaUrl!,
+                                  isChatMedia: true,
+                                  senderName: isMe ? 'You' : (message.sender?['username'] ?? message.sender?['name'] ?? 'Contact'),
+                                  timestamp: message.createdAt,
+                                  message: message,
                                 ),
                               ),
                             );

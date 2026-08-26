@@ -248,11 +248,10 @@ class _CallsTabState extends State<CallsTab> {
                     ],
                   ),
                 )
-              : RefreshIndicator(
-                  onRefresh: _fetchCalls,
-                  child: ListView.builder(
-                    itemCount: _callLogs.length,
-                    itemBuilder: (context, index) {
+              : ListView.builder(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  itemCount: _callLogs.length,
+                  itemBuilder: (context, index) {
                       final log = _callLogs[index];
                       final String logId = log['id'];
                       final isSelected = _selectedCallIds.contains(logId);
@@ -373,7 +372,6 @@ class _CallsTabState extends State<CallsTab> {
                       );
                     },
                   ),
-                ),
     );
   }
 }

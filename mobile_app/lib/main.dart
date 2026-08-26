@@ -176,6 +176,24 @@ class _DolsyxAppState extends State<DolsyxApp> {
   bool _isInit = true;
   String? _currentFcmUserId;
   Map<String, dynamic>? _incomingCallData;
+  String? _callEndedBannerText;
+  Timer? _callEndedBannerTimer;
+  DateTime? _lastCallEndedTime;
+
+  void _showCallEndedBanner(String reason) {
+    _callEndedBannerTimer?.cancel();
+    if (mounted) {
+      setState(() {
+        _incomingCallData = null;
+        _callEndedBannerText = reason;
+      });
+      _callEndedBannerTimer = Timer(const Duration(seconds: 4), () {
+        if (mounted) {
+          setState(() => _callEndedBannerText = null);
+        }
+      });
+    }
+  }
 
 
   @override
@@ -249,7 +267,12 @@ class _DolsyxAppState extends State<DolsyxApp> {
       // When user taps a notification and app is brought to foreground
       FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
         final data = message.data;
-        if (data['type'] == 'CALL' || data['type'] == 'call' || data['callType'] != null) {
+        final type = data['type']?.toString().toUpperCase();
+        if (type == 'CALL_ENDED' || type == 'CALL_REJECTED' || type == 'CALL_CANCELLED') {
+          _handleCallEndedGlobal(data);
+          return;
+        }
+        if (type == 'CALL' || (data['callType'] != null && type != 'CALL_ENDED')) {
           if (_incomingCallData != null) {
             _acceptIncomingCall();
           } else {
@@ -350,8 +373,14 @@ class _DolsyxAppState extends State<DolsyxApp> {
           final AndroidNotification? android = message.notification?.android;
           final data = message.data;
 
+          final type = data['type']?.toString().toUpperCase();
+          if (type == 'CALL_ENDED' || type == 'CALL_REJECTED' || type == 'CALL_CANCELLED') {
+            _handleCallEndedGlobal(data);
+            return;
+          }
+
           // If incoming call arrives via FCM in foreground (fallback if socket delayed)
-          if (data['type'] == 'CALL' || data['type'] == 'call' || data['callType'] != null) {
+          if (type == 'CALL' || (data['callType'] != null && type != 'CALL_ENDED')) {
             if (_incomingCallData == null) {
               _handleCallIncoming({
                 'conversationId': data['conversationId'] ?? '',
@@ -434,11 +463,12 @@ class _DolsyxAppState extends State<DolsyxApp> {
   }
 
   void _handleCallEndedGlobal(dynamic data) {
+    _lastCallEndedTime = DateTime.now();
     try { flutterLocalNotificationsPlugin.cancelAll(); } catch (_) {}
     SoundService().stopRingtone();
-    if (mounted) {
-      setState(() => _incomingCallData = null);
-    }
+    final status = data is Map ? data['status'] : null;
+    final reason = status == 'rejected' ? 'Call Declined' : ((data is Map ? data['reason'] : null) ?? 'Call Ended');
+    _showCallEndedBanner(reason);
   }
 
   void _setupGlobalCallListener() {
@@ -451,10 +481,23 @@ class _DolsyxAppState extends State<DolsyxApp> {
 
     // When call ends (from any side), cancel the OS notification and clear banner immediately
     CallScreen.isCallActiveNotifier.addListener(() {
-      try { flutterLocalNotificationsPlugin.cancelAll(); } catch (_) {}
-      if (mounted) {
-        setState(() => _incomingCallData = null);
+      if (!CallScreen.isCallActiveNotifier.value) {
+        _lastCallEndedTime = DateTime.now();
+        try { flutterLocalNotificationsPlugin.cancelAll(); } catch (_) {}
         SoundService().stopRingtone();
+        if (mounted) {
+          setState(() => _incomingCallData = null);
+        }
+      }
+    });
+
+    CallScreen.callEndedNotifier.addListener(() {
+      final reason = CallScreen.callEndedNotifier.value;
+      if (reason != null && reason.isNotEmpty) {
+        _lastCallEndedTime = DateTime.now();
+        try { flutterLocalNotificationsPlugin.cancelAll(); } catch (_) {}
+        SoundService().stopRingtone();
+        _showCallEndedBanner(reason);
       }
     });
   }
@@ -469,8 +512,12 @@ class _DolsyxAppState extends State<DolsyxApp> {
     final String? callerAvatarUrl = data['callerAvatarUrl'] ?? data['callerAvatar'];
     final Map<String, dynamic>? initialOffer = data['offer'];
 
-    // Don't show another incoming call UI if we're already on a call with this person
-    if (CallScreen.activeConversationId == conversationId) return;
+    // Don't show another incoming call UI if we're already on a call with this person, or call active, or just ended
+    if (CallScreen.activeConversationId == conversationId ||
+        CallScreen.isCallActiveNotifier.value ||
+        (_lastCallEndedTime != null && DateTime.now().difference(_lastCallEndedTime!).inSeconds < 4)) {
+      return;
+    }
 
     // Always store banner data (so it's available when user returns to app)
     if (mounted) {
@@ -625,11 +672,80 @@ class _DolsyxAppState extends State<DolsyxApp> {
               child: GlobalAppLockWrapper(
                 child: Column(
                   children: [
+                    // ── Modern Floating Call Ended Banner ──
+                    if (_callEndedBannerText != null)
+                      Material(
+                        color: Colors.transparent,
+                        child: Container(
+                          margin: EdgeInsets.only(
+                            top: MediaQuery.of(context).padding.top + 10,
+                            left: 14,
+                            right: 14,
+                            bottom: 10,
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF1E293B), Color(0xFF0F172A)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(24),
+                            boxShadow: const [
+                              BoxShadow(color: Colors.black87, blurRadius: 20, offset: Offset(0, 8)),
+                            ],
+                            border: Border.all(color: const Color(0xFFEA0038).withValues(alpha: 0.8), width: 1.5),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFEA0038).withValues(alpha: 0.2),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(Icons.call_end_rounded, color: Color(0xFFEA0038), size: 22),
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Text(
+                                      'Call Ended',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w800,
+                                        decoration: TextDecoration.none,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      _callEndedBannerText!,
+                                      style: const TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        decoration: TextDecoration.none,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+
                     // ── Modern Floating Incoming Call Alert Popup ──
                     ValueListenableBuilder<bool>(
                       valueListenable: CallScreen.isCallActiveNotifier,
                       builder: (context, isCallActive, _) {
-                        if (_incomingCallData == null || isCallActive) return const SizedBox.shrink();
+                        if (_incomingCallData == null || isCallActive || _callEndedBannerText != null) return const SizedBox.shrink();
                         return Material(
                           color: Colors.transparent,
                           child: GestureDetector(

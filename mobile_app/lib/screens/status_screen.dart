@@ -395,13 +395,11 @@ class _StatusScreenState extends State<StatusScreen> {
           ),
         ],
       ),
-      body: _isLoading
+      body: _isLoading && _groups.isEmpty && myGroup == null
           ? Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
-          : RefreshIndicator(
-              color: AppTheme.primaryColor,
-              onRefresh: _fetchStatuses,
-              child: ListView(
-                children: [
+          : ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: [
                   ListTile(
                     onTap: () {
                       if (myGroup != null && myGroup!.statuses.isNotEmpty) {
@@ -540,7 +538,6 @@ class _StatusScreenState extends State<StatusScreen> {
                   const SizedBox(height: 80), // Padding for FAB
                 ],
               ),
-            ),
     );
   }
 

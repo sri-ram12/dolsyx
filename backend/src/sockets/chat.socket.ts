@@ -184,6 +184,54 @@ export const initChatSocket = (io: Server) => {
     // Join personal room to receive real-time direct notifications/messages
     socket.join(userId);
 
+    // Auto-deliver pending messages to this connected user
+    setImmediate(async () => {
+      try {
+        const undelivered = await prisma.messageReceipt.findMany({
+          where: {
+            userId,
+            status: "SENT",
+          },
+          select: {
+            messageId: true,
+            message: { select: { conversationId: true } },
+          },
+        });
+
+        if (undelivered.length > 0) {
+          const msgIds = undelivered.map((r) => r.messageId);
+          await prisma.messageReceipt.updateMany({
+            where: {
+              messageId: { in: msgIds },
+              userId,
+              status: "SENT",
+            },
+            data: { status: "DELIVERED" },
+          });
+
+          const byConv = new Map<string, string[]>();
+          undelivered.forEach((r) => {
+            const cId = r.message?.conversationId;
+            if (cId) {
+              const l = byConv.get(cId) || [];
+              l.push(r.messageId);
+              byConv.set(cId, l);
+            }
+          });
+
+          byConv.forEach((ids, cId) => {
+            io.to(cId).emit("messages_delivered", {
+              conversationId: cId,
+              messageIds: ids,
+              userId,
+            });
+          });
+        }
+      } catch (err) {
+        console.error("Auto delivery error on connect:", err);
+      }
+    });
+
     // Fetch privacy settings and relevant contacts
     prisma.user.findUnique({ where: { id: userId }, select: { lastSeenPrivacy: true, avatarUrl: true } }).then(async user => {
       if (user?.avatarUrl) {
@@ -388,15 +436,6 @@ export const initChatSocket = (io: Server) => {
             username,
             avatarUrl: socket.avatarUrl || null,
           },
-          receipts: [],
-        };
-
-        // 🚀 SUB-0.2MS IMMEDIATE BROADCAST (ZERO WAIT)
-        io.to(conversationId).emit("new_message", {
-          message: instantMessage,
-          conversationId,
-        });
-
         // Fast participant lookup via cache
         const now = Date.now();
         let cached = convParticipantsCache.get(conversationId);
@@ -418,10 +457,32 @@ export const initChatSocket = (io: Server) => {
         }
 
         const participantUserIds = cached.userIds;
+        const otherParticipantIds = participantUserIds.filter((pId) => pId !== userId);
+        const onlineRecipients = otherParticipantIds.filter((pId) => onlineUsers.has(pId));
+        const initialReceipts = otherParticipantIds.map((pId) => ({
+          userId: pId,
+          status: onlineUsers.has(pId) ? "DELIVERED" : "SENT",
+        }));
+        instantMessage.receipts = initialReceipts;
 
+        // 🚀 SUB-0.2MS IMMEDIATE BROADCAST (ZERO WAIT)
+        io.to(conversationId).emit("new_message", {
+          message: instantMessage,
+          conversationId,
+        });
+
+        if (onlineRecipients.length > 0) {
+          io.to(conversationId).emit("messages_delivered", {
+            conversationId,
+            messageIds: [messageId],
+            userId: onlineRecipients[0],
+          });
+        }
+
+        // Deliver to user rooms for chat list/notifications, excluding sockets already in conversation room
         participantUserIds.forEach((pId) => {
           if (pId !== userId) {
-            io.to(pId).emit("new_message", {
+            io.except(conversationId).to(pId).emit("new_message", {
               message: instantMessage,
               conversationId,
             });
@@ -537,19 +598,18 @@ export const initChatSocket = (io: Server) => {
           });
         }
 
-        // Broadcast to all participants in conversation
-        const participants = await prisma.participant.findMany({
-          where: { conversationId },
-          select: { userId: true },
+        // Broadcast to conversation room and participants safely
+        io.to(conversationId).emit("reaction_added", {
+          messageId,
+          conversationId,
+          userId,
+          emoji
         });
-
-        participants.forEach((participant) => {
-          io.to(participant.userId).emit("reaction_added", {
-            messageId,
-            conversationId,
-            userId,
-            emoji
-          });
+        io.except(conversationId).to(conversationId).emit("reaction_added", {
+          messageId,
+          conversationId,
+          userId,
+          emoji
         });
       } catch (error) {
         console.error("Socket add_reaction error:", error);
@@ -566,17 +626,10 @@ export const initChatSocket = (io: Server) => {
         });
 
         // Broadcast removal
-        const participants = await prisma.participant.findMany({
-          where: { conversationId },
-          select: { userId: true },
-        });
-
-        participants.forEach((participant) => {
-          io.to(participant.userId).emit("reaction_removed", {
-            messageId,
-            conversationId,
-            userId
-          });
+        io.to(conversationId).emit("reaction_removed", {
+          messageId,
+          conversationId,
+          userId
         });
       } catch (error) {
         console.error("Socket remove_reaction error:", error);

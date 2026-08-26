@@ -158,11 +158,10 @@ class _ContactsScreenState extends State<ContactsScreen> {
                           ],
                         ),
                       )
-                    : RefreshIndicator(
-                        onRefresh: _loadContacts,
-                        child: ListView.builder(
-                          itemCount: _filtered.length,
-                          itemBuilder: (context, index) {
+                    : ListView.builder(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        itemCount: _filtered.length,
+                        itemBuilder: (context, index) {
                             final c = _filtered[index];
                             final user = c['contact'];
                             final displayName = c['savedName'] ?? user['username'];
@@ -209,7 +208,6 @@ class _ContactsScreenState extends State<ContactsScreen> {
                             );
                           },
                         ),
-                      ),
           ),
         ],
       ),

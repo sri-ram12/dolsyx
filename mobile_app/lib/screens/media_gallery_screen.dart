@@ -58,7 +58,15 @@ class MediaGalleryScreen extends StatelessWidget {
                         onTap: () {
                           Navigator.push(
                             context,
-                            MaterialPageRoute(builder: (_) => FullScreenImageView(imageUrl: fullUrl)),
+                            MaterialPageRoute(
+                              builder: (_) => FullScreenImageView(
+                                imageUrl: fullUrl,
+                                isChatMedia: true,
+                                senderName: msg.sender?['username'] ?? msg.sender?['name'] ?? 'Media',
+                                timestamp: msg.createdAt,
+                                message: msg,
+                              ),
+                            ),
                           );
                         },
                         child: CachedNetworkImage(

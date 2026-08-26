@@ -516,6 +516,14 @@ class SocketService {
     if (socket != null) socket!.off('messages_read', callback);
   }
 
+  void onMessagesDelivered(Function(dynamic) callback) {
+    if (socket != null) socket!.on('messages_delivered', callback);
+  }
+
+  void offMessagesDelivered(Function(dynamic) callback) {
+    if (socket != null) socket!.off('messages_delivered', callback);
+  }
+
   void onProfileUpdated(Function(dynamic) callback) {
     if (socket != null) socket!.on('profile_updated', callback);
   }

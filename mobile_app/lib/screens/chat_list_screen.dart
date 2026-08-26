@@ -27,6 +27,8 @@ import 'contacts_screen.dart';
 import 'group_settings_screen.dart';
 import 'dolsyx_ai_screen.dart';
 import 'starred_messages_screen.dart';
+import '../models/message.dart';
+import '../services/auto_download_service.dart';
 import '../widgets/switch_account_modal.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
@@ -142,19 +144,27 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                  if (senderId != null && senderId != currentUserId) {
                    _chats[index].unreadCount += 1;
                  }
-                 if (message != null) {
-                   _chats[index].lastMessage = message;
-                 }
-                 _chats[index].updatedAt = DateTime.now();
-                 
-                 // Move the updated chat to the top of the list
-                 final updatedChat = _chats.removeAt(index);
-                 _chats.insert(0, updatedChat);
-              }
-            }
-          });
-        }
+                  if (message != null) {
+                    _chats[index].lastMessage = message;
+                    try {
+                      final msgObj = Message.fromJson(Map<String, dynamic>.from(message));
+                      AutoDownloadService.checkAndAutoDownload(msgObj);
+                    } catch (_) {}
+                  }
+                  _chats[index].updatedAt = DateTime.now();
+                  
+                  // Move the updated chat to the top of the list
+                  final updatedChat = _chats.removeAt(index);
+                  _chats.insert(0, updatedChat);
+               }
+             }
+           });
+         }
         if (!found && message != null && mounted) {
+          try {
+            final msgObj = Message.fromJson(Map<String, dynamic>.from(message));
+            AutoDownloadService.checkAndAutoDownload(msgObj);
+          } catch (_) {}
           _fetchChats();
         }
       }
@@ -319,32 +329,29 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
           ),
         ),
         Expanded(
-          child: _isLoading
+          child: _isLoading && _chats.isEmpty
               ? Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
               : _chats.isEmpty
-                  ? RefreshIndicator(
-                      onRefresh: _fetchChats,
-                      child: ListView(
-                        children: [
-                          const SizedBox(height: 100),
-                          Center(
-                            child: Text(
-                              'No conversations yet.\nStart a chat!',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(color: AppTheme.textSecondary, fontSize: 16),
-                            ),
+                  ? ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: [
+                        const SizedBox(height: 100),
+                        Center(
+                          child: Text(
+                            'No conversations yet.\nStart a chat!',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: AppTheme.textSecondary, fontSize: 16),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     )
-                  : RefreshIndicator(
-                      onRefresh: _fetchChats,
-                      child: ListView.builder(
-                        cacheExtent: 500.0,
-                        addAutomaticKeepAlives: true,
-                        addRepaintBoundaries: true,
-                        itemCount: _chats.where((c) => !c.isArchived).length + 1 + (_chats.any((c) => c.isArchived) ? 1 : 0),
-                        itemBuilder: (context, index) {
+                  : ListView.builder(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      cacheExtent: 500.0,
+                      addAutomaticKeepAlives: true,
+                      addRepaintBoundaries: true,
+                      itemCount: _chats.where((c) => !c.isArchived).length + 1 + (_chats.any((c) => c.isArchived) ? 1 : 0),
+                      itemBuilder: (context, index) {
                           final activeChats = _chats.where((c) => !c.isArchived).toList();
                           if (index == 0) {
                           return ListTile(
@@ -546,7 +553,6 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                       );
                     },
                   ),
-                ),
         ),
       ],
     );

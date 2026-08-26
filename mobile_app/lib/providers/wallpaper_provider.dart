@@ -46,6 +46,22 @@ class WallpaperConfig {
       brightness: (json['brightness'] ?? 1.0).toDouble(),
     );
   }
+
+  WallpaperConfig copyWith({
+    WallpaperType? type,
+    String? value,
+    double? blur,
+    double? opacity,
+    double? brightness,
+  }) {
+    return WallpaperConfig(
+      type: type ?? this.type,
+      value: value ?? this.value,
+      blur: blur ?? this.blur,
+      opacity: opacity ?? this.opacity,
+      brightness: brightness ?? this.brightness,
+    );
+  }
 }
 
 class WallpaperProvider extends ChangeNotifier {
@@ -70,7 +86,7 @@ class WallpaperProvider extends ChangeNotifier {
       try {
         _globalWallpaper = WallpaperConfig.fromJson(jsonDecode(globalData));
       } catch (e) {
-        print("Error loading global wallpaper: $e");
+        debugPrint("Error loading global wallpaper: $e");
       }
     }
 
@@ -106,6 +122,28 @@ class WallpaperProvider extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('wallpaper_chat_$conversationId', jsonEncode(config.toJson()));
     notifyListeners();
+  }
+
+  Future<void> updateOpacity(double opacity, {String? conversationId}) async {
+    if (conversationId != null) {
+      final current = getWallpaperForChat(conversationId);
+      final updated = current.copyWith(opacity: opacity);
+      await setChatWallpaper(conversationId, updated);
+    } else {
+      final updated = _globalWallpaper.copyWith(opacity: opacity);
+      await setGlobalWallpaper(updated);
+    }
+  }
+
+  Future<void> updateBlur(double blur, {String? conversationId}) async {
+    if (conversationId != null) {
+      final current = getWallpaperForChat(conversationId);
+      final updated = current.copyWith(blur: blur);
+      await setChatWallpaper(conversationId, updated);
+    } else {
+      final updated = _globalWallpaper.copyWith(blur: blur);
+      await setGlobalWallpaper(updated);
+    }
   }
 
   Future<void> removeChatWallpaper(String conversationId) async {

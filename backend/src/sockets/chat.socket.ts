@@ -415,7 +415,7 @@ export const initChatSocket = (io: Server) => {
 
         // ⚡️ 0.2MS SUB-MILLISECOND IMMEDIATE BROADCAST
         const messageId = clientMessageId || `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-        const instantMessage = {
+        const instantMessage: any = {
           id: messageId,
           content: processedContent ? processedContent.trim() : "",
           conversationId,
@@ -436,6 +436,8 @@ export const initChatSocket = (io: Server) => {
             username,
             avatarUrl: socket.avatarUrl || null,
           },
+        };
+
         // Fast participant lookup via cache
         const now = Date.now();
         let cached = convParticipantsCache.get(conversationId);

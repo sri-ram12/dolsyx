@@ -751,6 +751,20 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     final pc = await createPeerConnection(configuration);
     _peerConnections[targetUserId] = pc;
 
+    // Ensure local audio/video stream is initialized and attached to the peer connection
+    if (_localStream == null) {
+      await _initWebRTC();
+    }
+    if (_localStream != null) {
+      for (final track in _localStream!.getTracks()) {
+        try {
+          await pc.addTrack(track, _localStream!);
+        } catch (e) {
+          debugPrint('[WebRTC] Error adding track: $e');
+        }
+      }
+    }
+
     final renderer = RTCVideoRenderer();
     await renderer.initialize();
     if (mounted) setState(() => _remoteRenderers[targetUserId] = renderer);

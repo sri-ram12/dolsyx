@@ -18,6 +18,7 @@ import 'package:flutter/services.dart';
 import 'screens/share_target_screen.dart';
 import 'services/api_service.dart';
 import 'package:http/http.dart' as http;
+import 'package:permission_handler/permission_handler.dart';
 
 
 // Background FCM handler
@@ -200,6 +201,16 @@ class _DolsyxAppState extends State<DolsyxApp> with WidgetsBindingObserver {
     // Keep ongoing calls running in background / PiP mode even if app task is detached
   }
 
+  Future<void> _requestEssentialPermissions() async {
+    try {
+      await [
+        Permission.notification,
+        Permission.microphone,
+        Permission.camera,
+      ].request();
+    } catch (_) {}
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
@@ -212,6 +223,7 @@ class _DolsyxAppState extends State<DolsyxApp> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      _requestEssentialPermissions();
       _setupGlobalCallListener();
       _setupForegroundFCM();
       _handleFCMCallbacks();

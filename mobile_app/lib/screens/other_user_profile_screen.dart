@@ -401,8 +401,10 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
       } catch (_) {}
     }
 
+    if (!mounted) return;
+
     if (conversationId.isEmpty) {
-      if (mounted) setState(() => _isLoadingMedia = false);
+      setState(() => _isLoadingMedia = false);
       return;
     }
 
@@ -414,6 +416,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
         Uri.parse('${ApiService.baseUrl}/chats/$conversationId/media'),
         headers: ApiService.authHeaders(token),
       );
+      if (!mounted) return;
       if (res.statusCode == 200) {
         final List<dynamic> mediaMessages = jsonDecode(res.body);
         final List<dynamic> media = [];

@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
 import '../widgets/app_lock_wrapper.dart';
+import '../services/video_thumbnail_service.dart';
 import 'image_editor_screen.dart';
 
 class MediaItem {
@@ -78,9 +79,11 @@ class _WhatsAppMediaPickerScreenState extends State<WhatsAppMediaPickerScreen> w
       if (Platform.isAndroid) {
         scanDirs.addAll([
           Directory('/storage/emulated/0/DCIM/Camera'),
+          Directory('/storage/emulated/0/Movies'),
+          Directory('/storage/emulated/0/DCIM/Video'),
+          Directory('/storage/emulated/0/DCIM/Screenshots'),
           Directory('/storage/emulated/0/Pictures'),
           Directory('/storage/emulated/0/Download'),
-          Directory('/storage/emulated/0/DCIM/Screenshots'),
           Directory('/storage/emulated/0/Pictures/Screenshots'),
           Directory('/storage/emulated/0/Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Images'),
           Directory('/storage/emulated/0/Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Video'),
@@ -546,11 +549,9 @@ class _WhatsAppMediaPickerScreenState extends State<WhatsAppMediaPickerScreen> w
                                               child: const Icon(Icons.broken_image, color: Colors.white24, size: 20),
                                             ),
                                           )
-                                        : Container(
-                                            color: const Color(0xFF1B2831),
-                                            child: const Center(
-                                              child: Icon(Icons.videocam_rounded, color: Colors.white, size: 22),
-                                            ),
+                                        : VideoThumbnailWidget(
+                                            videoPath: item.file.path,
+                                            fit: BoxFit.cover,
                                           ),
                                   ),
                                   if (item.type == 'VIDEO')
@@ -832,28 +833,33 @@ class _WhatsAppMediaPickerScreenState extends State<WhatsAppMediaPickerScreen> w
                                             child: const Icon(Icons.broken_image, color: Colors.white24),
                                           ),
                                         )
-                                      : Container(
-                                          color: const Color(0xFF1B2831),
-                                          child: const Center(
-                                            child: Icon(Icons.videocam_rounded, color: Colors.white, size: 28),
-                                          ),
+                                      : VideoThumbnailWidget(
+                                          videoPath: item.file.path,
+                                          fit: BoxFit.cover,
                                         ),
 
-                                  // Video Indicator & Duration
+                                  // Video Indicator & Real Duration
                                   if (item.type == 'VIDEO')
                                     Positioned(
                                       bottom: 6,
                                       left: 6,
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          const Icon(Icons.videocam_rounded, color: Colors.white, size: 16),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            item.duration ?? '0:42',
-                                            style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
-                                          ),
-                                        ],
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: Colors.black.withOpacity(0.65),
+                                          borderRadius: BorderRadius.circular(5),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(Icons.videocam_rounded, color: Colors.white, size: 14),
+                                            const SizedBox(width: 4),
+                                            VideoDurationWidget(
+                                              videoPath: item.file.path,
+                                              style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                                            ),
+                                          ],
+                                        ),
                                       ),
                                     ),
 

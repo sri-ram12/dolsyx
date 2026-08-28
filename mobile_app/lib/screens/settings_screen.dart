@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 import '../theme/app_theme.dart';
+import '../providers/auth_provider.dart';
 import 'profile_screen.dart';
 import 'privacy_settings_screen.dart';
+import 'account_settings_screen.dart';
+import 'help_settings_screen.dart';
 import 'app_lock_screen.dart';
 import 'chat_settings_screen.dart';
 import 'notification_settings_screen.dart';
 import 'storage_settings_screen.dart';
 import '../widgets/switch_account_modal.dart';
-import 'package:provider/provider.dart';
-import '../providers/auth_provider.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -19,7 +22,7 @@ class SettingsScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Settings'),
+        title: const Text('Settings'),
         backgroundColor: AppTheme.surfaceColor,
       ),
       backgroundColor: AppTheme.backgroundColor,
@@ -50,7 +53,9 @@ class SettingsScreen extends StatelessWidget {
             _buildSettingItem(context, Icons.notifications, 'Notification Tones & Call Ringtones', 'Message sounds, caller tones, custom device tones', () {
               Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationSettingsScreen()));
             }),
-            _buildSettingItem(context, Icons.key, 'Account', 'Security notifications, change number', () {}),
+            _buildSettingItem(context, Icons.key, 'Account', 'Security notifications, two-factor auth, delete account', () {
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const AccountSettingsScreen()));
+            }),
             _buildSettingItem(context, Icons.lock, 'Privacy', 'Block contacts, disappearing messages', () {
               Navigator.push(context, MaterialPageRoute(builder: (_) => const PrivacySettingsScreen()));
             }),
@@ -63,8 +68,15 @@ class SettingsScreen extends StatelessWidget {
             _buildSettingItem(context, Icons.fingerprint, 'App Lock', 'Require biometric or PIN', () {
               Navigator.push(context, MaterialPageRoute(builder: (_) => const AppLockScreen()));
             }),
-            _buildSettingItem(context, Icons.help_outline, 'Help', 'Help center, contact us, privacy policy', () {}),
-            _buildSettingItem(context, Icons.group, 'Invite a friend', '', () {}),
+            _buildSettingItem(context, Icons.help_outline, 'Help', 'Help center, contact us, privacy policy & terms', () {
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const HelpSettingsScreen()));
+            }),
+            _buildSettingItem(context, Icons.group, 'Invite a friend', 'Share DOLSYX with your friends and family', () {
+              Share.share(
+                'Experience fast, secure, end-to-end encrypted messaging and crystal-clear calls on DOLSYX! Join now: https://dolsyx-app.onrender.com',
+                subject: 'Join me on DOLSYX',
+              );
+            }),
           ],
         ),
       ),

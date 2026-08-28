@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { register, login, getMe, sendOtp, verifyOtp, resendOtp, logout, updateProfile, blockUser, unblockUser, getBlockedUsers, loginWithoutOtp, createQrSession, approveQrSession, checkQrSession } from "../controllers/auth.controller.js";
+import { register, login, getMe, sendOtp, verifyOtp, resendOtp, logout, updateProfile, blockUser, unblockUser, getBlockedUsers, loginWithoutOtp, createQrSession, approveQrSession, checkQrSession, deleteAccount, requestAccountDeletion } from "../controllers/auth.controller.js";
 import { authenticateToken } from "../middleware/auth.middleware.js";
 
 const router = Router();
@@ -13,6 +13,10 @@ router.post("/resend-otp", resendOtp as any);
 router.post("/logout", authenticateToken as any, logout as any);
 router.get("/me", authenticateToken as any, getMe as any);
 router.put("/profile", authenticateToken as any, updateProfile as any);
+
+// Account deletion (Mandatory Google Play Policy)
+router.delete("/account", authenticateToken as any, deleteAccount as any);
+router.post("/request-account-deletion", requestAccountDeletion as any);
 
 // WhatsApp Web style QR Login routes
 router.get("/qr-session", createQrSession as any);

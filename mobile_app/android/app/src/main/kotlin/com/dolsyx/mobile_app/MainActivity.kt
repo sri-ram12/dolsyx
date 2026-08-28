@@ -6,6 +6,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.res.Configuration
+import android.graphics.Bitmap
+import android.media.MediaMetadataRetriever
 import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
@@ -15,12 +17,16 @@ import androidx.annotation.NonNull
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.ByteArrayOutputStream
+import java.util.concurrent.Executors
 
 class MainActivity : FlutterFragmentActivity() {
     private val SCREEN_SHARE_CHANNEL = "com.dolsyx/screen_share"
     private val PIP_CHANNEL = "com.dolsyx/pip"
     private val SHARE_CHANNEL = "com.dolsyx/share"
     private val RINGTONE_CHANNEL = "com.dolsyx/ringtones"
+    private val VIDEO_THUMBNAIL_CHANNEL = "com.dolsyx/video_thumbnail"
+    private val thumbnailExecutor = Executors.newFixedThreadPool(4)
 
     private var isCallActive = false
     private var pipMethodChannel: MethodChannel? = null
@@ -221,6 +227,89 @@ class MainActivity : FlutterFragmentActivity() {
                         result.success(true)
                     } catch (e: Exception) {
                         result.error("STOP_ERROR", e.message, null)
+                    }
+                }
+                else -> result.notImplemented()
+            }
+        }
+
+        // Fast video thumbnail & duration extractor using hardware MediaMetadataRetriever
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, VIDEO_THUMBNAIL_CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "getVideoThumbnail" -> {
+                    val path = call.argument<String>("path")
+                    val quality = call.argument<Int>("quality") ?: 65
+                    if (path == null) {
+                        result.success(null)
+                        return@setMethodCallHandler
+                    }
+                    thumbnailExecutor.execute {
+                        try {
+                            val retriever = MediaMetadataRetriever()
+                            retriever.setDataSource(path)
+                            val bitmap = retriever.getFrameAtTime(1000000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                                ?: retriever.frameAtTime
+                            val durationMsStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                            val durationMs = durationMsStr?.toLongOrNull() ?: 0L
+                            val totalSec = durationMs / 1000
+                            val min = totalSec / 60
+                            val sec = totalSec % 60
+                            val formattedDuration = String.format("%d:%02d", min, sec)
+                            retriever.release()
+
+                            if (bitmap != null) {
+                                val stream = ByteArrayOutputStream()
+                                bitmap.compress(Bitmap.CompressFormat.JPEG, quality, stream)
+                                val bytes = stream.toByteArray()
+                                bitmap.recycle()
+                                runOnUiThread {
+                                    result.success(mapOf(
+                                        "bytes" to bytes,
+                                        "duration" to formattedDuration
+                                    ))
+                                }
+                            } else {
+                                runOnUiThread {
+                                    result.success(mapOf(
+                                        "bytes" to null,
+                                        "duration" to formattedDuration
+                                    ))
+                                }
+                            }
+                        } catch (e: Exception) {
+                            runOnUiThread {
+                                result.success(mapOf(
+                                    "bytes" to null,
+                                    "duration" to "0:00"
+                                ))
+                            }
+                        }
+                    }
+                }
+                "getVideoDuration" -> {
+                    val path = call.argument<String>("path")
+                    if (path == null) {
+                        result.success("0:00")
+                        return@setMethodCallHandler
+                    }
+                    thumbnailExecutor.execute {
+                        try {
+                            val retriever = MediaMetadataRetriever()
+                            retriever.setDataSource(path)
+                            val durationMsStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                            val durationMs = durationMsStr?.toLongOrNull() ?: 0L
+                            val totalSec = durationMs / 1000
+                            val min = totalSec / 60
+                            val sec = totalSec % 60
+                            retriever.release()
+                            runOnUiThread {
+                                result.success(String.format("%d:%02d", min, sec))
+                            }
+                        } catch (e: Exception) {
+                            runOnUiThread {
+                                result.success("0:00")
+                            }
+                        }
                     }
                 }
                 else -> result.notImplemented()

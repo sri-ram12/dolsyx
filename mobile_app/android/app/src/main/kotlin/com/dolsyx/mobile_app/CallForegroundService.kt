@@ -23,7 +23,7 @@ class CallForegroundService : Service() {
                 NotificationManager.IMPORTANCE_LOW
             )
             val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(channel)
+            manager?.createNotificationChannel(channel)
         }
 
         val launchIntent = Intent(this, MainActivity::class.java).apply {
@@ -68,10 +68,6 @@ class CallForegroundService : Service() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        try {
-            val intent = Intent("com.dolsyx.ACTION_CALL_ENDED_TASK_REMOVED")
-            sendBroadcast(intent)
-        } catch (_: Exception) {}
-        stopSelf()
+        // Keep ongoing call alive! Do NOT stop the service on task removal.
     }
 }

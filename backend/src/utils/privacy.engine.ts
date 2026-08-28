@@ -100,10 +100,21 @@ export const canViewOnlineStatus = async (requesterId: string, targetUserId: str
   const target = await prisma.user.findUnique({ where: { id: targetUserId } });
   if (!target) return false;
 
+  if (requesterId === target.id) return true;
+
   if (target.onlinePrivacy === "NOBODY") return false;
   if (target.onlinePrivacy === "SAME_AS_LAST_SEEN") {
     return await canViewLastSeen(requesterId, targetUserId);
   }
+  if (target.onlinePrivacy === "MY_CONTACTS") {
+    return await isContactOf(target.id, requesterId);
+  }
+  if (target.onlinePrivacy === "EXCEPT") {
+    const inContacts = await isContactOf(target.id, requesterId);
+    if (!inContacts) return false;
+    return !inExceptionList(target.lastSeenPrivacyExceptList, requesterId);
+  }
+  // EVERYONE
   return true;
 };
 

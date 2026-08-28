@@ -41,46 +41,104 @@ class ContactService {
 
   // Get all contacts
   static Future<List<dynamic>> getContacts(String token) async {
-    final res = await http.get(
-      Uri.parse(_base),
-      headers: ApiService.authHeaders(token),
-    );
-    if (res.statusCode == 200) return jsonDecode(res.body);
+    try {
+      final res = await http.get(
+        Uri.parse(_base),
+        headers: ApiService.authHeaders(token),
+      );
+      if (res.statusCode == 200) return jsonDecode(res.body);
+    } catch (_) {}
     return [];
   }
 
   // Check if a userId is already in contacts
   static Future<bool> isContact(String token, String targetUserId) async {
-    final res = await http.get(
-      Uri.parse('$_base/check/$targetUserId'),
-      headers: ApiService.authHeaders(token),
-    );
-    if (res.statusCode == 200) {
-      final body = jsonDecode(res.body);
-      return body['isContact'] == true;
-    }
+    try {
+      final res = await http.get(
+        Uri.parse('$_base/check/$targetUserId'),
+        headers: ApiService.authHeaders(token),
+      );
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body);
+        return body['isContact'] == true;
+      }
+    } catch (_) {}
     return false;
   }
 
   // Update contact (rename / toggle favorite)
   static Future<bool> updateContact(String token, String contactId, {String? savedName, bool? isFavorite}) async {
-    final res = await http.put(
-      Uri.parse('$_base/$contactId'),
-      headers: ApiService.authHeaders(token),
-      body: jsonEncode({
-        if (savedName != null) 'savedName': savedName,
-        if (isFavorite != null) 'isFavorite': isFavorite,
-      }),
-    );
-    return res.statusCode == 200;
+    try {
+      final res = await http.put(
+        Uri.parse('$_base/$contactId'),
+        headers: ApiService.authHeaders(token),
+        body: jsonEncode({
+          if (savedName != null) 'savedName': savedName,
+          if (isFavorite != null) 'isFavorite': isFavorite,
+        }),
+      );
+      return res.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
   }
 
-  // Delete contact
-  static Future<bool> deleteContact(String token, String contactId) async {
-    final res = await http.delete(
-      Uri.parse('$_base/$contactId'),
-      headers: ApiService.authHeaders(token),
-    );
-    return res.statusCode == 200;
+  // Delete contact (handles both Contact Record ID and Target User ID)
+  static Future<bool> deleteContact(String token, String contactIdOrUserId) async {
+    if (contactIdOrUserId.trim().isEmpty) return false;
+    final cleanId = contactIdOrUserId.trim();
+
+    try {
+      // 1. Direct attempt
+      final res = await http.delete(
+        Uri.parse('$_base/$cleanId'),
+        headers: ApiService.authHeaders(token),
+      );
+      if (res.statusCode == 200) return true;
+
+      // 2. Check if cleanId is a targetUserId and get the Contact record ID
+      final checkRes = await http.get(
+        Uri.parse('$_base/check/$cleanId'),
+        headers: ApiService.authHeaders(token),
+      );
+      if (checkRes.statusCode == 200) {
+        final data = jsonDecode(checkRes.body);
+        if (data['isContact'] == true && data['contact'] != null) {
+          final recordId = data['contact']['id']?.toString();
+          if (recordId != null && recordId.isNotEmpty && recordId != cleanId) {
+            final deleteRes = await http.delete(
+              Uri.parse('$_base/$recordId'),
+              headers: ApiService.authHeaders(token),
+            );
+            if (deleteRes.statusCode == 200) return true;
+          }
+        }
+      }
+
+      // 3. Fallback: Search all saved contacts
+      final allContacts = await getContacts(token);
+      for (final c in allContacts) {
+        final recordId = c['id']?.toString();
+        final cUserId = (c['contactId'] ?? c['contact']?['id'] ?? c['contact']?['_id'])?.toString();
+        final email = (c['contact']?['email'] ?? '').toString();
+        final username = (c['contact']?['username'] ?? '').toString();
+
+        if (recordId == cleanId ||
+            cUserId == cleanId ||
+            (email.isNotEmpty && email.toLowerCase() == cleanId.toLowerCase()) ||
+            (username.isNotEmpty && username.toLowerCase() == cleanId.toLowerCase())) {
+          if (recordId != null && recordId.isNotEmpty) {
+            final deleteRes = await http.delete(
+              Uri.parse('$_base/$recordId'),
+              headers: ApiService.authHeaders(token),
+            );
+            if (deleteRes.statusCode == 200) return true;
+          }
+        }
+      }
+    } catch (e) {
+      print('Error deleting contact: $e');
+    }
+    return false;
   }
 }

@@ -172,7 +172,7 @@ class DolsyxApp extends StatefulWidget {
   State<DolsyxApp> createState() => _DolsyxAppState();
 }
 
-class _DolsyxAppState extends State<DolsyxApp> {
+class _DolsyxAppState extends State<DolsyxApp> with WidgetsBindingObserver {
   bool _isInit = true;
   String? _currentFcmUserId;
   Map<String, dynamic>? _incomingCallData;
@@ -195,10 +195,22 @@ class _DolsyxAppState extends State<DolsyxApp> {
     }
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Keep ongoing calls running in background / PiP mode even if app task is detached
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _callEndedBannerTimer?.cancel();
+    super.dispose();
+  }
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       _setupGlobalCallListener();
       _setupForegroundFCM();
@@ -861,51 +873,156 @@ class _DolsyxAppState extends State<DolsyxApp> {
                       valueListenable: CallScreen.isCallActiveNotifier,
                       builder: (ctx, isActive, _) {
                         if (!isActive) return const SizedBox.shrink();
-                        return GestureDetector(
-                          onTap: () {
-                            if (navigatorKey.currentState == null) return;
-                            
-                            // Pop routes until we reach 'CallScreen'.
-                            // After minimize, the stack is:
-                            //   root → CallScreen → ChatListScreen
-                            // popUntil pops ChatListScreen and stops at CallScreen.
-                            bool found = false;
-                            navigatorKey.currentState!.popUntil((route) {
-                              if (route.settings.name == 'CallScreen') {
-                                found = true;
-                                return true; // stop here
-                              }
-                              return route.isFirst; // fallback: pop to root
-                            });
+                        return Material(
+                          color: const Color(0xFF0F5132),
+                          child: InkWell(
+                            onTap: () {
+                              if (navigatorKey.currentState == null) return;
+                              
+                              // Pop routes until we reach 'CallScreen'.
+                              // After minimize, the stack is:
+                              //   root → CallScreen → ChatListScreen
+                              // popUntil pops ChatListScreen and stops at CallScreen.
+                              bool found = false;
+                              navigatorKey.currentState!.popUntil((route) {
+                                if (route.settings.name == 'CallScreen') {
+                                  found = true;
+                                  return true; // stop here
+                                }
+                                return route.isFirst; // fallback: pop to root
+                              });
 
-                            // If not found, reset the notifier (call likely ended)
-                            if (!found) {
-                              if (CallScreen.activeCallState == null) {
-                                CallScreen.isCallActiveNotifier.value = false;
+                              // If not found, reset the notifier (call likely ended)
+                              if (!found) {
+                                if (CallScreen.activeCallState == null) {
+                                  CallScreen.isCallActiveNotifier.value = false;
+                                }
                               }
-                            }
-                          },
-                          child: Material(
+                            },
                             child: Container(
                               width: double.infinity,
-                              color: Colors.green,
+                              decoration: const BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [Color(0xFF075E54), Color(0xFF00A884)],
+                                  begin: Alignment.centerLeft,
+                                  end: Alignment.centerRight,
+                                ),
+                              ),
                               padding: EdgeInsets.only(
-                                top: MediaQuery.of(ctx).padding.top + 4,
-                                bottom: 6,
-                                left: 16,
-                                right: 16,
+                                top: MediaQuery.of(ctx).padding.top + 6,
+                                bottom: 8,
+                                left: 14,
+                                right: 14,
                               ),
                               child: Row(
                                 children: [
-                                  const Icon(Icons.call, color: Colors.white, size: 18),
+                                  // ── Left: Speaker & Mic Controls ──
+                                  ValueListenableBuilder<bool>(
+                                    valueListenable: CallScreen.isSpeakerOnNotifier,
+                                    builder: (context, isSpeakerOn, _) {
+                                      return GestureDetector(
+                                        behavior: HitTestBehavior.opaque,
+                                        onTap: () {
+                                          CallScreen.toggleSpeaker();
+                                        },
+                                        child: Container(
+                                          padding: const EdgeInsets.all(7),
+                                          decoration: BoxDecoration(
+                                            color: isSpeakerOn ? Colors.white : Colors.black.withValues(alpha: 0.25),
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: Icon(
+                                            isSpeakerOn ? Icons.volume_up_rounded : Icons.volume_down_rounded,
+                                            color: isSpeakerOn ? const Color(0xFF075E54) : Colors.white,
+                                            size: 18,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
                                   const SizedBox(width: 8),
-                                  const Expanded(
-                                    child: Text(
-                                      'Tap to return to call',
-                                      style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600, decoration: TextDecoration.none),
+                                  ValueListenableBuilder<bool>(
+                                    valueListenable: CallScreen.isMutedNotifier,
+                                    builder: (context, isMuted, _) {
+                                      return GestureDetector(
+                                        behavior: HitTestBehavior.opaque,
+                                        onTap: () {
+                                          CallScreen.toggleMute();
+                                        },
+                                        child: Container(
+                                          padding: const EdgeInsets.all(7),
+                                          decoration: BoxDecoration(
+                                            color: isMuted ? const Color(0xFFEA0038) : Colors.black.withValues(alpha: 0.25),
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: Icon(
+                                            isMuted ? Icons.mic_off_rounded : Icons.mic_rounded,
+                                            color: Colors.white,
+                                            size: 18,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                  const SizedBox(width: 10),
+
+                                  // ── Center: Tap to return to call + Duration ──
+                                  Expanded(
+                                    child: Row(
+                                      children: [
+                                        const Icon(Icons.phone_in_talk_rounded, color: Colors.white, size: 16),
+                                        const SizedBox(width: 6),
+                                        Expanded(
+                                          child: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              const Text(
+                                                'Tap to return to call',
+                                                style: TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 12.5,
+                                                  fontWeight: FontWeight.w600,
+                                                  decoration: TextDecoration.none,
+                                                ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                              _OngoingCallTimer(),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                  _OngoingCallTimer(),
+                                  const SizedBox(width: 10),
+
+                                  // ── Right: End Call Button ──
+                                  GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onTap: () {
+                                      CallScreen.endActiveCall();
+                                    },
+                                    child: Container(
+                                      padding: const EdgeInsets.all(7),
+                                      decoration: const BoxDecoration(
+                                        color: Color(0xFFEA0038),
+                                        shape: BoxShape.circle,
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black26,
+                                            blurRadius: 4,
+                                            offset: Offset(0, 2),
+                                          ),
+                                        ],
+                                      ),
+                                      child: const Icon(
+                                        Icons.call_end_rounded,
+                                        color: Colors.white,
+                                        size: 18,
+                                      ),
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),
@@ -956,8 +1073,13 @@ class _OngoingCallTimerState extends State<_OngoingCallTimer> {
     final state = CallScreen.activeCallState;
     final text = state != null ? state.formattedDuration : '';
     return Text(
-      text,
-      style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold, decoration: TextDecoration.none),
+      text.isNotEmpty ? text : '00:00',
+      style: const TextStyle(
+        color: Colors.white70,
+        fontSize: 11,
+        fontWeight: FontWeight.w500,
+        decoration: TextDecoration.none,
+      ),
     );
   }
 }

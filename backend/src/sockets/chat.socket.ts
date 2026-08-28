@@ -406,6 +406,29 @@ export const initChatSocket = (io: Server) => {
         // Allow empty content for media & location messages
         if (!mediaUrl && !latitude && (!content || !content.trim())) return;
 
+        // Block check — reject message if either party has blocked the other (DM only)
+        const conv = await prisma.conversation.findUnique({
+          where: { id: conversationId },
+          select: { isGroup: true, participants: { select: { userId: true } } },
+        });
+        if (conv && !conv.isGroup) {
+          const otherUserId = conv.participants.find((p) => p.userId !== userId)?.userId;
+          if (otherUserId) {
+            const blockExists = await prisma.userBlock.findFirst({
+              where: {
+                OR: [
+                  { blockerId: userId, blockedId: otherUserId },
+                  { blockerId: otherUserId, blockedId: userId },
+                ],
+              },
+            });
+            if (blockExists) {
+              socket.emit("message_error", { conversationId, error: "blocked" });
+              return;
+            }
+          }
+        }
+
         // Feature #26: Automated Spam & Phishing Shield
         const suspiciousPatterns = [/bit\.ly/i, /tinyurl\.com/i, /free-crypto-giveaway/i, /claim-bonus-now/i];
         let processedContent = content;
@@ -1364,7 +1387,34 @@ export const initChatSocket = (io: Server) => {
     // Handle client disconnect
     socket.on("disconnect", () => {
       console.log(`User disconnected from socket: ${username} (${userId})`);
-      activeCallUsers.delete(userId);
+      const ongoingConvId = activeCallUsers.get(userId);
+      if (ongoingConvId) {
+        // Grace period (12s) to allow seamless PiP mode, app switching, and socket reconnects
+        setTimeout(() => {
+          const sockets = onlineUsers.get(userId);
+          if (!sockets || sockets.size === 0) {
+            const currentCallConv = activeCallUsers.get(userId);
+            if (currentCallConv === ongoingConvId) {
+              activeCallUsers.delete(userId);
+              for (const [peerUserId, convId] of activeCallUsers.entries()) {
+                if (convId === ongoingConvId && peerUserId !== userId) {
+                  activeCallUsers.delete(peerUserId);
+                  io.to(peerUserId).emit("call_ended", {
+                    endedBy: userId,
+                    status: "disconnected",
+                    reason: "User closed app or disconnected",
+                  });
+                }
+              }
+              io.to(ongoingConvId).emit("call_ended", {
+                endedBy: userId,
+                status: "disconnected",
+                reason: "User closed app or disconnected",
+              });
+            }
+          }
+        }, 12000);
+      }
 
       const userSockets = onlineUsers.get(userId);
       if (userSockets) {

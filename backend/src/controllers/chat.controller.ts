@@ -104,8 +104,8 @@ export const getChats = async (req: AuthRequest, res: Response): Promise<void> =
       if (b.blockedId === userId) blockedSet.add(b.blockerId);
     }
 
-    // Format chat list for frontend convenience
-    const formattedChats = conversations.map((chat) => {
+    // Format chat list for frontend convenience — apply privacy per recipient
+    const formattedChats = await Promise.all(conversations.map(async (chat) => {
       // Find the recipient (the other participant in a 1-on-1 chat)
       const otherParticipant = chat.participants.find((p) => p.userId !== userId);
       const recipient = otherParticipant ? { ...otherParticipant.user } : null;
@@ -130,30 +130,58 @@ export const getChats = async (req: AuthRequest, res: Response): Promise<void> =
 
       if (recipient) {
         if (blockedSet.has(recipient.id)) {
+          // Blocked: hide everything
           recipient.avatarUrl = null;
           recipient.bio = null;
+          recipient.lastSeen = null;
+          recipient.isOnline = false;
+        } else {
+          // Apply privacy engine for non-blocked recipients
+          const [canPhoto, canLastSeen, canOnlineStatus] = await Promise.all([
+            canViewProfilePhoto(userId, recipient.id),
+            canViewLastSeen(userId, recipient.id),
+            canViewOnline(userId, recipient.id),
+          ]);
+          if (!canPhoto) recipient.avatarUrl = null;
+          if (!canLastSeen) recipient.lastSeen = null;
+          if (!canOnlineStatus) recipient.isOnline = false;
         }
       }
 
-        return {
-          id: chat.id,
-          isGroup: chat.isGroup,
-          name: chat.isGroup
-            ? (chat.name || "Group Chat")
-            : (recipient?.username || chat.name || "Chat"),
-          avatarUrl: chat.isGroup
-            ? (chat.avatarUrl || null)
-            : (recipient?.avatarUrl || null),
-          recipient,
-          lastMessage,
-          updatedAt: chat.updatedAt,
-          participants: chat.participants,
-          unreadCount,
-          isArchived: chat.participants.find((p) => p.userId === userId)?.isArchived || false,
-        };
-      });
+      return {
+        id: chat.id,
+        isGroup: chat.isGroup,
+        name: chat.isGroup
+          ? (chat.name || "Group Chat")
+          : (recipient?.username || chat.name || "Chat"),
+        avatarUrl: chat.isGroup
+          ? (chat.avatarUrl || null)
+          : (recipient?.avatarUrl || null),
+        recipient,
+        lastMessage,
+        updatedAt: chat.updatedAt,
+        participants: chat.participants,
+        unreadCount,
+        isArchived: chat.participants.find((p) => p.userId === userId)?.isArchived || false,
+      };
+    }));
 
-    res.json(formattedChats);
+    // Deduplicate 1-on-1 direct conversations so each contact/user appears strictly once
+    const seenDirectUserIds = new Set<string>();
+    const deduplicatedChats = [];
+
+    for (const chat of formattedChats) {
+      if (!chat.isGroup && chat.recipient?.id) {
+        if (seenDirectUserIds.has(chat.recipient.id)) {
+          // Skip duplicate conversation for the same user
+          continue;
+        }
+        seenDirectUserIds.add(chat.recipient.id);
+      }
+      deduplicatedChats.push(chat);
+    }
+
+    res.json(deduplicatedChats);
   } catch (error) {
     console.error("GetChats error:", error);
     res.status(500).json({ message: "Internal server error" });
@@ -308,6 +336,20 @@ export const createOrGetDirectChat = async (req: AuthRequest, res: Response): Pr
 
     if (!targetUser) {
       res.status(404).json({ message: "Target user not found" });
+      return;
+    }
+
+    // Block check — if either user has blocked the other, deny chat creation
+    const blockRecord = await prisma.userBlock.findFirst({
+      where: {
+        OR: [
+          { blockerId: currentUserId, blockedId: targetUserId },
+          { blockerId: targetUserId, blockedId: currentUserId },
+        ],
+      },
+    });
+    if (blockRecord) {
+      res.status(403).json({ message: "Cannot start a conversation with this user" });
       return;
     }
 

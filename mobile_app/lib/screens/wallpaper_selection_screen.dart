@@ -36,13 +36,13 @@ class WallpaperSelectionScreen extends StatelessWidget {
       '#30cfd0,#330867', // Teal Midnight
       '#a8ff78,#78ffd6', // Aurora Mint
       '#ff0844,#ffb199', // Flamingo Red
-      '#f12711,#f5af19', // Solar Blaze
+      '#0f172a,#38bdf8', // Nordic Sky
       '#b92b27,#1565c0', // Electric Indigo
       '#3a1c71,#d76d77', // Velvet Dusk
       '#43e97b,#38f9d7', // Emerald Glow
       '#ff9a9e,#fecfef', // Rose Pastel
       '#6a11cb,#2575fc', // Royal Orbit
-      '#200122,#6f0000', // Vampire Blood
+      '#0f172a,#1e293b', // Titanium Slate
       '#141e30,#243b55', // Night Shadow
       '#000000,#434343', // Obsidian Dark
       '#f857a6,#ff5858', // Crimson Pulse

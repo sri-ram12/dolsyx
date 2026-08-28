@@ -15,6 +15,8 @@ class _AppLockScreenState extends State<AppLockScreen> {
   String _lockTimeout = 'Immediately';
   String _pin = '';
   final TextEditingController _pinController = TextEditingController();
+  final LocalAuthentication _localAuth = LocalAuthentication();
+  bool _isAuthenticating = false;
 
   @override
   void initState() {
@@ -22,8 +24,15 @@ class _AppLockScreenState extends State<AppLockScreen> {
     _loadSettings();
   }
 
+  @override
+  void dispose() {
+    _pinController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
     setState(() {
       _isAppLockEnabled = prefs.getBool('app_lock_enabled') ?? false;
       _lockTimeout = prefs.getString('app_lock_timeout') ?? 'Immediately';
@@ -39,11 +48,47 @@ class _AppLockScreenState extends State<AppLockScreen> {
     await prefs.setString('app_lock_pin', _pin);
   }
 
+  Future<void> _handleToggleLock(bool val) async {
+    if (_isAuthenticating) return;
+    _isAuthenticating = true;
+
+    try {
+      final isSupported = await _localAuth.isDeviceSupported() || await _localAuth.canCheckBiometrics;
+      if (!isSupported) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Please set up a screen lock (PIN, Pattern, or Fingerprint) in your device settings first.'),
+            ),
+          );
+        }
+        return;
+      }
+
+      final authenticated = await _localAuth.authenticate(
+        localizedReason: val ? 'Please authenticate to enable App Lock' : 'Please authenticate to disable App Lock',
+      );
+
+      if (authenticated && mounted) {
+        setState(() {
+          _isAppLockEnabled = val;
+        });
+        await _saveSettings();
+      }
+    } on LocalAuthException catch (e) {
+      debugPrint('LocalAuthException: ${e.code} - ${e.description}');
+    } catch (e) {
+      debugPrint('App lock toggle error: $e');
+    } finally {
+      _isAuthenticating = false;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('App Lock'),
+        title: const Text('App Lock'),
         backgroundColor: AppTheme.surfaceColor,
       ),
       backgroundColor: AppTheme.backgroundColor,
@@ -52,30 +97,13 @@ class _AppLockScreenState extends State<AppLockScreen> {
         children: [
           SwitchListTile(
             title: Text('Unlock with biometrics', style: TextStyle(color: AppTheme.textPrimary)),
-            subtitle: Text('When enabled, you\'ll need to use fingerprint or face recognition to open DOLSYX.', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+            subtitle: Text(
+              'When enabled, you\'ll need to use fingerprint, face recognition, or PIN to open DOLSYX.',
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+            ),
             value: _isAppLockEnabled,
             activeColor: AppTheme.primaryColor,
-            onChanged: (val) async {
-              final localAuth = LocalAuthentication();
-              final isSupported = await localAuth.isDeviceSupported();
-              if (!isSupported) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Please set up a screen lock (PIN, Pattern, or Fingerprint) in your device settings first.')),
-                );
-                return;
-              }
-              
-              final authenticated = await localAuth.authenticate(
-                localizedReason: val ? 'Please authenticate to enable App Lock' : 'Please authenticate to disable App Lock',
-              );
-
-              if (authenticated) {
-                setState(() {
-                  _isAppLockEnabled = val;
-                });
-                _saveSettings();
-              }
-            },
+            onChanged: _handleToggleLock,
           ),
           if (_isAppLockEnabled) ...[
             Padding(
@@ -108,8 +136,10 @@ class _AppLockScreenState extends State<AppLockScreen> {
               groupValue: _lockTimeout,
               activeColor: AppTheme.primaryColor,
               onChanged: (val) {
-                setState(() => _lockTimeout = val!);
-                _saveSettings();
+                if (val != null) {
+                  setState(() => _lockTimeout = val);
+                  _saveSettings();
+                }
               },
             ),
             RadioListTile<String>(
@@ -118,8 +148,10 @@ class _AppLockScreenState extends State<AppLockScreen> {
               groupValue: _lockTimeout,
               activeColor: AppTheme.primaryColor,
               onChanged: (val) {
-                setState(() => _lockTimeout = val!);
-                _saveSettings();
+                if (val != null) {
+                  setState(() => _lockTimeout = val);
+                  _saveSettings();
+                }
               },
             ),
             RadioListTile<String>(
@@ -128,8 +160,10 @@ class _AppLockScreenState extends State<AppLockScreen> {
               groupValue: _lockTimeout,
               activeColor: AppTheme.primaryColor,
               onChanged: (val) {
-                setState(() => _lockTimeout = val!);
-                _saveSettings();
+                if (val != null) {
+                  setState(() => _lockTimeout = val);
+                  _saveSettings();
+                }
               },
             ),
           ]

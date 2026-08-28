@@ -26,6 +26,31 @@ const STUN_CONFIG: RTCConfiguration = {
       username: "openrelayproject",
       credential: "openrelayproject",
     },
+    {
+      urls: "turns:openrelay.metered.ca:443?transport=tcp",
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
+    {
+      urls: "turns:openrelay.metered.ca:5349",
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
+    {
+      urls: "turn:relay.metered.ca:80",
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
+    {
+      urls: "turn:relay.metered.ca:443",
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
+    {
+      urls: "turns:relay.metered.ca:443?transport=tcp",
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
   ],
   iceCandidatePoolSize: 10,
   iceTransportPolicy: "all",
@@ -69,10 +94,10 @@ export const useWebRTC = ({ onIceCandidate }: UseWebRTCOptions) => {
         setRemoteStream(new MediaStream(stream.getTracks()));
       } else {
         setRemoteStream((prev) => {
-          const ns = prev ? new MediaStream(prev.getTracks()) : new MediaStream();
-          ns.addTrack(event.track);
+          const ns = prev ? prev : new MediaStream();
+          try { ns.addTrack(event.track); } catch (_) {}
           event.track.enabled = true;
-          return ns;
+          return new MediaStream(ns.getTracks());
         });
       }
     };
@@ -86,25 +111,42 @@ export const useWebRTC = ({ onIceCandidate }: UseWebRTCOptions) => {
   }, [onIceCandidate]);
 
   const getMedia = useCallback(async (callType: "audio" | "video") => {
-    const constraints: MediaStreamConstraints = {
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-        sampleRate: { ideal: 48000 },
-        channelCount: { ideal: 1 },
-      },
-      video:
-        callType === "video"
-          ? {
-              width: { ideal: 1920, min: 1280 },
-              height: { ideal: 1080, min: 720 },
-              frameRate: { ideal: 30, max: 60 },
-              facingMode: "user",
-            }
-          : false,
-    };
-    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          sampleRate: { ideal: 48000 },
+          channelCount: { ideal: 1 },
+        },
+        video:
+          callType === "video"
+            ? {
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+                frameRate: { ideal: 30 },
+                facingMode: "user",
+              }
+            : false,
+      });
+    } catch (e) {
+      console.warn("Primary getUserMedia failed, retrying basic fallback constraints:", e);
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: callType === "video" ? { facingMode: "user" } : false,
+        });
+      } catch (err) {
+        console.error("Camera/Mic access failed completely:", err);
+        if (callType === "video") {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        } else {
+          throw err;
+        }
+      }
+    }
     localStreamRef.current = stream;
     setLocalStream(stream);
     setFacingMode("user"); // reset to front camera

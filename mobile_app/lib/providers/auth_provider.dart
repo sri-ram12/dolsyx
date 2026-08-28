@@ -322,4 +322,38 @@ class AuthProvider with ChangeNotifier {
     _token = null;
     notifyListeners();
   }
+
+  /// Mandatory Google Play Policy: Delete user account on backend and wipe all local keys & sessions
+  Future<bool> deleteAccountAndWipeLocalData() async {
+    if (_token == null) return false;
+    _isLoading = true;
+    notifyListeners();
+    try {
+      final success = await _apiService.deleteAccount(_token!);
+      if (success) {
+        if (_user?['id'] != null) {
+          await removeSavedAccount(_user!['id'].toString());
+        }
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove('jwt_token');
+        await prefs.remove('cached_user_data');
+        _socketService.disconnect();
+        _isAuthenticated = false;
+        _user = null;
+        _token = null;
+        _isLoading = false;
+        notifyListeners();
+        return true;
+      }
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    } catch (e) {
+      debugPrint('Delete account error: $e');
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
 }
+

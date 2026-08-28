@@ -7,6 +7,7 @@ import '../theme/app_theme.dart';
 import 'verify_safety_number_screen.dart';
 import '../services/api_service.dart';
 import '../services/chat_service.dart';
+import '../services/contact_service.dart';
 import '../providers/auth_provider.dart';
 import 'package:intl/intl.dart';
 import '../widgets/color_avatar.dart';
@@ -139,6 +140,45 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
             SnackBar(content: Text(success ? 'User blocked' : 'Failed to block user')),
           );
           if (success) setState(() => _isBlocked = true);
+        }
+      }
+    }
+  }
+
+  void _deleteContact() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppTheme.surfaceColor,
+        title: Text('Delete contact?', style: TextStyle(color: AppTheme.textPrimary)),
+        content: Text('Are you sure you want to remove this person from your contacts list?', style: TextStyle(color: AppTheme.textSecondary)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      final token = Provider.of<AuthProvider>(context, listen: false).token;
+      final userId = (widget.user['id'] ?? widget.user['_id'] ?? widget.user['email'] ?? widget.user['username'] ?? '').toString();
+      if (token != null && userId.isNotEmpty) {
+        setState(() => _isProcessing = true);
+        final ok = await ContactService.deleteContact(token, userId);
+        if (mounted) {
+          setState(() => _isProcessing = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(ok ? 'Contact deleted successfully' : 'Failed to delete contact'),
+              backgroundColor: ok ? AppTheme.primaryColor : Colors.redAccent,
+            ),
+          );
+          if (ok) {
+            Navigator.pop(context, true);
+          }
         }
       }
     }
@@ -488,7 +528,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
                                 final fullUrl = rawUrl.startsWith('http') ? rawUrl : 'https://dolsyx-app.onrender.com$rawUrl';
                                 return GestureDetector(
                                   onTap: () {
-                                    Navigator.push(ctx, MaterialPageRoute(builder: (_) => FullScreenImageView(imageUrl: fullUrl)));
+                                    Navigator.push(ctx, MaterialPageRoute(builder: (_) => FullScreenImageView(imageUrl: fullUrl, isChatMedia: true)));
                                   },
                                   child: Stack(
                                     children: [
@@ -674,9 +714,20 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
             icon: const Icon(Icons.more_vert),
             onSelected: (value) {
               if (value == 'edit_name') _editName();
+              if (value == 'delete_contact') _deleteContact();
             },
             itemBuilder: (context) => [
               const PopupMenuItem(value: 'edit_name', child: Text('Edit Name')),
+              const PopupMenuItem(
+                value: 'delete_contact',
+                child: Row(
+                  children: [
+                    Icon(Icons.person_remove_outlined, color: Colors.red, size: 18),
+                    SizedBox(width: 8),
+                    Text('Delete Contact', style: TextStyle(color: Colors.red)),
+                  ],
+                ),
+              ),
             ],
           ),
         ],
@@ -802,6 +853,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
                   }),
                   _buildActionItem(Icons.group, 'Add to group', () {}),
                   _buildActionItem(Icons.star, 'Add to favourite', () {}),
+                  _buildActionItem(Icons.person_remove_outlined, 'Delete contact', _deleteContact, isDestructive: true),
                   _buildActionItem(Icons.delete_outline, 'Clear chat', _clearChat, isDestructive: true),
                   _isBlocked 
                       ? _buildActionItem(Icons.block, 'Unblock user', _unblockUser, isDestructive: false)

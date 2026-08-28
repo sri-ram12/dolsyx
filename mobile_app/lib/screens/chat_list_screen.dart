@@ -135,7 +135,17 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
         bool found = false;
         if (mounted) {
           setState(() {
-            final index = _chats.indexWhere((c) => c.id == conversationId);
+            final index = _chats.indexWhere((c) {
+              if (c.id == conversationId) return true;
+              if (!c.isGroup && senderId != null && c.participants != null) {
+                final otherP = c.participants!.firstWhere(
+                  (p) => p['user'] != null && (p['user']['id']?.toString() == senderId || p['user']['_id']?.toString() == senderId),
+                  orElse: () => null,
+                );
+                return otherP != null;
+              }
+              return false;
+            });
             if (index != -1) {
               found = true;
               if (event['type'] == 'read') {
@@ -183,13 +193,73 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
     });
   }
 
+  void _setChatsDeduplicated(List<Chat> newChats) {
+    final Map<String, Chat> directChatsByUserId = {};
+    final Map<String, Chat> chatsById = {};
+    String? currentUserId;
+    try {
+      final auth = Provider.of<AuthProvider>(context, listen: false);
+      currentUserId = (auth.user?['id'] ?? auth.user?['_id'])?.toString();
+    } catch (_) {}
+
+    for (final chat in newChats) {
+      // 1. Deduplicate by conversation ID
+      if (chatsById.containsKey(chat.id)) continue;
+      chatsById[chat.id] = chat;
+
+      // 2. Deduplicate 1-on-1 direct chats by recipient user ID
+      if (!chat.isGroup) {
+        String? otherUserId;
+        if (chat.participants != null && chat.participants!.isNotEmpty) {
+          final otherP = chat.participants!.firstWhere(
+            (p) => p['user'] != null && (p['user']['id']?.toString() != currentUserId && p['user']['_id']?.toString() != currentUserId),
+            orElse: () => null,
+          );
+          if (otherP != null) {
+            otherUserId = (otherP['user']['id'] ?? otherP['user']['_id'])?.toString();
+          }
+        }
+        if (otherUserId != null && otherUserId.isNotEmpty) {
+          if (directChatsByUserId.containsKey(otherUserId)) {
+            final existing = directChatsByUserId[otherUserId]!;
+            final timeExisting = existing.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+            final timeCurrent = chat.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+            if (timeCurrent.isAfter(timeExisting)) {
+              directChatsByUserId[otherUserId] = chat;
+            }
+          } else {
+            directChatsByUserId[otherUserId] = chat;
+          }
+        }
+      }
+    }
+
+    final uniqueChats = chatsById.values.where((chat) {
+      if (chat.isGroup) return true;
+      String? otherUserId;
+      if (chat.participants != null && chat.participants!.isNotEmpty) {
+        final otherP = chat.participants!.firstWhere(
+          (p) => p['user'] != null && (p['user']['id']?.toString() != currentUserId && p['user']['_id']?.toString() != currentUserId),
+          orElse: () => null,
+        );
+        if (otherP != null) {
+          otherUserId = (otherP['user']['id'] ?? otherP['user']['_id'])?.toString();
+        }
+      }
+      if (otherUserId == null) return true;
+      return directChatsByUserId[otherUserId]?.id == chat.id;
+    }).toList();
+
+    _chats = uniqueChats;
+    _sortChats();
+  }
+
   Future<void> _fetchChats() async {
     if (mounted) {
       final cachedChats = await _chatService.getCachedChats();
       if (cachedChats.isNotEmpty) {
         setState(() {
-          _chats = cachedChats;
-          _sortChats();
+          _setChatsDeduplicated(cachedChats);
           _isLoading = false;
         });
       }
@@ -199,8 +269,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
       final chats = await _chatService.getChats();
       if (mounted) {
         setState(() {
-          _chats = chats;
-          _sortChats();
+          _setChatsDeduplicated(chats);
           _isLoading = false;
         });
       }

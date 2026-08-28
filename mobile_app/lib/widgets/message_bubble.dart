@@ -730,15 +730,30 @@ class MessageBubble extends StatelessWidget {
                         GestureDetector(
                           onTap: () {
                             if (message.mediaUrl != null && message.mediaUrl!.isNotEmpty) {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (ctx) => ViewOnceScreen(
-                                    message: message,
-                                    onViewed: (_) {},
+                              if (message.isViewOnce) {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (ctx) => ViewOnceScreen(
+                                      message: message,
+                                      onViewed: (_) {},
+                                    ),
                                   ),
-                                ),
-                              );
+                                );
+                              } else {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (ctx) => FullScreenImageView(
+                                      imageUrl: message.mediaUrl!,
+                                      isChatMedia: true,
+                                      senderName: isMe ? 'You' : (message.sender?['username'] ?? message.sender?['name'] ?? 'Contact'),
+                                      timestamp: message.createdAt,
+                                      message: message,
+                                    ),
+                                  ),
+                                );
+                              }
                             }
                           },
                           child: ClipRRect(

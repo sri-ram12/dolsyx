@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { prisma } from "../config/db.js";
 import type { AuthRequest } from "../middleware/auth.middleware.js";
+import { canViewProfilePhoto, canViewAbout, canViewLastSeen, canViewOnline } from "../utils/privacy.engine.js";
 import { emailService } from "../services/email.service.js";
 
 const JWT_SECRET = process.env.JWT_SECRET || "dolsyx_super_secret_key_123456";
@@ -299,6 +300,7 @@ export const getMe = async (req: AuthRequest, res: Response): Promise<void> => {
 
 export const getUserById = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    const requesterId = req.user!.id;
     const id = req.params.id as string;
     const user = await prisma.user.findUnique({
       where: { id },
@@ -312,6 +314,7 @@ export const getUserById = async (req: AuthRequest, res: Response): Promise<void
         bio: true,
         statusMessage: true,
         lastSeen: true,
+        isOnline: true,
         xp: true,
         streakCount: true,
         avatarPrivacy: true,
@@ -331,11 +334,53 @@ export const getUserById = async (req: AuthRequest, res: Response): Promise<void
       res.status(404).json({ message: "User not found" });
       return;
     }
-    res.json(user);
+
+    // Apply privacy engine — own profile is always returned unfiltered
+    if (requesterId !== id) {
+      // Check block status first — if either user blocked the other, strip sensitive data
+      const blockRecord = await prisma.userBlock.findFirst({
+        where: {
+          OR: [
+            { blockerId: requesterId, blockedId: id },
+            { blockerId: id, blockedId: requesterId },
+          ],
+        },
+      });
+
+      const filtered: any = { ...user };
+
+      if (blockRecord) {
+        // Completely hide sensitive info from/to blocked users
+        filtered.avatarUrl = null;
+        filtered.coverUrl = null;
+        filtered.bio = null;
+        filtered.statusMessage = null;
+        filtered.lastSeen = null;
+        filtered.isOnline = false;
+        res.json(filtered);
+        return;
+      }
+
+      const [canPhoto, canAbout, canLastSeen, canOnlineStatus] = await Promise.all([
+        canViewProfilePhoto(requesterId, id),
+        canViewAbout(requesterId, id),
+        canViewLastSeen(requesterId, id),
+        canViewOnline(requesterId, id),
+      ]);
+
+      if (!canPhoto) { filtered.avatarUrl = null; filtered.coverUrl = null; }
+      if (!canAbout) { filtered.bio = null; filtered.statusMessage = null; }
+      if (!canLastSeen) filtered.lastSeen = null;
+      if (!canOnlineStatus) filtered.isOnline = false;
+      res.json(filtered);
+    } else {
+      res.json(user);
+    }
   } catch (error) {
     res.status(500).json({ message: "Internal server error" });
   }
 };
+
 
 // Terminate user session and update online status to offline
 export const logout = async (req: AuthRequest, res: Response): Promise<void> => {
@@ -783,3 +828,70 @@ export const checkQrSession = async (req: Request, res: Response): Promise<void>
     res.status(500).json({ message: "Error checking QR session" });
   }
 };
+
+// Permanently delete user account and associated personal data (Mandatory Google Play Policy)
+export const deleteAccount = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(401).json({ message: "Unauthorized" });
+      return;
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      res.status(404).json({ message: "User not found" });
+      return;
+    }
+
+    // Delete user from database (cascades to devices, chats, contacts, keys, and media refs)
+    await prisma.user.delete({
+      where: { id: userId },
+    });
+
+    res.json({
+      success: true,
+      message: "Account and all associated personal data have been permanently deleted.",
+    });
+  } catch (error) {
+    console.error("Delete account error:", error);
+    res.status(500).json({ message: "Failed to delete account. Please try again later." });
+  }
+};
+
+// Public web endpoint for requesting account and data deletion (Mandatory Google Play web URL requirement)
+export const requestAccountDeletion = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email, reason } = req.body;
+    if (!email) {
+      res.status(400).json({ message: "Email address is required" });
+      return;
+    }
+
+    const trimmedEmail = String(email).trim().toLowerCase();
+    const user = await prisma.user.findUnique({ where: { email: trimmedEmail } });
+
+    if (!user) {
+      // Return success to avoid email enumeration while confirming deletion request
+      res.json({
+        success: true,
+        message: "If an account with this email exists, a verification link has been initiated.",
+      });
+      return;
+    }
+
+    // Process permanent deletion directly or flag for immediate cleanup
+    await prisma.user.delete({
+      where: { id: user.id },
+    });
+
+    res.json({
+      success: true,
+      message: "Your account and all associated data have been permanently deleted from DOLSYX servers.",
+    });
+  } catch (error) {
+    console.error("Public account deletion request error:", error);
+    res.status(500).json({ message: "Failed to process deletion request." });
+  }
+};
+

@@ -296,4 +296,19 @@ class ApiService {
       return false;
     }
   }
+
+  // Mandatory Google Play Policy: Permanently delete account and user data
+  Future<bool> deleteAccount(String token) async {
+    try {
+      final response = await http.delete(
+        Uri.parse('$baseUrl/auth/account'),
+        headers: authHeaders(token),
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      print('Delete account error: $e');
+      return false;
+    }
+  }
 }
+

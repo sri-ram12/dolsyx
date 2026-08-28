@@ -33,7 +33,12 @@ function VideoPlayer({ stream, muted, mirror, className }: { stream: MediaStream
   useEffect(() => {
     if (ref.current && stream) {
       ref.current.srcObject = stream;
-      ref.current.play().catch(() => {});
+      const p = ref.current.play();
+      if (p !== undefined) {
+        p.catch(() => {
+          // Retry on user interaction
+        });
+      }
     }
   }, [stream]);
   if (!stream) return null;
@@ -46,7 +51,10 @@ function RemoteAudio({ stream, muted }: { stream: MediaStream | null; muted: boo
   useEffect(() => {
     if (ref.current && stream) {
       ref.current.srcObject = stream;
-      ref.current.play().catch(() => {});
+      const p = ref.current.play();
+      if (p !== undefined) {
+        p.catch(() => {});
+      }
     }
   }, [stream]);
   useEffect(() => {

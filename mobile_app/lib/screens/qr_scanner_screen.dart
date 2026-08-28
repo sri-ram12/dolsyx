@@ -10,7 +10,6 @@ import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'chat_room_screen.dart';
-
 import 'package:local_auth/local_auth.dart';
 import 'package:image_picker/image_picker.dart';
 

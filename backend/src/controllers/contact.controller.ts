@@ -128,6 +128,17 @@ export const addContact = async (req: AuthRequest, res: Response): Promise<void>
       },
     });
 
+    // Apply privacy filtering on the returned contact
+    const c = contact.contact as any;
+    const [canPhoto, canLastSeen, canOnlineStatus] = await Promise.all([
+      canViewProfilePhoto(userId, c.id),
+      canViewLastSeen(userId, c.id),
+      canViewOnline(userId, c.id),
+    ]);
+    if (!canPhoto) c.avatarUrl = null;
+    if (!canLastSeen) c.lastSeen = null;
+    if (!canOnlineStatus) c.isOnline = false;
+
     res.status(201).json(contact);
   } catch (error) {
     console.error("Add contact error:", error);
@@ -179,10 +190,21 @@ export const addContactById = async (req: AuthRequest, res: Response): Promise<v
       },
       include: {
         contact: {
-          select: { id: true, username: true, email: true, avatarUrl: true, statusMessage: true, isOnline: true },
+          select: { id: true, username: true, email: true, avatarUrl: true, statusMessage: true, isOnline: true, lastSeen: true },
         },
       },
     });
+
+    // Apply privacy filtering on the returned contact
+    const c = contact.contact as any;
+    const [canPhoto, canLastSeen, canOnlineStatus] = await Promise.all([
+      canViewProfilePhoto(userId, c.id),
+      canViewLastSeen(userId, c.id),
+      canViewOnline(userId, c.id),
+    ]);
+    if (!canPhoto) c.avatarUrl = null;
+    if (!canLastSeen) c.lastSeen = null;
+    if (!canOnlineStatus) c.isOnline = false;
 
     res.status(201).json(contact);
   } catch (error) {
@@ -205,6 +227,19 @@ export const getContacts = async (req: AuthRequest, res: Response): Promise<void
       },
       orderBy: [{ isFavorite: "desc" }, { savedName: "asc" }],
     });
+
+    // Apply privacy engine filtering for each contact
+    await Promise.all(contacts.map(async (entry) => {
+      const c = entry.contact as any;
+      const [canPhoto, canLastSeen, canOnlineStatus] = await Promise.all([
+        canViewProfilePhoto(userId, c.id),
+        canViewLastSeen(userId, c.id),
+        canViewOnline(userId, c.id),
+      ]);
+      if (!canPhoto) c.avatarUrl = null;
+      if (!canLastSeen) c.lastSeen = null;
+      if (!canOnlineStatus) c.isOnline = false;
+    }));
 
     res.status(200).json(contacts);
   } catch (error) {
@@ -256,7 +291,13 @@ export const deleteContact = async (req: AuthRequest, res: Response): Promise<vo
     const contactId = req.params["contactId"] as string;
 
     const contact = await prisma.contact.findFirst({
-      where: { id: contactId, userId },
+      where: {
+        userId,
+        OR: [
+          { id: contactId },
+          { contactId: contactId },
+        ],
+      },
     });
 
     if (!contact) {
@@ -264,9 +305,9 @@ export const deleteContact = async (req: AuthRequest, res: Response): Promise<vo
       return;
     }
 
-    await prisma.contact.delete({ where: { id: contactId } });
+    await prisma.contact.delete({ where: { id: contact.id } });
 
-    res.status(200).json({ message: "Contact deleted" });
+    res.status(200).json({ message: "Contact deleted successfully" });
   } catch (error) {
     console.error("Delete contact error:", error);
     res.status(500).json({ message: "Failed to delete contact" });

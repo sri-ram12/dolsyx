@@ -42,7 +42,29 @@ class CallScreen extends StatefulWidget {
   static String? activeConversationId;
   static ValueNotifier<bool> isCallActiveNotifier = ValueNotifier<bool>(false);
   static ValueNotifier<String?> callEndedNotifier = ValueNotifier<String?>(null);
+  static ValueNotifier<bool> isMutedNotifier = ValueNotifier<bool>(false);
+  static ValueNotifier<bool> isSpeakerOnNotifier = ValueNotifier<bool>(false);
   static dynamic activeCallState;
+
+  static void toggleMute() {
+    if (activeCallState != null) {
+      activeCallState.toggleMuteDirect();
+    }
+  }
+
+  static void toggleSpeaker() {
+    if (activeCallState != null) {
+      activeCallState.toggleSpeakerDirect();
+    }
+  }
+
+  static void endActiveCall() {
+    if (activeCallState != null) {
+      activeCallState.endCallFromBanner();
+    } else {
+      isCallActiveNotifier.value = false;
+    }
+  }
 
   @override
   State<CallScreen> createState() => _CallScreenState();
@@ -79,6 +101,14 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
 
   String get formattedDuration => _formatDuration(_callDuration);
   void endCallFromBanner() => _endCall();
+  void toggleMuteDirect() => _toggleMute();
+  void toggleSpeakerDirect() {
+    if (_audioOutputMode == 'speaker') {
+      _selectAudioOutputMode('earpiece');
+    } else {
+      _selectAudioOutputMode('speaker');
+    }
+  }
 
   // 1-on-1 PiP dragging & Double-Tap Video Swap
   double _localVideoRight = 16;
@@ -141,13 +171,40 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
               decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
             ),
             if (!widget.isAudioOnly)
-              ListTile(
-                leading: Icon(_isScreenSharing ? Icons.stop_screen_share_rounded : Icons.screen_share_rounded, color: Colors.white),
-                title: Text(_isScreenSharing ? 'Stop Screen Sharing' : 'Share Screen', style: const TextStyle(color: Colors.white)),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _toggleScreenShare();
-                },
+              Container(
+                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                decoration: BoxDecoration(
+                  color: _isScreenSharing ? const Color(0xFFEA0038).withValues(alpha: 0.2) : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
+                  border: _isScreenSharing ? Border.all(color: const Color(0xFFEA0038), width: 1.2) : null,
+                ),
+                child: ListTile(
+                  leading: Icon(
+                    _isScreenSharing ? Icons.stop_screen_share_rounded : Icons.screen_share_rounded,
+                    color: _isScreenSharing ? const Color(0xFFEA0038) : Colors.white,
+                  ),
+                  title: Text(
+                    _isScreenSharing ? 'Stop Screen Sharing' : 'Share Screen',
+                    style: TextStyle(
+                      color: _isScreenSharing ? const Color(0xFFEA0038) : Colors.white,
+                      fontWeight: _isScreenSharing ? FontWeight.bold : FontWeight.w500,
+                    ),
+                  ),
+                  trailing: _isScreenSharing
+                      ? Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEA0038),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Text('STOP', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11)),
+                        )
+                      : null,
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _toggleScreenShare();
+                  },
+                ),
               ),
             if (!widget.isAudioOnly)
               ListTile(
@@ -256,12 +313,13 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     };
 
     _pipChannel.setMethodCallHandler((call) async {
-      if (call.method == 'onCallTaskRemoved') {
-        if (_callActive) {
-          _endCall();
-        }
+      if (call.method == 'onPipChanged') {
+        if (mounted) setState(() {});
       }
     });
+
+    CallScreen.isMutedNotifier.value = _isMuted;
+    CallScreen.isSpeakerOnNotifier.value = _isSpeakerOn;
 
     _initRenderers();
     _checkAudioDevicesAndRoute();
@@ -660,6 +718,31 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           'username': 'openrelayproject',
           'credential': 'openrelayproject',
         },
+        {
+          'urls': 'turns:openrelay.metered.ca:443?transport=tcp',
+          'username': 'openrelayproject',
+          'credential': 'openrelayproject',
+        },
+        {
+          'urls': 'turns:openrelay.metered.ca:5349',
+          'username': 'openrelayproject',
+          'credential': 'openrelayproject',
+        },
+        {
+          'urls': 'turn:relay.metered.ca:80',
+          'username': 'openrelayproject',
+          'credential': 'openrelayproject',
+        },
+        {
+          'urls': 'turn:relay.metered.ca:443',
+          'username': 'openrelayproject',
+          'credential': 'openrelayproject',
+        },
+        {
+          'urls': 'turns:relay.metered.ca:443?transport=tcp',
+          'username': 'openrelayproject',
+          'credential': 'openrelayproject',
+        },
       ],
       'sdpSemantics': 'unified-plan',
       'bundlePolicy': 'max-bundle',
@@ -779,29 +862,33 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   Future<bool> _initWebRTC() async {
     try {
       final micStatus = await Permission.microphone.request();
-      if (micStatus != PermissionStatus.granted) {
+      if (!micStatus.isGranted) {
         debugPrint('[WebRTC] Microphone permission denied');
         return false;
       }
-      if (!widget.isAudioOnly) {
+
+      bool canCaptureVideo = !widget.isAudioOnly;
+      if (canCaptureVideo) {
         final camStatus = await Permission.camera.request();
-        if (camStatus != PermissionStatus.granted) {
+        if (!camStatus.isGranted) {
           debugPrint('[WebRTC] Camera permission denied — falling back to audio-only');
+          canCaptureVideo = false;
+          _isVideoOff = true;
         }
       }
 
       final prefs = await SharedPreferences.getInstance();
       final lowDataMode = prefs.getBool('low_bandwidth_call_mode') ?? false;
 
-      final videoConstraints = widget.isAudioOnly
+      final dynamic videoConstraints = !canCaptureVideo
           ? false
           : (lowDataMode
               ? {'facingMode': 'user', 'width': {'ideal': 640}, 'height': {'ideal': 480}, 'frameRate': {'ideal': 24}}
               : {
                   'facingMode': 'user',
-                  'width': {'ideal': 1920, 'min': 1280},
-                  'height': {'ideal': 1080, 'min': 720},
-                  'frameRate': {'ideal': 30, 'max': 60},
+                  'width': {'ideal': 1280},
+                  'height': {'ideal': 720},
+                  'frameRate': {'ideal': 30},
                 });
 
       try {
@@ -813,25 +900,29 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
             'googEchoCancellation': true,
             'googAutoGainControl': true,
             'googNoiseSuppression': true,
-            'googHighpassFilter': true,
-            'googNoiseSuppression2': true,
-            'googEchoCancellation2': true,
-            'googTypingNoiseDetection': true,
             'sampleRate': 48000,
             'channelCount': 1,
           },
           'video': videoConstraints,
         });
-      } catch (_) {
-        // Fallback for strict Web browsers or devices
-        _localStream = await navigator.mediaDevices.getUserMedia({
-          'audio': {
-            'echoCancellation': true,
-            'noiseSuppression': true,
-            'autoGainControl': true,
-          },
-          'video': widget.isAudioOnly ? false : true,
-        });
+      } catch (e) {
+        debugPrint('[WebRTC] Primary getUserMedia failed: $e, falling back to simple constraints');
+        try {
+          _localStream = await navigator.mediaDevices.getUserMedia({
+            'audio': true,
+            'video': canCaptureVideo ? {'facingMode': 'user'} : false,
+          });
+        } catch (err) {
+          debugPrint('[WebRTC] Fallback getUserMedia failed: $err');
+          // If video still failed, try audio only so call does not abort
+          if (canCaptureVideo) {
+            _localStream = await navigator.mediaDevices.getUserMedia({
+              'audio': true,
+              'video': false,
+            });
+            _isVideoOff = true;
+          }
+        }
       }
 
       // Verify we actually got audio tracks — empty stream means hardware isn't ready
@@ -841,7 +932,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       }
 
       _localRenderer.srcObject = _localStream;
-      if (widget.isAudioOnly) _isVideoOff = true;
+      if (widget.isAudioOnly || !canCaptureVideo) _isVideoOff = true;
 
       // Check connected devices and route automatically (Bluetooth -> Earpiece)
       await _checkAudioDevicesAndRoute();
@@ -997,27 +1088,40 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _endCall() async {
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final userId = authProvider.user?['id'];
-    for (final peerId in _peerConnections.keys) {
-      final payloadData = jsonEncode({
-        'peerId': peerId,
-        'conversationId': widget.conversationId,
-        'callType': widget.isAudioOnly ? 'audio' : 'video',
-        'status': _callActive ? 'connected' : 'missed',
-        'duration': _callDuration,
-        'callerId': widget.isIncoming ? widget.remoteUserId : userId,
-      });
-      final encryptedPayload = await CryptoService().encryptLocalString(payloadData);
-      authProvider.socketService.socket?.emit('call_end', {
-        'peerId': peerId,
-        'conversationId': widget.conversationId,
-        'encryptedData': encryptedPayload,
-        'callType': widget.isAudioOnly ? 'audio' : 'video',
-        'status': _callActive ? 'connected' : 'missed',
-        'duration': _callDuration,
-        'callerId': widget.isIncoming ? widget.remoteUserId : userId,
-      });
+    if (_isDisposed) return;
+    try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final userId = authProvider.user?['id'];
+      final socket = _socket ?? authProvider.socketService.socket;
+
+      final targetPeers = <String>{
+        widget.remoteUserId,
+        ..._peerConnections.keys,
+        ..._participants.keys,
+      }.where((id) => id.isNotEmpty && id != userId).toSet();
+
+      for (final peerId in targetPeers) {
+        final payloadData = jsonEncode({
+          'peerId': peerId,
+          'conversationId': widget.conversationId,
+          'callType': widget.isAudioOnly ? 'audio' : 'video',
+          'status': _callActive ? 'connected' : 'missed',
+          'duration': _callDuration,
+          'callerId': widget.isIncoming ? widget.remoteUserId : userId,
+        });
+        final encryptedPayload = await CryptoService().encryptLocalString(payloadData);
+        socket?.emit('call_end', {
+          'peerId': peerId,
+          'conversationId': widget.conversationId,
+          'encryptedData': encryptedPayload,
+          'callType': widget.isAudioOnly ? 'audio' : 'video',
+          'status': _callActive ? 'connected' : 'missed',
+          'duration': _callDuration,
+          'callerId': widget.isIncoming ? widget.remoteUserId : userId,
+        });
+      }
+    } catch (e) {
+      debugPrint('[_endCall] error emitting call_end: $e');
     }
     _endCallLocally('Call ended');
   }
@@ -1052,6 +1156,8 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     CallScreen.activeCallState = null;
     CallScreen.isCallActiveNotifier.value = false;
     CallScreen.callEndedNotifier.value = reason;
+    CallScreen.isMutedNotifier.value = false;
+    CallScreen.isSpeakerOnNotifier.value = false;
     SoundService().stopRingtone();
     try { flutterLocalNotificationsPlugin.cancelAll(); } catch (_) {}
     _callTimer?.cancel();
@@ -1096,6 +1202,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       final track = tracks[0];
       track.enabled = !track.enabled;
       setState(() => _isMuted = !track.enabled);
+      CallScreen.isMutedNotifier.value = _isMuted;
     }
   }
 
@@ -1169,6 +1276,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         _isSpeakerOn = (_audioOutputMode == 'speaker');
         await Helper.setSpeakerphoneOn(_isSpeakerOn);
       }
+      CallScreen.isSpeakerOnNotifier.value = _isSpeakerOn;
       if (mounted) setState(() {});
     } catch (e) {
       debugPrint('[AudioRoute] Device check error: $e');
@@ -1179,7 +1287,9 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     _userSelectedRoute = mode;
     setState(() {
       _audioOutputMode = mode;
+      _isSpeakerOn = (mode == 'speaker');
     });
+    CallScreen.isSpeakerOnNotifier.value = _isSpeakerOn;
     try {
       if (mode == 'speaker') {
         _isSpeakerOn = true;
@@ -1571,6 +1681,13 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   // Double-tap anywhere or tap PiP switches/swaps videos between main screen and PiP
   Widget _buildOneToOneVideoView() {
     final remoteRenderer = _remoteRenderers[widget.remoteUserId];
+    final bool hasRemoteVideo = remoteRenderer != null &&
+        remoteRenderer.srcObject != null &&
+        remoteRenderer.srcObject!.getVideoTracks().isNotEmpty &&
+        remoteRenderer.srcObject!.getVideoTracks().any((t) => t.enabled);
+    final bool hasLocalVideo = !_isVideoOff &&
+        _localRenderer.srcObject != null &&
+        _localRenderer.srcObject!.getVideoTracks().isNotEmpty;
     
     // If not swapped: Main is Remote, PiP is Local
     // If swapped: Main is Local, PiP is Remote
@@ -1581,18 +1698,18 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
 
     if (_isScreenSharing) {
       mainRenderer = _localRenderer;
-      pipRenderer = remoteRenderer;
+      pipRenderer = hasRemoteVideo ? remoteRenderer : null;
       mainMirror = false;
       pipMirror = false;
     } else if (!_isSwappedVideo) {
-      mainRenderer = remoteRenderer ?? _localRenderer;
-      pipRenderer = _localRenderer;
-      mainMirror = (remoteRenderer == null) && !_isScreenSharing;
+      mainRenderer = hasRemoteVideo ? remoteRenderer : (hasLocalVideo ? _localRenderer : null);
+      pipRenderer = (hasRemoteVideo && hasLocalVideo) ? _localRenderer : null;
+      mainMirror = (mainRenderer == _localRenderer) && !_isScreenSharing;
       pipMirror = !_isScreenSharing;
     } else {
-      mainRenderer = _localRenderer;
-      pipRenderer = remoteRenderer ?? _localRenderer;
-      mainMirror = !_isScreenSharing;
+      mainRenderer = hasLocalVideo ? _localRenderer : (hasRemoteVideo ? remoteRenderer : null);
+      pipRenderer = (hasLocalVideo && hasRemoteVideo) ? remoteRenderer : null;
+      mainMirror = (mainRenderer == _localRenderer) && !_isScreenSharing;
       pipMirror = false;
     }
 
@@ -1608,7 +1725,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         children: [
           // Fullscreen main video
           Positioned.fill(
-            child: mainRenderer != null
+            child: (mainRenderer != null && mainRenderer.srcObject != null)
                 ? RTCVideoView(
                     mainRenderer,
                     objectFit: _isScreenSharing ? RTCVideoViewObjectFit.RTCVideoViewObjectFitContain : RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
@@ -1617,7 +1734,17 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
                 : Container(
                     color: const Color(0xFF0B141B),
                     child: Center(
-                      child: ColorAvatar(name: widget.remoteUserName, radius: 64, fontSize: 36),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          ColorAvatar(name: widget.remoteUserName, radius: 64, fontSize: 36),
+                          const SizedBox(height: 16),
+                          Text(
+                            _status == 'Connected' ? 'Connecting video...' : _status,
+                            style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 15, fontWeight: FontWeight.w500),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
           ),
@@ -1925,6 +2052,34 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
                   fontWeight: FontWeight.w400,
                 ),
               ),
+
+              const SizedBox(height: 10),
+
+              // Single-line End-to-End Encrypted Banner
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.15), width: 0.8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.lock_rounded, color: Color(0xFFFFD700), size: 12),
+                    const SizedBox(width: 5),
+                    Text(
+                      'End-to-end encrypted',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.9),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
@@ -2130,60 +2285,164 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
                     duration: const Duration(milliseconds: 200),
                     child: IgnorePointer(
                       ignoring: !_areControlsVisible,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        crossAxisAlignment: CrossAxisAlignment.center,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          // Top-Left: Minimize Button (Semi-transparent circle)
-                          GestureDetector(
-                            onTap: _minimizeCall,
-                            child: Container(
-                              width: 44,
-                              height: 44,
-                              decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.45),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(Icons.close_fullscreen_rounded, color: Colors.white, size: 20),
+                          // 🔒 Single-line End-to-End Encrypted Banner (Top Center)
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 6),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.45),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: Colors.white.withValues(alpha: 0.12), width: 0.8),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.lock_rounded, color: Color(0xFFFFD700), size: 11),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'End-to-end encrypted',
+                                  style: TextStyle(
+                                    color: Colors.white.withValues(alpha: 0.9),
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w500,
+                                    letterSpacing: 0.2,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-
-                          // Top-Center: Caller Name & Call Duration / Status
-                          Column(
-                            mainAxisSize: MainAxisSize.min,
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
-                              Text(
-                                _isGroupCall ? 'Group Call (${_participants.length + 1})' : widget.remoteUserName,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w600,
-                                  letterSpacing: 0.3,
+                              // Top-Left: Minimize Button (Semi-transparent circle)
+                              GestureDetector(
+                                onTap: _minimizeCall,
+                                child: Container(
+                                  width: 44,
+                                  height: 44,
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.45),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(Icons.close_fullscreen_rounded, color: Colors.white, size: 20),
                                 ),
                               ),
-                              const SizedBox(height: 3),
-                              Text(
-                                _callActive ? _formatDuration(_callDuration) : _status,
-                                style: TextStyle(
-                                  color: Colors.white.withValues(alpha: 0.75),
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w400,
+
+                              // Top-Center: Caller Name & Call Duration / Status
+                              Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    _isGroupCall ? 'Group Call (${_participants.length + 1})' : widget.remoteUserName,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w600,
+                                      letterSpacing: 0.3,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    _callActive ? _formatDuration(_callDuration) : _status,
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(alpha: 0.75),
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w400,
+                                    ),
+                                  ),
+                                ],
+                              ),
+
+                              // Top-Right: Add Participant Button (Semi-transparent circle)
+                              GestureDetector(
+                                onTap: _showAddParticipantModal,
+                                child: Container(
+                                  width: 44,
+                                  height: 44,
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.45),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(Icons.person_add_rounded, color: Colors.white, size: 20),
                                 ),
                               ),
                             ],
                           ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
 
-                          // Top-Right: Add Participant Button (Semi-transparent circle)
-                          GestureDetector(
-                            onTap: _showAddParticipantModal,
-                            child: Container(
-                              width: 44,
-                              height: 44,
-                              decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.45),
-                                shape: BoxShape.circle,
+              // === 2.5 FLOATING "STOP SCREEN SHARE" PILL ===
+              if (_isScreenSharing && _callActive)
+                Positioned(
+                  top: 76,
+                  left: 16,
+                  right: 16,
+                  child: Material(
+                    color: Colors.transparent,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFFEA0038), Color(0xFFC0002A)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(24),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFFEA0038).withValues(alpha: 0.5),
+                            blurRadius: 16,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Row(
+                            children: [
+                              Icon(Icons.screen_share_rounded, color: Colors.white, size: 20),
+                              SizedBox(width: 8),
+                              Text(
+                                'Sharing your screen',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13,
+                                ),
                               ),
-                              child: const Icon(Icons.person_add_rounded, color: Colors.white, size: 20),
+                            ],
+                          ),
+                          GestureDetector(
+                            onTap: _toggleScreenShare,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.stop_rounded, color: Color(0xFFEA0038), size: 16),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    'Stop Sharing',
+                                    style: TextStyle(
+                                      color: Color(0xFFEA0038),
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ],
@@ -2227,8 +2486,15 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
                               onTap: _showMoreCallOptions,
                             ),
 
-                            // 2. Video Camera Toggle
-                            if (!widget.isAudioOnly)
+                            // 2. Video Camera / Screen Share Toggle
+                            if (_isScreenSharing)
+                              _buildCapsuleButton(
+                                icon: Icons.stop_screen_share_rounded,
+                                bgColor: const Color(0xFFEA0038),
+                                iconColor: Colors.white,
+                                onTap: _toggleScreenShare,
+                              )
+                            else if (!widget.isAudioOnly)
                               _buildCapsuleButton(
                                 icon: _isVideoOff ? Icons.videocam_off_rounded : Icons.videocam_rounded,
                                 bgColor: _isVideoOff ? Colors.white : Colors.white.withValues(alpha: 0.12),

@@ -1,8 +1,17 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/chat_service.dart';
+import '../services/contact_service.dart';
 import '../services/dolsyx_ai_service.dart';
+import '../models/chat.dart';
+import '../models/message.dart';
+import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
+import '../widgets/color_avatar.dart';
+import '../widgets/full_screen_image_view.dart';
 import 'chat_room_screen.dart';
 
 class SearchScreen extends StatefulWidget {
@@ -16,17 +25,105 @@ class _SearchScreenState extends State<SearchScreen> {
   final ChatService _chatService = ChatService();
   final DolsyxAiService _dolsyxAiService = DolsyxAiService();
   final TextEditingController _searchController = TextEditingController();
+
   List<dynamic> _searchResults = [];
+  List<Chat> _allChats = [];
+  List<dynamic> _savedContacts = [];
+  List<Map<String, dynamic>> _recentSearches = [];
+  String _activeFilter = ''; // '', 'UNREAD', 'PHOTOS', 'VIDEOS', 'LINKS', 'GIFS', 'AUDIO', 'DOCS', 'POLLS', 'CONTACTS', 'NON_CONTACTS', 'FAVOURITES'
+
   bool _isLoading = false;
   bool _isAiThinking = false;
 
+  @override
+  void initState() {
+    super.initState();
+    _loadInitialData();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadInitialData() async {
+    final token = Provider.of<AuthProvider>(context, listen: false).token ?? '';
+    final prefs = await SharedPreferences.getInstance();
+
+    // Load recent searches
+    final savedRecentJson = prefs.getString('recent_searches_list');
+    List<Map<String, dynamic>> loadedRecent = [];
+    if (savedRecentJson != null) {
+      try {
+        final parsed = jsonDecode(savedRecentJson);
+        if (parsed is List) {
+          loadedRecent = parsed.map((e) => Map<String, dynamic>.from(e)).toList();
+        }
+      } catch (_) {}
+    }
+
+    // Load chats
+    final chats = await _chatService.getChats();
+    final contacts = await ContactService.getContacts(token);
+
+    if (loadedRecent.isEmpty && chats.isNotEmpty) {
+      // Default recent contacts from top chats
+      for (final chat in chats.take(6)) {
+        loadedRecent.add({
+          'id': chat.id,
+          'name': chat.name ?? 'Chat',
+          'avatarUrl': chat.avatarUrl,
+          'isGroup': chat.isGroup,
+        });
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _recentSearches = loadedRecent;
+        _allChats = chats;
+        _savedContacts = contacts;
+      });
+    }
+  }
+
+  Future<void> _saveRecentSearch(String id, String name, String? avatarUrl, bool isGroup) async {
+    final prefs = await SharedPreferences.getInstance();
+    _recentSearches.removeWhere((item) => item['id'] == id || item['name'] == name);
+    _recentSearches.insert(0, {
+      'id': id,
+      'name': name,
+      'avatarUrl': avatarUrl,
+      'isGroup': isGroup,
+    });
+    if (_recentSearches.length > 10) {
+      _recentSearches = _recentSearches.sublist(0, 10);
+    }
+    await prefs.setString('recent_searches_list', jsonEncode(_recentSearches));
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _clearRecentSearches() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('recent_searches_list');
+    setState(() => _recentSearches = []);
+  }
+
   void _performSearch(String query) async {
     final cleanQuery = query.trim();
-    if (cleanQuery.isEmpty) {
+    if (cleanQuery.isEmpty && _activeFilter.isEmpty) {
       setState(() => _searchResults = []);
       return;
     }
+
     setState(() => _isLoading = true);
+
+    if (_activeFilter.isNotEmpty) {
+      _filterByActivePill(cleanQuery);
+      return;
+    }
+
     final results = await _chatService.searchUsers(cleanQuery);
     if (mounted) {
       setState(() {
@@ -34,6 +131,152 @@ class _SearchScreenState extends State<SearchScreen> {
         _isLoading = false;
       });
     }
+  }
+
+  void _filterByActivePill(String query) {
+    final q = query.toLowerCase();
+    List<dynamic> filtered = [];
+    final currentUserId = Provider.of<AuthProvider>(context, listen: false).user?['id'] ??
+        Provider.of<AuthProvider>(context, listen: false).user?['_id'];
+    final contactIds = _savedContacts.map((c) => (c['contact']?['id'] ?? c['contact']?['_id'])?.toString()).toSet();
+
+    switch (_activeFilter) {
+      case 'UNREAD':
+        filtered = _allChats.where((c) => c.unreadCount > 0 && (q.isEmpty || (c.name ?? '').toLowerCase().contains(q))).map((c) => {
+          'type': 'chat',
+          'chat': c,
+          'id': c.id,
+          'username': c.name ?? 'Chat',
+          'avatarUrl': c.avatarUrl,
+          'subtitle': '${c.unreadCount} unread message${c.unreadCount > 1 ? 's' : ''}',
+        }).toList();
+        break;
+
+      case 'PHOTOS':
+      case 'VIDEOS':
+      case 'LINKS':
+      case 'DOCS':
+      case 'AUDIO':
+      case 'POLLS':
+      case 'GIFS':
+        final targetType = _activeFilter == 'PHOTOS'
+            ? 'IMAGE'
+            : _activeFilter == 'VIDEOS'
+                ? 'VIDEO'
+                : _activeFilter == 'DOCS'
+                    ? 'DOCUMENT'
+                    : _activeFilter == 'AUDIO'
+                        ? 'AUDIO'
+                        : _activeFilter == 'POLLS'
+                            ? 'POLL'
+                            : _activeFilter;
+
+        for (final chat in _allChats) {
+          final lastMsg = chat.lastMessage;
+          if (lastMsg != null) {
+            final mType = (lastMsg['mediaType'] ?? '').toString().toUpperCase();
+            final content = (lastMsg['content'] ?? '').toString();
+            final isMatch = (_activeFilter == 'LINKS' && content.contains('http')) ||
+                (_activeFilter == 'GIFS' && (mType == 'GIF' || content.contains('.gif'))) ||
+                mType == targetType;
+
+            if (isMatch && (q.isEmpty || (chat.name ?? '').toLowerCase().contains(q) || content.toLowerCase().contains(q))) {
+              filtered.add({
+                'type': 'chat',
+                'chat': chat,
+                'id': chat.id,
+                'username': chat.name ?? 'Chat',
+                'avatarUrl': chat.avatarUrl,
+                'subtitle': content.isNotEmpty ? content : 'Shared ${_activeFilter.toLowerCase()}',
+              });
+            }
+          }
+        }
+        break;
+
+      case 'CONTACTS':
+        filtered = _savedContacts.where((c) {
+          final user = c['contact'] ?? {};
+          final name = (c['savedName'] ?? user['username'] ?? '').toString().toLowerCase();
+          final email = (user['email'] ?? '').toString().toLowerCase();
+          return q.isEmpty || name.contains(q) || email.contains(q);
+        }).map((c) {
+          final user = c['contact'] ?? {};
+          return {
+            'id': user['id'] ?? user['_id'],
+            'username': c['savedName'] ?? user['username'] ?? 'Contact',
+            'email': user['email'] ?? '',
+            'avatarUrl': user['avatarUrl'],
+            'isContact': true,
+          };
+        }).toList();
+        break;
+
+      case 'NON_CONTACTS':
+        final nonContacts = <String, Map<String, dynamic>>{};
+        for (final chat in _allChats) {
+          if (!chat.isGroup && chat.participants != null) {
+            for (final p in chat.participants!) {
+              final u = p['user'];
+              if (u != null) {
+                final uid = (u['id'] ?? u['_id'])?.toString();
+                if (uid != null && uid != currentUserId?.toString() && !contactIds.contains(uid)) {
+                  final name = (u['username'] ?? 'User').toString();
+                  if (q.isEmpty || name.toLowerCase().contains(q)) {
+                    nonContacts[uid] = {
+                      'id': uid,
+                      'username': name,
+                      'email': u['email'] ?? '',
+                      'avatarUrl': u['avatarUrl'],
+                      'isNonContact': true,
+                    };
+                  }
+                }
+              }
+            }
+          }
+        }
+        filtered = nonContacts.values.toList();
+        break;
+
+      case 'FAVOURITES':
+        filtered = _savedContacts.where((c) => c['isFavorite'] == true).where((c) {
+          final user = c['contact'] ?? {};
+          final name = (c['savedName'] ?? user['username'] ?? '').toString().toLowerCase();
+          return q.isEmpty || name.contains(q);
+        }).map((c) {
+          final user = c['contact'] ?? {};
+          return {
+            'id': user['id'] ?? user['_id'],
+            'username': c['savedName'] ?? user['username'] ?? 'Favorite',
+            'email': user['email'] ?? '',
+            'avatarUrl': user['avatarUrl'],
+            'isFavorite': true,
+          };
+        }).toList();
+        break;
+
+      default:
+        break;
+    }
+
+    if (mounted) {
+      setState(() {
+        _searchResults = filtered;
+        _isLoading = false;
+      });
+    }
+  }
+
+  void _onFilterPillTapped(String filterKey) {
+    setState(() {
+      if (_activeFilter == filterKey) {
+        _activeFilter = '';
+      } else {
+        _activeFilter = filterKey;
+      }
+    });
+    _performSearch(_searchController.text);
   }
 
   void _askAiInSearch(String prompt) async {
@@ -173,19 +416,20 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  void _startChat(String userId) async {
+  void _startChat(String userId, String displayName, String? avatarUrl) async {
     setState(() => _isLoading = true);
     final chat = await _chatService.createDirectChat(userId);
     setState(() => _isLoading = false);
 
     if (chat != null && mounted) {
+      _saveRecentSearch(chat.id, displayName, avatarUrl, false);
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
           builder: (_) => ChatRoomScreen(
             conversationId: chat.id,
-            chatName: chat.name ?? 'Chat',
-            avatarUrl: chat.avatarUrl,
+            chatName: displayName,
+            avatarUrl: avatarUrl,
           ),
         ),
       );
@@ -194,6 +438,129 @@ class _SearchScreenState extends State<SearchScreen> {
         const SnackBar(content: Text('Failed to start chat')),
       );
     }
+  }
+
+  void _openExistingChat(Chat chat) {
+    _saveRecentSearch(chat.id, chat.name ?? 'Chat', chat.avatarUrl, chat.isGroup);
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChatRoomScreen(
+          conversationId: chat.id,
+          chatName: chat.name ?? 'Chat',
+          avatarUrl: chat.avatarUrl,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFilterPill(String filterKey, String label, IconData icon) {
+    final isSelected = _activeFilter == filterKey;
+    return GestureDetector(
+      onTap: () => _onFilterPillTapped(filterKey),
+      child: Container(
+        margin: const EdgeInsets.only(right: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? AppTheme.primaryColor : const Color(0xFF1E293B),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isSelected ? AppTheme.primaryColor : Colors.white12,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 15, color: isSelected ? Colors.white : Colors.white70),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? Colors.white : Colors.white,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                fontSize: 13,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRecentSearches() {
+    if (_recentSearches.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Recent searches',
+                style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w600),
+              ),
+              GestureDetector(
+                onTap: _clearRecentSearches,
+                child: const Text(
+                  'Clear all',
+                  style: TextStyle(color: Colors.white38, fontSize: 13, fontWeight: FontWeight.w500),
+                ),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(
+          height: 95,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            itemCount: _recentSearches.length,
+            itemBuilder: (context, index) {
+              final item = _recentSearches[index];
+              final name = item['name'] ?? 'User';
+              final avatarUrl = item['avatarUrl'];
+              final id = item['id'];
+
+              return GestureDetector(
+                onTap: () {
+                  final existing = _allChats.where((c) => c.id == id).toList();
+                  if (existing.isNotEmpty) {
+                    _openExistingChat(existing.first);
+                  } else {
+                    _startChat(id, name, avatarUrl);
+                  }
+                },
+                child: Container(
+                  width: 76,
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Column(
+                    children: [
+                      ColorAvatar(
+                        name: name,
+                        avatarUrl: avatarUrl,
+                        radius: 26,
+                        fontSize: 16,
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        name,
+                        style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -214,9 +581,9 @@ class _SearchScreenState extends State<SearchScreen> {
           autofocus: true,
           style: const TextStyle(color: Colors.white),
           decoration: InputDecoration(
-            hintText: 'Ask DOLSYX AI or search...',
+            hintText: 'Ask DOLSYX AI or Search',
             border: InputBorder.none,
-            hintStyle: const TextStyle(color: Colors.white38),
+            hintStyle: const TextStyle(color: Colors.white38, fontSize: 16),
             prefixIcon: Container(
               padding: const EdgeInsets.all(10),
               child: ShaderMask(
@@ -235,13 +602,36 @@ class _SearchScreenState extends State<SearchScreen> {
       ),
       body: Column(
         children: [
+          // Filter Chips Row (Pic 1 Style)
+          SizedBox(
+            height: 44,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              children: [
+                _buildFilterPill('UNREAD', 'Unread', Icons.mark_chat_unread_outlined),
+                _buildFilterPill('PHOTOS', 'Photos', Icons.image_outlined),
+                _buildFilterPill('VIDEOS', 'Videos', Icons.videocam_outlined),
+                _buildFilterPill('LINKS', 'Links', Icons.link_rounded),
+                _buildFilterPill('GIFS', 'GIFs', Icons.gif_box_outlined),
+                _buildFilterPill('AUDIO', 'Audio', Icons.mic_none_outlined),
+                _buildFilterPill('DOCS', 'Documents', Icons.description_outlined),
+                _buildFilterPill('POLLS', 'Polls', Icons.poll_outlined),
+                _buildFilterPill('CONTACTS', 'Contacts', Icons.person_outline),
+                _buildFilterPill('NON_CONTACTS', 'Non-contacts', Icons.person_off_outlined),
+                _buildFilterPill('FAVOURITES', 'Favourites', Icons.star_outline),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+
           if (_isAiThinking)
             const LinearProgressIndicator(color: Color(0xFFEC4899), backgroundColor: Color(0xFF1E293B)),
 
           // 🤖 Top Search Result: Meta AI Search Bar Chip
           if (queryText.isNotEmpty)
             Container(
-              margin: const EdgeInsets.all(12),
+              margin: const EdgeInsets.fromLTRB(16, 4, 16, 8),
               decoration: BoxDecoration(
                 color: const Color(0xFF1E293B),
                 borderRadius: BorderRadius.circular(16),
@@ -283,55 +673,92 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
             ),
 
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'CONTACTS & USERS',
-                style: TextStyle(color: Colors.white38, fontSize: 11, fontWeight: FontWeight.bold),
+          // Recent Searches Section (Pic 1 Style)
+          if (queryText.isEmpty && _activeFilter.isEmpty)
+            _buildRecentSearches(),
+
+          if (queryText.isNotEmpty || _activeFilter.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  _activeFilter.isNotEmpty ? 'RESULTS FOR $_activeFilter' : 'CONTACTS & USERS',
+                  style: const TextStyle(color: Colors.white38, fontSize: 11, fontWeight: FontWeight.bold),
+                ),
               ),
             ),
-          ),
 
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator(color: Color(0xFF6366F1)))
-                : _searchResults.isEmpty
-                    ? Center(
-                        child: Text(
-                          queryText.isEmpty ? 'Type to ask DOLSYX AI or search contacts' : 'No contacts found for "$queryText"',
-                          style: const TextStyle(color: Colors.white38),
-                        ),
-                      )
-                    : ListView.builder(
-                        itemCount: _searchResults.length,
-                        itemBuilder: (context, index) {
-                          final user = _searchResults[index];
-                          return ListTile(
-                            leading: CircleAvatar(
-                              backgroundColor: const Color(0xFF1E293B),
-                              backgroundImage: user['avatarUrl'] != null 
-                                  ? (user['avatarUrl'].toString().startsWith('http') 
-                                      ? NetworkImage(user['avatarUrl']) 
-                                      : NetworkImage('https://dolsyx-app.onrender.com${user['avatarUrl']}')) 
-                                  : null,
-                              child: user['avatarUrl'] == null
-                                  ? const Icon(Icons.person, color: Colors.white70)
-                                  : null,
+                : (queryText.isNotEmpty || _activeFilter.isNotEmpty)
+                    ? (_searchResults.isEmpty
+                        ? Center(
+                            child: Text(
+                              'No results found for ${_activeFilter.isNotEmpty ? _activeFilter : '"$queryText"'}',
+                              style: const TextStyle(color: Colors.white38),
                             ),
-                            title: Text(
-                              user['username'] ?? 'Unknown User',
-                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                            ),
-                            subtitle: Text(
-                              user['email'] ?? '',
-                              style: const TextStyle(color: Colors.white54, fontSize: 12),
-                            ),
-                            onTap: () => _startChat(user['id']),
-                          );
-                        },
-                      ),
+                          )
+                        : ListView.builder(
+                            itemCount: _searchResults.length,
+                            itemBuilder: (context, index) {
+                              final item = _searchResults[index];
+                              final isChat = item['type'] == 'chat';
+                              final displayName = item['username'] ?? item['name'] ?? 'User';
+                              final avatarUrl = item['avatarUrl'];
+                              final subtitle = item['subtitle'] ?? item['email'] ?? '';
+                              final id = item['id'];
+                              final isNonContact = item['isNonContact'] == true;
+                              final isFavorite = item['isFavorite'] == true;
+
+                              return ListTile(
+                                leading: ColorAvatar(
+                                  name: displayName,
+                                  avatarUrl: avatarUrl,
+                                  radius: 22,
+                                ),
+                                title: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        displayName,
+                                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    if (isFavorite)
+                                      const Icon(Icons.star, color: Colors.amber, size: 16),
+                                    if (isNonContact)
+                                      Container(
+                                        margin: const EdgeInsets.only(left: 6),
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: Colors.amber.withOpacity(0.15),
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                        child: const Text('Non-contact', style: TextStyle(color: Colors.amber, fontSize: 10, fontWeight: FontWeight.bold)),
+                                      ),
+                                  ],
+                                ),
+                                subtitle: Text(
+                                  subtitle,
+                                  style: const TextStyle(color: Colors.white54, fontSize: 12),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                onTap: () {
+                                  if (isChat && item['chat'] != null) {
+                                    _openExistingChat(item['chat'] as Chat);
+                                  } else {
+                                    _startChat(id.toString(), displayName, avatarUrl);
+                                  }
+                                },
+                              );
+                            },
+                          ))
+                    : const SizedBox.shrink(),
           ),
         ],
       ),

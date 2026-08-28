@@ -17,16 +17,19 @@ class ContactsScreen extends StatefulWidget {
 }
 
 class _ContactsScreenState extends State<ContactsScreen> {
+  final ChatService _chatService = ChatService();
   List<dynamic> _contacts = [];
+  List<dynamic> _nonContacts = [];
   List<dynamic> _filtered = [];
   bool _isLoading = true;
+  String _selectedFilter = 'ALL'; // ALL, CONTACTS, NON_CONTACTS, FAVOURITES, UNREAD
   final TextEditingController _searchController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    _loadContacts();
-    _searchController.addListener(_onSearch);
+    _loadData();
+    _searchController.addListener(_applyFilterAndSearch);
   }
 
   @override
@@ -35,22 +38,85 @@ class _ContactsScreenState extends State<ContactsScreen> {
     super.dispose();
   }
 
-  Future<void> _loadContacts() async {
+  Future<void> _loadData() async {
     setState(() => _isLoading = true);
     final token = Provider.of<AuthProvider>(context, listen: false).token ?? '';
     final contacts = await ContactService.getContacts(token);
+
+    // Fetch non-contacts from active chats
+    List<dynamic> nonContactsList = [];
+    try {
+      final chats = await _chatService.getChats();
+      final currentUserId = Provider.of<AuthProvider>(context, listen: false).user?['id'] ??
+          Provider.of<AuthProvider>(context, listen: false).user?['_id'];
+      final contactUserIds = contacts.map((c) => (c['contact']?['id'] ?? c['contact']?['_id'])?.toString()).toSet();
+
+      for (final chat in chats) {
+        if (!chat.isGroup && chat.participants != null) {
+          for (final p in chat.participants!) {
+            final u = p['user'];
+            if (u != null) {
+              final uid = (u['id'] ?? u['_id'])?.toString();
+              if (uid != null && uid != currentUserId?.toString() && !contactUserIds.contains(uid)) {
+                if (!nonContactsList.any((nc) => (nc['id'] ?? nc['_id'])?.toString() == uid)) {
+                  nonContactsList.add({
+                    'id': uid,
+                    'contact': u,
+                    'isNonContact': true,
+                    'savedName': u['username'] ?? 'User',
+                    'unreadCount': chat.unreadCount,
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
     if (mounted) {
       setState(() {
         _contacts = contacts;
-        _filtered = contacts;
+        _nonContacts = nonContactsList;
         _isLoading = false;
+      });
+      _applyFilterAndSearch();
+    }
+  }
+
+  void _applyFilterAndSearch() {
+    final q = _searchController.text.trim().toLowerCase();
+
+    List<dynamic> pool = [];
+    if (_selectedFilter == 'ALL') {
+      pool = [..._contacts, ..._nonContacts];
+    } else if (_selectedFilter == 'CONTACTS') {
+      pool = _contacts;
+    } else if (_selectedFilter == 'NON_CONTACTS') {
+      pool = _nonContacts;
+    } else if (_selectedFilter == 'FAVOURITES') {
+      pool = _contacts.where((c) => c['isFavorite'] == true).toList();
+    } else if (_selectedFilter == 'UNREAD') {
+      pool = [..._contacts, ..._nonContacts].where((c) => (c['unreadCount'] ?? 0) > 0).toList();
+    }
+
+    if (q.isEmpty) {
+      setState(() => _filtered = pool);
+    } else {
+      setState(() {
+        _filtered = pool.where((c) {
+          final user = c['contact'] ?? c;
+          final name = (c['savedName'] ?? user['username'] ?? '').toString().toLowerCase();
+          final email = (user['email'] ?? '').toString().toLowerCase();
+          return name.contains(q) || email.contains(q);
+        }).toList();
       });
     }
   }
 
   Future<void> _startChat(String userId, String displayName, String? avatarUrl) async {
     setState(() => _isLoading = true);
-    final chat = await ChatService().createDirectChat(userId);
+    final chat = await _chatService.createDirectChat(userId);
     if (!mounted) return;
     setState(() => _isLoading = false);
 
@@ -72,27 +138,89 @@ class _ContactsScreenState extends State<ContactsScreen> {
     }
   }
 
-  void _onSearch() {
-    final q = _searchController.text.toLowerCase();
-    setState(() {
-      _filtered = _contacts.where((c) {
-        final name = (c['savedName'] ?? c['contact']['username'] ?? '').toLowerCase();
-        final email = (c['contact']['email'] ?? '').toLowerCase();
-        return name.contains(q) || email.contains(q);
-      }).toList();
-    });
-  }
+  Future<void> _confirmDeleteContact(dynamic contactItem) async {
+    final displayName = contactItem['savedName'] ?? contactItem['contact']?['username'] ?? 'this contact';
+    final contactId = (contactItem['id'] ?? contactItem['contact']?['id'] ?? contactItem['contact']?['_id'] ?? '').toString();
 
-  Future<void> _deleteContact(String contactId) async {
-    final token = Provider.of<AuthProvider>(context, listen: false).token ?? '';
-    final ok = await ContactService.deleteContact(token, contactId);
-    if (ok) _loadContacts();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.surfaceColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Delete $displayName?', style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
+        content: Text(
+          'Are you sure you want to remove $displayName from your saved contacts?',
+          style: TextStyle(color: AppTheme.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      final token = Provider.of<AuthProvider>(context, listen: false).token ?? '';
+      final ok = await ContactService.deleteContact(token, contactId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(ok ? 'Contact deleted successfully' : 'Failed to delete contact'),
+            backgroundColor: ok ? AppTheme.primaryColor : Colors.redAccent,
+          ),
+        );
+        _loadData();
+      }
+    }
   }
 
   Future<void> _toggleFavorite(String contactId, bool current) async {
     final token = Provider.of<AuthProvider>(context, listen: false).token ?? '';
     await ContactService.updateContact(token, contactId, isFavorite: !current);
-    _loadContacts();
+    _loadData();
+  }
+
+  Widget _buildFilterChip(String filterKey, String label, IconData icon) {
+    final isSelected = _selectedFilter == filterKey;
+    return GestureDetector(
+      onTap: () {
+        setState(() => _selectedFilter = filterKey);
+        _applyFilterAndSearch();
+      },
+      child: Container(
+        margin: const EdgeInsets.only(right: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? AppTheme.primaryColor : AppTheme.surfaceColor,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isSelected ? AppTheme.primaryColor : AppTheme.surfaceColor.withOpacity(0.4),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: isSelected ? Colors.white : AppTheme.textSecondary),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? Colors.white : AppTheme.textSecondary,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                fontSize: 13,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -108,16 +236,16 @@ class _ContactsScreenState extends State<ContactsScreen> {
             tooltip: 'Add Contact',
             onPressed: () async {
               await Navigator.push(context, MaterialPageRoute(builder: (_) => const AddContactScreen()));
-              _loadContacts();
+              _loadData();
             },
           ),
         ],
       ),
       body: Column(
         children: [
-          // Search bar
+          // Search input
           Padding(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: TextField(
               controller: _searchController,
               style: TextStyle(color: AppTheme.textPrimary),
@@ -127,14 +255,33 @@ class _ContactsScreenState extends State<ContactsScreen> {
                 prefixIcon: Icon(Icons.search, color: AppTheme.textSecondary),
                 filled: true,
                 fillColor: AppTheme.surfaceColor,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(24),
                   borderSide: BorderSide.none,
                 ),
               ),
             ),
           ),
-          // Contact list
+
+          // Filter Pills (Pic 1 Style)
+          SizedBox(
+            height: 46,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              children: [
+                _buildFilterChip('ALL', 'All', Icons.people_alt_outlined),
+                _buildFilterChip('CONTACTS', 'Contacts', Icons.person_outline),
+                _buildFilterChip('NON_CONTACTS', 'Non-contacts', Icons.person_off_outlined),
+                _buildFilterChip('FAVOURITES', 'Favourites', Icons.star_outline),
+                _buildFilterChip('UNREAD', 'Unread', Icons.mark_chat_unread_outlined),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+
+          // Contact List
           Expanded(
             child: _isLoading
                 ? Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
@@ -145,14 +292,14 @@ class _ContactsScreenState extends State<ContactsScreen> {
                           children: [
                             Icon(Icons.contacts_outlined, size: 64, color: AppTheme.textSecondary),
                             const SizedBox(height: 16),
-                            Text('No contacts yet', style: TextStyle(color: AppTheme.textSecondary, fontSize: 16)),
+                            Text('No contacts found', style: TextStyle(color: AppTheme.textSecondary, fontSize: 16)),
                             const SizedBox(height: 8),
                             TextButton.icon(
                               icon: const Icon(Icons.person_add),
                               label: const Text('Add Contact'),
                               onPressed: () async {
                                 await Navigator.push(context, MaterialPageRoute(builder: (_) => const AddContactScreen()));
-                                _loadContacts();
+                                _loadData();
                               },
                             ),
                           ],
@@ -162,52 +309,117 @@ class _ContactsScreenState extends State<ContactsScreen> {
                         physics: const AlwaysScrollableScrollPhysics(),
                         itemCount: _filtered.length,
                         itemBuilder: (context, index) {
-                            final c = _filtered[index];
-                            final user = c['contact'];
-                            final displayName = c['savedName'] ?? user['username'];
-                            final isFav = c['isFavorite'] == true;
+                          final c = _filtered[index];
+                          final user = c['contact'] ?? c;
+                          final displayName = c['savedName'] ?? user['username'] ?? 'User';
+                          final isFav = c['isFavorite'] == true;
+                          final isNonContact = c['isNonContact'] == true;
+                          final userId = (user['id'] ?? user['_id'] ?? '').toString();
 
-                            return Dismissible(
-                              key: Key(c['id']),
-                              direction: DismissDirection.endToStart,
-                              background: Container(
-                                alignment: Alignment.centerRight,
-                                padding: const EdgeInsets.only(right: 20),
-                                color: Colors.red,
-                                child: const Icon(Icons.delete, color: Colors.white),
+                          return ListTile(
+                            leading: GestureDetector(
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => OtherUserProfileScreen(user: user),
+                                  ),
+                                ).then((_) => _loadData());
+                              },
+                              child: ColorAvatar(
+                                name: displayName,
+                                avatarUrl: user['avatarUrl'],
+                                radius: 22,
                               ),
-                              onDismissed: (_) => _deleteContact(c['id']),
-                              child: ListTile(
-                                leading: GestureDetector(
-                                  onTap: () {
-                                    Navigator.push(context, MaterialPageRoute(
-                                      builder: (_) => OtherUserProfileScreen(user: user),
-                                    ));
-                                  },
-                                  child: ColorAvatar(
-                                    name: displayName,
-                                    avatarUrl: user['avatarUrl'],
-                                    radius: 22,
+                            ),
+                            title: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    displayName,
+                                    style: TextStyle(
+                                      color: AppTheme.textPrimary,
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 15,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
-                                title: Text(displayName, style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.w600)),
-                                subtitle: Text(user['email'] ?? user['username'] ?? '', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
-                                trailing: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    GestureDetector(
-                                      onTap: () => _toggleFavorite(c['id'], isFav),
-                                      child: Icon(isFav ? Icons.star : Icons.star_border, color: isFav ? Colors.amber : AppTheme.textSecondary, size: 22),
+                                if (isNonContact)
+                                  Container(
+                                    margin: const EdgeInsets.only(left: 6),
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.amber.withOpacity(0.15),
+                                      borderRadius: BorderRadius.circular(6),
                                     ),
-                                    const SizedBox(width: 8),
-                                    Icon(Icons.chevron_right, color: AppTheme.textSecondary, size: 20),
+                                    child: const Text('Non-contact', style: TextStyle(color: Colors.amber, fontSize: 10, fontWeight: FontWeight.bold)),
+                                  ),
+                              ],
+                            ),
+                            subtitle: Text(
+                              user['email'] ?? user['username'] ?? '',
+                              style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                            ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (!isNonContact)
+                                  IconButton(
+                                    icon: Icon(
+                                      isFav ? Icons.star : Icons.star_border,
+                                      color: isFav ? Colors.amber : AppTheme.textSecondary,
+                                      size: 22,
+                                    ),
+                                    tooltip: isFav ? 'Remove Favourite' : 'Add to Favourite',
+                                    onPressed: () => _toggleFavorite(c['id'].toString(), isFav),
+                                  ),
+                                PopupMenuButton<String>(
+                                  icon: Icon(Icons.more_vert, color: AppTheme.textSecondary, size: 20),
+                                  onSelected: (action) {
+                                    if (action == 'view_info') {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => OtherUserProfileScreen(user: user),
+                                        ),
+                                      ).then((_) => _loadData());
+                                    } else if (action == 'delete') {
+                                      _confirmDeleteContact(c);
+                                    }
+                                  },
+                                  itemBuilder: (ctx) => [
+                                    const PopupMenuItem(
+                                      value: 'view_info',
+                                      child: Row(
+                                        children: [
+                                          Icon(Icons.info_outline, size: 18),
+                                          SizedBox(width: 8),
+                                          Text('View Info'),
+                                        ],
+                                      ),
+                                    ),
+                                    if (!isNonContact)
+                                      const PopupMenuItem(
+                                        value: 'delete',
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.delete_outline, color: Colors.redAccent, size: 18),
+                                            SizedBox(width: 8),
+                                            Text('Delete Contact', style: TextStyle(color: Colors.redAccent)),
+                                          ],
+                                        ),
+                                      ),
                                   ],
                                 ),
-                                onTap: () => _startChat(user['id'], displayName, user['avatarUrl']),
-                              ),
-                            );
-                          },
-                        ),
+                              ],
+                            ),
+                            onTap: () => _startChat(userId, displayName, user['avatarUrl']),
+                            onLongPress: !isNonContact ? () => _confirmDeleteContact(c) : null,
+                          );
+                        },
+                      ),
           ),
         ],
       ),
@@ -215,7 +427,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
         backgroundColor: AppTheme.primaryColor,
         onPressed: () async {
           await Navigator.push(context, MaterialPageRoute(builder: (_) => const AddContactScreen()));
-          _loadContacts();
+          _loadData();
         },
         child: const Icon(Icons.person_add, color: Colors.white),
       ),

@@ -33,6 +33,8 @@ import 'call_screen.dart';
 import 'wallpaper_settings_screen.dart';
 import 'group_settings_screen.dart';
 import 'whatsapp_media_picker_screen.dart';
+import 'package:flutter/gestures.dart';
+import 'verify_safety_number_screen.dart';
 import '../utils/e2ee/crypto_service.dart';
 import '../utils/e2ee/e2ee_api.dart';
 import '../services/auto_download_service.dart';
@@ -573,6 +575,191 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 setState(() => _disappearingTimer = '90 Days');
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Messages will self-destruct after 90 Days')));
               },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showEncryptionInfoDialog() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E293B),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 20),
+              decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
+            ),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF59E0B).withOpacity(0.15),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.lock_rounded, color: Color(0xFFFBBF24), size: 36),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Your chat is end-to-end encrypted',
+              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Messages, calls, voice notes, photos, videos, and documents are secured with end-to-end encryption. Only you and the recipient can read, listen to, or view them. Not even DOLSYX has access.',
+              style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.45),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFF59E0B),
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    icon: const Icon(Icons.verified_user_rounded, size: 18),
+                    label: const Text('Verify Safety Number', style: TextStyle(fontWeight: FontWeight.bold)),
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => VerifySafetyNumberScreen(
+                            contactName: widget.chatName,
+                            contactEmail: '',
+                            contactUserId: widget.conversationId,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEncryptionSecurityBanner() {
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E293B).withOpacity(0.92),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFF59E0B).withOpacity(0.25)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.2),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            const Icon(Icons.lock_rounded, color: Color(0xFFFBBF24), size: 16),
+            const SizedBox(width: 8),
+            Expanded(
+              child: RichText(
+                textAlign: TextAlign.center,
+                text: TextSpan(
+                  style: const TextStyle(
+                    color: Color(0xFFFDE68A),
+                    fontSize: 12,
+                    height: 1.35,
+                    fontWeight: FontWeight.w400,
+                  ),
+                  children: [
+                    const TextSpan(
+                      text: 'Messages and calls are end-to-end encrypted. Only people in this chat can read, listen to, or share them. ',
+                    ),
+                    TextSpan(
+                      text: 'Learn more',
+                      style: const TextStyle(
+                        color: Color(0xFFFBBF24),
+                        fontWeight: FontWeight.bold,
+                        decoration: TextDecoration.underline,
+                      ),
+                      recognizer: TapGestureRecognizer()..onTap = _showEncryptionInfoDialog,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDisappearingTimerBanner() {
+    if (_disappearingTimer == null || _disappearingTimer == 'Off') {
+      return const SizedBox.shrink();
+    }
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E293B).withOpacity(0.92),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.2),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            const Icon(Icons.timelapse_rounded, color: Colors.white70, size: 16),
+            const SizedBox(width: 8),
+            Expanded(
+              child: RichText(
+                textAlign: TextAlign.center,
+                text: TextSpan(
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 12,
+                    height: 1.35,
+                    fontWeight: FontWeight.w400,
+                  ),
+                  children: [
+                    TextSpan(
+                      text: 'The message timer was updated. New messages will disappear from this chat $_disappearingTimer after they\'re sent, except when kept. ',
+                    ),
+                    TextSpan(
+                      text: 'Change timer',
+                      style: const TextStyle(
+                        color: Color(0xFF38BDF8),
+                        fontWeight: FontWeight.bold,
+                        decoration: TextDecoration.underline,
+                      ),
+                      recognizer: TapGestureRecognizer()..onTap = _showDisappearingDialog,
+                    ),
+                  ],
+                ),
+              ),
             ),
           ],
         ),
@@ -3739,62 +3926,89 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           Expanded(
             child: _isLoading && _messages.isEmpty
                 ? Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
-                : ListView.builder(
-                    controller: _scrollController,
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _messages.length,
-                    cacheExtent: 500.0,
-                    addAutomaticKeepAlives: true,
-                    addRepaintBoundaries: true,
-                    itemBuilder: (context, index) {
-                      final message = _messages[index];
-                      final isMe = currentUser != null && message.senderId == currentUser['id'];
-                      final isSelected = _selectedMessageIds.contains(message.id);
-                      
-                      bool showDateSeparator = false;
-                      if (index == 0) {
-                        showDateSeparator = true;
-                      } else {
-                        final prevMessage = _messages[index - 1];
-                        final prevDate = DateTime(prevMessage.createdAt.toLocal().year, prevMessage.createdAt.toLocal().month, prevMessage.createdAt.toLocal().day);
-                        final currDate = DateTime(message.createdAt.toLocal().year, message.createdAt.toLocal().month, message.createdAt.toLocal().day);
-                        if (currDate.isAfter(prevDate)) {
-                          showDateSeparator = true;
-                        }
-                      }
-
-                      Widget separator = const SizedBox.shrink();
-                      if (showDateSeparator) {
-                        final now = DateTime.now();
-                        final currDate = DateTime(message.createdAt.toLocal().year, message.createdAt.toLocal().month, message.createdAt.toLocal().day);
-                        final diff = DateTime(now.year, now.month, now.day).difference(currDate).inDays;
-                        
-                        String dateStr;
-                        if (diff == 0) dateStr = 'Today';
-                        else if (diff == 1) dateStr = 'Yesterday';
-                        else dateStr = DateFormat('MMMM d, yyyy').format(currDate);
-
-                        separator = Container(
-                          alignment: Alignment.center,
-                          margin: const EdgeInsets.symmetric(vertical: 16),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: AppTheme.surfaceColor.withOpacity(0.8),
-                              borderRadius: BorderRadius.circular(12),
+                : _messages.isEmpty
+                    ? SingleChildScrollView(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          children: [
+                            _buildEncryptionSecurityBanner(),
+                            _buildDisappearingTimerBanner(),
+                            const SizedBox(height: 32),
+                            Icon(Icons.lock_clock_rounded, size: 48, color: AppTheme.primaryColor.withOpacity(0.6)),
+                            const SizedBox(height: 12),
+                            Text(
+                              'Start an end-to-end encrypted chat',
+                              style: TextStyle(color: AppTheme.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
                             ),
-                            child: Text(
-                              dateStr,
-                              style: TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontWeight: FontWeight.bold),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Messages are end-to-end encrypted. No one outside of this chat, not even DOLSYX, can read or listen to them.',
+                              style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+                              textAlign: TextAlign.center,
                             ),
-                          ),
-                        );
-                      }
+                          ],
+                        ),
+                      )
+                    : ListView.builder(
+                        controller: _scrollController,
+                        padding: const EdgeInsets.all(16),
+                        itemCount: _messages.length,
+                        cacheExtent: 500.0,
+                        addAutomaticKeepAlives: true,
+                        addRepaintBoundaries: true,
+                        itemBuilder: (context, index) {
+                          final message = _messages[index];
+                          final isMe = currentUser != null && message.senderId == currentUser['id'];
+                          final isSelected = _selectedMessageIds.contains(message.id);
+                          
+                          bool showDateSeparator = false;
+                          if (index == 0) {
+                            showDateSeparator = true;
+                          } else {
+                            final prevMessage = _messages[index - 1];
+                            final prevDate = DateTime(prevMessage.createdAt.toLocal().year, prevMessage.createdAt.toLocal().month, prevMessage.createdAt.toLocal().day);
+                            final currDate = DateTime(message.createdAt.toLocal().year, message.createdAt.toLocal().month, message.createdAt.toLocal().day);
+                            if (currDate.isAfter(prevDate)) {
+                              showDateSeparator = true;
+                            }
+                          }
 
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          separator,
+                          Widget separator = const SizedBox.shrink();
+                          if (showDateSeparator) {
+                            final now = DateTime.now();
+                            final currDate = DateTime(message.createdAt.toLocal().year, message.createdAt.toLocal().month, message.createdAt.toLocal().day);
+                            final diff = DateTime(now.year, now.month, now.day).difference(currDate).inDays;
+                            
+                            String dateStr;
+                            if (diff == 0) dateStr = 'Today';
+                            else if (diff == 1) dateStr = 'Yesterday';
+                            else dateStr = DateFormat('MMMM d, yyyy').format(currDate);
+
+                            separator = Container(
+                              alignment: Alignment.center,
+                              margin: const EdgeInsets.symmetric(vertical: 16),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.surfaceColor.withOpacity(0.8),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  dateStr,
+                                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                            );
+                          }
+
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              if (index == 0) ...[
+                                _buildEncryptionSecurityBanner(),
+                                _buildDisappearingTimerBanner(),
+                              ],
+                              separator,
                           if (isSelected && _selectedMessageIds.length == 1)
                             _buildQuickReactionPicker(message, isMe),
                           GestureDetector(
@@ -4170,58 +4384,95 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     ),
                   )
                 : Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       Expanded(
-                        child: TextField(
-                          controller: _messageController,
-                          focusNode: _focusNode,
-                          keyboardType: TextInputType.multiline,
-                          minLines: 1,
-                          maxLines: 5,
-                          textInputAction: TextInputAction.newline,
-                          onTap: () {
-                            if (_isEmojiVisible) {
-                              setState(() { _isEmojiVisible = false; });
-                            }
-                          },
-                          style: TextStyle(color: AppTheme.textPrimary),
-                          decoration: InputDecoration(
-                            hintText: _editingMessage != null
-                                ? 'Edit message...'
-                                : (_activeScheduledTime != null ? 'Type scheduled message...' : 'Message'),
-                            hintStyle: TextStyle(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: AppTheme.surfaceColor,
+                            borderRadius: BorderRadius.circular(30),
+                            border: Border.all(
                               color: (_editingMessage != null || _activeScheduledTime != null)
-                                  ? AppTheme.primaryColor.withValues(alpha: 0.8)
-                                  : AppTheme.textSecondary,
+                                  ? AppTheme.primaryColor
+                                  : Colors.white.withOpacity(0.08),
+                              width: 1.2,
                             ),
-                            filled: true,
-                            fillColor: AppTheme.surfaceColor,
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                            prefixIcon: IconButton(
-                              icon: Icon(_isEmojiVisible ? Icons.keyboard : Icons.emoji_emotions_outlined, color: AppTheme.textSecondary),
-                              onPressed: _showEmojiPicker,
-                            ),
-                            suffixIcon: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  icon: Icon(Icons.attach_file_rounded, color: AppTheme.textSecondary, size: 22),
-                                  onPressed: _showAttachmentOptions,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.12),
+                                blurRadius: 6,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: TextField(
+                            controller: _messageController,
+                            focusNode: _focusNode,
+                            keyboardType: TextInputType.multiline,
+                            minLines: 1,
+                            maxLines: 5,
+                            textInputAction: TextInputAction.newline,
+                            onTap: () {
+                              if (_isEmojiVisible) {
+                                setState(() { _isEmojiVisible = false; });
+                              }
+                            },
+                            style: TextStyle(color: AppTheme.textPrimary, fontSize: 15),
+                            decoration: InputDecoration(
+                              hintText: _editingMessage != null
+                                  ? 'Edit message...'
+                                  : (_activeScheduledTime != null ? 'Type scheduled message...' : 'Message...'),
+                              hintStyle: TextStyle(
+                                color: (_editingMessage != null || _activeScheduledTime != null)
+                                    ? AppTheme.primaryColor.withValues(alpha: 0.8)
+                                    : AppTheme.textSecondary.withOpacity(0.7),
+                                fontSize: 15,
+                              ),
+                              filled: true,
+                              fillColor: Colors.transparent,
+                              isDense: true,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                              prefixIcon: IconButton(
+                                icon: Icon(
+                                  _isEmojiVisible ? Icons.keyboard_rounded : Icons.emoji_emotions_outlined,
+                                  color: AppTheme.textSecondary,
+                                  size: 22,
                                 ),
-                                IconButton(
-                                  icon: Icon(Icons.camera_alt_rounded, color: AppTheme.textSecondary, size: 22),
-                                  onPressed: _showCameraOptions,
-                                ),
-                                const SizedBox(width: 4),
-                              ],
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(28),
-                              borderSide: (_editingMessage != null || _activeScheduledTime != null) ? BorderSide(color: AppTheme.primaryColor, width: 1.5) : BorderSide.none,
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(28),
-                              borderSide: (_editingMessage != null || _activeScheduledTime != null) ? BorderSide(color: AppTheme.primaryColor, width: 1.5) : BorderSide.none,
+                                onPressed: _showEmojiPicker,
+                              ),
+                              suffixIcon: ValueListenableBuilder<TextEditingValue>(
+                                valueListenable: _messageController,
+                                builder: (context, value, child) {
+                                  final hasText = value.text.trim().isNotEmpty;
+                                  return Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        icon: Icon(Icons.attach_file_rounded, color: AppTheme.textSecondary, size: 22),
+                                        onPressed: _showAttachmentOptions,
+                                      ),
+                                      if (!hasText)
+                                        IconButton(
+                                          icon: Icon(Icons.camera_alt_rounded, color: AppTheme.textSecondary, size: 22),
+                                          onPressed: _showCameraOptions,
+                                        ),
+                                      const SizedBox(width: 4),
+                                    ],
+                                  );
+                                },
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(30),
+                                borderSide: BorderSide.none,
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(30),
+                                borderSide: BorderSide.none,
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(30),
+                                borderSide: BorderSide.none,
+                              ),
                             ),
                           ),
                         ),

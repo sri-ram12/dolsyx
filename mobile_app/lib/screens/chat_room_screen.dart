@@ -2089,30 +2089,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     _scrollToBottom(animate: true);
 
     // 3. Instant Socket Transmission (sub-0.2ms zero-lag single pipeline)
-    final isDirectMessage = widget.remoteUser != null;
-    final remoteEmail = widget.remoteUser?['email'] as String?;
-    if (isDirectMessage && remoteEmail != null && authProvider.token != null) {
-      authProvider.socketService.sendEncryptedMessage(
-        conversationId: widget.conversationId,
-        recipientEmail: remoteEmail,
-        plaintext: text,
-        token: authProvider.token!,
-        myUserId: authProvider.user?['id'] ?? '',
-        parentMessageId: replying?.id,
-      ).catchError((err) {
-        authProvider.socketService.sendMessage(
-          widget.conversationId,
-          text,
-          parentMessageId: replying?.id,
-        );
-      });
-    } else {
-      authProvider.socketService.sendMessage(
-        widget.conversationId,
-        text,
-        parentMessageId: replying?.id,
-      );
-    }
+    authProvider.socketService.sendMessage(
+      widget.conversationId,
+      text,
+      parentMessageId: replying?.id,
+    );
   }
 
   void _openGroupSettings() async {
@@ -2856,21 +2837,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     final isDirectMessage = widget.remoteUser != null;
                     final remoteEmail = widget.remoteUser?['email'] as String?;
 
-                    if (isDirectMessage && remoteEmail != null && authProvider.token != null) {
-                      authProvider.socketService.sendEncryptedMessage(
-                        conversationId: widget.conversationId,
-                        recipientEmail: remoteEmail,
-                        plaintext: pollPayload,
-                        token: authProvider.token!,
-                        myUserId: authProvider.user?['id'] ?? '',
-                      );
-                    } else {
-                      authProvider.socketService.sendMessage(
-                        widget.conversationId,
-                        pollPayload,
-                        mediaType: 'POLL',
-                      );
-                    }
+                    authProvider.socketService.sendMessage(
+                      widget.conversationId,
+                      pollPayload,
+                      mediaType: 'POLL',
+                    );
                   }
                 },
                 child: const Text('Create Poll', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
@@ -2931,9 +2902,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   void _sendCurrentLocation() async {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final isDirectMessage = widget.remoteUser != null;
-    final remoteEmail = widget.remoteUser?['email'] as String?;
-
     final locJson = jsonEncode({
       'mediaType': 'LOCATION',
       'latitude': 12.9716,
@@ -2942,21 +2910,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       'isLiveLocation': false,
     });
 
-    if (isDirectMessage && remoteEmail != null && authProvider.token != null) {
-      await authProvider.socketService.sendEncryptedMessage(
-        conversationId: widget.conversationId,
-        recipientEmail: remoteEmail,
-        plaintext: locJson,
-        token: authProvider.token!,
-        myUserId: authProvider.user?['id'] ?? '',
-      );
-    } else {
-      authProvider.socketService.sendMessage(
-        widget.conversationId,
-        locJson,
-        mediaType: 'LOCATION',
-      );
-    }
+    authProvider.socketService.sendMessage(
+      widget.conversationId,
+      locJson,
+      mediaType: 'LOCATION',
+    );
   }
 
   void _showLiveLocationTimerPicker() {
@@ -3002,37 +2960,17 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   void _sendLiveLocation(int minutes) async {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final expiresAt = DateTime.now().add(Duration(minutes: minutes)).toIso8601String();
-    final isDirectMessage = widget.remoteUser != null;
-    final remoteEmail = widget.remoteUser?['email'] as String?;
 
-    if (isDirectMessage && remoteEmail != null && authProvider.token != null) {
-      final locJson = jsonEncode({
-        'mediaType': 'LOCATION',
-        'latitude': 12.9716,
-        'longitude': 77.5946,
-        'locationTitle': 'Sharing live location ($minutes mins)',
-        'isLiveLocation': true,
-        'liveExpiresAt': expiresAt,
-      });
-      await authProvider.socketService.sendEncryptedMessage(
-        conversationId: widget.conversationId,
-        recipientEmail: remoteEmail,
-        plaintext: locJson,
-        token: authProvider.token!,
-        myUserId: authProvider.user?['id'] ?? '',
-      );
-    } else {
-      authProvider.socketService.sendMessage(
-        widget.conversationId,
-        'Live Location',
-        mediaType: 'LOCATION',
-        latitude: 12.9716,
-        longitude: 77.5946,
-        locationTitle: 'Live Location ($minutes mins)',
-        isLiveLocation: true,
-        liveExpiresAt: expiresAt,
-      );
-    }
+    authProvider.socketService.sendMessage(
+      widget.conversationId,
+      'Live Location',
+      mediaType: 'LOCATION',
+      latitude: 12.9716,
+      longitude: 77.5946,
+      locationTitle: 'Live Location ($minutes mins)',
+      isLiveLocation: true,
+      liveExpiresAt: expiresAt,
+    );
   }
 
   void _showEmojiPicker() {

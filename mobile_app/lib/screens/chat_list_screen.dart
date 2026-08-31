@@ -398,29 +398,33 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
           ),
         ),
         Expanded(
-          child: _isLoading && _chats.isEmpty
-              ? Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
-              : _chats.isEmpty
-                  ? ListView(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      children: [
-                        const SizedBox(height: 100),
-                        Center(
-                          child: Text(
-                            'No conversations yet.\nStart a chat!',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: AppTheme.textSecondary, fontSize: 16),
+          child: RefreshIndicator(
+            onRefresh: _fetchChats,
+            color: AppTheme.primaryColor,
+            backgroundColor: AppTheme.surfaceColor,
+            child: _isLoading && _chats.isEmpty
+                ? Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
+                : _chats.isEmpty
+                    ? ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        children: [
+                          const SizedBox(height: 100),
+                          Center(
+                            child: Text(
+                              'No conversations yet.\nStart a chat!',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: AppTheme.textSecondary, fontSize: 16),
+                            ),
                           ),
-                        ),
-                      ],
-                    )
-                  : ListView.builder(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      cacheExtent: 500.0,
-                      addAutomaticKeepAlives: true,
-                      addRepaintBoundaries: true,
-                      itemCount: _chats.where((c) => !c.isArchived).length + 1 + (_chats.any((c) => c.isArchived) ? 1 : 0),
-                      itemBuilder: (context, index) {
+                        ],
+                      )
+                    : ListView.builder(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        cacheExtent: 500.0,
+                        addAutomaticKeepAlives: true,
+                        addRepaintBoundaries: true,
+                        itemCount: _chats.where((c) => !c.isArchived).length + 1 + (_chats.any((c) => c.isArchived) ? 1 : 0),
+                        itemBuilder: (context, index) {
                           final activeChats = _chats.where((c) => !c.isArchived).toList();
                           if (index == 0) {
                           return ListTile(
@@ -622,6 +626,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                       );
                     },
                   ),
+          ),
         ),
       ],
     );
@@ -712,9 +717,14 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
   Widget _buildGroupsTab() {
     final groupChats = _chats.where((c) => c.isGroup).toList();
 
-    return ListView(
-      padding: const EdgeInsets.all(16.0),
-      children: [
+    return RefreshIndicator(
+      onRefresh: _fetchChats,
+      color: AppTheme.primaryColor,
+      backgroundColor: AppTheme.surfaceColor,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16.0),
+        children: [
         ListTile(
           leading: Container(
             padding: const EdgeInsets.all(10),
@@ -798,7 +808,8 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
               onTap: () => _openChat(chat),
             );
           }),
-      ],
+        ],
+      ),
     );
   }
 

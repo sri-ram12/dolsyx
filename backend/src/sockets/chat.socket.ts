@@ -504,10 +504,10 @@ export const initChatSocket = (io: Server) => {
           });
         }
 
-        // Deliver to user rooms for chat list/notifications, excluding sockets already in conversation room
+        // Deliver to user rooms for chat list/notifications unconditionally
         participantUserIds.forEach((pId) => {
           if (pId !== userId) {
-            io.except(conversationId).to(pId).emit("new_message", {
+            io.to(pId).emit("new_message", {
               message: instantMessage,
               conversationId,
             });

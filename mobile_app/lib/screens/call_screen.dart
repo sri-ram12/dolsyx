@@ -409,31 +409,40 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
 
     _onCallAnswered = (data) async {
       if (!mounted || data == null) return;
-      SoundService().stopRingtone();
-      _timeoutTimer?.cancel();
-      if (mounted) {
-        setState(() {
-          _status = 'Connected';
-          _callActive = true;
-          CallScreen.isCallActiveNotifier.value = true;
+      try {
+        SoundService().stopRingtone();
+        _timeoutTimer?.cancel();
+        if (mounted) {
+          setState(() {
+            _status = 'Connected';
+            _callActive = true;
+            CallScreen.isCallActiveNotifier.value = true;
+          });
           try {
             _pipChannel.invokeMethod('setCallActive', {'active': true});
           } catch (_) {}
-        });
-      }
-      final answererId = data['answererId'] ?? widget.remoteUserId;
-      if (data['answer'] != null) {
-        final answer = RTCSessionDescription(data['answer']['sdp'], data['answer']['type']);
-        try {
-          await _peerConnections[answererId]?.setRemoteDescription(answer);
-        } catch (e) {
-          debugPrint('[WebRTC] setRemoteDescription error: $e');
+        }
+        final answererId = (data['answererId'] ?? widget.remoteUserId).toString();
+        if (data['answer'] != null && data['answer'] is Map) {
+          final answer = RTCSessionDescription(data['answer']['sdp'], data['answer']['type']);
+          final pc = _peerConnections[answererId] ?? (_peerConnections.isNotEmpty ? _peerConnections.values.first : null);
+          try {
+            await pc?.setRemoteDescription(answer);
+          } catch (e) {
+            debugPrint('[WebRTC] setRemoteDescription error: $e');
+          }
+          if (!mounted) return;
+          await _flushIceCandidates(answererId);
+          for (final pId in _peerConnections.keys) {
+            if (pId != answererId) await _flushIceCandidates(pId);
+          }
         }
         if (!mounted) return;
-        await _flushIceCandidates(answererId);
+        if (_callTimer == null || !_callTimer!.isActive) _startTimer();
+        if (mounted) setState(() {});
+      } catch (e) {
+        debugPrint('[WebRTC] _onCallAnswered fatal error: $e');
       }
-      if (!mounted) return;
-      if (_callTimer == null || !_callTimer!.isActive) _startTimer();
     };
     socket.on('call_answered', _onCallAnswered);
 
@@ -460,20 +469,38 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     socket.on('call_ended', _onCallEnded);
 
     _onIceCandidate = (data) async {
-      if (!mounted) return;
-      final fromUserId = data['fromUserId'];
-      if (data['candidate'] != null) {
-        final candidate = RTCIceCandidate(
-          data['candidate']['candidate'],
-          data['candidate']['sdpMid'],
-          data['candidate']['sdpMLineIndex'],
-        );
-        final pc = _peerConnections[fromUserId];
-        if (pc == null || await pc.getRemoteDescription() == null) {
-          _iceCandidateQueues.putIfAbsent(fromUserId, () => []).add(candidate);
-        } else {
-          await pc.addCandidate(candidate);
+      if (!mounted || data == null) return;
+      try {
+        final fromUserId = (data['fromUserId'] ?? '').toString();
+        if (fromUserId.isEmpty) return;
+        final candData = data['candidate'];
+        if (candData != null && candData is Map) {
+          final sdpMLineIndex = candData['sdpMLineIndex'] is int
+              ? candData['sdpMLineIndex'] as int
+              : int.tryParse(candData['sdpMLineIndex']?.toString() ?? '');
+          final candidate = RTCIceCandidate(
+            candData['candidate']?.toString(),
+            candData['sdpMid']?.toString(),
+            sdpMLineIndex,
+          );
+          final pc = _peerConnections[fromUserId] ?? (_peerConnections.isNotEmpty ? _peerConnections.values.first : null);
+          if (pc == null) {
+            _iceCandidateQueues.putIfAbsent(fromUserId, () => []).add(candidate);
+          } else {
+            final remoteDesc = await pc.getRemoteDescription();
+            if (remoteDesc == null) {
+              _iceCandidateQueues.putIfAbsent(fromUserId, () => []).add(candidate);
+            } else {
+              try {
+                await pc.addCandidate(candidate);
+              } catch (e) {
+                debugPrint('[WebRTC] addCandidate error: $e');
+              }
+            }
+          }
         }
+      } catch (e) {
+        debugPrint('[WebRTC] _onIceCandidate top error: $e');
       }
     };
     socket.on('ice_candidate', _onIceCandidate);
@@ -682,11 +709,17 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
 
   Future<void> _flushIceCandidates(String userId) async {
     final queue = _iceCandidateQueues[userId];
-    if (queue != null) {
-      for (final candidate in queue) {
-        await _peerConnections[userId]?.addCandidate(candidate);
+    if (queue != null && queue.isNotEmpty) {
+      final toFlush = List<RTCIceCandidate>.from(queue);
+      queue.clear();
+      for (final candidate in toFlush) {
+        try {
+          final pc = _peerConnections[userId] ?? (_peerConnections.isNotEmpty ? _peerConnections.values.first : null);
+          await pc?.addCandidate(candidate);
+        } catch (e) {
+          debugPrint('[WebRTC] flush candidate error: $e');
+        }
       }
-      _iceCandidateQueues[userId]?.clear();
     }
   }
 
@@ -745,6 +778,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       ],
       'sdpSemantics': 'unified-plan',
       'bundlePolicy': 'max-bundle',
+      'iceCandidatePoolSize': 10,
       'iceTransportPolicy': forceRelay ? 'relay' : 'all',
     };
     final pc = await createPeerConnection(configuration);
@@ -765,7 +799,12 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     }
 
     final renderer = RTCVideoRenderer();
-    await renderer.initialize();
+    try {
+      await renderer.initialize();
+    } catch (_) {}
+    if (_remoteStreams.containsKey(targetUserId)) {
+      renderer.srcObject = _remoteStreams[targetUserId];
+    }
     if (mounted) setState(() => _remoteRenderers[targetUserId] = renderer);
 
     pc.onIceCandidate = (candidate) {
@@ -858,16 +897,6 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       _checkAudioDevicesAndRoute();
     };
 
-    if (_localStream == null) {
-      await _initWebRTC();
-    }
-
-    if (_localStream != null) {
-      for (final track in _localStream!.getTracks()) {
-        await pc.addTrack(track, _localStream!);
-      }
-    }
-
     _flushIceCandidates(targetUserId);
     return pc;
   }
@@ -944,6 +973,11 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         return false;
       }
 
+      // Ensure local renderer is initialized
+      try {
+        await _localRenderer.initialize();
+      } catch (_) {}
+
       _localRenderer.srcObject = _localStream;
       if (widget.isAudioOnly || !canCaptureVideo) _isVideoOff = true;
 
@@ -952,6 +986,10 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       _localStream?.getAudioTracks().forEach((track) {
         track.enabled = true;
       });
+      _localStream?.getVideoTracks().forEach((track) {
+        track.enabled = true;
+      });
+      if (mounted) setState(() {});
       return true;
     } catch (e) {
       debugPrint('[WebRTC] getUserMedia error: $e');
@@ -1693,11 +1731,10 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   // 1-on-1 video: Fullscreen remote/local + Draggable PiP with switch camera button
   // Double-tap anywhere or tap PiP switches/swaps videos between main screen and PiP
   Widget _buildOneToOneVideoView() {
-    final remoteRenderer = _remoteRenderers[widget.remoteUserId];
+    final remoteRenderer = _remoteRenderers[widget.remoteUserId] ?? (_remoteRenderers.isNotEmpty ? _remoteRenderers.values.first : null);
     final bool hasRemoteVideo = remoteRenderer != null &&
         remoteRenderer.srcObject != null &&
-        remoteRenderer.srcObject!.getVideoTracks().isNotEmpty &&
-        remoteRenderer.srcObject!.getVideoTracks().any((t) => t.enabled);
+        remoteRenderer.srcObject!.getVideoTracks().isNotEmpty;
     final bool hasLocalVideo = !_isVideoOff &&
         _localRenderer.srcObject != null &&
         _localRenderer.srcObject!.getVideoTracks().isNotEmpty;
@@ -1738,7 +1775,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         children: [
           // Fullscreen main video
           Positioned.fill(
-            child: (mainRenderer != null && mainRenderer.srcObject != null)
+            child: (mainRenderer != null && mainRenderer.srcObject != null && mainRenderer.textureId != null)
                 ? RTCVideoView(
                     mainRenderer,
                     objectFit: _isScreenSharing ? RTCVideoViewObjectFit.RTCVideoViewObjectFitContain : RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
@@ -1763,7 +1800,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           ),
 
           // Draggable PiP (WhatsApp-style rounded with flip camera button and tap-to-swap)
-          if (pipRenderer != null && !_isVideoOff)
+          if (pipRenderer != null && pipRenderer.srcObject != null && pipRenderer.textureId != null && !_isVideoOff)
             Positioned(
               right: _localVideoRight,
               bottom: _localVideoBottom,
@@ -1869,7 +1906,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       views.add(Stack(
         fit: StackFit.expand,
         children: [
-          renderer != null
+          renderer != null && renderer.textureId != null
             ? RTCVideoView(
                 renderer,
                 objectFit: _isScreenSharing ? RTCVideoViewObjectFit.RTCVideoViewObjectFitContain : RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,

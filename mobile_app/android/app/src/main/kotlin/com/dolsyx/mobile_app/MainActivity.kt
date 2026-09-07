@@ -338,25 +338,37 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private fun updateCallState(active: Boolean) {
-        val serviceIntent = Intent(this, CallForegroundService::class.java)
-        if (active) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(serviceIntent)
+        try {
+            val serviceIntent = Intent(this, CallForegroundService::class.java)
+            if (active) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    try {
+                        startForegroundService(serviceIntent)
+                    } catch (e: Exception) {
+                        try {
+                            startService(serviceIntent)
+                        } catch (_: Exception) {}
+                    }
+                } else {
+                    try {
+                        startService(serviceIntent)
+                    } catch (_: Exception) {}
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    try {
+                        val params = PictureInPictureParams.Builder()
+                            .setAspectRatio(Rational(9, 16))
+                            .setAutoEnterEnabled(true)
+                            .build()
+                        setPictureInPictureParams(params)
+                    } catch (_: Exception) {}
+                }
             } else {
-                startService(serviceIntent)
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 try {
-                    val params = PictureInPictureParams.Builder()
-                        .setAspectRatio(Rational(9, 16))
-                        .setAutoEnterEnabled(true)
-                        .build()
-                    setPictureInPictureParams(params)
+                    stopService(serviceIntent)
                 } catch (_: Exception) {}
             }
-        } else {
-            stopService(serviceIntent)
-        }
+        } catch (_: Exception) {}
     }
 
     override fun onUserLeaveHint() {

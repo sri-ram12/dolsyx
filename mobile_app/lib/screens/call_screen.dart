@@ -347,10 +347,12 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _initRenderers() async {
-    try {
-      await _localRenderer.initialize();
-    } catch (e) {
-      debugPrint('[WebRTC] _localRenderer initialize error: $e');
+    if (_localRenderer.textureId == null) {
+      try {
+        await _localRenderer.initialize();
+      } catch (e) {
+        debugPrint('[WebRTC] _localRenderer initialize error: $e');
+      }
     }
     _setupSocketListeners();
 
@@ -475,11 +477,15 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         if (fromUserId.isEmpty) return;
         final candData = data['candidate'];
         if (candData != null && candData is Map) {
+          final candStr = candData['candidate']?.toString();
+          // Skip null/empty strings (e.g. WebRTC end-of-candidates indicator)
+          if (candStr == null || candStr.trim().isEmpty) return;
+
           final sdpMLineIndex = candData['sdpMLineIndex'] is int
               ? candData['sdpMLineIndex'] as int
               : int.tryParse(candData['sdpMLineIndex']?.toString() ?? '');
           final candidate = RTCIceCandidate(
-            candData['candidate']?.toString(),
+            candStr,
             candData['sdpMid']?.toString(),
             sdpMLineIndex,
           );
@@ -487,15 +493,15 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           if (pc == null) {
             _iceCandidateQueues.putIfAbsent(fromUserId, () => []).add(candidate);
           } else {
-            final remoteDesc = await pc.getRemoteDescription();
-            if (remoteDesc == null) {
-              _iceCandidateQueues.putIfAbsent(fromUserId, () => []).add(candidate);
-            } else {
-              try {
+            try {
+              final remoteDesc = await pc.getRemoteDescription();
+              if (remoteDesc == null) {
+                _iceCandidateQueues.putIfAbsent(fromUserId, () => []).add(candidate);
+              } else {
                 await pc.addCandidate(candidate);
-              } catch (e) {
-                debugPrint('[WebRTC] addCandidate error: $e');
               }
+            } catch (e) {
+              debugPrint('[WebRTC] addCandidate error: $e');
             }
           }
         }
@@ -708,14 +714,33 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _flushIceCandidates(String userId) async {
-    final queue = _iceCandidateQueues[userId];
-    if (queue != null && queue.isNotEmpty) {
+    final pc = _peerConnections[userId] ?? (_peerConnections.isNotEmpty ? _peerConnections.values.first : null);
+    if (pc == null) return;
+    try {
+      final remoteDesc = await pc.getRemoteDescription();
+      if (remoteDesc == null) return; // Must not add ICE candidates before remote description is set
+    } catch (_) {
+      return;
+    }
+
+    final queuesToFlush = <List<RTCIceCandidate>>[];
+    if (_iceCandidateQueues.containsKey(userId)) {
+      queuesToFlush.add(_iceCandidateQueues[userId]!);
+    }
+    for (final entry in _iceCandidateQueues.entries) {
+      if (entry.key != userId && entry.value.isNotEmpty) {
+        queuesToFlush.add(entry.value);
+      }
+    }
+
+    for (final queue in queuesToFlush) {
+      if (queue.isEmpty) continue;
       final toFlush = List<RTCIceCandidate>.from(queue);
       queue.clear();
       for (final candidate in toFlush) {
+        if (candidate.candidate == null || candidate.candidate!.trim().isEmpty) continue;
         try {
-          final pc = _peerConnections[userId] ?? (_peerConnections.isNotEmpty ? _peerConnections.values.first : null);
-          await pc?.addCandidate(candidate);
+          await pc.addCandidate(candidate);
         } catch (e) {
           debugPrint('[WebRTC] flush candidate error: $e');
         }
@@ -973,10 +998,12 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         return false;
       }
 
-      // Ensure local renderer is initialized
-      try {
-        await _localRenderer.initialize();
-      } catch (_) {}
+      // Ensure local renderer is initialized if not already done
+      if (_localRenderer.textureId == null) {
+        try {
+          await _localRenderer.initialize();
+        } catch (_) {}
+      }
 
       _localRenderer.srcObject = _localStream;
       if (widget.isAudioOnly || !canCaptureVideo) _isVideoOff = true;

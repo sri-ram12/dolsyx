@@ -53,14 +53,25 @@ class CallForegroundService : Service() {
                     2,
                     notification,
                     ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL or
-                            ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
-                            ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+                            ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
                 )
-            } catch (_: Exception) {
-                startForeground(2, notification)
+            } catch (e: Exception) {
+                try {
+                    startForeground(
+                        2,
+                        notification,
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL
+                    )
+                } catch (e2: Exception) {
+                    try {
+                        startForeground(2, notification)
+                    } catch (_: Exception) {}
+                }
             }
         } else {
-            startForeground(2, notification)
+            try {
+                startForeground(2, notification)
+            } catch (_: Exception) {}
         }
 
         return START_STICKY

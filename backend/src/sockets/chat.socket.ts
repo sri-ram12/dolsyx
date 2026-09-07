@@ -14,6 +14,35 @@ const activeCallUsers = new Map<string, string>();
 // In-memory cache for conversation participants for <1ms zero-lag delivery
 const convParticipantsCache = new Map<string, { userIds: string[]; isGroup: boolean; name: string; timestamp: number }>();
 
+// Map to track blocked pairs for 0ms zero-lag DM delivery without blocking DB roundtrips
+export const blockedPairsCache = new Map<string, { isBlocked: boolean; timestamp: number }>();
+
+async function isUserBlocked(u1: string, u2: string): Promise<boolean> {
+  const key = u1 < u2 ? `${u1}:${u2}` : `${u2}:${u1}`;
+  const now = Date.now();
+  const cached = blockedPairsCache.get(key);
+  if (cached && (now - cached.timestamp < 120000)) {
+    return cached.isBlocked;
+  }
+  try {
+    const block = await prisma.userBlock.findFirst({
+      where: {
+        OR: [
+          { blockerId: u1, blockedId: u2 },
+          { blockerId: u2, blockedId: u1 },
+        ],
+      },
+      select: { id: true },
+    });
+    const isBlocked = !!block;
+    blockedPairsCache.set(key, { isBlocked, timestamp: now });
+    return isBlocked;
+  } catch (e) {
+    console.error("isUserBlocked lookup error:", e);
+    return false;
+  }
+}
+
 // Persistent Scheduled Messages Store & Dispatcher
 export interface ScheduledMsg {
   id: string;
@@ -406,23 +435,32 @@ export const initChatSocket = (io: Server) => {
         // Allow empty content for media & location messages
         if (!mediaUrl && !latitude && (!content || !content.trim())) return;
 
-        // Block check — reject message if either party has blocked the other (DM only)
-        const conv = await prisma.conversation.findUnique({
-          where: { id: conversationId },
-          select: { isGroup: true, participants: { select: { userId: true } } },
-        });
-        if (conv && !conv.isGroup) {
-          const otherUserId = conv.participants.find((p) => p.userId !== userId)?.userId;
+        // Fast participant lookup via in-memory cache
+        const now = Date.now();
+        let cached = convParticipantsCache.get(conversationId);
+        if (!cached || now - cached.timestamp > 300000) {
+          const fetched = await prisma.participant.findMany({
+            where: { conversationId },
+            select: {
+              userId: true,
+              conversation: { select: { isGroup: true, name: true } },
+            },
+          });
+          cached = {
+            userIds: fetched.map((p) => p.userId),
+            isGroup: fetched[0]?.conversation?.isGroup || false,
+            name: fetched[0]?.conversation?.name || "",
+            timestamp: now,
+          };
+          convParticipantsCache.set(conversationId, cached);
+        }
+
+        // Fast in-memory block check for direct messages
+        if (!cached.isGroup) {
+          const otherUserId = cached.userIds.find((pId) => pId !== userId);
           if (otherUserId) {
-            const blockExists = await prisma.userBlock.findFirst({
-              where: {
-                OR: [
-                  { blockerId: userId, blockedId: otherUserId },
-                  { blockerId: otherUserId, blockedId: userId },
-                ],
-              },
-            });
-            if (blockExists) {
+            const blocked = await isUserBlocked(userId, otherUserId);
+            if (blocked) {
               socket.emit("message_error", { conversationId, error: "blocked" });
               return;
             }
@@ -461,26 +499,6 @@ export const initChatSocket = (io: Server) => {
           },
         };
 
-        // Fast participant lookup via cache
-        const now = Date.now();
-        let cached = convParticipantsCache.get(conversationId);
-        if (!cached || now - cached.timestamp > 300000) {
-          const fetched = await prisma.participant.findMany({
-            where: { conversationId },
-            select: {
-              userId: true,
-              conversation: { select: { isGroup: true, name: true } },
-            },
-          });
-          cached = {
-            userIds: fetched.map((p) => p.userId),
-            isGroup: fetched[0]?.conversation?.isGroup || false,
-            name: fetched[0]?.conversation?.name || "",
-            timestamp: now,
-          };
-          convParticipantsCache.set(conversationId, cached);
-        }
-
         const participantUserIds = cached.userIds;
         const otherParticipantIds = participantUserIds.filter((pId) => pId !== userId);
         const onlineRecipients = otherParticipantIds.filter((pId) => onlineUsers.has(pId));
@@ -493,6 +511,13 @@ export const initChatSocket = (io: Server) => {
         // 🚀 SUB-0.2MS IMMEDIATE BROADCAST (ZERO WAIT)
         io.to(conversationId).emit("new_message", {
           message: instantMessage,
+          conversationId,
+        });
+
+        // Acknowledge back to sender immediately so client status turns to sent
+        socket.emit("message_sent", {
+          tempId: clientMessageId,
+          messageId,
           conversationId,
         });
 

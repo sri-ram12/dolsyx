@@ -235,13 +235,18 @@ class _DolsyxAppState extends State<DolsyxApp> with WidgetsBindingObserver {
           final response = launchDetails!.notificationResponse!;
           if (response.payload != null && response.payload!.isNotEmpty) {
             final data = jsonDecode(response.payload!);
+            final callTypeStr = (data['callType'] ?? '').toString().toLowerCase();
+            final isAudioOnly = callTypeStr == 'video'
+                ? false
+                : (data['isAudioOnly'] == true || callTypeStr == 'audio');
             setState(() {
               _incomingCallData = {
                 'conversationId': data['conversationId'] ?? '',
                 'callerId': data['callerId'] ?? '',
                 'callerName': data['callerName'] ?? 'Incoming Call',
                 'callerAvatarUrl': data['callerAvatarUrl'],
-                'isAudioOnly': (data['callType'] ?? 'audio') == 'audio' || data['isAudioOnly'] == true,
+                'callType': callTypeStr.isNotEmpty ? callTypeStr : (isAudioOnly ? 'audio' : 'video'),
+                'isAudioOnly': isAudioOnly,
                 'initialOffer': data['initialOffer'],
               };
             });
@@ -372,12 +377,17 @@ class _DolsyxAppState extends State<DolsyxApp> with WidgetsBindingObserver {
                         payloadData['isAudioOnly'] != null);
 
                 if (isCallPayload) {
+                  final callTypeStr = (payloadData!['callType'] ?? '').toString().toLowerCase();
+                  final isAudioOnly = callTypeStr == 'video'
+                      ? false
+                      : (payloadData['isAudioOnly'] == true || callTypeStr == 'audio');
                   _incomingCallData = {
-                    'conversationId': payloadData!['conversationId'] ?? '',
+                    'conversationId': payloadData['conversationId'] ?? '',
                     'callerId': payloadData['callerId'] ?? '',
                     'callerName': payloadData['callerName'] ?? 'Incoming Call',
                     'callerAvatarUrl': payloadData['callerAvatarUrl'],
-                    'isAudioOnly': (payloadData['callType'] ?? 'audio') == 'audio' || payloadData['isAudioOnly'] == true,
+                    'callType': callTypeStr.isNotEmpty ? callTypeStr : (isAudioOnly ? 'audio' : 'video'),
+                    'isAudioOnly': isAudioOnly,
                     'initialOffer': payloadData['initialOffer'],
                   };
                   final actionId = details.actionId;
@@ -529,8 +539,10 @@ class _DolsyxAppState extends State<DolsyxApp> with WidgetsBindingObserver {
   void _handleCallIncoming(dynamic data) {
     if (data == null) return;
     final String conversationId = data['conversationId'] ?? '';
-    final String callTypeStr = data['callType'] ?? 'audio';
-    final bool isAudioOnly = callTypeStr == 'audio';
+    final String callTypeStr = (data['callType'] ?? 'audio').toString().toLowerCase();
+    final bool isAudioOnly = callTypeStr == 'video'
+        ? false
+        : (data['isAudioOnly'] == true || callTypeStr == 'audio');
     final String callerId = data['callerId'] ?? '';
     final String callerName = data['callerName'] ?? 'Incoming Call';
     final String? callerAvatarUrl = data['callerAvatarUrl'] ?? data['callerAvatar'];
@@ -551,6 +563,7 @@ class _DolsyxAppState extends State<DolsyxApp> with WidgetsBindingObserver {
           'callerId': callerId,
           'callerName': callerName,
           'callerAvatarUrl': callerAvatarUrl,
+          'callType': callTypeStr.isNotEmpty ? callTypeStr : (isAudioOnly ? 'audio' : 'video'),
           'isAudioOnly': isAudioOnly,
           'initialOffer': initialOffer,
         };
@@ -618,6 +631,10 @@ class _DolsyxAppState extends State<DolsyxApp> with WidgetsBindingObserver {
       final callerNameStr = (data['callerName'] ?? 'User').toString();
       final callerIdStr = (data['callerId'] ?? '').toString();
       final convIdStr = (data['conversationId'] ?? '').toString();
+      final String callTypeStr = (data['callType'] ?? '').toString().toLowerCase();
+      final bool isAudioOnly = callTypeStr == 'video'
+          ? false
+          : (data['isAudioOnly'] == true || callTypeStr == 'audio');
 
       if (navigatorKey.currentState != null) {
         navigatorKey.currentState!.push(
@@ -628,7 +645,7 @@ class _DolsyxAppState extends State<DolsyxApp> with WidgetsBindingObserver {
               remoteUserId: callerIdStr,
               remoteUserName: callerNameStr,
               remoteAvatarUrl: data['callerAvatarUrl']?.toString(),
-              isAudioOnly: data['isAudioOnly'] ?? true,
+              isAudioOnly: isAudioOnly,
               isIncoming: true,
               initialOffer: data['initialOffer'],
             ),
@@ -645,7 +662,7 @@ class _DolsyxAppState extends State<DolsyxApp> with WidgetsBindingObserver {
                   remoteUserId: callerIdStr,
                   remoteUserName: callerNameStr,
                   remoteAvatarUrl: data['callerAvatarUrl']?.toString(),
-                  isAudioOnly: data['isAudioOnly'] ?? true,
+                  isAudioOnly: isAudioOnly,
                   isIncoming: true,
                   initialOffer: data['initialOffer'],
                 ),

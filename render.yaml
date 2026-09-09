@@ -3,8 +3,7 @@ services:
   - type: web
     name: dolsyx-monolith
     runtime: node
-    # Build command builds both backend and frontend, then builds backend output
-    buildCommand: npm install && cd frontend && npm install && npm run build && cd ../backend && npm install && npm run build && npx prisma generate && npx prisma db push
+    buildCommand: npm install && cd frontend && npm install && npm run build && cd ../backend && npm install && npm run build && npx prisma generate && npx prisma db push --accept-data-loss
     startCommand: cd backend && NODE_ENV=production node dist/index.js
     healthCheckPath: /health
     envVars:

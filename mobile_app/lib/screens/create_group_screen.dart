@@ -7,6 +7,7 @@ import '../services/contact_service.dart';
 import '../services/api_service.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
+import '../widgets/theme_check_badge.dart';
 
 class CreateGroupScreen extends StatefulWidget {
   const CreateGroupScreen({super.key});
@@ -204,21 +205,42 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                 final displayName = contactObj['savedName'] ?? user['username'] ?? 'Unknown';
                 
                 return ListTile(
-                  leading: CircleAvatar(
-                    backgroundImage: user['avatarUrl'] != null && user['avatarUrl'].startsWith('http')
-                        ? NetworkImage(user['avatarUrl'])
-                        : null,
-                    child: user['avatarUrl'] == null ? const Icon(Icons.person) : null,
+                  onTap: () {
+                    setState(() {
+                      if (isSelected) {
+                        _selectedUserIds.remove(userId);
+                      } else {
+                        _selectedUserIds.add(userId);
+                      }
+                    });
+                  },
+                  leading: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      CircleAvatar(
+                        backgroundImage: user['avatarUrl'] != null && user['avatarUrl'].startsWith('http')
+                            ? NetworkImage(user['avatarUrl'])
+                            : null,
+                        child: user['avatarUrl'] == null ? const Icon(Icons.person) : null,
+                      ),
+                      if (isSelected)
+                        const Positioned(
+                          right: -2,
+                          bottom: -2,
+                          child: ThemeCheckBadge(isSelected: true, size: 18),
+                        ),
+                    ],
                   ),
-                  title: Text(displayName, style: TextStyle(color: AppTheme.textPrimary)),
-                  trailing: Checkbox(
-                    value: isSelected,
-                    onChanged: (val) {
+                  title: Text(displayName, style: TextStyle(color: AppTheme.textPrimary, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
+                  trailing: ThemeCheckBadge(
+                    isSelected: isSelected,
+                    size: 22,
+                    onTap: () {
                       setState(() {
-                        if (val == true) {
-                          _selectedUserIds.add(userId);
-                        } else {
+                        if (isSelected) {
                           _selectedUserIds.remove(userId);
+                        } else {
+                          _selectedUserIds.add(userId);
                         }
                       });
                     },

@@ -12,7 +12,20 @@
           "package_name": "com.dolsyx.mobile_app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "135176717661-acaf547doncagl7uhdc8vhk6jr2q060i.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.dolsyx.mobile_app",
+            "certificate_hash": "af9b72dfe7ba94bf70f9a9a7fa79130ea17faa4e"
+          }
+        },
+        {
+          "client_id": "135176717661-ugfua55saob2pfm6er1f8o9bunubhdsp.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyBGh4MGmPDIIMrfRlofkjYdd9VQ4SPRGkw"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "135176717661-ugfua55saob2pfm6er1f8o9bunubhdsp.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

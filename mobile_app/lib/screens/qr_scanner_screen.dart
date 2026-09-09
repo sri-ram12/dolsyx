@@ -5,7 +5,6 @@ import '../services/chat_service.dart';
 import '../services/contact_service.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
-import '../widgets/color_avatar.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -196,8 +195,15 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
                       Navigator.pop(dialogContext);
                       final authProvider = Provider.of<AuthProvider>(context, listen: false);
                       final token = authProvider.token ?? '';
+                      final myUserId = (authProvider.user?['id'] ?? authProvider.user?['_id'])?.toString();
+                      bool success = false;
                       try {
-                        final success = await ApiService().approveQrWebLogin(token, sessionId, customBackendUrl: customApiUrl);
+                        success = await ApiService().approveQrWebLogin(
+                          token,
+                          sessionId,
+                          customBackendUrl: customApiUrl,
+                          userId: myUserId,
+                        );
                         if (mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
@@ -209,69 +215,10 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
                       } catch (e) {
                         debugPrint('Approve QR error: $e');
                       }
-                      if (mounted) Navigator.pop(context);
+                      if (mounted) Navigator.pop(context, success ? sessionId : null);
                     },
                     style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryColor),
                     child: const Text('Approve with Biometrics', style: TextStyle(color: Colors.white)),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  void _showUserDialog(Map<String, dynamic> user, String userId) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) {
-        final String name = user['username'] ?? 'User';
-        final String email = user['email'] ?? '';
-        final String? avatarUrl = user['avatarUrl'];
-
-        return AlertDialog(
-          backgroundColor: AppTheme.surfaceColor,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              (avatarUrl == null || avatarUrl.isEmpty)
-                  ? ColorAvatar(name: name, radius: 40, fontSize: 32)
-                  : CircleAvatar(
-                      radius: 40,
-                      backgroundColor: AppTheme.surfaceColor,
-                      backgroundImage: avatarUrl.startsWith('http')
-                          ? NetworkImage(avatarUrl)
-                          : NetworkImage('https://dolsyx-app.onrender.com$avatarUrl'),
-                      onBackgroundImageError: (exception, stackTrace) {
-                        print("Failed to load avatar image: $exception");
-                      },
-                    ),
-              const SizedBox(height: 16),
-              Text(name, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),
-              const SizedBox(height: 8),
-              Text(email, style: TextStyle(fontSize: 14, color: AppTheme.textSecondary)),
-              const SizedBox(height: 24),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  TextButton(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      setState(() => _isProcessing = false);
-                    },
-                    child: const Text('Cancel'),
-                  ),
-                  ElevatedButton(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      _startCommunication(userId, name);
-                    },
-                    style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryColor),
-                    child: const Text('Communicate', style: TextStyle(color: Colors.white)),
                   ),
                 ],
               ),
@@ -296,9 +243,9 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
         }
         return;
       }
-      
+
       // Save contact asynchronously in background without delaying navigation
-      ContactService.addContactById(token, userId, savedName: chatName).catchError((_) {});
+      ContactService.addContactById(token, userId, savedName: chatName).catchError((_) => <String, dynamic>{});
 
       final chat = await _chatService.createDirectChat(userId);
       if (mounted && chat != null) {

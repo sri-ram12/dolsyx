@@ -10,6 +10,7 @@ import '../../providers/auth_provider.dart';
 import '../../widgets/color_avatar.dart';
 import '../call_screen.dart';
 import '../call_info_screen.dart';
+import '../../widgets/theme_check_badge.dart';
 
 class CallsTab extends StatefulWidget {
   const CallsTab({super.key});
@@ -355,19 +356,19 @@ class _CallsTabState extends State<CallsTab> {
                                     ),
                                   ],
                                 )
-                              : Checkbox(
-                                  value: isSelected,
-                                  activeColor: AppTheme.primaryColor,
-                                  onChanged: (val) {
-                                    setState(() {
-                                      if (val == true) {
-                                        _selectedCallIds.add(logId);
-                                      } else {
-                                        _selectedCallIds.remove(logId);
-                                      }
-                                    });
-                                  },
-                                ),
+                               : ThemeCheckBadge(
+                                   isSelected: isSelected,
+                                   size: 22,
+                                   onTap: () {
+                                     setState(() {
+                                       if (isSelected) {
+                                         _selectedCallIds.remove(logId);
+                                       } else {
+                                         _selectedCallIds.add(logId);
+                                       }
+                                     });
+                                   },
+                                 ),
                         ),
                       );
                     },

@@ -70,7 +70,7 @@ class GroupService {
         }),
       );
 
-      return response.statusCode == 200;
+      return response.statusCode == 200 || response.statusCode == 201;
     } catch (e) {
       print('Error adding member: $e');
       return false;
@@ -90,6 +90,23 @@ class GroupService {
       return response.statusCode == 200;
     } catch (e) {
       print('Error removing member: $e');
+      return false;
+    }
+  }
+
+  Future<bool> disbandGroup(String conversationId) async {
+    try {
+      final token = await _apiService.getToken();
+      final response = await http.delete(
+        Uri.parse('${ApiService.baseUrl}/groups/$conversationId'),
+        headers: {
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      return response.statusCode == 200;
+    } catch (e) {
+      print('Error disbanding group: $e');
       return false;
     }
   }
@@ -116,3 +133,4 @@ class GroupService {
     }
   }
 }
+

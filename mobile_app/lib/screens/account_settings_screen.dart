@@ -5,6 +5,7 @@ import '../providers/auth_provider.dart';
 import 'two_factor_auth_screen.dart';
 import 'app_lock_screen.dart';
 import 'signup_screen.dart';
+import 'login_screen.dart';
 
 class AccountSettingsScreen extends StatefulWidget {
   const AccountSettingsScreen({super.key});
@@ -109,6 +110,52 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
     }
   }
 
+  void _confirmLogout() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.surfaceColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: const [
+            Icon(Icons.logout_rounded, color: Colors.orangeAccent, size: 28),
+            SizedBox(width: 10),
+            Text('Log out of DOLSYX?', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: const Text(
+          'Are you sure you want to log out? You will need to sign in again to receive messages.',
+          style: TextStyle(color: Color(0xFFCBD5E1), fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('Cancel', style: TextStyle(color: AppTheme.textSecondary)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orangeAccent,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final authProvider = Provider.of<AuthProvider>(context, listen: false);
+              await authProvider.logout();
+              if (mounted) {
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (_) => const LoginScreen()),
+                  (route) => false,
+                );
+              }
+            },
+            child: const Text('Log Out', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -170,6 +217,14 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                 ),
                 const Divider(color: Colors.grey, height: 24),
                 _buildTile(
+                  icon: Icons.logout_rounded,
+                  iconColor: Colors.orangeAccent,
+                  title: 'Log out',
+                  subtitle: 'Sign out of your account on this device',
+                  textColor: Colors.orangeAccent,
+                  onTap: _confirmLogout,
+                ),
+                _buildTile(
                   icon: Icons.delete_forever_rounded,
                   iconColor: Colors.redAccent,
                   title: 'Delete my account',
@@ -181,6 +236,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
             ),
     );
   }
+
 
   Widget _buildTile({
     required IconData icon,

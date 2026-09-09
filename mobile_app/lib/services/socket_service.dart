@@ -19,7 +19,10 @@ class SocketService {
   
   // Stream to broadcast profile updates globally
   final StreamController<Map<String, dynamic>> profileUpdates = StreamController<Map<String, dynamic>>.broadcast();
-  final String _socketUrl = 'https://dolsyx-app.onrender.com';
+  String get _socketUrl {
+    final base = ApiService.baseUrl;
+    return base.endsWith('/api') ? base.substring(0, base.length - 4) : base;
+  }
   
   bool get isConnected => socket?.connected ?? false;
 

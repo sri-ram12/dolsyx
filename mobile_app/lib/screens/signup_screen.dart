@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
+import '../widgets/google_logo_icon.dart';
 import 'chat_list_screen.dart';
 import 'login_screen.dart';
 
@@ -20,6 +22,7 @@ class _SignupScreenState extends State<SignupScreen> with SingleTickerProviderSt
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
+  bool _isGoogleLoading = false;
 
   @override
   void initState() {
@@ -52,6 +55,65 @@ class _SignupScreenState extends State<SignupScreen> with SingleTickerProviderSt
       }
     });
   }
+
+  Future<void> _handleGoogleSignIn() async {
+    setState(() => _isGoogleLoading = true);
+    try {
+      final googleSignIn = GoogleSignIn(
+        serverClientId: '135176717661-ugfua55saob2pfm6er1f8o9bunubhdsp.apps.googleusercontent.com',
+        scopes: ['email', 'profile'],
+      );
+      final account = await googleSignIn.signIn();
+      if (account == null) {
+        setState(() => _isGoogleLoading = false);
+        return;
+      }
+
+      String? idToken;
+      try {
+        final auth = await account.authentication;
+        idToken = auth.idToken;
+      } catch (authErr) {
+        debugPrint('Google auth token note: $authErr');
+      }
+
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      await authProvider.loginWithGoogle(
+        email: account.email,
+        displayName: account.displayName,
+        googleId: account.id,
+        avatarUrl: account.photoUrl,
+        idToken: idToken,
+      );
+
+      if (authProvider.errorMessage != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(authProvider.errorMessage!),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      } else if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const ChatListScreen()),
+        );
+      }
+    } catch (e) {
+      debugPrint('Google Sign In Exception: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Google Sign-In error: ${e.toString().replaceAll("com.google.android.gms.common.api.ApiException: ", "")}'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isGoogleLoading = false);
+    }
+  }
+
 
   @override
   void dispose() {
@@ -191,6 +253,41 @@ class _SignupScreenState extends State<SignupScreen> with SingleTickerProviderSt
                       );
                     },
                   ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(child: Divider(color: Colors.white24)),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                        child: Text('OR', style: TextStyle(color: AppTheme.textSecondary, fontSize: 13, fontWeight: FontWeight.bold)),
+                      ),
+                      Expanded(child: Divider(color: Colors.white24)),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  OutlinedButton.icon(
+                    onPressed: _isGoogleLoading ? null : _handleGoogleSignIn,
+                    icon: _isGoogleLoading
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const GoogleLogoIcon(size: 24),
+                    label: Text(
+                      _isGoogleLoading ? 'Connecting...' : 'Continue with Google',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      side: BorderSide(color: AppTheme.primaryColor.withOpacity(0.5), width: 1.5),
+                      foregroundColor: AppTheme.textPrimary,
+                      backgroundColor: AppTheme.surfaceColor,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
                   const SizedBox(height: 24),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -214,6 +311,7 @@ class _SignupScreenState extends State<SignupScreen> with SingleTickerProviderSt
                       ),
                     ],
                   ),
+
                 ],
               ),
               ),

@@ -13,6 +13,9 @@ import 'notification_settings_screen.dart';
 import 'storage_settings_screen.dart';
 import '../widgets/switch_account_modal.dart';
 
+import 'linked_devices_screen.dart';
+import 'secret_lock_settings_screen.dart';
+
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
@@ -47,6 +50,12 @@ class SettingsScreen extends StatelessWidget {
               },
             ),
             const Divider(color: Colors.grey, height: 1),
+            _buildSettingItem(context, Icons.devices, 'Linked Devices', 'Use DOLSYX on Web, Desktop, and other devices', () {
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const LinkedDevicesScreen()));
+            }),
+            _buildSettingItem(context, Icons.lock_outline, 'Chat Lock & Secret Code', 'Configure secret unlock code and hide locked chats', () {
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const SecretLockSettingsScreen()));
+            }),
             _buildSettingItem(context, Icons.switch_account, 'Switch Account', 'Switch between logged-in accounts or add account', () {
               SwitchAccountModal.show(context);
             }),

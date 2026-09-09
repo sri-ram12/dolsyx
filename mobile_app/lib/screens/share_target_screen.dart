@@ -6,6 +6,7 @@ import '../services/chat_service.dart';
 import '../services/api_service.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/color_avatar.dart';
+import '../widgets/theme_check_badge.dart';
 
 class ShareTargetScreen extends StatefulWidget {
   final Map<String, dynamic> sharedData;
@@ -252,20 +253,17 @@ class _ShareTargetScreenState extends State<ShareTargetScreen> {
                         avatarUrl = other?['user']?['avatarUrl'];
                       }
 
-                      return CheckboxListTile(
-                        value: isSelected,
-                        activeColor: AppTheme.primaryColor,
-                        checkColor: Colors.white,
-                        onChanged: (bool? val) {
+                      return ListTile(
+                        onTap: () {
                           setState(() {
-                            if (val == true) {
-                              _selectedConversationIds.add(convId);
-                            } else {
+                            if (isSelected) {
                               _selectedConversationIds.remove(convId);
+                            } else {
+                              _selectedConversationIds.add(convId);
                             }
                           });
                         },
-                        secondary: avatarUrl != null && avatarUrl.isNotEmpty
+                        leading: avatarUrl != null && avatarUrl.isNotEmpty
                             ? CircleAvatar(
                                 backgroundColor: const Color(0xFF1E293B),
                                 backgroundImage: NetworkImage(avatarUrl.startsWith('http') ? avatarUrl : 'https://dolsyx-app.onrender.com$avatarUrl'),
@@ -273,11 +271,24 @@ class _ShareTargetScreenState extends State<ShareTargetScreen> {
                             : ColorAvatar(name: name, radius: 20),
                         title: Text(
                           name,
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                          style: TextStyle(color: Colors.white, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal),
                         ),
                         subtitle: Text(
                           isGroup ? 'Group Chat' : 'Direct Message',
                           style: const TextStyle(color: Colors.white54, fontSize: 12),
+                        ),
+                        trailing: ThemeCheckBadge(
+                          isSelected: isSelected,
+                          size: 22,
+                          onTap: () {
+                            setState(() {
+                              if (isSelected) {
+                                _selectedConversationIds.remove(convId);
+                              } else {
+                                _selectedConversationIds.add(convId);
+                              }
+                            });
+                          },
                         ),
                       );
                     },

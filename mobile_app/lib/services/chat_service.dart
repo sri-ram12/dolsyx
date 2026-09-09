@@ -6,6 +6,53 @@ import '../models/chat.dart';
 import '../models/message.dart';
 
 class ChatService {
+  Future<List<Message>> getMessages(String conversationId) async {
+    try {
+      final token = await ApiService().getToken();
+      final response = await http.get(
+        Uri.parse('${ApiService.baseUrl}/chats/$conversationId/messages'),
+        headers: {
+          'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+      ).timeout(const Duration(seconds: 15));
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        return data.map((json) => Message.fromJson(json)).toList();
+      }
+    } catch (e) {
+      print('Error fetching messages: $e');
+    }
+    return [];
+  }
+
+  Future<bool> sendMessage({
+    required String conversationId,
+    required String content,
+    String? mediaUrl,
+    String? mediaType,
+  }) async {
+    try {
+      final token = await ApiService().getToken();
+      final response = await http.post(
+        Uri.parse('${ApiService.baseUrl}/chats/$conversationId/messages'),
+        headers: {
+          'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'content': content,
+          'mediaUrl': mediaUrl,
+          'mediaType': mediaType,
+        }),
+      ).timeout(const Duration(seconds: 15));
+      return response.statusCode == 200 || response.statusCode == 201;
+    } catch (e) {
+      print('Error sending message via API: $e');
+      return false;
+    }
+  }
+
   Future<List<Chat>> getChats() async {
     try {
       final token = await ApiService().getToken();
@@ -17,7 +64,7 @@ class ChatService {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
         },
-      );
+      ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
         final prefs = await SharedPreferences.getInstance();

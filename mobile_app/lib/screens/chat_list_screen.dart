@@ -31,6 +31,10 @@ import '../models/message.dart';
 import '../services/auto_download_service.dart';
 import '../widgets/switch_account_modal.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'secret_lock_settings_screen.dart';
+import 'locked_chats_screen.dart';
+import 'linked_devices_screen.dart';
 
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
@@ -52,6 +56,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
   final Set<String> _selectedChatIds = {};
   Set<String> _onlineUsers = {};
   Map<String, bool> _typingStatus = {};
+  bool _hideLockedChats = false;
 
   @override
   void initState() {
@@ -255,9 +260,19 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
   }
 
   Future<void> _fetchChats() async {
+    Set<String> lockedIds = {};
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _hideLockedChats = prefs.getBool('hide_locked_chats') ?? false;
+      lockedIds = (prefs.getStringList('locked_chat_ids') ?? []).toSet();
+    } catch (_) {}
+
     if (mounted) {
       final cachedChats = await _chatService.getCachedChats();
       if (cachedChats.isNotEmpty) {
+        for (var c in cachedChats) {
+          c.isLocked = lockedIds.contains(c.id);
+        }
         setState(() {
           _setChatsDeduplicated(cachedChats);
           _isLoading = false;
@@ -267,6 +282,10 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
 
     try {
       final chats = await _chatService.getChats();
+      for (var c in chats) {
+        c.isLocked = lockedIds.contains(c.id);
+      }
+
       if (mounted) {
         setState(() {
           _setChatsDeduplicated(chats);
@@ -278,6 +297,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
       if (mounted) setState(() => _isLoading = false);
     }
   }
+
 
   String _getChatName(Chat chat) {
     if (chat.isGroup && chat.name != null) return chat.name!;
@@ -419,137 +439,200 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                         ],
                       )
                     : ListView.builder(
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        cacheExtent: 500.0,
+                        physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+                        cacheExtent: 1500.0,
                         addAutomaticKeepAlives: true,
                         addRepaintBoundaries: true,
-                        itemCount: _chats.where((c) => !c.isArchived).length + 1 + (_chats.any((c) => c.isArchived) ? 1 : 0),
+                        itemCount: () {
+                          final activeCount = _chats.where((c) => !c.isArchived && !c.isLocked).length;
+                          final lockedCount = _chats.where((c) => c.isLocked).length;
+                          final showLockedTile = !_hideLockedChats && lockedCount > 0;
+                          return 1 + (showLockedTile ? 1 : 0) + activeCount + (_chats.any((c) => c.isArchived) ? 1 : 0);
+                        }(),
                         itemBuilder: (context, index) {
-                          final activeChats = _chats.where((c) => !c.isArchived).toList();
+                          final activeChats = _chats.where((c) => !c.isArchived && !c.isLocked).toList();
+                          final lockedCount = _chats.where((c) => c.isLocked).length;
+                          final showLockedTile = !_hideLockedChats && lockedCount > 0;
+
                           if (index == 0) {
-                          return ListTile(
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(builder: (_) => const DolsyxAiScreen()),
-                              );
-                            },
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                            leading: Container(
-                              padding: const EdgeInsets.all(2),
-                              decoration: const BoxDecoration(
-                                shape: BoxShape.circle,
-                                gradient: LinearGradient(
-                                  colors: [Color(0xFF8B5CF6), Color(0xFFEC4899), Color(0xFF3B82F6)],
-                                ),
-                              ),
-                              child: const CircleAvatar(
-                                radius: 22,
-                                backgroundColor: Color(0xFF0B141A),
-                                child: Icon(Icons.smart_toy, color: Color(0xFFEC4899), size: 22),
-                              ),
-                            ),
-                            title: Row(
-                              children: [
-                                const Text(
-                                  'DOLSYX AI',
-                                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
-                                ),
-                                const SizedBox(width: 6),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFEC4899).withOpacity(0.2),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: const Text('Interactive Bot', style: TextStyle(color: Color(0xFFEC4899), fontSize: 10, fontWeight: FontWeight.bold)),
-                                ),
-                              ],
-                            ),
-                            subtitle: const Text(
-                              'Generate images, Q&A, draft emails & code...',
-                              style: TextStyle(color: Colors.white54, fontSize: 12),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          );
-                        }
-
-                        final chatIndex = index - 1;
-
-                        if (chatIndex == activeChats.length) {
-                          return ListTile(
-                            leading: Icon(Icons.archive_outlined, color: AppTheme.textSecondary),
-                            title: Text('Archived Chats', style: TextStyle(color: AppTheme.textSecondary)),
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => ArchivedChatsScreen(
-                                    archivedChats: _chats.where((c) => c.isArchived).toList(),
-                                    onRefresh: _fetchChats,
+                            return ListTile(
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (_) => const DolsyxAiScreen()),
+                                );
+                              },
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                              leading: Container(
+                                padding: const EdgeInsets.all(2),
+                                decoration: const BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  gradient: LinearGradient(
+                                    colors: [Color(0xFF8B5CF6), Color(0xFFEC4899), Color(0xFF3B82F6)],
                                   ),
                                 ),
-                              );
-                            },
-                          );
-                        }
-                        
-                        final chat = activeChats[chatIndex];
-                        final isSelected = _selectedChatIds.contains(chat.id);
-                        return Container(
-                          color: isSelected ? AppTheme.primaryColor.withOpacity(0.2) : Colors.transparent,
-                          child: ListTile(
-                            selected: isSelected,
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                            leading: GestureDetector(
-                            onTap: () {
-                              if (chat.avatarUrl != null) {
+                                child: const CircleAvatar(
+                                  radius: 22,
+                                  backgroundColor: Color(0xFF0B141A),
+                                  child: Icon(Icons.smart_toy, color: Color(0xFFEC4899), size: 22),
+                                ),
+                              ),
+                              title: Row(
+                                children: [
+                                  const Text(
+                                    'DOLSYX AI',
+                                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFEC4899).withOpacity(0.2),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: const Text('Interactive Bot', style: TextStyle(color: Color(0xFFEC4899), fontSize: 10, fontWeight: FontWeight.bold)),
+                                  ),
+                                ],
+                              ),
+                              subtitle: const Text(
+                                'Generate images, Q&A, draft emails & code...',
+                                style: TextStyle(color: Colors.white54, fontSize: 12),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            );
+                          }
+
+                          if (showLockedTile && index == 1) {
+                            return ListTile(
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                              leading: Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF00A884).withOpacity(0.15),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(Icons.lock_rounded, color: Color(0xFF00A884), size: 24),
+                              ),
+                              title: const Text(
+                                'Locked chats',
+                                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                              ),
+                              subtitle: Text(
+                                '$lockedCount locked chat${lockedCount > 1 ? 's' : ''}',
+                                style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+                              ),
+                              trailing: const Icon(Icons.chevron_right, color: Colors.white38),
+                              onTap: () {
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
-                                    builder: (_) => FullScreenImageView(imageUrl: chat.avatarUrl!),
+                                    builder: (_) => LockedChatsScreen(onChatsUpdated: _fetchChats),
                                   ),
                                 );
-                              } else {
-                                if (!chat.isGroup && chat.participants != null && chat.participants!.isNotEmpty) {
-                                  final currentUserId = Provider.of<AuthProvider>(context, listen: false).user?['id'] ?? Provider.of<AuthProvider>(context, listen: false).user?['_id'];
-                                  final otherParticipant = chat.participants!.firstWhere(
-                                    (p) => p['user'] != null && (p['user']['id'] != currentUserId && p['user']['_id'] != currentUserId),
-                                    orElse: () => null,
+                              },
+                            );
+                          }
+
+                          final offset = 1 + (showLockedTile ? 1 : 0);
+                          final chatIndex = index - offset;
+
+                          if (chatIndex == activeChats.length) {
+                            return ListTile(
+                              leading: Icon(Icons.archive_outlined, color: AppTheme.textSecondary),
+                              title: Text('Archived Chats', style: TextStyle(color: AppTheme.textSecondary)),
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => ArchivedChatsScreen(
+                                      archivedChats: _chats.where((c) => c.isArchived).toList(),
+                                      onRefresh: _fetchChats,
+                                    ),
+                                  ),
+                                );
+                              },
+                            );
+                          }
+                          
+                          final chat = activeChats[chatIndex];
+                          final isSelected = _selectedChatIds.contains(chat.id);
+                          return Container(
+                            color: isSelected ? AppTheme.primaryColor.withOpacity(0.2) : Colors.transparent,
+                            child: ListTile(
+                              selected: isSelected,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                              leading: GestureDetector(
+                              onTap: () {
+                                if (chat.avatarUrl != null) {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => FullScreenImageView(imageUrl: chat.avatarUrl!),
+                                    ),
                                   );
-                                  if (otherParticipant != null) {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) => OtherUserProfileScreen(user: otherParticipant['user']),
-                                      ),
+                                } else {
+                                  if (!chat.isGroup && chat.participants != null && chat.participants!.isNotEmpty) {
+                                    final currentUserId = Provider.of<AuthProvider>(context, listen: false).user?['id'] ?? Provider.of<AuthProvider>(context, listen: false).user?['_id'];
+                                    final otherParticipant = chat.participants!.firstWhere(
+                                      (p) => p['user'] != null && (p['user']['id'] != currentUserId && p['user']['_id'] != currentUserId),
+                                      orElse: () => null,
                                     );
+                                    if (otherParticipant != null) {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => OtherUserProfileScreen(user: otherParticipant['user']),
+                                        ),
+                                      );
+                                    }
                                   }
                                 }
-                              }
-                            },
-                            child: chat.avatarUrl != null
-                                ? CircleAvatar(
-                                    radius: 24,
-                                    backgroundColor: AppTheme.surfaceColor,
-                                    backgroundImage: CachedNetworkImageProvider(
-                                      chat.avatarUrl!.startsWith('http')
-                                          ? chat.avatarUrl!
-                                          : 'https://dolsyx-app.onrender.com${chat.avatarUrl!}',
-                                      maxHeight: 120,
-                                      maxWidth: 120,
+                              },
+                              child: Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  chat.avatarUrl != null
+                                      ? CircleAvatar(
+                                          radius: 24,
+                                          backgroundColor: AppTheme.surfaceColor,
+                                          backgroundImage: CachedNetworkImageProvider(
+                                            chat.avatarUrl!.startsWith('http')
+                                                ? chat.avatarUrl!
+                                                : 'https://dolsyx-app.onrender.com${chat.avatarUrl!}',
+                                            maxHeight: 120,
+                                            maxWidth: 120,
+                                          ),
+                                        )
+                                      : (chat.isGroup
+                                          ? CircleAvatar(
+                                              radius: 24,
+                                              backgroundColor: AppTheme.surfaceColor,
+                                              child: Icon(Icons.group, color: AppTheme.textSecondary, size: 28),
+                                            )
+                                          : ColorAvatar(name: _getChatName(chat), radius: 24)),
+                                  if (isSelected)
+                                    Positioned(
+                                      right: -2,
+                                      bottom: -2,
+                                      child: Container(
+                                        padding: const EdgeInsets.all(2),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF00A884),
+                                          shape: BoxShape.circle,
+                                          border: Border.all(color: AppTheme.backgroundColor, width: 2),
+                                        ),
+                                        child: const Icon(
+                                          Icons.check,
+                                          size: 14,
+                                          color: Colors.white,
+                                        ),
+                                      ),
                                     ),
-                                  )
-                                : (chat.isGroup
-                                    ? CircleAvatar(
-                                        radius: 24,
-                                        backgroundColor: AppTheme.surfaceColor,
-                                        child: Icon(Icons.group, color: AppTheme.textSecondary, size: 28),
-                                      )
-                                    : ColorAvatar(name: _getChatName(chat), radius: 24)),
-                          ),
-                          title: Row(
+                                ],
+                              ),
+                            ),
+                            title: Row(
                             children: [
                               Expanded(
                                 child: Text(
@@ -958,9 +1041,23 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                 setState(() => _selectedChatIds.clear());
                 _fetchChats();
               } else if (value == 'lock') {
+                final prefs = await SharedPreferences.getInstance();
+                final lockedIds = (prefs.getStringList('locked_chat_ids') ?? []).toSet();
                 for (String id in idsToProcess) {
-                  await _chatService.updateChatSettings(id, {'isLocked': true});
+                  lockedIds.add(id);
+                  _chatService.updateChatSettings(id, {'isLocked': true}).catchError((_) {});
                 }
+                await prefs.setStringList('locked_chat_ids', lockedIds.toList());
+                setState(() => _selectedChatIds.clear());
+                _fetchChats();
+              } else if (value == 'unlock') {
+                final prefs = await SharedPreferences.getInstance();
+                final lockedIds = (prefs.getStringList('locked_chat_ids') ?? []).toSet();
+                for (String id in idsToProcess) {
+                  lockedIds.remove(id);
+                  _chatService.updateChatSettings(id, {'isLocked': false}).catchError((_) {});
+                }
+                await prefs.setStringList('locked_chat_ids', lockedIds.toList());
                 setState(() => _selectedChatIds.clear());
                 _fetchChats();
               } else if (value == 'favorite') {
@@ -989,29 +1086,32 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                 _fetchChats();
               }
             },
-            itemBuilder: (context) => [
-              if (_selectedChatIds.length == 1)
-                const PopupMenuItem(
-                  value: 'view_contact',
-                  child: Text('View Contact'),
+            itemBuilder: (context) {
+              final anyLocked = _selectedChatIds.any((id) => _chats.firstWhere((c) => c.id == id, orElse: () => _chats.first).isLocked);
+              return [
+                if (_selectedChatIds.length == 1)
+                  const PopupMenuItem(
+                    value: 'view_contact',
+                    child: Text('View Contact'),
+                  ),
+                PopupMenuItem(
+                  value: anyLocked ? 'unlock' : 'lock',
+                  child: Text(anyLocked ? 'Unlock Chat' : 'Lock Chat'),
                 ),
-              const PopupMenuItem(
-                value: 'lock',
-                child: Text('Lock Chat'),
-              ),
-              const PopupMenuItem(
-                value: 'favorite',
-                child: Text('Add to Favourite'),
-              ),
-              const PopupMenuItem(
-                value: 'clear_chat',
-                child: Text('Clear Chat'),
-              ),
-              const PopupMenuItem(
-                value: 'block',
-                child: Text('Block'),
-              ),
-            ],
+                const PopupMenuItem(
+                  value: 'favorite',
+                  child: Text('Add to Favourite'),
+                ),
+                const PopupMenuItem(
+                  value: 'clear_chat',
+                  child: Text('Clear Chat'),
+                ),
+                const PopupMenuItem(
+                  value: 'block',
+                  child: Text('Block'),
+                ),
+              ];
+            },
           ),
         ],
       ) : AppBar(
@@ -1102,6 +1202,10 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
                 } else if (value == 'starred') {
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const StarredMessagesScreen(starredMessages: [])));
+                } else if (value == 'linked_devices') {
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const LinkedDevicesScreen()));
+                } else if (value == 'secret_lock') {
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const SecretLockSettingsScreen())).then((_) => _fetchChats());
                 } else if (value == 'switch_account') {
                   SwitchAccountModal.show(context);
                 } else if (value == 'logout') {
@@ -1121,6 +1225,10 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                 const PopupMenuItem(
                   value: 'linked_devices',
                   child: Text('Linked Devices'),
+                ),
+                const PopupMenuItem(
+                  value: 'secret_lock',
+                  child: Text('Chat Lock Settings'),
                 ),
                 const PopupMenuItem(
                   value: 'starred',

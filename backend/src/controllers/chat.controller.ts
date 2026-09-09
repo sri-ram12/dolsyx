@@ -163,6 +163,8 @@ export const getChats = async (req: AuthRequest, res: Response): Promise<void> =
         participants: chat.participants,
         unreadCount,
         isArchived: chat.participants.find((p) => p.userId === userId)?.isArchived || false,
+        isLocked: chat.participants.find((p) => p.userId === userId)?.isLocked || false,
+        isFavorite: chat.participants.find((p) => p.userId === userId)?.isFavorite || false,
       };
     }));
 

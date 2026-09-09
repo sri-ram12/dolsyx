@@ -61,11 +61,13 @@ const corsOriginFn = (
 };
 
 import compression from "compression";
+import cookieParser from "cookie-parser";
 
 // ── Middleware ───────────────────────────────────────────────────────────────
 // Trust proxy headers (for tunnels like serveo/ngrok where X-Forwarded-Proto is https)
 app.set("trust proxy", 1);
 app.use(compression());
+app.use(cookieParser());
 app.use(cors({ origin: corsOriginFn, credentials: true }));
 app.use(express.json({ limit: "10mb" }));
 

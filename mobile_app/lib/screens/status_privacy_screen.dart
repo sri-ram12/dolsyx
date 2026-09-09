@@ -6,6 +6,7 @@ import '../theme/app_theme.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import '../services/contact_service.dart';
+import '../widgets/theme_check_badge.dart';
 
 class StatusPrivacyScreen extends StatefulWidget {
   const StatusPrivacyScreen({super.key});
@@ -287,19 +288,17 @@ class _StatusPrivacyScreenState extends State<StatusPrivacyScreen> {
 
                             final bool isSelected = _selectedUserIds.contains(targetUserId);
 
-                            return CheckboxListTile(
-                              value: isSelected,
-                              activeColor: _privacyType == 'EXCEPT' ? Colors.redAccent : AppTheme.primaryColor,
-                              onChanged: (bool? checked) {
+                            return ListTile(
+                              onTap: () {
                                 setState(() {
-                                  if (checked == true) {
-                                    if (!isSelected) _selectedUserIds.add(targetUserId);
-                                  } else {
+                                  if (isSelected) {
                                     _selectedUserIds.remove(targetUserId);
+                                  } else {
+                                    _selectedUserIds.add(targetUserId);
                                   }
                                 });
                               },
-                              secondary: CircleAvatar(
+                              leading: CircleAvatar(
                                 backgroundColor: AppTheme.primaryColor.withOpacity(0.2),
                                 backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
                                     ? NetworkImage(ApiService.getMediaUrl(avatarUrl))
@@ -311,8 +310,21 @@ class _StatusPrivacyScreenState extends State<StatusPrivacyScreen> {
                                       )
                                     : null,
                               ),
-                              title: Text(username, style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.w600)),
+                              title: Text(username, style: TextStyle(color: AppTheme.textPrimary, fontWeight: isSelected ? FontWeight.bold : FontWeight.w600)),
                               subtitle: Text(email, style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+                              trailing: ThemeCheckBadge(
+                                isSelected: isSelected,
+                                size: 22,
+                                onTap: () {
+                                  setState(() {
+                                    if (isSelected) {
+                                      _selectedUserIds.remove(targetUserId);
+                                    } else {
+                                      _selectedUserIds.add(targetUserId);
+                                    }
+                                  });
+                                },
+                              ),
                             );
                           },
                         ),

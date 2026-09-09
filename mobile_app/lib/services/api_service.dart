@@ -5,8 +5,8 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_core/firebase_core.dart';
 
 class ApiService {
-  // Replace with your computer's local Wi-Fi IP address or production server
-  static const String baseUrl = 'https://dolsyx-app.onrender.com/api';
+  // DOLSYX Local Dev Backend (Your computer's Wi-Fi IP)
+  static const String baseUrl = 'http://192.168.0.76:4000/api';
 
   static String getMediaUrl(String? path) {
     if (path == null || path.isEmpty) return '';
@@ -60,6 +60,55 @@ class ApiService {
       return {'success': false, 'message': 'Network error: Could not connect to server.'};
     }
   }
+
+  Future<Map<String, dynamic>> googleLogin({
+    required String email,
+    String? displayName,
+    String? googleId,
+    String? avatarUrl,
+    String? idToken,
+  }) async {
+    try {
+      final fcmToken = await _getFcmToken();
+      final response = await http.post(
+        Uri.parse('$baseUrl/auth/google/verify-token'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'email': email,
+          'displayName': displayName,
+          'googleId': googleId,
+          'avatarUrl': avatarUrl,
+          'idToken': idToken,
+          'fcmToken': fcmToken,
+          'deviceName': 'Android Phone',
+          'deviceType': 'android',
+        }),
+      );
+
+      Map<String, dynamic> data;
+      try {
+        data = jsonDecode(response.body);
+      } catch (_) {
+        return {
+          'success': false,
+          'message': 'Server returned unexpected response (Code ${response.statusCode}).'
+        };
+      }
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final prefs = await SharedPreferences.getInstance();
+        if (data['token'] != null) {
+          await prefs.setString('jwt_token', data['token']);
+        }
+        return {'success': true, 'data': data};
+      } else {
+        return {'success': false, 'message': data['message'] ?? 'Google login failed'};
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Network error: Could not connect to server.'};
+    }
+  }
+
 
   Future<Map<String, dynamic>> register(String email, String username, String password) async {
     try {
@@ -243,6 +292,25 @@ class ApiService {
     }
   }
 
+  Future<List<dynamic>> getPastParticipants(String conversationId) async {
+    try {
+      final token = await getToken();
+      if (token == null) return [];
+
+      final response = await http.get(
+        Uri.parse('$baseUrl/groups/$conversationId/past-participants'),
+        headers: {'Authorization': 'Bearer $token'},
+      ).timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body) as List<dynamic>;
+      }
+    } catch (e) {
+      print('Get past participants error: $e');
+    }
+    return [];
+  }
+
   Future<bool> unblockUser(String targetUserId) async {
     try {
       final token = await getToken();
@@ -259,36 +327,57 @@ class ApiService {
     }
   }
 
-  Future<bool> approveQrWebLogin(String token, String sessionId, {String? customBackendUrl}) async {
+  Future<bool> approveQrWebLogin(String token, String sessionId, {String? customBackendUrl, String? userId}) async {
     try {
-      String targetBaseUrl = baseUrl;
-      if (customBackendUrl != null && customBackendUrl.isNotEmpty) {
-        final cleanUrl = customBackendUrl.trim();
-        if (!cleanUrl.contains('localhost') && !cleanUrl.contains('127.0.0.1')) {
-          targetBaseUrl = cleanUrl.endsWith('/api') ? cleanUrl : '$cleanUrl/api';
+      final candidateUrls = <String>[];
+
+      void addCandidate(String? url) {
+        if (url == null || url.trim().isEmpty) return;
+        var clean = url.trim();
+        while (clean.endsWith('/')) {
+          clean = clean.substring(0, clean.length - 1);
+        }
+        if (clean.contains('localhost') || clean.contains('127.0.0.1')) {
+          clean = clean.replaceAll('localhost', '192.168.0.182').replaceAll('127.0.0.1', '192.168.0.182');
+        }
+        final withApi = clean.endsWith('/api') ? clean : '$clean/api';
+        if (!candidateUrls.contains(withApi)) candidateUrls.add(withApi);
+        if (clean.endsWith('/api')) {
+          final withoutApi = clean.substring(0, clean.length - 4);
+          if (!candidateUrls.contains(withoutApi)) candidateUrls.add(withoutApi);
+        } else {
+          if (!candidateUrls.contains(clean)) candidateUrls.add(clean);
         }
       }
 
-      final response = await http.post(
-        Uri.parse('$targetBaseUrl/auth/approve-qr-session'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({'sessionId': sessionId}),
-      );
-      if (response.statusCode == 200 || response.statusCode == 201) return true;
+      addCandidate(customBackendUrl);
+      addCandidate('http://192.168.0.182:4000/api');
+      addCandidate(baseUrl);
 
-      if (targetBaseUrl != baseUrl) {
-        final fallbackResponse = await http.post(
-          Uri.parse('$baseUrl/auth/approve-qr-session'),
-          headers: {
-            'Authorization': 'Bearer $token',
-            'Content-Type': 'application/json',
-          },
-          body: jsonEncode({'sessionId': sessionId}),
-        );
-        return fallbackResponse.statusCode == 200 || fallbackResponse.statusCode == 201;
+      final bodyData = <String, dynamic>{
+        'sessionId': sessionId,
+        if (userId != null && userId.isNotEmpty) 'userId': userId,
+      };
+
+      for (final targetUrl in candidateUrls) {
+        try {
+          final response = await http
+              .post(
+                Uri.parse('$targetUrl/auth/approve-qr-session'),
+                headers: {
+                  'Authorization': 'Bearer $token',
+                  'Content-Type': 'application/json',
+                },
+                body: jsonEncode(bodyData),
+              )
+              .timeout(const Duration(seconds: 15));
+
+          if (response.statusCode == 200 || response.statusCode == 201) {
+            return true;
+          }
+        } catch (_) {
+          // Try next candidate URL
+        }
       }
       return false;
     } catch (e) {

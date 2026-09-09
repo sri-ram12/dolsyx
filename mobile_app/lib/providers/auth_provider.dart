@@ -146,6 +146,43 @@ class AuthProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> loginWithGoogle({
+    required String email,
+    String? displayName,
+    String? googleId,
+    String? avatarUrl,
+    String? idToken,
+  }) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    final result = await _apiService.googleLogin(
+      email: email,
+      displayName: displayName,
+      googleId: googleId,
+      avatarUrl: avatarUrl,
+      idToken: idToken,
+    );
+
+    if (result['success']) {
+      _isAuthenticated = true;
+      _user = result['data']['user'];
+      _token = result['data']['token'];
+      await _saveAccountToDevice(_user!, _token!);
+      await _socketService.connect(_user!['id']);
+      _setupSocketListeners();
+      _initializeE2EE(_user!['id'], _token!);
+    } else {
+      _isAuthenticated = false;
+      _errorMessage = result['message'];
+    }
+
+    _isLoading = false;
+    notifyListeners();
+  }
+
+
   Future<void> register(String email, String username, String password) async {
     _isLoading = true;
     _errorMessage = null;

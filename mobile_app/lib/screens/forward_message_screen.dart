@@ -6,6 +6,7 @@ import '../models/message.dart';
 import '../services/chat_service.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
+import '../widgets/theme_check_badge.dart';
 
 class ForwardMessageScreen extends StatefulWidget {
   final List<Message> messages;
@@ -136,20 +137,15 @@ class _ForwardMessageScreenState extends State<ForwardMessageScreen> {
                                 : null,
                           ),
                           if (isSelected)
-                            Positioned(
-                              bottom: 0,
-                              right: 0,
-                              child: Container(
-                                decoration: const BoxDecoration(
-                                  color: Colors.white,
-                                  shape: BoxShape.circle,
-                                ),
-                                child: const Icon(Icons.check_circle, color: Colors.green, size: 20),
-                              ),
+                            const Positioned(
+                              bottom: -2,
+                              right: -2,
+                              child: ThemeCheckBadge(isSelected: true, size: 18),
                             ),
                         ],
                       ),
-                      title: Text(chatName, style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
+                      title: Text(chatName, style: TextStyle(color: AppTheme.textPrimary, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
+                      trailing: ThemeCheckBadge(isSelected: isSelected, size: 22),
                     );
                   },
                 ),

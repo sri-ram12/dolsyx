@@ -15,6 +15,7 @@ import 'package:http/http.dart' as http;
 
 import '../services/api_service.dart';
 import '../screens/view_once_screen.dart';
+import '../screens/forward_message_screen.dart';
 import 'full_screen_image_view.dart';
 import 'animated_emoji.dart';
 
@@ -52,8 +53,21 @@ class MessageBubble extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 6),
           child: AnimatedEmoji(
             emoji: emojiChars[0],
-            size: 38.0,
-            animateLoop: true,
+            size: 52.0,
+            animateLoop: false,
+          ),
+        );
+      } else if (emojiChars.length == 2) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
+          child: Wrap(
+            spacing: 8,
+            alignment: WrapAlignment.center,
+            children: emojiChars.map((e) => AnimatedEmoji(
+              emoji: e,
+              size: 38.0,
+              animateLoop: false,
+            )).toList(),
           ),
         );
       } else if (emojiChars.length <= 3) {
@@ -64,8 +78,8 @@ class MessageBubble extends StatelessWidget {
             alignment: WrapAlignment.center,
             children: emojiChars.map((e) => AnimatedEmoji(
               emoji: e,
-              size: 28.0,
-              animateLoop: true,
+              size: 30.0,
+              animateLoop: false,
             )).toList(),
           ),
         );
@@ -275,10 +289,63 @@ class MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bool isSystem = message.mediaType == 'SYSTEM' ||
+        message.senderId == 'system' ||
+        message.content.startsWith('SYSTEM:') ||
+        message.content.endsWith('left the group') ||
+        message.content.contains(' added ') ||
+        message.content.contains(' removed ') ||
+        message.content.endsWith('joined the group') ||
+        message.content.endsWith('created group');
+
+    if (isSystem) {
+      final cleanText = message.content.replaceFirst('SYSTEM:', '').trim();
+      return Center(
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 24),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+          decoration: BoxDecoration(
+            color: const Color(0xFF182229),
+            borderRadius: BorderRadius.circular(8),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.2),
+                blurRadius: 2,
+                offset: const Offset(0, 1),
+              ),
+            ],
+          ),
+          child: Text(
+            cleanText,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Color(0xFF8696A0),
+              fontSize: 12.5,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+      );
+    }
+
+    final bool isSticker = message.mediaType == 'STICKER';
+    final bool isGif = message.mediaType == 'GIF';
+    final bool isDoc = message.mediaType == 'DOCUMENT' || message.mediaType == 'FILE' || (message.mediaUrl != null && RegExp(r'\.(pdf|docx?|xlsx?|pptx?|txt|zip|rar|apk|csv)($|\?)', caseSensitive: false).hasMatch(message.mediaUrl!));
+
     final bool isOnlyImage = (message.mediaUrl != null &&
         message.mediaUrl!.isNotEmpty &&
-        (message.mediaType == 'IMAGE' || message.mediaType == 'VIDEO') &&
+        (message.mediaType == 'IMAGE' || message.mediaType == 'VIDEO' || isSticker || isGif) &&
         message.content.isEmpty) || message.mediaType == 'POLL';
+
+    final bool isMediaMessage = (message.mediaUrl != null && message.mediaUrl!.isNotEmpty) ||
+        isDoc ||
+        message.mediaType == 'IMAGE' ||
+        message.mediaType == 'VIDEO' ||
+        message.mediaType == 'AUDIO' ||
+        message.mediaType == 'POLL' ||
+        isSticker ||
+        isGif ||
+        _urlRegex.hasMatch(message.content);
 
     final imageSize = MediaQuery.of(context).size.width * 0.75;
     
@@ -290,6 +357,36 @@ class MessageBubble extends StatelessWidget {
     final Color receiverTextColor = AppTheme.bubbleReceiver.computeLuminance() > 0.5 ? Colors.black87 : Colors.white;
     final Color textColor = isMe ? senderTextColor : receiverTextColor;
     final Color secondaryTextColor = textColor.withOpacity(0.7);
+
+    // Forward button for media / documents / polls / stickers / links (frame_0026s.jpg, frame_0223s.jpg)
+    Widget? forwardButton;
+    if (isMediaMessage && !message.isDeleted) {
+      forwardButton = GestureDetector(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ForwardMessageScreen(messages: [message]),
+            ),
+          );
+        },
+        child: Container(
+          padding: const EdgeInsets.all(7),
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.35),
+            shape: BoxShape.circle,
+          ),
+          child: Transform.flip(
+            flipX: true,
+            child: const Icon(
+              Icons.reply,
+              size: 18,
+              color: Colors.white70,
+            ),
+          ),
+        ),
+      );
+    }
 
     if (message.isDeleted) {
       final deletedWidget = Container(
@@ -318,28 +415,27 @@ class MessageBubble extends StatelessWidget {
           ],
         ),
       );
-      return _wrapSwipeable(deletedWidget);
+      return _wrapSwipeable(context, deletedWidget);
     }
 
     if (message.mediaType == 'CALL_LOG') {
-      return _wrapSwipeable(_buildCallLogBubble(context));
+      return _wrapSwipeable(context, _buildCallLogBubble(context));
     }
     
     if (message.mediaType == 'LOCATION' || message.latitude != null) {
-      return _wrapSwipeable(_buildLocationBubble(context));
+      return _wrapSwipeable(context, _buildLocationBubble(context));
     }
-
 
     Widget bubbleContent = Stack(
       clipBehavior: Clip.none,
       children: [
         Container(
               margin: const EdgeInsets.only(bottom: 8),
-              padding: isOnlyImage
+              padding: isOnlyImage || isSticker || emojiOnly
                   ? EdgeInsets.zero
                   : const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               decoration: BoxDecoration(
-                color: isOnlyImage || emojiOnly ? Colors.transparent : (isMe ? AppTheme.bubbleSender : AppTheme.bubbleReceiver),
+                color: isOnlyImage || emojiOnly || isSticker ? Colors.transparent : (isMe ? AppTheme.bubbleSender : AppTheme.bubbleReceiver),
                 borderRadius: BorderRadius.circular(16).copyWith(
                   bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(16),
                   bottomLeft: !isMe ? const Radius.circular(4) : const Radius.circular(16),
@@ -618,10 +714,29 @@ class MessageBubble extends StatelessWidget {
                                 },
                               );
                             }),
-                            const SizedBox(height: 4),
-                            Text(
-                              '$totalVotes total votes',
-                              style: const TextStyle(color: Colors.white70, fontSize: 12, fontStyle: FontStyle.italic),
+                            const SizedBox(height: 8),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  '$totalVotes total votes',
+                                  style: const TextStyle(color: Colors.white70, fontSize: 12, fontStyle: FontStyle.italic),
+                                ),
+                                GestureDetector(
+                                  onTap: () => _showPollVotesBottomSheet(ctx, question, options, totalVotes),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withOpacity(0.12),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: const Text(
+                                      'View votes',
+                                      style: TextStyle(color: Color(0xFF53BDEB), fontSize: 12, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
@@ -861,6 +976,54 @@ class MessageBubble extends StatelessWidget {
                             ),
                           ),
                         )
+                      else if (message.mediaType == 'STICKER')
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: CachedNetworkImage(
+                            imageUrl: ApiService.getMediaUrl(message.mediaUrl!),
+                            width: 140,
+                            height: 140,
+                            fit: BoxFit.contain,
+                            placeholder: (_, __) => const Center(
+                              child: SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white70),
+                              ),
+                            ),
+                            errorWidget: (_, __, ___) => const Icon(Icons.sticky_note_2_outlined, color: Colors.white60, size: 48),
+                          ),
+                        )
+                      else if (message.mediaType == 'GIF')
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Stack(
+                            alignment: Alignment.bottomLeft,
+                            children: [
+                              CachedNetworkImage(
+                                imageUrl: ApiService.getMediaUrl(message.mediaUrl!),
+                                width: 220,
+                                fit: BoxFit.cover,
+                                placeholder: (_, __) => Container(
+                                  height: 140,
+                                  width: 220,
+                                  color: Colors.black26,
+                                  child: const Center(child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white70)),
+                                ),
+                                errorWidget: (_, __, ___) => const Icon(Icons.gif_box, color: Colors.white60, size: 48),
+                              ),
+                              Container(
+                                margin: const EdgeInsets.all(8),
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(0.65),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: const Text('GIF', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                              ),
+                            ],
+                          ),
+                        )
                       else if (message.mediaType == 'AUDIO')
                         AudioPlayWidget(
                           url: message.mediaUrl!,
@@ -868,69 +1031,7 @@ class MessageBubble extends StatelessWidget {
                           isPending: message.isPending,
                         )
                       else 
-                        GestureDetector(
-                          onTap: () {
-                            if (message.mediaUrl != null) {
-                              final fullUrl = ApiService.getMediaUrl(message.mediaUrl!);
-                              showModalBottomSheet(
-                                context: context,
-                                backgroundColor: AppTheme.backgroundColor,
-                                shape: const RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                                ),
-                                builder: (ctx) => Container(
-                                  padding: const EdgeInsets.all(24),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(Icons.description_rounded, size: 48, color: AppTheme.primaryColor),
-                                      const SizedBox(height: 16),
-                                      Text(
-                                        'Document Attachment Preview',
-                                        style: TextStyle(color: AppTheme.textPrimary, fontSize: 18, fontWeight: FontWeight.bold),
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        fullUrl,
-                                        style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      const SizedBox(height: 24),
-                                      ElevatedButton.icon(
-                                        onPressed: () {
-                                          Navigator.pop(ctx);
-                                        },
-                                        icon: const Icon(Icons.close),
-                                        label: const Text('Close Document Preview'),
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: AppTheme.primaryColor,
-                                          foregroundColor: Colors.white,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              );
-                            }
-                          },
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.insert_drive_file, color: isMe ? Colors.white : AppTheme.textPrimary),
-                              const SizedBox(width: 8),
-                              Flexible(
-                                child: Text(
-                                  'File Attachment (Tap to Preview)',
-                                  style: TextStyle(
-                                    color: textColor,
-                                    fontStyle: FontStyle.italic,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+                        _buildDocumentCard(context, textColor, secondaryTextColor),
                     if (message.content.isNotEmpty) const SizedBox(height: 8),
                   ],
                   if (!isOnlyImage && message.mediaType != 'CALL_LOG' && message.mediaType != 'POLL' && message.mediaType != 'LOCATION')
@@ -998,10 +1099,269 @@ class MessageBubble extends StatelessWidget {
           ],
         );
 
-    return _wrapSwipeable(bubbleContent);
+    return _wrapSwipeable(context, bubbleContent, forwardButton: forwardButton);
   }
 
-  Widget _wrapSwipeable(Widget child) {
+  Widget _buildDocumentCard(BuildContext context, Color textColor, Color secondaryTextColor) {
+    final fileName = message.content.trim().isNotEmpty
+        ? message.content.trim()
+        : (message.mediaUrl != null ? message.mediaUrl!.split('/').last.split('?').first : 'Document');
+    final ext = fileName.contains('.') ? fileName.split('.').last.toUpperCase() : 'DOC';
+    
+    Color badgeColor = Colors.blueAccent;
+    IconData badgeIcon = Icons.description;
+    if (ext == 'PDF') {
+      badgeColor = const Color(0xFFE53935);
+      badgeIcon = Icons.picture_as_pdf_rounded;
+    } else if (ext.contains('DOC')) {
+      badgeColor = const Color(0xFF2B579A);
+      badgeIcon = Icons.article_rounded;
+    } else if (ext.contains('XLS')) {
+      badgeColor = const Color(0xFF217346);
+      badgeIcon = Icons.table_chart_rounded;
+    } else if (ext.contains('PPT')) {
+      badgeColor = const Color(0xFFD24726);
+      badgeIcon = Icons.slideshow_rounded;
+    } else if (ext == 'ZIP' || ext == 'RAR') {
+      badgeColor = const Color(0xFF8E24AA);
+      badgeIcon = Icons.folder_zip_rounded;
+    }
+
+    return GestureDetector(
+      onTap: () async {
+        if (message.mediaUrl != null && message.mediaUrl!.isNotEmpty) {
+          final fullUrl = ApiService.getMediaUrl(message.mediaUrl!);
+          final uri = Uri.tryParse(fullUrl);
+          if (uri != null) {
+            try {
+              await launchUrl(uri, mode: LaunchMode.externalApplication);
+            } catch (_) {
+              try {
+                await launchUrl(uri, mode: LaunchMode.platformDefault);
+              } catch (_) {}
+            }
+          }
+        }
+      },
+      child: Container(
+        width: 250,
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: isMe ? const Color(0xFF005C4B).withOpacity(0.8) : const Color(0xFF202C33),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 52,
+              decoration: BoxDecoration(
+                color: badgeColor.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: badgeColor.withOpacity(0.5)),
+              ),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Icon(badgeIcon, color: badgeColor, size: 28),
+                  Positioned(
+                    bottom: 2,
+                    child: Text(
+                      ext.length > 4 ? ext.substring(0, 4) : ext,
+                      style: TextStyle(
+                        color: badgeColor,
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    fileName,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Text(
+                        '$ext Document',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.6),
+                          fontSize: 11,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        '• Tap to open',
+                        style: TextStyle(
+                          color: AppTheme.primaryColor,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showPollVotesBottomSheet(BuildContext context, String question, List<dynamic> options, int totalVotes) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1F2C34),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Poll votes',
+                    style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    '$totalVotes votes',
+                    style: const TextStyle(color: Colors.white60, fontSize: 14),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                question,
+                style: const TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w500),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const Divider(color: Colors.white24, height: 24),
+              Expanded(
+                child: ListView.separated(
+                  itemCount: options.length,
+                  separatorBuilder: (_, __) => const Divider(color: Colors.white12, height: 16),
+                  itemBuilder: (context, idx) {
+                    final opt = options[idx];
+                    final optText = opt['text'] ?? 'Option ${idx + 1}';
+                    final votes = (opt['votes'] as List<dynamic>?) ?? [];
+                    final pct = totalVotes > 0 ? (votes.length / totalVotes) : 0.0;
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              optText,
+                              style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
+                            ),
+                            Text(
+                              '${votes.length} vote${votes.length == 1 ? '' : 's'} (${(pct * 100).toInt()}%)',
+                              style: const TextStyle(color: Color(0xFF53BDEB), fontSize: 13, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: LinearProgressIndicator(
+                            value: pct,
+                            minHeight: 6,
+                            backgroundColor: Colors.white12,
+                            color: const Color(0xFF00A884),
+                          ),
+                        ),
+                        if (votes.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 4,
+                            children: votes.map((v) {
+                              final voterStr = v.toString();
+                              final display = voterStr.length > 8 ? voterStr.substring(0, 8) : voterStr;
+                              return Chip(
+                                avatar: CircleAvatar(
+                                  backgroundColor: AppTheme.primaryColor,
+                                  child: Text(display.substring(0, 1).toUpperCase(), style: const TextStyle(fontSize: 10, color: Colors.white)),
+                                ),
+                                label: Text(display, style: const TextStyle(color: Colors.white70, fontSize: 11)),
+                                backgroundColor: const Color(0xFF2A3942),
+                                padding: const EdgeInsets.symmetric(horizontal: 4),
+                              );
+                            }).toList(),
+                          ),
+                        ],
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _wrapSwipeable(BuildContext context, Widget child, {Widget? forwardButton}) {
+    Widget content = child;
+    if (forwardButton != null) {
+      if (isMe) {
+        content = Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            forwardButton,
+            const SizedBox(width: 8),
+            child,
+          ],
+        );
+      } else {
+        content = Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            child,
+            const SizedBox(width: 8),
+            forwardButton,
+          ],
+        );
+      }
+    }
+
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: onSwipeReply != null
@@ -1018,9 +1378,9 @@ class MessageBubble extends StatelessWidget {
                 padding: const EdgeInsets.only(left: 20),
                 child: const Icon(Icons.reply, color: Colors.white, size: 28),
               ),
-              child: child,
+              child: content,
             )
-          : child,
+          : content,
     );
   }
 
@@ -1140,7 +1500,7 @@ class MessageBubble extends StatelessWidget {
       final response = await http.get(
         Uri.parse('https://nominatim.openstreetmap.org/reverse?format=json&lat=$lat&lon=$lng&zoom=18&addressdetails=1'),
         headers: {'User-Agent': 'DolsyxApp/1.0 (Mobile Client)'},
-      ).timeout(const Duration(seconds: 4));
+      ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);

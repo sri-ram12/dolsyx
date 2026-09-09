@@ -45,6 +45,7 @@ model User {
   taskAssignments  TaskAssignment[]
   createdTasks     Task[]            @relation("CreatedBy")
   socialLinks      SocialLink[]
+  oauthAccounts    OAuthAccount[]
   sessions         Session[]
   deletedMessages  DeletedMessage[]
   statuses         Status[]
@@ -118,16 +119,41 @@ model SocialLink {
   user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+model OAuthAccount {
+  id             String   @id @default(uuid())
+  userId         String
+  provider       String   // "google"
+  providerUserId String   // Google sub identifier (stable external identity key)
+  providerEmail  String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerUserId])
+  @@index([userId])
+  @@index([provider, providerUserId])
+}
+
 model Session {
-  id           String   @id @default(uuid())
-  userId       String
-  token        String   @unique
-  userAgent    String?
-  ipAddress    String?
-  isActive     Boolean  @default(true)
-  expiresAt    DateTime
-  createdAt    DateTime @default(now())
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id               String    @id @default(uuid())
+  userId           String
+  token            String    @unique
+  refreshTokenHash String?   @unique
+  userAgent        String?
+  ipAddress        String?
+  deviceName       String?
+  deviceType       String    @default("web") // web, android, ios, desktop
+  isActive         Boolean   @default(true)
+  expiresAt        DateTime
+  lastActiveAt     DateTime  @default(now())
+  createdAt        DateTime  @default(now())
+  revokedAt        DateTime?
+
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
 }
 
 model Conversation {

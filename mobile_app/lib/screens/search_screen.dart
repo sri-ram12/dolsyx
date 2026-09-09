@@ -13,6 +13,7 @@ import '../theme/app_theme.dart';
 import '../widgets/color_avatar.dart';
 import '../widgets/full_screen_image_view.dart';
 import 'chat_room_screen.dart';
+import 'locked_chats_screen.dart';
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -31,6 +32,7 @@ class _SearchScreenState extends State<SearchScreen> {
   List<dynamic> _savedContacts = [];
   List<Map<String, dynamic>> _recentSearches = [];
   String _activeFilter = ''; // '', 'UNREAD', 'PHOTOS', 'VIDEOS', 'LINKS', 'GIFS', 'AUDIO', 'DOCS', 'POLLS', 'CONTACTS', 'NON_CONTACTS', 'FAVOURITES'
+  String? _secretChatCode;
 
   bool _isLoading = false;
   bool _isAiThinking = false;
@@ -79,11 +81,14 @@ class _SearchScreenState extends State<SearchScreen> {
       }
     }
 
+    final secretCode = prefs.getString('secret_chat_code');
+
     if (mounted) {
       setState(() {
         _recentSearches = loadedRecent;
         _allChats = chats;
         _savedContacts = contacts;
+        _secretChatCode = secretCode;
       });
     }
   }
@@ -692,73 +697,113 @@ class _SearchScreenState extends State<SearchScreen> {
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator(color: Color(0xFF6366F1)))
-                : (queryText.isNotEmpty || _activeFilter.isNotEmpty)
-                    ? (_searchResults.isEmpty
-                        ? Center(
-                            child: Text(
-                              'No results found for ${_activeFilter.isNotEmpty ? _activeFilter : '"$queryText"'}',
-                              style: const TextStyle(color: Colors.white38),
+                : Column(
+                    children: [
+                      if (_secretChatCode != null && _secretChatCode!.isNotEmpty && queryText.trim() == _secretChatCode!.trim())
+                        Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1F2C34),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFF00A884).withOpacity(0.5)),
+                          ),
+                          child: ListTile(
+                            leading: Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: const BoxDecoration(
+                                color: Color(0xFF00A884),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.lock_rounded, color: Colors.white, size: 22),
                             ),
-                          )
-                        : ListView.builder(
-                            itemCount: _searchResults.length,
-                            itemBuilder: (context, index) {
-                              final item = _searchResults[index];
-                              final isChat = item['type'] == 'chat';
-                              final displayName = item['username'] ?? item['name'] ?? 'User';
-                              final avatarUrl = item['avatarUrl'];
-                              final subtitle = item['subtitle'] ?? item['email'] ?? '';
-                              final id = item['id'];
-                              final isNonContact = item['isNonContact'] == true;
-                              final isFavorite = item['isFavorite'] == true;
-
-                              return ListTile(
-                                leading: ColorAvatar(
-                                  name: displayName,
-                                  avatarUrl: avatarUrl,
-                                  radius: 22,
+                            title: const Text('Locked chats', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                            subtitle: const Text('Secret code matched • Tap to open', style: TextStyle(color: Color(0xFF00A884), fontSize: 12)),
+                            trailing: const Icon(Icons.chevron_right, color: Colors.white70),
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => LockedChatsScreen(
+                                    initialLockedChats: _allChats.where((c) => c.isLocked).toList(),
+                                    onRefresh: _loadInitialData,
+                                  ),
                                 ),
-                                title: Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        displayName,
-                                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                    if (isFavorite)
-                                      const Icon(Icons.star, color: Colors.amber, size: 16),
-                                    if (isNonContact)
-                                      Container(
-                                        margin: const EdgeInsets.only(left: 6),
-                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: Colors.amber.withOpacity(0.15),
-                                          borderRadius: BorderRadius.circular(6),
-                                        ),
-                                        child: const Text('Non-contact', style: TextStyle(color: Colors.amber, fontSize: 10, fontWeight: FontWeight.bold)),
-                                      ),
-                                  ],
-                                ),
-                                subtitle: Text(
-                                  subtitle,
-                                  style: const TextStyle(color: Colors.white54, fontSize: 12),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                onTap: () {
-                                  if (isChat && item['chat'] != null) {
-                                    _openExistingChat(item['chat'] as Chat);
-                                  } else {
-                                    _startChat(id.toString(), displayName, avatarUrl);
-                                  }
-                                },
                               );
                             },
-                          ))
-                    : const SizedBox.shrink(),
+                          ),
+                        ),
+                      Expanded(
+                        child: (queryText.isNotEmpty || _activeFilter.isNotEmpty)
+                            ? (_searchResults.isEmpty
+                                ? (_secretChatCode != null && _secretChatCode!.isNotEmpty && queryText.trim() == _secretChatCode!.trim()
+                                    ? const SizedBox.shrink()
+                                    : Center(
+                                        child: Text(
+                                          'No results found for ${_activeFilter.isNotEmpty ? _activeFilter : '"$queryText"'}',
+                                          style: const TextStyle(color: Colors.white38),
+                                        )))
+                                : ListView.builder(
+                                    itemCount: _searchResults.length,
+                                    itemBuilder: (context, index) {
+                                      final item = _searchResults[index];
+                                      final isChat = item['type'] == 'chat';
+                                      final displayName = item['username'] ?? item['name'] ?? 'User';
+                                      final avatarUrl = item['avatarUrl'];
+                                      final subtitle = item['subtitle'] ?? item['email'] ?? '';
+                                      final id = item['id'];
+                                      final isNonContact = item['isNonContact'] == true;
+                                      final isFavorite = item['isFavorite'] == true;
+
+                                      return ListTile(
+                                        leading: ColorAvatar(
+                                          name: displayName,
+                                          avatarUrl: avatarUrl,
+                                          radius: 22,
+                                        ),
+                                        title: Row(
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                displayName,
+                                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                            if (isFavorite)
+                                              const Icon(Icons.star, color: Colors.amber, size: 16),
+                                            if (isNonContact)
+                                              Container(
+                                                margin: const EdgeInsets.only(left: 6),
+                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.amber.withOpacity(0.15),
+                                                  borderRadius: BorderRadius.circular(6),
+                                                ),
+                                                child: const Text('Non-contact', style: TextStyle(color: Colors.amber, fontSize: 10, fontWeight: FontWeight.bold)),
+                                              ),
+                                          ],
+                                        ),
+                                        subtitle: Text(
+                                          subtitle,
+                                          style: const TextStyle(color: Colors.white54, fontSize: 12),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        onTap: () {
+                                          if (isChat && item['chat'] != null) {
+                                            _openExistingChat(item['chat'] as Chat);
+                                          } else {
+                                            _startChat(id.toString(), displayName, avatarUrl);
+                                          }
+                                        },
+                                      );
+                                    },
+                                  ))
+                            : const SizedBox.shrink(),
+                      ),
+                    ],
+                  ),
           ),
         ],
       ),

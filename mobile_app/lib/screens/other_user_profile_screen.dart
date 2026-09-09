@@ -12,8 +12,10 @@ import '../providers/auth_provider.dart';
 import 'package:intl/intl.dart';
 import '../widgets/color_avatar.dart';
 import '../widgets/full_screen_image_view.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../screens/call_screen.dart';
 import '../screens/chat_room_screen.dart';
+import '../models/chat.dart';
 
 class OtherUserProfileScreen extends StatefulWidget {
   final Map<String, dynamic> user;
@@ -37,11 +39,14 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
   List<dynamic> _docItems = [];
   List<dynamic> _linkItems = [];
   bool _isLoadingMedia = true;
+  bool _isChatLocked = false;
+  String? _resolvedConvId;
 
   @override
   void initState() {
     super.initState();
     _checkBlockedStatus();
+    _checkChatLockStatus();
     _fetchMediaMessages();
     final userId = widget.user['id'] ?? widget.user['_id'];
     if (widget.user['lastSeen'] != null) {
@@ -54,6 +59,34 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
       authProvider.socketService.onStatusChange(_handleStatusChange);
       authProvider.socketService.onTypingChange(_handleTypingChange);
     });
+  }
+
+  Future<void> _checkChatLockStatus() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final lockedIds = (prefs.getStringList('locked_chat_ids') ?? []).toSet();
+      String? convId = widget.user['conversationId']?.toString();
+      final userId = (widget.user['id'] ?? widget.user['_id'])?.toString();
+
+      if ((convId == null || convId.isEmpty) && userId != null && userId.isNotEmpty) {
+        final cachedChats = await ChatService().getCachedChats();
+        final matches = cachedChats.where(
+          (c) => !c.isGroup && (c.participants?.any((p) => (p['user']?['id'] ?? p['user']?['_id'])?.toString() == userId) ?? false),
+        );
+        if (matches.isNotEmpty) {
+          convId = matches.first.id;
+        }
+      }
+
+      _resolvedConvId = convId;
+      bool isLocked = false;
+      if (convId != null && convId.isNotEmpty && lockedIds.contains(convId)) {
+        isLocked = true;
+      }
+      if (mounted) {
+        setState(() => _isChatLocked = isLocked);
+      }
+    } catch (_) {}
   }
 
   @override
@@ -683,6 +716,65 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
     );
   }
 
+  void _toggleChatLock() async {
+    final userId = (widget.user['id'] ?? widget.user['_id'])?.toString();
+    if (userId == null) return;
+
+    String? convId = widget.user['conversationId']?.toString() ?? _resolvedConvId;
+    if (convId == null || convId.isEmpty) {
+      try {
+        final cachedChats = await ChatService().getCachedChats();
+        final matches = cachedChats.where(
+          (c) => !c.isGroup && (c.participants?.any((p) => (p['user']?['id'] ?? p['user']?['_id'])?.toString() == userId) ?? false),
+        );
+        if (matches.isNotEmpty) {
+          convId = matches.first.id;
+        }
+      } catch (_) {}
+    }
+
+    if (convId == null || convId.isEmpty) {
+      try {
+        final chat = await ChatService().createDirectChat(userId);
+        if (chat != null) convId = chat.id;
+      } catch (_) {}
+    }
+
+    if (convId == null || convId.isEmpty) return;
+    _resolvedConvId = convId;
+
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final lockedIds = (prefs.getStringList('locked_chat_ids') ?? []).toSet();
+      final newLockedState = !_isChatLocked;
+
+      if (newLockedState) {
+        lockedIds.add(convId);
+        await prefs.setStringList('locked_chat_ids', lockedIds.toList());
+        ChatService().updateChatSettings(convId, {'isLocked': true}).catchError((_) {});
+        if (mounted) {
+          setState(() => _isChatLocked = true);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Chat locked. It will appear in Locked chats.')),
+          );
+        }
+      } else {
+        lockedIds.remove(convId);
+        await prefs.setStringList('locked_chat_ids', lockedIds.toList());
+        ChatService().updateChatSettings(convId, {'isLocked': false}).catchError((_) {});
+        if (mounted) {
+          setState(() => _isChatLocked = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Chat unlocked.')),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error toggling chat lock: $e');
+    }
+  }
+
   Widget _buildActionItem(IconData icon, String title, VoidCallback onTap, {bool isDestructive = false}) {
     return ListTile(
       leading: Icon(icon, color: isDestructive ? Colors.red : AppTheme.textSecondary),
@@ -840,8 +932,17 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
                     );
                   }),
                   _buildActionItem(Icons.notifications, 'Notifications', () {}),
-                  _buildActionItem(Icons.timelapse, 'Disappearing Messages', () {}),
-                  _buildActionItem(Icons.lock, 'Chat Lock', () {}),
+                  SwitchListTile(
+                    secondary: Icon(Icons.lock, color: _isChatLocked ? AppTheme.primaryColor : AppTheme.textSecondary),
+                    title: Text('Chat Lock', style: TextStyle(color: AppTheme.textPrimary, fontSize: 16)),
+                    subtitle: Text(
+                      'Lock and hide this chat on this device',
+                      style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+                    ),
+                    value: _isChatLocked,
+                    activeColor: AppTheme.primaryColor,
+                    onChanged: (_) => _toggleChatLock(),
+                  ),
                 ],
               ),
             ),

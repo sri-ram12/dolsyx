@@ -26,6 +26,7 @@ import '../providers/wallpaper_provider.dart';
 import '../models/chat.dart';
 import '../theme/app_theme.dart';
 import '../widgets/message_bubble.dart';
+import '../widgets/sticker_gif_picker.dart';
 import 'other_user_profile_screen.dart';
 import '../widgets/color_avatar.dart';
 import '../widgets/full_screen_image_view.dart';
@@ -70,8 +71,44 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   bool _isLoading = true;
   bool _isTyping = false;
   bool _isEmojiVisible = false;
+  int _bottomPickerTab = 0; // 0 = Emoji, 1 = Stickers & GIFs
   bool _isContact = true;
   FocusNode _focusNode = FocusNode();
+
+  void _sendStickerOrGifMessage(String mediaUrl, String mediaType) {
+    final tempId = 'temp_${DateTime.now().millisecondsSinceEpoch}';
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final myUserId = (authProvider.user?['id'] ?? authProvider.user?['_id'])?.toString() ?? '';
+
+    final tempMsg = Message(
+      id: tempId,
+      content: '',
+      senderId: myUserId,
+      conversationId: widget.conversationId,
+      mediaUrl: mediaUrl,
+      mediaType: mediaType,
+      createdAt: DateTime.now(),
+    );
+
+    setState(() {
+      _messages.insert(0, tempMsg);
+    });
+
+    authProvider.socketService.socket?.emit('send_message', {
+      'conversationId': widget.conversationId,
+      'content': '',
+      'mediaUrl': mediaUrl,
+      'mediaType': mediaType,
+      'tempId': tempId,
+    });
+
+    _chatService.sendMessage(
+      conversationId: widget.conversationId,
+      content: '',
+      mediaUrl: mediaUrl,
+      mediaType: mediaType,
+    );
+  }
   DateTime? _activeScheduledTime;
   Message? _editingMessage;
   bool _isRemoteUserTyping = false;
@@ -114,6 +151,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     } catch (_) {}
   }
 
+  AuthProvider? _cachedAuthProvider;
   bool _isBlocked = false;
   Message? _replyingTo;
   String? _highlightedMessageId;
@@ -811,12 +849,28 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   void _handleGroupUpdated(dynamic data) {
     if (mounted && data['conversationId'] == widget.conversationId) {
-      setState(() {
-        if (data['avatarUrl'] != null) {
-          // Force avatar URL update
-          (widget as dynamic);
-        }
-      });
+      if (data['message'] != null) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: const Color(0xFF1F2C34),
+            content: Row(
+              children: [
+                const Icon(Icons.group, color: Color(0xFF00A884), size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    '${data['message']}',
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
       _fetchMessages();
     }
   }
@@ -1026,24 +1080,30 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _cachedAuthProvider = Provider.of<AuthProvider>(context, listen: false);
+  }
+
+  @override
   void dispose() {
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final socket = authProvider.socketService.socket;
+    final auth = _cachedAuthProvider;
+    final socket = auth?.socketService.socket;
     socket?.off('scheduled_messages_updated');
     socket?.off('scheduled_message_executed');
-    authProvider.socketService.leaveConversation(widget.conversationId);
-    authProvider.socketService.offMessageReceived(_handleIncomingMessage);
-    authProvider.socketService.offEncryptedMessageReceived(_handleEncryptedMessage);
-    authProvider.socketService.offTypingChange(_handleTypingChange);
-    authProvider.socketService.offStatusChange(_handleStatusChange);
-    authProvider.socketService.offChatCleared(_handleChatCleared);
-    authProvider.socketService.offMessageDeleted(_handleMessageDeleted);
-    authProvider.socketService.offMessageEdited(_handleMessageEdited);
-    authProvider.socketService.offMessagesRead(_handleMessagesRead);
-    authProvider.socketService.offMessagesDelivered(_handleMessagesDelivered);
-    authProvider.socketService.offProfileUpdated(_handleProfileUpdated);
-    authProvider.socketService.offReactionAdded(_handleReactionAdded);
-    authProvider.socketService.offReactionRemoved(_handleReactionRemoved);
+    auth?.socketService.leaveConversation(widget.conversationId);
+    auth?.socketService.offMessageReceived(_handleIncomingMessage);
+    auth?.socketService.offEncryptedMessageReceived(_handleEncryptedMessage);
+    auth?.socketService.offTypingChange(_handleTypingChange);
+    auth?.socketService.offStatusChange(_handleStatusChange);
+    auth?.socketService.offChatCleared(_handleChatCleared);
+    auth?.socketService.offMessageDeleted(_handleMessageDeleted);
+    auth?.socketService.offMessageEdited(_handleMessageEdited);
+    auth?.socketService.offMessagesRead(_handleMessagesRead);
+    auth?.socketService.offMessagesDelivered(_handleMessagesDelivered);
+    auth?.socketService.offProfileUpdated(_handleProfileUpdated);
+    auth?.socketService.offReactionAdded(_handleReactionAdded);
+    auth?.socketService.offReactionRemoved(_handleReactionRemoved);
     _messageController.removeListener(_onTextChanged);
     _messageController.dispose();
     _scrollController.dispose();
@@ -1261,14 +1321,41 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           }
         });
         _scrollToBottom();
+
+        if (msg.mediaType == 'SYSTEM' ||
+            msg.senderId == 'system' ||
+            msg.content.contains('left group') ||
+            msg.content.contains('left the group') ||
+            msg.content.contains(' added ') ||
+            msg.content.contains(' removed ')) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              behavior: SnackBarBehavior.floating,
+              backgroundColor: const Color(0xFF1F2C34),
+              content: Row(
+                children: [
+                  const Icon(Icons.notifications_active_outlined, color: Color(0xFF00A884), size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      msg.content.replaceFirst('SYSTEM:', '').trim(),
+                      style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
         _updateMessageCache();
         
         // Auto-download media according to storage settings
         AutoDownloadService.checkAndAutoDownload(msg);
 
         // Clear unread count for the new incoming message
-        final authProvider = Provider.of<AuthProvider>(context, listen: false);
-        authProvider.socketService.socket?.emit('mark_read', {
+        _cachedAuthProvider?.socketService.socket?.emit('mark_read', {
           'conversationId': widget.conversationId,
         });
       } catch (e) {
@@ -1440,7 +1527,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
         },
-      );
+      ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
         // Save to local cache for offline access
@@ -1458,12 +1545,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               } catch (_) {}
             });
             _scrollToBottom();
-            // Check auto-downloads for recent media
-            for (final msg in _messages.reversed.take(10)) {
-              if (msg.mediaUrl != null && msg.mediaUrl!.isNotEmpty) {
-                AutoDownloadService.checkAndAutoDownload(msg);
-              }
-            }
           }
       } else if (mounted) {
         setState(() => _isLoading = false);
@@ -1940,6 +2021,16 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   void _handleReactionAdded(dynamic data) {
     if (data['conversationId'] == widget.conversationId) {
       if (mounted) {
+        final emoji = data['emoji'] ?? '👍';
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 2),
+            backgroundColor: const Color(0xFF1F2C34),
+            content: Text('Reaction $emoji added to message', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500)),
+          ),
+        );
         setState(() {
           final idx = _messages.indexWhere((m) => m.id == data['messageId']);
           if (idx != -1) {
@@ -3248,7 +3339,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                   },
                 ),
                 IconButton(
-                  icon: const Icon(Icons.forward),
+                  tooltip: 'Forward',
+                  icon: Transform.flip(
+                    flipX: true,
+                    child: const Icon(Icons.reply),
+                  ),
                   onPressed: () {
                     final messagesToForward = _messages.where((m) => _selectedMessageIds.contains(m.id)).toList();
                     setState(() => _selectedMessageIds.clear());
@@ -3889,9 +3984,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                       )
                     : ListView.builder(
                         controller: _scrollController,
+                        physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
                         padding: const EdgeInsets.all(16),
                         itemCount: _messages.length,
-                        cacheExtent: 500.0,
+                        cacheExtent: 1500.0,
                         addAutomaticKeepAlives: true,
                         addRepaintBoundaries: true,
                         itemBuilder: (context, index) {
@@ -4514,30 +4610,109 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             ),
           ),
           if (_isEmojiVisible)
-            SizedBox(
-              height: 250,
-              child: EmojiPicker(
-                textEditingController: _messageController,
-                scrollController: ScrollController(),
-                config: Config(
-                  height: 250,
-                  checkPlatformCompatibility: true,
-                  emojiViewConfig: EmojiViewConfig(
-                    backgroundColor: AppTheme.backgroundColor,
-                    columns: 7,
-                    emojiSizeMax: 28 * (Platform.isIOS ? 1.30 : 1.0),
+            Container(
+              height: 310,
+              color: const Color(0xFF1F2C34),
+              child: Column(
+                children: [
+                  // Tab selector bar (Emoji vs Stickers/GIFs)
+                  Container(
+                    height: 40,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    color: const Color(0xFF182229),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        GestureDetector(
+                          onTap: () => setState(() => _bottomPickerTab = 0),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: _bottomPickerTab == 0 ? const Color(0xFF00A884) : Colors.transparent,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.emoji_emotions_outlined, size: 16, color: _bottomPickerTab == 0 ? Colors.white : Colors.white60),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Emoji',
+                                  style: TextStyle(
+                                    color: _bottomPickerTab == 0 ? Colors.white : Colors.white60,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        GestureDetector(
+                          onTap: () => setState(() => _bottomPickerTab = 1),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: _bottomPickerTab == 1 ? const Color(0xFF00A884) : Colors.transparent,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.sticky_note_2_outlined, size: 16, color: _bottomPickerTab == 1 ? Colors.white : Colors.white60),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Stickers & GIFs',
+                                  style: TextStyle(
+                                    color: _bottomPickerTab == 1 ? Colors.white : Colors.white60,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  categoryViewConfig: CategoryViewConfig(
-                    backgroundColor: AppTheme.surfaceColor,
-                    indicatorColor: AppTheme.primaryColor,
-                    iconColorSelected: AppTheme.primaryColor,
-                    iconColor: AppTheme.textSecondary,
+                  Expanded(
+                    child: _bottomPickerTab == 0
+                        ? EmojiPicker(
+                            textEditingController: _messageController,
+                            scrollController: ScrollController(),
+                            config: Config(
+                              height: 270,
+                              checkPlatformCompatibility: true,
+                              emojiViewConfig: EmojiViewConfig(
+                                backgroundColor: AppTheme.backgroundColor,
+                                columns: 7,
+                                emojiSizeMax: 28 * (Platform.isIOS ? 1.30 : 1.0),
+                              ),
+                              categoryViewConfig: CategoryViewConfig(
+                                backgroundColor: AppTheme.surfaceColor,
+                                indicatorColor: AppTheme.primaryColor,
+                                iconColorSelected: AppTheme.primaryColor,
+                                iconColor: AppTheme.textSecondary,
+                              ),
+                              bottomActionBarConfig: const BottomActionBarConfig(showSearchViewButton: false, backgroundColor: Color(0xFF182229)),
+                              searchViewConfig: SearchViewConfig(
+                                backgroundColor: AppTheme.backgroundColor,
+                              ),
+                            ),
+                          )
+                        : StickerGifPicker(
+                            onSelectSticker: (url) {
+                              _sendStickerOrGifMessage(url, 'STICKER');
+                            },
+                            onSelectGif: (url) {
+                              _sendStickerOrGifMessage(url, 'GIF');
+                            },
+                            onClose: () => setState(() => _isEmojiVisible = false),
+                          ),
                   ),
-                  bottomActionBarConfig: BottomActionBarConfig(showSearchViewButton: false, backgroundColor: AppTheme.surfaceColor),
-                  searchViewConfig: SearchViewConfig(
-                    backgroundColor: AppTheme.backgroundColor,
-                  ),
-                ),
+                ],
               ),
             ),
         ],

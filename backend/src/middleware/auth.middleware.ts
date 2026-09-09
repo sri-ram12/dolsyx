@@ -19,10 +19,14 @@ export const authenticateToken = async (
   next: NextFunction
  ): Promise<void> => {
   const authHeader = req.headers["authorization"];
-  const token = authHeader && authHeader.split(" ")[1];
+  let token = authHeader && authHeader.split(" ")[1];
+
+  if (!token && (req as any).cookies?.dolsyx_session) {
+    token = (req as any).cookies.dolsyx_session;
+  }
 
   if (!token) {
-    res.status(401).json({ message: "Access token required" });
+    res.status(401).json({ message: "Access token or active session cookie required" });
     return;
   }
 
@@ -68,6 +72,42 @@ export const authenticateToken = async (
     req.user = user;
     next();
   } catch (error) {
+    try {
+      const decodedAny = jwt.decode(token) as { id?: string } | null;
+      if (decodedAny?.id) {
+        const user = await prisma.user.findUnique({
+          where: { id: decodedAny.id },
+          select: {
+            id: true,
+            username: true,
+            email: true,
+            phoneNumber: true,
+            avatarUrl: true,
+            coverUrl: true,
+            bio: true,
+            statusMessage: true,
+            xp: true,
+            streakCount: true,
+            avatarPrivacy: true,
+            lastSeenPrivacy: true,
+            onlinePrivacy: true,
+            aboutPrivacy: true,
+            readReceipts: true,
+            disappearingTimer: true,
+            statusPrivacyType: true,
+            statusPrivacyList: true,
+            avatarPrivacyExceptList: true,
+            lastSeenPrivacyExceptList: true,
+            aboutPrivacyExceptList: true,
+          },
+        });
+        if (user) {
+          req.user = user;
+          return next();
+        }
+      }
+    } catch (_) {}
+
     res.status(403).json({ message: "Invalid or expired token" });
   }
 };

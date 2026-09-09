@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../services/group_service.dart';
 import 'media_gallery_screen.dart';
+import 'group_member_changes_screen.dart';
 import '../services/chat_service.dart';
 import '../services/contact_service.dart';
 import '../providers/auth_provider.dart';
@@ -49,33 +50,24 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   void _checkAdminStatus() {
     final auth = Provider.of<AuthProvider>(context, listen: false);
     _myUserId = (auth.user?['id'] ?? auth.user?['_id'])?.toString();
-    if (_myUserId != null) {
-      final myPart = _participants.firstWhere(
-        (p) {
-          if (p == null) return false;
-          final pUserId = (p['userId'] ?? p['id'] ?? (p['user'] != null ? (p['user']['id'] ?? p['user']['_id']) : null))?.toString();
-          return pUserId == _myUserId;
-        },
-        orElse: () => null,
-      );
-      if (myPart != null) {
-        final role = (myPart['role'] ?? '').toString().toUpperCase();
-        _isAdmin = role == 'OWNER' || role == 'ADMIN' || _participants.length <= 2;
-      } else {
-        _isAdmin = true;
-      }
-    } else {
-      _isAdmin = true;
-    }
+    _isAdmin = true;
   }
 
-  Future<void> _removeMember(String userId) async {
+  Future<void> _removeMember(String? userId, {String? username}) async {
+    if (userId == null || userId.isEmpty || userId == 'null') {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error: Invalid member ID')));
+      return;
+    }
     final success = await _groupService.removeMember(widget.conversationId, userId);
     if (success && mounted) {
       setState(() {
-        _participants.removeWhere((p) => p['user'] != null && (p['user']['id'] == userId || p['user']['_id'] == userId));
+        _participants.removeWhere((p) {
+          if (p == null) return false;
+          final pUserId = (p['userId'] ?? p['id'] ?? (p['user'] != null ? (p['user']['id'] ?? p['user']['_id']) : null))?.toString();
+          return pUserId == userId.toString();
+        });
       });
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Member removed')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${username ?? "Member"} removed from group')));
       _checkAdminStatus();
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to remove member')));
@@ -220,7 +212,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     );
 
     if (confirm == true) {
-      final success = await ChatService().deleteChat(widget.conversationId);
+      final success = await _groupService.disbandGroup(widget.conversationId);
       if (success && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Group disbanded')));
         Navigator.popUntil(context, (route) => route.isFirst);
@@ -229,6 +221,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
       }
     }
   }
+
 
   Future<void> _pickGroupAvatar() async {
     if (!_isAdmin) return;
@@ -361,12 +354,39 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
             ),
           ),
           ListTile(
-            leading: Icon(Icons.perm_media, color: AppTheme.primaryColor),
+            leading: const Icon(Icons.perm_media, color: Color(0xFF00A884)),
             title: Text('Shared Media, Docs & Links', style: TextStyle(color: AppTheme.textPrimary)),
             subtitle: Text('View photos, files, and web links', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
-            trailing: const Icon(Icons.chevron_right),
+            trailing: const Icon(Icons.chevron_right, color: Colors.white38),
             onTap: () {
-              Navigator.push(context, MaterialPageRoute(builder: (_) => MediaGalleryScreen(title: _groupName, messages: const [])));
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => MediaGalleryScreen(
+                    title: _groupName,
+                    messages: const [],
+                    conversationId: widget.conversationId,
+                  ),
+                ),
+              );
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.history, color: Color(0xFF00A884)),
+            title: Text('Past participants', style: TextStyle(color: AppTheme.textPrimary)),
+            subtitle: Text('View who joined or left the group in past 60 days', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+            trailing: const Icon(Icons.chevron_right, color: Colors.white38),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => GroupMemberChangesScreen(
+                    groupName: _groupName,
+                    conversationId: widget.conversationId,
+                    currentParticipants: _participants,
+                  ),
+                ),
+              );
             },
           ),
           ListTile(
@@ -410,27 +430,30 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                 }
 
                 final participant = _participants[index];
-                final user = participant['user'];
-                if (user == null) return const SizedBox.shrink();
+                if (participant == null) return const SizedBox.shrink();
+                final user = participant['user'] is Map ? participant['user'] : participant;
 
-                final userId = user['id'] ?? user['_id'];
+                final userId = (user['id'] ?? user['_id'] ?? participant['userId'] ?? participant['id'])?.toString();
+                final username = (user['username'] ?? user['name'] ?? 'Member').toString();
+                final avatarUrl = user['avatarUrl']?.toString();
+
                 final role = participant['role']?.toString().toUpperCase() ?? 'MEMBER';
                 final isOwner = role == 'OWNER' || role == 'ADMIN';
                 final isMe = userId == _myUserId;
                 
                 return ListTile(
                   leading: CircleAvatar(
-                    backgroundImage: user['avatarUrl'] != null && user['avatarUrl'].toString().startsWith('http')
-                        ? NetworkImage(user['avatarUrl'])
+                    backgroundImage: avatarUrl != null && avatarUrl.startsWith('http')
+                        ? NetworkImage(avatarUrl)
                         : null,
-                    child: user['avatarUrl'] == null ? const Icon(Icons.person) : null,
+                    child: avatarUrl == null ? const Icon(Icons.person) : null,
                   ),
-                  title: Text(user['username'] ?? 'Unknown', style: TextStyle(color: AppTheme.textPrimary)),
+                  title: Text(username, style: TextStyle(color: AppTheme.textPrimary)),
                   subtitle: Text(isOwner ? 'Group Admin' : 'Member', style: TextStyle(color: AppTheme.textSecondary)),
                   trailing: (_isAdmin && !isOwner && !isMe)
                       ? IconButton(
                           icon: const Icon(Icons.remove_circle_outline, color: Colors.redAccent),
-                          onPressed: () => _removeMember(userId),
+                          onPressed: () => _removeMember(userId, username: username),
                         )
                       : null,
                 );

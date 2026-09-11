@@ -1398,7 +1398,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         print('Error parsing incoming message: $e');
       }
     }
-  }
+
 
   /// Handles a real-time E2EE message that has already been decrypted by SocketService.
   void _handleEncryptedMessage(dynamic data) {

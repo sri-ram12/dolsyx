@@ -45,36 +45,63 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
 
   void _onDetect(BarcodeCapture capture) async {
     if (_isProcessing) return;
+    if (capture.barcodes.isEmpty) return;
     
-    final List<Barcode> barcodes = capture.barcodes;
-    String scannedValue = barcodes.first.rawValue!.trim();
+    final raw = capture.barcodes.first.rawValue;
+    if (raw == null || raw.trim().isEmpty) return;
+    final String scannedValue = raw.trim();
     print("SCANNED RAW VALUE: $scannedValue");
 
     // ── Check if this is a DOLSYX Linked Device QR Login ───────────────────
-    String? pairingId;
-    String? challenge;
-    String? customApiUrl;
+    final isPairingQr = scannedValue.startsWith('dolsyx://pair') ||
+        scannedValue.contains('pairingId') ||
+        scannedValue.contains('dolsyx_pair_');
 
-    if (scannedValue.startsWith('dolsyx://pair')) {
-      final uri = Uri.tryParse(scannedValue);
-      if (uri != null) {
-        pairingId = uri.queryParameters['pairingId'];
-        challenge = uri.queryParameters['challenge'];
-        customApiUrl = uri.queryParameters['api'];
+    if (isPairingQr) {
+      String? pairingId;
+      String? challenge;
+      String? customApiUrl;
+
+      if (scannedValue.startsWith('{')) {
+        try {
+          final parsed = jsonDecode(scannedValue);
+          pairingId = parsed['pairingId']?.toString();
+          challenge = parsed['challenge']?.toString();
+          customApiUrl = parsed['apiUrl']?.toString() ?? parsed['api']?.toString();
+        } catch (_) {}
+      } else {
+        final uri = Uri.tryParse(scannedValue);
+        if (uri != null) {
+          pairingId = uri.queryParameters['pairingId'];
+          challenge = uri.queryParameters['challenge'];
+          customApiUrl = uri.queryParameters['api'] ?? uri.queryParameters['apiUrl'];
+        }
       }
-    } else if (scannedValue.startsWith('{') && scannedValue.contains('pairingId')) {
-      try {
-        final parsed = jsonDecode(scannedValue);
-        pairingId = parsed['pairingId']?.toString();
-        challenge = parsed['challenge']?.toString();
-        customApiUrl = parsed['apiUrl']?.toString();
-      } catch (_) {}
-    }
 
-    if (pairingId != null && pairingId.isNotEmpty && challenge != null && challenge.isNotEmpty) {
-      setState(() => _isProcessing = true);
-      _processDevicePairing(pairingId, challenge, customBackendUrl: customApiUrl);
-      return;
+      // If pairingId wasn't in query params, check for direct token match
+      if (pairingId == null || pairingId.isEmpty) {
+        final match = RegExp(r'dolsyx_pair_[a-zA-Z0-9]+').firstMatch(scannedValue);
+        if (match != null) {
+          pairingId = match.group(0);
+        }
+      }
+
+      if (pairingId != null && pairingId.isNotEmpty) {
+        setState(() => _isProcessing = true);
+        _processDevicePairing(pairingId, challenge ?? '', customBackendUrl: customApiUrl);
+        return;
+      } else {
+        // Explicitly reject malformed pairing QR without searching users
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Invalid or unsupported device pairing QR code'),
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+        }
+        return;
+      }
     }
 
     String scannedUserId = scannedValue;
@@ -152,9 +179,10 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
       if (!mounted) return;
 
       if (scanResult == null || scanResult['success'] != true) {
+        final errorMsg = scanResult?['message'] ?? 'This QR code is invalid, expired, or already used.';
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('This QR code is invalid, expired, or already used.'),
+          SnackBar(
+            content: Text(errorMsg),
             backgroundColor: Colors.redAccent,
           ),
         );

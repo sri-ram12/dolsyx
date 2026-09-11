@@ -55,14 +55,16 @@ export const scanPairing = async (req: AuthRequest, res: Response): Promise<void
       return;
     }
 
-    // Broadcast PAIRING_SCANNED via WebSocket to laptop room
+    // Broadcast PAIRING_SCANNED via WebSocket to laptop room (both room namespaces)
     const io = req.app.get("io");
     if (io) {
-      io.to(`pairing_${pairingId}`).emit("PAIRING_SCANNED", {
+      const payload = {
         pairingId,
         status: "SCANNED",
         timestamp: Date.now(),
-      });
+      };
+      io.to(`pairing_${pairingId}`).emit("PAIRING_SCANNED", payload);
+      io.to(pairingId).emit("PAIRING_SCANNED", payload);
     }
 
     res.json({
@@ -106,14 +108,16 @@ export const approvePairing = async (req: AuthRequest, res: Response): Promise<v
       return;
     }
 
-    // Broadcast PAIRING_APPROVED via WebSocket to laptop room
+    // Broadcast PAIRING_APPROVED via WebSocket to laptop room (both room namespaces)
     const io = req.app.get("io");
     if (io) {
-      io.to(`pairing_${pairingId}`).emit("PAIRING_APPROVED", {
+      const payload = {
         pairingId,
         status: "APPROVED",
         timestamp: Date.now(),
-      });
+      };
+      io.to(`pairing_${pairingId}`).emit("PAIRING_APPROVED", payload);
+      io.to(pairingId).emit("PAIRING_APPROVED", payload);
     }
 
     res.json({

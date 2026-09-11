@@ -7,7 +7,7 @@ import 'package:firebase_core/firebase_core.dart';
 class ApiService {
   // DOLSYX Production Render Backend (works on all devices, Wi-Fi, and 4G/5G)
   static const String baseUrl = 'https://dolsyx-app.onrender.com/api';
-  static const String localUrl = 'http://192.168.0.76:4000/api';
+  static const String localUrl = 'http://192.168.0.171:4000/api';
 
   static String getMediaUrl(String? path) {
     if (path == null || path.isEmpty) return '';
@@ -340,23 +340,31 @@ class ApiService {
       while (clean.endsWith('/')) {
         clean = clean.substring(0, clean.length - 1);
       }
-      if (clean.contains('localhost') || clean.contains('127.0.0.1')) {
-        clean = clean.replaceAll('localhost', '192.168.0.76').replaceAll('127.0.0.1', '192.168.0.76');
-      }
       final withApi = clean.endsWith('/api') ? clean : '$clean/api';
-      if (!candidateUrls.contains(withApi)) candidateUrls.add(withApi);
-      if (clean.endsWith('/api')) {
-        final withoutApi = clean.substring(0, clean.length - 4);
-        if (!candidateUrls.contains(withoutApi)) candidateUrls.add(withoutApi);
-      } else {
-        if (!candidateUrls.contains(clean)) candidateUrls.add(clean);
+      if (!candidateUrls.contains(withApi)) {
+        candidateUrls.add(withApi);
       }
     }
 
-    addCandidate(customBackendUrl);
-    addCandidate(localUrl);
-    addCandidate('http://192.168.0.76:4000/api');
+    // 1. If customBackendUrl is passed in the QR code (and not pointing to loopback on mobile)
+    if (customBackendUrl != null && customBackendUrl.trim().isNotEmpty) {
+      if (!customBackendUrl.contains('localhost') && !customBackendUrl.contains('127.0.0.1')) {
+        addCandidate(customBackendUrl);
+      } else {
+        // Laptop localhost replaced with active dev machine IP & Android emulator host
+        addCandidate(customBackendUrl.replaceAll('localhost', '192.168.0.171').replaceAll('127.0.0.1', '192.168.0.171'));
+        addCandidate(customBackendUrl.replaceAll('localhost', '10.0.2.2').replaceAll('127.0.0.1', '10.0.2.2'));
+      }
+    }
+
+    // 2. Production Render cloud backend (reliable globally across Wi-Fi & cellular data)
     addCandidate(baseUrl);
+
+    // 3. Current active local dev machine IP fallbacks (short timeout)
+    addCandidate(localUrl);
+    addCandidate('http://192.168.0.171:4000/api');
+    addCandidate('http://10.0.2.2:4000/api');
+
     return candidateUrls;
   }
 
@@ -372,6 +380,8 @@ class ApiService {
 
     for (final targetUrl in candidateUrls) {
       try {
+        final isLocal = targetUrl.contains('192.168.') || targetUrl.contains('10.0.2.2') || targetUrl.contains('localhost');
+        final timeoutSec = isLocal ? 2 : 7;
         final endpoint = targetUrl.endsWith('/api') ? '$targetUrl/devices/pair/scan' : '$targetUrl/api/devices/pair/scan';
         final response = await http
             .post(
@@ -379,13 +389,15 @@ class ApiService {
               headers: authHeaders(token),
               body: bodyData,
             )
-            .timeout(const Duration(seconds: 10));
+            .timeout(Duration(seconds: timeoutSec));
 
+        final data = jsonDecode(response.body);
         if (response.statusCode == 200 || response.statusCode == 201) {
-          final data = jsonDecode(response.body);
           if (data['success'] == true) {
             return data;
           }
+        } else if (response.statusCode == 400 && data['message'] != null) {
+          return {'success': false, 'message': data['message']};
         }
       } catch (_) {
         // Try next candidate
@@ -406,6 +418,8 @@ class ApiService {
 
     for (final targetUrl in candidateUrls) {
       try {
+        final isLocal = targetUrl.contains('192.168.') || targetUrl.contains('10.0.2.2') || targetUrl.contains('localhost');
+        final timeoutSec = isLocal ? 3 : 8;
         final endpoint = targetUrl.endsWith('/api') ? '$targetUrl/devices/pair/approve' : '$targetUrl/api/devices/pair/approve';
         final response = await http
             .post(
@@ -413,7 +427,7 @@ class ApiService {
               headers: authHeaders(token),
               body: bodyData,
             )
-            .timeout(const Duration(seconds: 12));
+            .timeout(Duration(seconds: timeoutSec));
 
         if (response.statusCode == 200 || response.statusCode == 201) {
           final data = jsonDecode(response.body);
@@ -439,6 +453,8 @@ class ApiService {
 
     for (final targetUrl in candidateUrls) {
       try {
+        final isLocal = targetUrl.contains('192.168.') || targetUrl.contains('10.0.2.2') || targetUrl.contains('localhost');
+        final timeoutSec = isLocal ? 2 : 5;
         final endpoint = targetUrl.endsWith('/api') ? '$targetUrl/devices/pair/reject' : '$targetUrl/api/devices/pair/reject';
         final response = await http
             .post(
@@ -446,7 +462,7 @@ class ApiService {
               headers: authHeaders(token),
               body: bodyData,
             )
-            .timeout(const Duration(seconds: 8));
+            .timeout(Duration(seconds: timeoutSec));
 
         if (response.statusCode == 200) {
           return true;
@@ -463,13 +479,15 @@ class ApiService {
     final candidateUrls = _resolveCandidateUrls(null);
     for (final targetUrl in candidateUrls) {
       try {
+        final isLocal = targetUrl.contains('192.168.') || targetUrl.contains('10.0.2.2') || targetUrl.contains('localhost');
+        final timeoutSec = isLocal ? 2 : 6;
         final endpoint = targetUrl.endsWith('/api') ? '$targetUrl/devices' : '$targetUrl/api/devices';
         final response = await http
             .get(
               Uri.parse(endpoint),
               headers: authHeaders(token),
             )
-            .timeout(const Duration(seconds: 10));
+            .timeout(Duration(seconds: timeoutSec));
 
         if (response.statusCode == 200) {
           final data = jsonDecode(response.body);
@@ -487,13 +505,15 @@ class ApiService {
     final candidateUrls = _resolveCandidateUrls(null);
     for (final targetUrl in candidateUrls) {
       try {
+        final isLocal = targetUrl.contains('192.168.') || targetUrl.contains('10.0.2.2') || targetUrl.contains('localhost');
+        final timeoutSec = isLocal ? 2 : 6;
         final endpoint = targetUrl.endsWith('/api') ? '$targetUrl/devices/$sessionId' : '$targetUrl/api/devices/$sessionId';
         final response = await http
             .delete(
               Uri.parse(endpoint),
               headers: authHeaders(token),
             )
-            .timeout(const Duration(seconds: 10));
+            .timeout(Duration(seconds: timeoutSec));
 
         if (response.statusCode == 200) {
           return true;
@@ -508,13 +528,15 @@ class ApiService {
     final candidateUrls = _resolveCandidateUrls(null);
     for (final targetUrl in candidateUrls) {
       try {
+        final isLocal = targetUrl.contains('192.168.') || targetUrl.contains('10.0.2.2') || targetUrl.contains('localhost');
+        final timeoutSec = isLocal ? 2 : 6;
         final endpoint = targetUrl.endsWith('/api') ? '$targetUrl/devices/logout-all' : '$targetUrl/api/devices/logout-all';
         final response = await http
             .post(
               Uri.parse(endpoint),
               headers: authHeaders(token),
             )
-            .timeout(const Duration(seconds: 10));
+            .timeout(Duration(seconds: timeoutSec));
 
         if (response.statusCode == 200) {
           return true;

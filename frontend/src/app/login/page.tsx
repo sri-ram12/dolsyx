@@ -107,6 +107,9 @@ export default function LoginPage() {
         const data = await res.json();
         if (res.ok && data.success && data.token && data.user) {
           setQrFlowState("AUTHENTICATED");
+          if (typeof window !== "undefined") {
+            sessionStorage.setItem("dolsyx_unlocked", "true");
+          }
           login(data.token, data.user);
         } else {
           setQrErrorMessage(data.message || "Failed to establish laptop session");
@@ -223,7 +226,7 @@ export default function LoginPage() {
         } catch (_) {
           // Ignore transient polling network errors
         }
-      }, 2500);
+      }, 1500);
     } catch (err) {
       console.error("Pairing initialization error:", err);
       setQrErrorMessage("Unable to connect to authentication server");
@@ -730,7 +733,7 @@ export default function LoginPage() {
                     <div className="relative p-1">
                       {pairingData && (
                         <QRCode
-                          value={`dolsyx://pair?pairingId=${encodeURIComponent(pairingData.pairingId)}&challenge=${encodeURIComponent(pairingData.challenge)}`}
+                          value={`dolsyx://pair?pairingId=${encodeURIComponent(pairingData.pairingId)}&challenge=${encodeURIComponent(pairingData.challenge)}&api=${encodeURIComponent(API_URL)}`}
                           size={196}
                           level="M"
                         />

@@ -367,15 +367,60 @@ export async function encryptConversationPayload(conversationId: string, plainte
   return JSON.stringify(payload);
 }
 
-/** Decrypts a conversation room payload */
+/** Derives mobile-compatible legacy conversation key */
+async function getMobileConversationKey(conversationId: string): Promise<Uint8Array> {
+  await _sodium.ready;
+  const sodium = _sodium;
+  const salt = sodium.from_string('DOLSYX_CONVERSATION_SALT');
+  const info = 'DOLSYX_CONVERSATION_V1';
+  const ikm = sodium.from_string(conversationId);
+  return hkdf(sodium, ikm, salt, info, 32);
+}
+
+/** AES-256-CBC decryption using Web Crypto API */
+async function aesCbcDecrypt(ciphertext: Uint8Array, key: Uint8Array, iv: Uint8Array): Promise<string> {
+  const cryptoKey = await crypto.subtle.importKey('raw', key.buffer as ArrayBuffer, { name: 'AES-CBC' }, false, ['decrypt']);
+  const decrypted = await crypto.subtle.decrypt(
+    { name: 'AES-CBC', iv: iv.buffer as ArrayBuffer },
+    cryptoKey,
+    ciphertext.buffer as ArrayBuffer
+  );
+  return new TextDecoder().decode(decrypted);
+}
+
+/** Decrypts a conversation room payload with dual AES-GCM and AES-CBC fallback */
 export async function decryptConversationPayload(conversationId: string, payload: any): Promise<string> {
   await _sodium.ready;
   const sodium = _sodium;
-  const convKey = await getConversationKey(conversationId);
   const ciphertext = sodium.from_base64(payload.ciphertext);
   const nonce = sodium.from_base64(payload.nonce);
   const tag = sodium.from_base64(payload.tag);
-  return await aesGcmDecrypt(ciphertext, convKey, nonce, tag);
+
+  // If nonce is 16 bytes or tag is 32 bytes, try AES-CBC (Mobile format)
+  if (nonce.length === 16 || tag.length === 32) {
+    try {
+      const mobileKey = await getMobileConversationKey(conversationId);
+      return await aesCbcDecrypt(ciphertext, mobileKey, nonce);
+    } catch (_) {}
+    try {
+      const convKey = await getConversationKey(conversationId);
+      return await aesCbcDecrypt(ciphertext, convKey, nonce);
+    } catch (_) {}
+  }
+
+  // Primary: AES-GCM (Standard Web & unified Mobile format)
+  try {
+    const convKey = await getConversationKey(conversationId);
+    return await aesGcmDecrypt(ciphertext, convKey, nonce, tag);
+  } catch (_) {}
+
+  // Fallback: try AES-CBC
+  try {
+    const mobileKey = await getMobileConversationKey(conversationId);
+    return await aesCbcDecrypt(ciphertext, mobileKey, nonce);
+  } catch (_) {}
+
+  throw new Error('Failed to decrypt conversation payload');
 }
 
 /** Universal decryptor for incoming messages */

@@ -1302,38 +1302,61 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     }
   }
 
-  void _handleIncomingMessage(dynamic data) {
-    if (mounted) {
-      try {
-        if (data['conversationId'] != widget.conversationId) return;
-        final msg = Message.fromJson(data['message']);
-        setState(() {
-          // Deduplicate: replace optimistic temp message (text or media)
-          final tempIndex = _messages.indexWhere((m) {
-            if (m.id == msg.id) return true;
-            if (m.id.startsWith('temp')) {
-              // Media message match by URL or filename
-              if (msg.mediaUrl != null && msg.mediaUrl!.isNotEmpty) {
-                final filename = msg.mediaUrl!.split('/').last;
-                if (m.mediaUrl == msg.mediaUrl || (m.mediaUrl != null && m.mediaUrl!.contains(filename))) {
-                  return true;
-                }
-              }
-              // Text message match by content and sender
-              if (msg.content.isNotEmpty && m.content == msg.content && m.senderId == msg.senderId) {
+  void _handleIncomingMessage(dynamic data) async {
+    if (!mounted || data == null) return;
+    try {
+      final convId = (data['conversationId'] ?? data['message']?['conversationId'] ?? '').toString();
+      if (convId.isNotEmpty && convId != widget.conversationId) return;
+
+      final Map<String, dynamic> rawMsg = data['message'] != null
+          ? Map<String, dynamic>.from(data['message'])
+          : Map<String, dynamic>.from(data);
+
+      String content = (rawMsg['content'] ?? '').toString();
+      final senderId = (rawMsg['senderId'] ?? rawMsg['sender']?['id'] ?? '').toString();
+
+      if (content.isNotEmpty && content.trim().startsWith('{') && content.contains('ciphertext')) {
+        try {
+          content = await CryptoService.instance.decryptIncomingContent(
+            content: content,
+            senderUserId: senderId,
+            conversationId: widget.conversationId,
+          );
+        } catch (e) {
+          debugPrint('Error decrypting incoming socket message: $e');
+        }
+      }
+      rawMsg['content'] = content;
+      final msg = Message.fromJson(rawMsg);
+
+      if (!mounted) return;
+      setState(() {
+        // Deduplicate: replace optimistic temp message (text or media)
+        final tempIndex = _messages.indexWhere((m) {
+          if (m.id == msg.id) return true;
+          if (m.id.startsWith('temp')) {
+            // Media message match by URL or filename
+            if (msg.mediaUrl != null && msg.mediaUrl!.isNotEmpty) {
+              final filename = msg.mediaUrl!.split('/').last;
+              if (m.mediaUrl == msg.mediaUrl || (m.mediaUrl != null && m.mediaUrl!.contains(filename))) {
                 return true;
               }
             }
-            return false;
-          });
-
-          if (tempIndex != -1) {
-            _messages[tempIndex] = msg;
-          } else if (!_messages.any((m) => m.id == msg.id)) {
-            _messages.add(msg);
+            // Text message match by content and sender, or sender's pending message
+            if (m.senderId == msg.senderId && (m.content == msg.content || m.isPending)) {
+              return true;
+            }
           }
+          return false;
         });
-        _scrollToBottom();
+
+        if (tempIndex != -1) {
+          _messages[tempIndex] = msg;
+        } else if (!_messages.any((m) => m.id == msg.id)) {
+          _messages.add(msg);
+        }
+      });
+      _scrollToBottom();
 
         if (msg.mediaType == 'SYSTEM' ||
             msg.senderId == 'system' ||

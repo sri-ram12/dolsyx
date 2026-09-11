@@ -70,6 +70,7 @@ class CryptoService {
 
   final _x25519 = X25519();
   final _aesCbc = AesCbc.with256bits(macAlgorithm: Hmac.sha256());
+  final _aesGcm = AesGcm.with256bits();
   final _hkdf = Hkdf(hmac: Hmac.sha256(), outputLength: 32);
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -470,34 +471,38 @@ class CryptoService {
   // ─────────────────────────────────────────────────────────────────────────
 
   /// Generates or derives a deterministic 256-bit conversation key for group / room encryption.
-  Future<Uint8List> _getConversationKey(String conversationId) async {
+  Future<Uint8List> _getConversationKey(String conversationId, {bool webKey = true}) async {
     final prefs = await SharedPreferences.getInstance();
-    final cacheKey = 'e2ee_conv_key_$conversationId';
+    final cacheKey = webKey ? 'e2ee_conv_key_gcm_$conversationId' : 'e2ee_conv_key_$conversationId';
     final existing = prefs.getString(cacheKey);
     if (existing != null) {
       return base64Decode(existing);
     }
-    // Derive deterministically from conversationId using HKDF with SHA-256
-    final salt = Uint8List.fromList(utf8.encode('DOLSYX_CONVERSATION_SALT'));
+    // Standard key derivation matching Web clients
+    final salt = webKey
+        ? Uint8List.fromList(utf8.encode('DOLSYX_CONV_V1_SALT_2025'))
+        : Uint8List.fromList(utf8.encode('DOLSYX_CONVERSATION_SALT'));
     final secretKey = SecretKey(utf8.encode(conversationId));
     final output = await _hkdf.deriveKey(
       secretKey: secretKey,
       nonce: salt,
-      info: utf8.encode('DOLSYX_CONVERSATION_V1'),
+      info: webKey
+          ? utf8.encode('conversation_ratchet_key')
+          : utf8.encode('DOLSYX_CONVERSATION_V1'),
     );
     final keyBytes = Uint8List.fromList(await output.extractBytes());
     await prefs.setString(cacheKey, _bytesToBase64(keyBytes));
     return keyBytes;
   }
 
-  /// Encrypts a message for a conversation room (e.g. group chat) using AES-256-CBC.
+  /// Encrypts a message for a conversation room using standard AES-256-GCM.
   Future<String> encryptConversationPayload({
     required String conversationId,
     required String plaintext,
   }) async {
-    final convKey = await _getConversationKey(conversationId);
-    final nonce = _generateNonce(16);
-    final secretBox = await _aesCbc.encrypt(
+    final convKey = await _getConversationKey(conversationId, webKey: true);
+    final nonce = _generateNonce(12); // 12-byte IV for standard AES-GCM
+    final secretBox = await _aesGcm.encrypt(
       utf8.encode(plaintext),
       secretKey: SecretKey(convKey),
       nonce: nonce,
@@ -512,18 +517,59 @@ class CryptoService {
     return jsonEncode(payload);
   }
 
-  /// Decrypts a conversation room payload.
+  /// Decrypts a conversation room payload with dual AES-GCM & legacy AES-CBC fallback.
   Future<String> decryptConversationPayload({
     required String conversationId,
     required Map<String, dynamic> payload,
   }) async {
-    final convKey = await _getConversationKey(conversationId);
     final ciphertextBytes = base64Decode(payload['ciphertext']);
     final nonceBytes = base64Decode(payload['nonce']);
     final tagBytes = base64Decode(payload['tag']);
-    final secretBox = SecretBox(ciphertextBytes, nonce: nonceBytes, mac: Mac(tagBytes));
-    final decrypted = await _aesCbc.decrypt(secretBox, secretKey: SecretKey(convKey));
-    return utf8.decode(decrypted);
+
+    // Strategy 1: Standard AES-GCM (12-byte nonce or 16-byte auth tag)
+    if (nonceBytes.length == 12 || tagBytes.length == 16) {
+      try {
+        final convKey = await _getConversationKey(conversationId, webKey: true);
+        final secretBox = SecretBox(ciphertextBytes, nonce: nonceBytes, mac: Mac(tagBytes));
+        final decrypted = await _aesGcm.decrypt(secretBox, secretKey: SecretKey(convKey));
+        return utf8.decode(decrypted);
+      } catch (_) {}
+
+      try {
+        final convKey = await _getConversationKey(conversationId, webKey: false);
+        final secretBox = SecretBox(ciphertextBytes, nonce: nonceBytes, mac: Mac(tagBytes));
+        final decrypted = await _aesGcm.decrypt(secretBox, secretKey: SecretKey(convKey));
+        return utf8.decode(decrypted);
+      } catch (_) {}
+    }
+
+    // Strategy 2: Legacy AES-CBC with Mobile conversation key (16-byte nonce, 32-byte tag)
+    try {
+      final convKey = await _getConversationKey(conversationId, webKey: false);
+      final secretBox = SecretBox(ciphertextBytes, nonce: nonceBytes, mac: Mac(tagBytes));
+      final decrypted = await _aesCbc.decrypt(secretBox, secretKey: SecretKey(convKey));
+      return utf8.decode(decrypted);
+    } catch (_) {}
+
+    // Strategy 3: Legacy AES-CBC with Web conversation key
+    try {
+      final convKey = await _getConversationKey(conversationId, webKey: true);
+      final secretBox = SecretBox(ciphertextBytes, nonce: nonceBytes, mac: Mac(tagBytes));
+      final decrypted = await _aesCbc.decrypt(secretBox, secretKey: SecretKey(convKey));
+      return utf8.decode(decrypted);
+    } catch (_) {}
+
+    // Strategy 4: Fallback attempt with AES-GCM if not already tried
+    if (nonceBytes.length != 12 && tagBytes.length != 16) {
+      try {
+        final convKey = await _getConversationKey(conversationId, webKey: true);
+        final secretBox = SecretBox(ciphertextBytes, nonce: nonceBytes, mac: Mac(tagBytes));
+        final decrypted = await _aesGcm.decrypt(secretBox, secretKey: SecretKey(convKey));
+        return utf8.decode(decrypted);
+      } catch (_) {}
+    }
+
+    throw Exception('Failed to decrypt conversation payload');
   }
 
   /// Universal decryptor that inspects [content] and transparently decrypts

@@ -19,6 +19,7 @@ import '../screens/forward_message_screen.dart';
 import 'full_screen_image_view.dart';
 import 'animated_emoji.dart';
 import '../utils/e2ee/e2ee_media_cache.dart';
+import '../utils/e2ee/crypto_service.dart';
 
 class MessageBubble extends StatelessWidget {
   final Message message;
@@ -47,6 +48,23 @@ class MessageBubble extends StatelessWidget {
   static final RegExp _urlRegex = RegExp(r'(https?://[^\s]+|www\.[^\s]+)', caseSensitive: false);
 
   Widget _buildMessageText(String text, Color textColor, double fontSize) {
+    if (text.trim().startsWith('{') && text.contains('ciphertext')) {
+      return FutureBuilder<String>(
+        future: CryptoService.instance.decryptIncomingContent(
+          content: text,
+          senderUserId: message.senderId,
+          conversationId: message.conversationId,
+        ),
+        builder: (context, snapshot) {
+          final resolvedText = snapshot.data ?? text;
+          if (resolvedText != text && !resolvedText.contains('ciphertext')) {
+            return _buildMessageText(resolvedText, textColor, fontSize);
+          }
+          return Text(resolvedText, style: TextStyle(color: textColor, fontSize: fontSize));
+        },
+      );
+    }
+
     if (EmojiUtils.isOnlyEmojis(text)) {
       final emojiChars = text.trim().characters.toList();
       if (emojiChars.length == 1) {

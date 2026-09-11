@@ -1561,7 +1561,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       if (existing != null) {
         final existingRaw = existing.content.trim();
         final isCipher = existingRaw.startsWith('{') && (existingRaw.contains('"ciphertext"') || existingRaw.contains('"e2ee"'));
-        if (!isCipher && existing.reactions.length == m.reactions.length && existing.isViewed == m.isViewed) {
+        if (!isCipher && (existing.reactions?.length ?? 0) == (m.reactions?.length ?? 0) && existing.isViewed == m.isViewed) {
           result.add(existing);
           continue;
         }
@@ -1664,7 +1664,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             for (int i = 0; i < _messages.length; i++) {
               if (_messages[i].id != decryptedList[i].id || 
                   _messages[i].content != decryptedList[i].content ||
-                  _messages[i].reactions.length != decryptedList[i].reactions.length ||
+                  (_messages[i].reactions?.length ?? 0) != (decryptedList[i].reactions?.length ?? 0) ||
                   _messages[i].isViewed != decryptedList[i].isViewed) {
                 hasChanges = true;
                 break;

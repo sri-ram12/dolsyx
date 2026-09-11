@@ -524,64 +524,9 @@ class ApiService {
     return false;
   }
 
-  /// Classic WhatsApp Web Style approveQrWebLogin (Pre-5pm today + resilient fallback)
+  /// Legacy support wrapper for approveQrWebLogin
   Future<bool> approveQrWebLogin(String token, String sessionId, {String? customBackendUrl, String? userId}) async {
-    try {
-      final candidateUrls = <String>[];
-
-      void addCandidate(String? url) {
-        if (url == null || url.trim().isEmpty) return;
-        var clean = url.trim();
-        while (clean.endsWith('/')) {
-          clean = clean.substring(0, clean.length - 1);
-        }
-        if (clean.contains('localhost') || clean.contains('127.0.0.1')) {
-          clean = clean.replaceAll('localhost', '192.168.0.182').replaceAll('127.0.0.1', '192.168.0.182');
-        }
-        final withApi = clean.endsWith('/api') ? clean : '$clean/api';
-        if (!candidateUrls.contains(withApi)) candidateUrls.add(withApi);
-        if (clean.endsWith('/api')) {
-          final withoutApi = clean.substring(0, clean.length - 4);
-          if (!candidateUrls.contains(withoutApi)) candidateUrls.add(withoutApi);
-        } else {
-          if (!candidateUrls.contains(clean)) candidateUrls.add(clean);
-        }
-      }
-
-      addCandidate(customBackendUrl);
-      addCandidate(baseUrl);
-      addCandidate('https://dolsyx-app.onrender.com/api');
-
-      final bodyData = <String, dynamic>{
-        'sessionId': sessionId,
-        if (userId != null && userId.isNotEmpty) 'userId': userId,
-      };
-
-      for (final targetUrl in candidateUrls) {
-        try {
-          final response = await http
-              .post(
-                Uri.parse('$targetUrl/auth/approve-qr-session'),
-                headers: {
-                  'Authorization': 'Bearer $token',
-                  'Content-Type': 'application/json',
-                },
-                body: jsonEncode(bodyData),
-              )
-              .timeout(const Duration(seconds: 15));
-
-          if (response.statusCode == 200 || response.statusCode == 201) {
-            return true;
-          }
-        } catch (_) {}
-      }
-
-      // Fallback to modern device pairing if classic returns 404
-      return approveDevicePairing(token, sessionId, "legacy", customBackendUrl: customBackendUrl);
-    } catch (e) {
-      print('Approve QR Web Login error: $e');
-      return false;
-    }
+    return approveDevicePairing(token, sessionId, "legacy", customBackendUrl: customBackendUrl);
   }
 
   // Mandatory Google Play Policy: Permanently delete account and user data

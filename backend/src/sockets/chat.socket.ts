@@ -246,18 +246,11 @@ export const initChatSocket = (io: Server) => {
 
   // Authentication middleware for Socket.io
   io.use((socket: any, next) => {
-    // Check if this is a temporary QR pairing or classic QR session socket connection
+    // Check if this is a temporary QR pairing socket connection
     const pairingId = socket.handshake.auth?.pairingId;
-    if (pairingId && typeof pairingId === "string" && (pairingId.startsWith("dolsyx_pair_") || pairingId.startsWith("dolsyx_qr_"))) {
+    if (pairingId && typeof pairingId === "string" && pairingId.startsWith("dolsyx_pair_")) {
       socket.isPairing = true;
       socket.pairingId = pairingId;
-      return next();
-    }
-
-    const qrSessionId = socket.handshake.auth?.sessionId || socket.handshake.auth?.qrSessionId;
-    if (qrSessionId && typeof qrSessionId === "string" && (qrSessionId.startsWith("dolsyx_qr_") || qrSessionId.startsWith("sess_"))) {
-      socket.isQrSession = true;
-      socket.qrSessionId = qrSessionId;
       return next();
     }
 
@@ -291,17 +284,6 @@ export const initChatSocket = (io: Server) => {
       console.log(`[Socket] Client joined pairing room: ${room}`);
       socket.on("disconnect", () => {
         console.log(`[Socket] Pairing client left room: ${room}`);
-      });
-      return;
-    }
-
-    // Handle classic QR Session socket connection
-    if (socket.isQrSession) {
-      const room = socket.qrSessionId;
-      socket.join(room);
-      console.log(`[Socket] Client joined classic QR room: ${room}`);
-      socket.on("disconnect", () => {
-        console.log(`[Socket] Classic QR client left room: ${room}`);
       });
       return;
     }

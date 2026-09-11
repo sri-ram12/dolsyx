@@ -27,6 +27,9 @@ class Message {
   final Map<String, dynamic>? parentMessage;
   final Map<String, dynamic>? sender;
   final bool isPinned;
+  final String? mediaKey;
+  final String? nonce;
+  final bool isE2EEMedia;
 
   Message({
     required this.id,
@@ -54,6 +57,9 @@ class Message {
     this.sender,
     this.isPending = false,
     this.isPinned = false,
+    this.mediaKey,
+    this.nonce,
+    this.isE2EEMedia = false,
   });
 
   factory Message.fromJson(Map<String, dynamic> json) {
@@ -65,6 +71,9 @@ class Message {
     double? longitude = json['longitude'] != null ? (json['longitude'] as num).toDouble() : null;
     String? locationTitle = json['locationTitle'];
     bool isLiveLocation = json['isLiveLocation'] ?? false;
+    String? mediaKey = json['mediaKey'];
+    String? nonce = json['nonce'];
+    bool isE2EEMedia = json['isE2EEMedia'] ?? false;
 
     // Smart JSON content parsing for E2EE media, Poll, or Location payloads
     if (contentStr.startsWith('{') && contentStr.endsWith('}')) {
@@ -73,10 +82,13 @@ class Message {
         if (decoded['question'] != null || decoded['mediaType'] == 'POLL' || json['mediaType'] == 'POLL') {
           mediaType = 'POLL';
         } else if (decoded['encryptedMedia'] == true || decoded['mediaUrl'] != null) {
-          mediaUrl = decoded['mediaUrl'];
-          mediaType = decoded['mediaType'];
-          isViewOnce = decoded['isViewOnce'] ?? false;
-          contentStr = '';
+          mediaUrl = decoded['mediaUrl'] ?? mediaUrl;
+          mediaType = decoded['mediaType'] ?? mediaType;
+          isViewOnce = decoded['isViewOnce'] ?? isViewOnce;
+          mediaKey = decoded['mediaKey'] ?? mediaKey;
+          nonce = decoded['nonce'] ?? nonce;
+          isE2EEMedia = true;
+          contentStr = decoded['caption'] ?? '';
         } else if (decoded['mediaType'] == 'LOCATION' || decoded['latitude'] != null || json['mediaType'] == 'LOCATION') {
           mediaType = 'LOCATION';
           latitude = (decoded['latitude'] as num?)?.toDouble() ?? 12.9716;
@@ -118,6 +130,9 @@ class Message {
       sender: json['sender'],
       isPending: json['isPending'] ?? false,
       isPinned: json['isPinned'] ?? false,
+      mediaKey: mediaKey,
+      nonce: nonce,
+      isE2EEMedia: isE2EEMedia,
     );
   }
 
@@ -147,6 +162,72 @@ class Message {
       'parentMessage': parentMessage,
       'sender': sender,
       'isPending': isPending,
+      'isPinned': isPinned,
+      'mediaKey': mediaKey,
+      'nonce': nonce,
+      'isE2EEMedia': isE2EEMedia,
     };
+  }
+
+  Message copyWith({
+    String? id,
+    String? content,
+    String? senderId,
+    String? conversationId,
+    String? parentMessageId,
+    bool? isEdited,
+    bool? isDeleted,
+    bool? isForwarded,
+    String? mediaUrl,
+    String? mediaType,
+    bool? isViewOnce,
+    bool? isViewed,
+    double? latitude,
+    double? longitude,
+    String? locationTitle,
+    bool? isLiveLocation,
+    DateTime? liveExpiresAt,
+    bool? isLiveEnded,
+    List<dynamic>? receipts,
+    List<dynamic>? reactions,
+    DateTime? createdAt,
+    Map<String, dynamic>? parentMessage,
+    Map<String, dynamic>? sender,
+    bool? isPending,
+    bool? isPinned,
+    String? mediaKey,
+    String? nonce,
+    bool? isE2EEMedia,
+  }) {
+    return Message(
+      id: id ?? this.id,
+      content: content ?? this.content,
+      senderId: senderId ?? this.senderId,
+      conversationId: conversationId ?? this.conversationId,
+      parentMessageId: parentMessageId ?? this.parentMessageId,
+      isEdited: isEdited ?? this.isEdited,
+      isDeleted: isDeleted ?? this.isDeleted,
+      isForwarded: isForwarded ?? this.isForwarded,
+      mediaUrl: mediaUrl ?? this.mediaUrl,
+      mediaType: mediaType ?? this.mediaType,
+      isViewOnce: isViewOnce ?? this.isViewOnce,
+      isViewed: isViewed ?? this.isViewed,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
+      locationTitle: locationTitle ?? this.locationTitle,
+      isLiveLocation: isLiveLocation ?? this.isLiveLocation,
+      liveExpiresAt: liveExpiresAt ?? this.liveExpiresAt,
+      isLiveEnded: isLiveEnded ?? this.isLiveEnded,
+      receipts: receipts ?? this.receipts,
+      reactions: reactions ?? this.reactions,
+      createdAt: createdAt ?? this.createdAt,
+      parentMessage: parentMessage ?? this.parentMessage,
+      sender: sender ?? this.sender,
+      isPending: isPending ?? this.isPending,
+      isPinned: isPinned ?? this.isPinned,
+      mediaKey: mediaKey ?? this.mediaKey,
+      nonce: nonce ?? this.nonce,
+      isE2EEMedia: isE2EEMedia ?? this.isE2EEMedia,
+    );
   }
 }

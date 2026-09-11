@@ -12,9 +12,6 @@ import {
   unblockUser,
   getBlockedUsers,
   loginWithoutOtp,
-  createQrSession,
-  approveQrSession,
-  checkQrSession,
   deleteAccount,
   requestAccountDeletion,
   initiateGoogleAuth,
@@ -62,10 +59,7 @@ router.post("/unlink-google", authenticateToken as any, unlinkGoogleAccount as a
 router.delete("/account", authenticateToken as any, deleteAccount as any);
 router.post("/request-account-deletion", requestAccountDeletion as any);
 
-// WhatsApp Web style QR Login routes
-router.get("/qr-session", createQrSession as any);
-router.post("/approve-qr-session", authenticateToken as any, approveQrSession as any);
-router.get("/check-qr-session/:sessionId", checkQrSession as any);
+
 
 // Block management
 router.post("/block/:targetUserId", authenticateToken as any, blockUser as any);

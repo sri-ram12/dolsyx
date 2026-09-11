@@ -1,12 +1,15 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth, API_URL } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
+import QRCode from "react-qr-code";
+import { io, Socket } from "socket.io-client";
 import {
   MessageSquare, ShieldAlert, Key, User, CheckCircle2, Mail, Sun,
-  Moon, ArrowRight, Loader2, Fingerprint, Lock, Eye, EyeOff, QrCode, Smartphone
+  Moon, ArrowRight, Loader2, Fingerprint, Lock, Eye, EyeOff, QrCode, Smartphone,
+  RefreshCw, AlertTriangle, ShieldCheck, Laptop
 } from "lucide-react";
 
 type Step =
@@ -18,10 +21,36 @@ type Step =
 
 const PIN_LENGTH = 4;
 
+export type QrFlowState =
+  | "INITIALIZING"
+  | "QR_GENERATING"
+  | "WAITING_FOR_SCAN"
+  | "SCANNED"
+  | "WAITING_FOR_APPROVAL"
+  | "APPROVED"
+  | "AUTHENTICATING"
+  | "AUTHENTICATED"
+  | "EXPIRED"
+  | "REJECTED"
+  | "ERROR";
+
 export default function LoginPage() {
   const [loginMode, setLoginMode] = useState<"qr" | "email">("qr");
-  const [qrSessionId, setQrSessionId] = useState<string>("");
-  const [qrStatus, setQrStatus] = useState<"loading" | "pending" | "approved">("loading");
+
+  // Production QR Pairing State Machine
+  const [qrFlowState, setQrFlowState] = useState<QrFlowState>("INITIALIZING");
+  const [pairingData, setPairingData] = useState<{
+    pairingId: string;
+    challenge: string;
+    expiresAt: number;
+  } | null>(null);
+  const [qrCountdown, setQrCountdown] = useState<number>(90);
+  const [qrErrorMessage, setQrErrorMessage] = useState<string>("");
+
+  const isConsumingRef = useRef<boolean>(false);
+  const pairingSocketRef = useRef<Socket | null>(null);
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const [email, setEmail] = useState("");
   const [step, setStep] = useState<Step>("email");
@@ -43,7 +72,7 @@ export default function LoginPage() {
   // Set-PIN (new user after first login)
   const [newPinDigits, setNewPinDigits] = useState<string[]>(Array(PIN_LENGTH).fill(""));
   const [confirmPinDigits, setConfirmPinDigits] = useState<string[]>(Array(PIN_LENGTH).fill(""));
-  const [newPinFocused, setNewPinFocused] = useState(true); // true = filling newPin, false = filling confirmPin
+  const [newPinFocused, setNewPinFocused] = useState(true);
   const newPinRefs = Array.from({ length: PIN_LENGTH }, () => useRef<HTMLInputElement>(null));
   const confirmPinRefs = Array.from({ length: PIN_LENGTH }, () => useRef<HTMLInputElement>(null));
 
@@ -58,48 +87,171 @@ export default function LoginPage() {
   const { login, isAuthenticated, isLoading: authLoading } = useAuth();
   const router = useRouter();
 
-  // WhatsApp Web QR Session Polling
-  useEffect(() => {
-    if (loginMode !== "qr") return;
-    let isSubscribed = true;
-    let pollInterval: NodeJS.Timeout;
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Establish Laptop Session after mobile approval (atomic token exchange)
+  // ─────────────────────────────────────────────────────────────────────────────
+  const consumeApprovedPairing = useCallback(
+    async (pairingId: string, challenge: string) => {
+      if (isConsumingRef.current) return;
+      isConsumingRef.current = true;
 
-    const initQrSession = async () => {
+      setQrFlowState("AUTHENTICATING");
+
       try {
-        setQrStatus("loading");
-        const res = await fetch(`${API_URL}/api/auth/qr-session`);
+        const res = await fetch(`${API_URL}/api/devices/pair/consume`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pairingId, challenge }),
+        });
+
         const data = await res.json();
-        if (data.sessionId && isSubscribed) {
-          setQrSessionId(data.sessionId);
-          setQrStatus("pending");
-
-          pollInterval = setInterval(async () => {
-            try {
-              const checkRes = await fetch(`${API_URL}/api/auth/check-qr-session/${data.sessionId}`);
-              const checkData = await checkRes.json();
-              if (checkData.status === "APPROVED" && checkData.token && checkData.user) {
-                clearInterval(pollInterval);
-                setQrStatus("approved");
-                login(checkData.token, checkData.user);
-              } else if (checkData.status === "EXPIRED") {
-                clearInterval(pollInterval);
-                initQrSession();
-              }
-            } catch (_) {}
-          }, 2000);
+        if (res.ok && data.success && data.token && data.user) {
+          setQrFlowState("AUTHENTICATED");
+          login(data.token, data.user);
+        } else {
+          setQrErrorMessage(data.message || "Failed to establish laptop session");
+          setQrFlowState("ERROR");
+          isConsumingRef.current = false;
         }
-      } catch (_) {
-        if (isSubscribed) setQrStatus("loading");
+      } catch (err) {
+        console.error("Error consuming pairing session:", err);
+        setQrErrorMessage("Network error connecting to DOLSYX server");
+        setQrFlowState("ERROR");
+        isConsumingRef.current = false;
       }
-    };
+    },
+    [login]
+  );
 
-    initQrSession();
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Initialize QR Pairing Session with Realtime WebSocket & Countdown
+  // ─────────────────────────────────────────────────────────────────────────────
+  const initPairingSession = useCallback(async () => {
+    // Clear previous sockets/intervals
+    if (pairingSocketRef.current) {
+      pairingSocketRef.current.disconnect();
+      pairingSocketRef.current = null;
+    }
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+
+    isConsumingRef.current = false;
+    setQrFlowState("QR_GENERATING");
+    setQrErrorMessage("");
+
+    try {
+      const res = await fetch(`${API_URL}/api/devices/pair/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success || !data.pairingId) {
+        setQrErrorMessage(data.message || "Failed to initialize secure QR session");
+        setQrFlowState("ERROR");
+        return;
+      }
+
+      const { pairingId, challenge, expiresAt } = data;
+      setPairingData({ pairingId, challenge, expiresAt });
+      setQrFlowState("WAITING_FOR_SCAN");
+
+      // Calculate initial countdown
+      const remainingSec = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
+      setQrCountdown(remainingSec);
+
+      // Countdown ticker
+      countdownIntervalRef.current = setInterval(() => {
+        const nowRemaining = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
+        setQrCountdown(nowRemaining);
+        if (nowRemaining <= 0) {
+          clearInterval(countdownIntervalRef.current!);
+          setQrFlowState("EXPIRED");
+          if (pairingSocketRef.current) pairingSocketRef.current.disconnect();
+          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+        }
+      }, 1000);
+
+      // Connect pairing socket (unauthenticated pairing channel)
+      const socket = io(API_URL, {
+        auth: { pairingId },
+        transports: ["websocket", "polling"],
+        reconnectionAttempts: 5,
+      });
+      pairingSocketRef.current = socket;
+
+      socket.on("PAIRING_SCANNED", () => {
+        setQrFlowState((prev) => (prev === "WAITING_FOR_SCAN" ? "WAITING_FOR_APPROVAL" : prev));
+      });
+
+      socket.on("PAIRING_APPROVED", () => {
+        setQrFlowState("APPROVED");
+        consumeApprovedPairing(pairingId, challenge);
+      });
+
+      socket.on("PAIRING_REJECTED", () => {
+        setQrFlowState("REJECTED");
+        if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      });
+
+      // Fallback Polling (every 2.5s) to ensure 100% reliability if websockets drop
+      pollIntervalRef.current = setInterval(async () => {
+        try {
+          const statusRes = await fetch(`${API_URL}/api/devices/pair/status/${pairingId}`);
+          if (!statusRes.ok) return;
+          const statusData = await statusRes.json();
+
+          if (statusData.status === "SCANNED" || statusData.status === "AWAITING_CONFIRMATION") {
+            setQrFlowState((prev) => (prev === "WAITING_FOR_SCAN" ? "WAITING_FOR_APPROVAL" : prev));
+          } else if (statusData.status === "APPROVED") {
+            if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+            setQrFlowState("APPROVED");
+            consumeApprovedPairing(pairingId, challenge);
+          } else if (statusData.status === "REJECTED") {
+            if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+            setQrFlowState("REJECTED");
+          } else if (statusData.status === "EXPIRED") {
+            if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+            setQrFlowState("EXPIRED");
+          }
+        } catch (_) {
+          // Ignore transient polling network errors
+        }
+      }, 2500);
+    } catch (err) {
+      console.error("Pairing initialization error:", err);
+      setQrErrorMessage("Unable to connect to authentication server");
+      setQrFlowState("ERROR");
+    }
+  }, [consumeApprovedPairing]);
+
+  // Trigger QR initialization when QR login mode is active
+  useEffect(() => {
+    if (loginMode === "qr") {
+      initPairingSession();
+    }
 
     return () => {
-      isSubscribed = false;
-      if (pollInterval) clearInterval(pollInterval);
+      if (pairingSocketRef.current) {
+        pairingSocketRef.current.disconnect();
+        pairingSocketRef.current = null;
+      }
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
     };
-  }, [loginMode, login]);
+  }, [loginMode, initPairingSession]);
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
@@ -464,11 +616,11 @@ export default function LoginPage() {
                 </li>
                 <li className="flex items-start gap-3">
                   <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--theme-accent)] text-white text-xs font-bold">2</span>
-                  <span>Tap <strong>Menu ⚙️</strong> on Android, or <strong>Profile 👤</strong> on iPhone</span>
+                  <span>Go to <strong>Settings ⚙️</strong> &rarr; <strong>Linked Devices</strong></span>
                 </li>
                 <li className="flex items-start gap-3">
                   <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--theme-accent)] text-white text-xs font-bold">3</span>
-                  <span>Tap <strong>Scan QR Code</strong></span>
+                  <span>Tap <strong>Link a device</strong></span>
                 </li>
                 <li className="flex items-start gap-3">
                   <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--theme-accent)] text-white text-xs font-bold">4</span>
@@ -488,39 +640,124 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Right Column: QR Code Box */}
+            {/* Right Column: QR Code Box State Machine */}
             <div className="flex flex-col items-center justify-center space-y-4">
-              <div className="relative flex h-64 w-64 items-center justify-center rounded-2xl border-4 border-[var(--theme-accent)] bg-white p-4 shadow-2xl">
-                {qrStatus === "loading" ? (
-                  <div className="flex flex-col items-center gap-3">
-                    <Loader2 className="h-10 w-10 animate-spin text-purple-600" />
-                    <span className="text-xs font-bold text-gray-600">Generating QR Code...</span>
+              <div className="relative flex h-72 w-72 flex-col items-center justify-center rounded-3xl border-4 border-[var(--theme-accent)] bg-white p-5 shadow-2xl transition-all duration-300">
+                {qrFlowState === "INITIALIZING" || qrFlowState === "QR_GENERATING" ? (
+                  <div className="flex flex-col items-center gap-3 text-center">
+                    <Loader2 className="h-12 w-12 animate-spin text-[var(--theme-accent)]" />
+                    <span className="text-xs font-bold text-gray-700">Generating Secure QR...</span>
+                    <span className="text-[10px] text-gray-500">Cryptographically unique pairing challenge</span>
                   </div>
-                ) : qrStatus === "approved" ? (
-                  <div className="flex flex-col items-center gap-3 text-emerald-600">
-                    <CheckCircle2 className="h-16 w-16 animate-bounce" />
-                    <span className="text-sm font-black">Login Approved! Logging in...</span>
+                ) : qrFlowState === "WAITING_FOR_APPROVAL" || qrFlowState === "SCANNED" ? (
+                  <div className="flex flex-col items-center gap-3 p-4 text-center">
+                    <div className="relative flex h-20 w-20 items-center justify-center rounded-full bg-violet-100 text-violet-600">
+                      <Smartphone className="h-10 w-10 animate-pulse" />
+                      <div className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500 text-white shadow-md">
+                        <CheckCircle2 className="h-5 w-5" />
+                      </div>
+                    </div>
+                    <span className="text-base font-black text-gray-800">QR Code Scanned!</span>
+                    <p className="text-xs font-medium text-gray-600">
+                      Please tap <strong>&ldquo;Link Device&rdquo;</strong> on your phone to confirm authorization.
+                    </p>
+                    <div className="flex items-center gap-2 rounded-full bg-violet-50 px-3 py-1 text-[11px] font-bold text-violet-700">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      <span>Waiting for phone confirmation...</span>
+                    </div>
+                  </div>
+                ) : qrFlowState === "APPROVED" || qrFlowState === "AUTHENTICATING" || qrFlowState === "AUTHENTICATED" ? (
+                  <div className="flex flex-col items-center gap-3 p-4 text-center text-emerald-600">
+                    <CheckCircle2 className="h-16 w-16 animate-bounce text-emerald-500" />
+                    <span className="text-base font-black text-emerald-700">Login Approved!</span>
+                    <p className="text-xs font-medium text-gray-600">
+                      Establishing independent session & syncing DOLSYX data...
+                    </p>
+                    <Loader2 className="h-5 w-5 animate-spin text-emerald-600" />
+                  </div>
+                ) : qrFlowState === "EXPIRED" ? (
+                  <div className="flex flex-col items-center gap-3 p-4 text-center">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-full bg-amber-100 text-amber-600">
+                      <AlertTriangle className="h-8 w-8" />
+                    </div>
+                    <span className="text-sm font-black text-gray-800">This QR code has expired</span>
+                    <p className="text-[11px] text-gray-500">
+                      QR codes are short-lived to protect your DOLSYX account security.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => initPairingSession()}
+                      className="mt-1 flex items-center gap-2 rounded-full bg-[var(--theme-accent)] px-4 py-2 text-xs font-extrabold text-white shadow-md hover:opacity-95 cursor-pointer"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      <span>Generate New QR Code</span>
+                    </button>
+                  </div>
+                ) : qrFlowState === "REJECTED" ? (
+                  <div className="flex flex-col items-center gap-3 p-4 text-center">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-full bg-red-100 text-red-600">
+                      <ShieldAlert className="h-8 w-8" />
+                    </div>
+                    <span className="text-sm font-black text-gray-800">Device Linking Cancelled</span>
+                    <p className="text-[11px] text-gray-500">
+                      The linking request was declined on your mobile device.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => initPairingSession()}
+                      className="mt-1 flex items-center gap-2 rounded-full bg-[var(--theme-accent)] px-4 py-2 text-xs font-extrabold text-white shadow-md hover:opacity-95 cursor-pointer"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      <span>Try Again</span>
+                    </button>
+                  </div>
+                ) : qrFlowState === "ERROR" ? (
+                  <div className="flex flex-col items-center gap-3 p-4 text-center">
+                    <ShieldAlert className="h-12 w-12 text-red-500" />
+                    <span className="text-xs font-bold text-red-600">{qrErrorMessage || "Failed to load QR code"}</span>
+                    <button
+                      type="button"
+                      onClick={() => initPairingSession()}
+                      className="flex items-center gap-2 rounded-full bg-gray-800 px-3 py-1.5 text-xs font-bold text-white shadow hover:bg-gray-700 cursor-pointer"
+                    >
+                      <RefreshCw className="h-3 w-3" />
+                      <span>Retry</span>
+                    </button>
                   </div>
                 ) : (
-                  <div className="relative flex h-full w-full items-center justify-center">
-                    {/* QR Code Image */}
-                    <img
-                      src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(`${qrSessionId}||${API_URL}`)}&color=1e1b4b`}
-                      alt="DOLSYX Web Login QR Code"
-                      className="h-full w-full rounded-lg object-contain"
-                    />
-                    {/* Centered Logo Badge */}
-                    <div className="absolute flex h-12 w-12 items-center justify-center rounded-full border-2 border-white bg-gradient-to-tr from-violet-600 to-indigo-600 text-white shadow-xl">
-                      <MessageSquare className="h-6 w-6" />
+                  /* WAITING_FOR_SCAN: Render high-fidelity SVG QR code */
+                  <div className="relative flex h-full w-full flex-col items-center justify-center">
+                    <div className="relative p-1">
+                      {pairingData && (
+                        <QRCode
+                          value={`dolsyx://pair?pairingId=${encodeURIComponent(pairingData.pairingId)}&challenge=${encodeURIComponent(pairingData.challenge)}`}
+                          size={196}
+                          level="M"
+                        />
+                      )}
+                      {/* Centered DOLSYX Brand Badge */}
+                      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                        <div className="flex h-11 w-11 items-center justify-center rounded-2xl border-2 border-white bg-gradient-to-tr from-violet-600 to-indigo-600 text-white shadow-xl">
+                          <MessageSquare className="h-5 w-5" />
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )}
               </div>
 
-              <div className="flex items-center gap-2 text-xs font-bold text-[var(--theme-text-secondary)]">
-                <div className="h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
-                <span>Scan with phone to log in instantly</span>
-              </div>
+              {/* Status and countdown info */}
+              {qrFlowState === "WAITING_FOR_SCAN" && (
+                <div className="flex flex-col items-center gap-1.5">
+                  <div className="flex items-center gap-2 rounded-full bg-[var(--theme-bg-sidebar-search)] px-3 py-1 text-xs font-bold text-[var(--theme-text-primary)] border border-[var(--theme-border-color)] shadow-sm">
+                    <div className={`h-2 w-2 rounded-full ${qrCountdown > 20 ? "bg-emerald-500 animate-ping" : "bg-amber-500 animate-pulse"}`} />
+                    <span>Expires in {qrCountdown}s</span>
+                  </div>
+                  <span className="text-[11px] text-[var(--theme-text-secondary)] font-medium">
+                    Scan with your phone to log in instantly
+                  </span>
+                </div>
+              )}
             </div>
 
           </div>

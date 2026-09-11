@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+import '../providers/auth_provider.dart';
+import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import 'qr_scanner_screen.dart';
 
@@ -24,34 +27,28 @@ class _LinkedDevicesScreenState extends State<LinkedDevicesScreen> {
 
   Future<void> _loadLinkedDevices() async {
     try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final token = authProvider.token ?? '';
+
+      if (token.isNotEmpty) {
+        final liveDevices = await ApiService().getLinkedDevices(token);
+        if (liveDevices.isNotEmpty) {
+          _devices = liveDevices;
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('linked_devices_list', jsonEncode(_devices));
+          if (mounted) {
+            setState(() => _isLoading = false);
+          }
+          return;
+        }
+      }
+
+      // Fallback to local cache if offline
       final prefs = await SharedPreferences.getInstance();
       final saved = prefs.getString('linked_devices_list');
       if (saved != null && saved.isNotEmpty) {
         final List<dynamic> decoded = jsonDecode(saved);
         _devices = decoded.map((e) => Map<String, dynamic>.from(e)).toList();
-      } else {
-        // Provide standard default active sessions
-        _devices = [
-          {
-            'id': 'dev_win_1',
-            'name': 'Windows (DOLSYX Web)',
-            'browser': 'Google Chrome',
-            'lastActive': DateTime.now().subtract(const Duration(minutes: 12)).toIso8601String(),
-            'location': 'New Delhi, India',
-            'isCurrent': false,
-            'status': 'Active now',
-          },
-          {
-            'id': 'dev_mac_1',
-            'name': 'macOS (DOLSYX Desktop)',
-            'browser': 'Safari',
-            'lastActive': DateTime.now().subtract(const Duration(days: 2, hours: 4)).toIso8601String(),
-            'location': 'Mumbai, India',
-            'isCurrent': false,
-            'status': 'Active 2 days ago',
-          },
-        ];
-        await prefs.setString('linked_devices_list', jsonEncode(_devices));
       }
     } catch (e) {
       debugPrint('Error loading linked devices: $e');
@@ -77,26 +74,13 @@ class _LinkedDevicesScreenState extends State<LinkedDevicesScreen> {
     );
 
     if (result != null && mounted) {
-      // Simulate successful link
-      final rawStr = result.toString().split('//').last.split('?').first;
-      final label = rawStr.length > 15 ? rawStr.substring(0, 15) : rawStr;
-      final newDevice = {
-        'id': 'dev_${DateTime.now().millisecondsSinceEpoch}',
-        'name': 'Web Browser ($label)',
-        'browser': 'DOLSYX Web Client',
-        'lastActive': DateTime.now().toIso8601String(),
-        'location': 'Local Network',
-        'isCurrent': false,
-        'status': 'Active now',
-      };
-      setState(() {
-        _devices.insert(0, newDevice);
-      });
-      await _saveLinkedDevices();
+      // Reload devices from backend to fetch newly linked laptop session
+      setState(() => _isLoading = true);
+      await _loadLinkedDevices();
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Device linked successfully! You can now chat on computer.'),
+          content: Text('Device linked successfully! You can now chat on your computer.'),
           backgroundColor: Color(0xFF00A884),
         ),
       );
@@ -147,7 +131,7 @@ class _LinkedDevicesScreenState extends State<LinkedDevicesScreen> {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          '${device['browser'] ?? ''} • ${device['location'] ?? ''}',
+                          '${device['browser'] ?? device['deviceType'] ?? ''} • ${device['location'] ?? 'Active'}',
                           style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
                         ),
                       ],
@@ -165,6 +149,14 @@ class _LinkedDevicesScreenState extends State<LinkedDevicesScreen> {
                 subtitle: const Text('You will be logged out from this computer session', style: TextStyle(color: Colors.white54, fontSize: 12)),
                 onTap: () async {
                   Navigator.pop(ctx);
+                  final authProvider = Provider.of<AuthProvider>(context, listen: false);
+                  final token = authProvider.token ?? '';
+                  final deviceId = device['id']?.toString() ?? '';
+
+                  if (token.isNotEmpty && deviceId.isNotEmpty) {
+                    await ApiService().revokeLinkedDevice(token, deviceId);
+                  }
+
                   setState(() {
                     _devices.removeWhere((d) => d['id'] == device['id']);
                   });
@@ -181,6 +173,46 @@ class _LinkedDevicesScreenState extends State<LinkedDevicesScreen> {
         ),
       ),
     );
+  }
+
+  void _logoutAllOtherDevices() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (dlgCtx) => AlertDialog(
+        backgroundColor: AppTheme.surfaceColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Log out all devices?', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: const Text(
+          'This will log your account out of all other web browsers, laptops, and tablets.',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dlgCtx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dlgCtx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            child: const Text('Log Out All', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true && mounted) {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final token = authProvider.token ?? '';
+      if (token.isNotEmpty) {
+        await ApiService().logoutAllOtherDevices(token);
+      }
+      await _loadLinkedDevices();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('All other devices have been logged out')),
+        );
+      }
+    }
   }
 
   @override
@@ -406,7 +438,25 @@ class _LinkedDevicesScreenState extends State<LinkedDevicesScreen> {
                       ),
                     ),
 
-                  const SizedBox(height: 32),
+                  if (_devices.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      child: OutlinedButton.icon(
+                        onPressed: _logoutAllOtherDevices,
+                        icon: const Icon(Icons.logout, color: Colors.redAccent, size: 18),
+                        label: const Text(
+                          'Log out from all other devices',
+                          style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 14),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: Colors.redAccent, width: 1.2),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        ),
+                      ),
+                    ),
+
+                  const SizedBox(height: 24),
 
                   // End-to-end encryption notice
                   Padding(

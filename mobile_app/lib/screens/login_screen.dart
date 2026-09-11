@@ -79,6 +79,9 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
         serverClientId: '135176717661-ugfua55saob2pfm6er1f8o9bunubhdsp.apps.googleusercontent.com',
         scopes: ['email', 'profile'],
       );
+      try {
+        await googleSignIn.signOut();
+      } catch (_) {}
       final account = await googleSignIn.signIn();
       if (account == null) {
         // User cancelled Google Account selection

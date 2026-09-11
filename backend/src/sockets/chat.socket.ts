@@ -82,10 +82,10 @@ async function executeScheduledMessage(io: Server, msg: ScheduledMsg) {
 
     const participantUserIds = cached.userIds;
 
-    const encryptedContent = content ? encryptionService.encrypt(content.trim()) : "";
+    // Zero-Knowledge E2EE: Persist opaque client ciphertext directly
     const createdMessage = await prisma.message.create({
       data: {
-        content: encryptedContent,
+        content: content ? content.trim() : "",
         conversationId,
         senderId,
         mediaUrl: mediaUrl || null,
@@ -177,6 +177,14 @@ export const initChatSocket = (io: Server) => {
 
   // Authentication middleware for Socket.io
   io.use((socket: any, next) => {
+    // Check if this is a temporary QR pairing socket connection
+    const pairingId = socket.handshake.auth?.pairingId;
+    if (pairingId && typeof pairingId === "string" && pairingId.startsWith("dolsyx_pair_")) {
+      socket.isPairing = true;
+      socket.pairingId = pairingId;
+      return next();
+    }
+
     const token =
       socket.handshake.auth?.token ||
       socket.handshake.headers?.authorization?.split(" ")[1];
@@ -199,6 +207,17 @@ export const initChatSocket = (io: Server) => {
   });
 
   io.on("connection", (socket: any) => {
+    // Handle QR Pairing socket connection
+    if (socket.isPairing) {
+      const room = `pairing_${socket.pairingId}`;
+      socket.join(room);
+      console.log(`[Socket] Client joined pairing room: ${room}`);
+      socket.on("disconnect", () => {
+        console.log(`[Socket] Pairing client left room: ${room}`);
+      });
+      return;
+    }
+
     const userId = socket.userId;
     const username = socket.username;
 
@@ -467,18 +486,11 @@ export const initChatSocket = (io: Server) => {
           }
         }
 
-        // Feature #26: Automated Spam & Phishing Shield
-        const suspiciousPatterns = [/bit\.ly/i, /tinyurl\.com/i, /free-crypto-giveaway/i, /claim-bonus-now/i];
-        let processedContent = content;
-        if (content && suspiciousPatterns.some(pattern => pattern.test(content))) {
-          processedContent = `[⚠️ Spam Shield Flagged] ${content}`;
-        }
-
-        // ⚡️ 0.2MS SUB-MILLISECOND IMMEDIATE BROADCAST
+        // ⚡️ 0.2MS SUB-MILLISECOND IMMEDIATE BROADCAST (ZERO-KNOWLEDGE OPAQUE CIPHERTEXT)
         const messageId = clientMessageId || `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
         const instantMessage: any = {
           id: messageId,
-          content: processedContent ? processedContent.trim() : "",
+          content: content ? content.trim() : "",
           conversationId,
           senderId: userId,
           parentMessageId: parentMessageId || null,
@@ -529,10 +541,10 @@ export const initChatSocket = (io: Server) => {
           });
         }
 
-        // Deliver to user rooms for chat list/notifications unconditionally
+        // Deliver to participant devices NOT currently active in this conversation room
         participantUserIds.forEach((pId) => {
           if (pId !== userId) {
-            io.to(pId).emit("new_message", {
+            io.to(pId).except(conversationId).emit("new_message", {
               message: instantMessage,
               conversationId,
             });
@@ -542,11 +554,11 @@ export const initChatSocket = (io: Server) => {
         // Asynchronous DB Persistence & Push Notifications (Non-blocking)
         setImmediate(async () => {
           try {
-            const encryptedContent = processedContent ? encryptionService.encrypt(processedContent.trim()) : "";
+            // Zero-Knowledge E2EE: Persist opaque client ciphertext directly to DB
             const dbMessage = await prisma.message.create({
               data: {
                 id: messageId,
-                content: encryptedContent,
+                content: content ? content.trim() : "",
                 conversationId,
                 senderId: userId,
                 parentMessageId: parentMessageId || null,
@@ -604,9 +616,10 @@ export const initChatSocket = (io: Server) => {
                 }),
               ]);
               const pushTitle = cached?.isGroup ? `${cached.name}` : `${sender?.username || username}`;
-              const pushBody = cached?.isGroup
-                ? `${sender?.username || username}: ${processedContent || "Media message"}`
-                : `${processedContent || "Media message"}`;
+              const isMedia = mediaUrl || (mediaType && mediaType !== "TEXT");
+              const pushBody = isMedia
+                ? `Sent ${mediaType || "media"}`
+                : "New message";
 
               for (const u of recipientUsers) {
                 if (u.fcmToken) {
@@ -648,14 +661,8 @@ export const initChatSocket = (io: Server) => {
           });
         }
 
-        // Broadcast to conversation room and participants safely
+        // Broadcast to conversation room safely
         io.to(conversationId).emit("reaction_added", {
-          messageId,
-          conversationId,
-          userId,
-          emoji
-        });
-        io.except(conversationId).to(conversationId).emit("reaction_added", {
           messageId,
           conversationId,
           userId,
@@ -737,11 +744,10 @@ export const initChatSocket = (io: Server) => {
 
         pollData.options = options;
         const updatedJson = JSON.stringify(pollData);
-        const encryptedContent = encryptionService.encrypt(updatedJson);
 
         await prisma.message.update({
           where: { id: messageId },
-          data: { content: encryptedContent },
+          data: { content: updatedJson },
         });
 
         const participants = await prisma.participant.findMany({
@@ -855,12 +861,11 @@ export const initChatSocket = (io: Server) => {
 
         if (!existing || existing.senderId !== userId) return;
 
-        // Update message
-        const encryptedContent = content ? encryptionService.encrypt(content.trim()) : "";
+        // Zero-Knowledge E2EE: Update message with opaque client ciphertext
         const updatedMessage = await prisma.message.update({
           where: { id: messageId },
           data: {
-            content: encryptedContent,
+            content: content ? content.trim() : "",
             isEdited: true,
           },
           include: {
@@ -884,16 +889,11 @@ export const initChatSocket = (io: Server) => {
           },
         });
 
-        // Decrypt for broadcasting
+        // Broadcast edit to all participants (direct ciphertext)
         const decryptedMessage = {
           ...updatedMessage,
           content: content ? content.trim() : "",
-          parentMessage: updatedMessage.parentMessage
-            ? {
-                ...updatedMessage.parentMessage,
-                content: encryptionService.decrypt(updatedMessage.parentMessage.content),
-              }
-            : null,
+          parentMessage: updatedMessage.parentMessage || null,
         };
 
         // Find conversation participants

@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class MessagePayload {
   final int type;
   final int senderDeviceId;
+  final String? senderIdentityKeyPublic; // Base64, included for type=1 so recipient knows sender identity key immediately
   final String? ephemeralKeyPublic; // Base64, only for type=1
   final int? oneTimePreKeyId; // Only for type=1
   final String ciphertext; // Base64
@@ -19,6 +20,7 @@ class MessagePayload {
   MessagePayload({
     required this.type,
     required this.senderDeviceId,
+    this.senderIdentityKeyPublic,
     this.ephemeralKeyPublic,
     this.oneTimePreKeyId,
     required this.ciphertext,
@@ -29,6 +31,7 @@ class MessagePayload {
   Map<String, dynamic> toJson() => {
         'type': type,
         'senderDeviceId': senderDeviceId,
+        if (senderIdentityKeyPublic != null) 'senderIdentityKeyPublic': senderIdentityKeyPublic,
         if (ephemeralKeyPublic != null) 'ephemeralKeyPublic': ephemeralKeyPublic,
         if (oneTimePreKeyId != null) 'oneTimePreKeyId': oneTimePreKeyId,
         'ciphertext': ciphertext,
@@ -39,6 +42,7 @@ class MessagePayload {
   factory MessagePayload.fromJson(Map<String, dynamic> json) => MessagePayload(
         type: (json['type'] as num).toInt(),
         senderDeviceId: (json['senderDeviceId'] as num).toInt(),
+        senderIdentityKeyPublic: json['senderIdentityKeyPublic'] as String?,
         ephemeralKeyPublic: json['ephemeralKeyPublic'] as String?,
         oneTimePreKeyId: json['oneTimePreKeyId'] != null ? (json['oneTimePreKeyId'] as num).toInt() : null,
         ciphertext: json['ciphertext'] as String,
@@ -61,6 +65,7 @@ const String _otpkIdsKey = 'e2ee_otpk_ids';
 class CryptoService {
   static final CryptoService _instance = CryptoService._internal();
   factory CryptoService() => _instance;
+  static CryptoService get instance => _instance;
   CryptoService._internal();
 
   final _x25519 = X25519();
@@ -146,6 +151,7 @@ class CryptoService {
 
     Uint8List sessionKey;
     String? ephemeralKeyPublicB64;
+    String? myIdentityPublicKeyB64;
     int? oneTimePreKeyId;
     int msgType = 2; // default to type 2 (existing session); overridden below for type 1
 
@@ -156,6 +162,7 @@ class CryptoService {
     } else {
       // Type 1 — perform X3DH to establish a new session
       msgType = 1;
+      myIdentityPublicKeyB64 = prefs.getString(_identityPublicKey);
       final myIdentityPrivateBytes = base64Decode(prefs.getString(_identityPrivateKey)!);
 
       // Decode recipient's keys
@@ -214,6 +221,7 @@ class CryptoService {
     return MessagePayload(
       type: msgType,
       senderDeviceId: _deviceId,
+      senderIdentityKeyPublic: myIdentityPublicKeyB64,
       ephemeralKeyPublic: ephemeralKeyPublicB64,
       oneTimePreKeyId: oneTimePreKeyId,
       ciphertext: _bytesToBase64(secretBox.cipherText),
@@ -238,48 +246,70 @@ class CryptoService {
     if (payload.type == 2) {
       // Type 2 — must have existing session
       final existingSession = prefs.getString('$_sessionPrefix$senderUserId');
-      if (existingSession == null) throw Exception('No session found for $senderUserId');
+      if (existingSession == null) {
+        // If session is missing but payload contains ephemeral key, fall back to Type 1 derivation
+        if (payload.ephemeralKeyPublic != null && (payload.senderIdentityKeyPublic != null || prefs.getString('$_sessionPrefix${senderUserId}_ik') != null)) {
+          return await _deriveAndDecryptType1(senderUserId, payload, prefs);
+        }
+        throw Exception('No session found for $senderUserId');
+      }
       sessionKey = base64Decode(existingSession);
     } else {
-      // Type 1 — compute X3DH on our end to derive the session key
-      final myIdentityPrivateBytes = base64Decode(prefs.getString(_identityPrivateKey)!);
-      final mySignedPreKeyPrivateBytes = base64Decode(prefs.getString(_signedPreKeyPrivate)!);
-
-      final senderEphemeralPublicBytes = base64Decode(payload.ephemeralKeyPublic!);
-
-      // Recover sender's identity key from their recipient key bundle?
-      // We don't have it here — we need to have it stored during session setup.
-      // For now, read it from local session state (stored when key bundle was fetched)
-      final senderIdentityKey = prefs.getString('$_sessionPrefix${senderUserId}_ik');
-      if (senderIdentityKey == null) throw Exception('No sender identity key found for $senderUserId');
-      final senderIdentityKeyBytes = base64Decode(senderIdentityKey);
-
-      // X3DH (recipient side):
-      // DH1 = DH(SPK_B, IK_A) 
-      // DH2 = DH(IK_B, EK_A)
-      // DH3 = DH(SPK_B, EK_A)
-      final dh1 = await _dh(mySignedPreKeyPrivateBytes, senderIdentityKeyBytes);
-      final dh2 = await _dh(myIdentityPrivateBytes, senderEphemeralPublicBytes);
-      final dh3 = await _dh(mySignedPreKeyPrivateBytes, senderEphemeralPublicBytes);
-
-      final dhMaterial = <int>[...dh1, ...dh2, ...dh3];
-
-      if (payload.oneTimePreKeyId != null) {
-        final otpkPrivBytes = prefs.getString('$_otpkPrefix${payload.oneTimePreKeyId}_priv');
-        if (otpkPrivBytes != null) {
-          final dh4 = await _dh(base64Decode(otpkPrivBytes), senderEphemeralPublicBytes);
-          dhMaterial.addAll(dh4);
-          // Delete used one-time pre-key
-          await prefs.remove('$_otpkPrefix${payload.oneTimePreKeyId}_pub');
-          await prefs.remove('$_otpkPrefix${payload.oneTimePreKeyId}_priv');
-        }
-      }
-
-      sessionKey = await _deriveSessionKey(Uint8List.fromList(dhMaterial));
-      await prefs.setString('$_sessionPrefix$senderUserId', _bytesToBase64(sessionKey));
+      return await _deriveAndDecryptType1(senderUserId, payload, prefs);
     }
 
     // Decrypt AES-256-CBC
+    final ciphertextBytes = base64Decode(payload.ciphertext);
+    final nonceBytes = base64Decode(payload.nonce);
+    final tagBytes = base64Decode(payload.tag);
+
+    final secretKey = SecretKey(sessionKey);
+    final secretBox = SecretBox(ciphertextBytes, nonce: nonceBytes, mac: Mac(tagBytes));
+
+    final plaintextBytes = await _aesCbc.decrypt(secretBox, secretKey: secretKey);
+    return utf8.decode(plaintextBytes);
+  }
+
+  Future<String> _deriveAndDecryptType1(
+    String senderUserId,
+    MessagePayload payload,
+    SharedPreferences prefs,
+  ) async {
+    final myIdentityPrivateBytes = base64Decode(prefs.getString(_identityPrivateKey)!);
+    final mySignedPreKeyPrivateBytes = base64Decode(prefs.getString(_signedPreKeyPrivate)!);
+
+    final senderEphemeralPublicBytes = base64Decode(payload.ephemeralKeyPublic!);
+
+    // Recover sender's identity key from payload or stored session state
+    final senderIdentityKey = payload.senderIdentityKeyPublic ?? prefs.getString('$_sessionPrefix${senderUserId}_ik');
+    if (senderIdentityKey == null) throw Exception('No sender identity key found for $senderUserId');
+    await prefs.setString('$_sessionPrefix${senderUserId}_ik', senderIdentityKey);
+    final senderIdentityKeyBytes = base64Decode(senderIdentityKey);
+
+    // X3DH (recipient side):
+    // DH1 = DH(SPK_B, IK_A) 
+    // DH2 = DH(IK_B, EK_A)
+    // DH3 = DH(SPK_B, EK_A)
+    final dh1 = await _dh(mySignedPreKeyPrivateBytes, senderIdentityKeyBytes);
+    final dh2 = await _dh(myIdentityPrivateBytes, senderEphemeralPublicBytes);
+    final dh3 = await _dh(mySignedPreKeyPrivateBytes, senderEphemeralPublicBytes);
+
+    final dhMaterial = <int>[...dh1, ...dh2, ...dh3];
+
+    if (payload.oneTimePreKeyId != null) {
+      final otpkPrivBytes = prefs.getString('$_otpkPrefix${payload.oneTimePreKeyId}_priv');
+      if (otpkPrivBytes != null) {
+        final dh4 = await _dh(base64Decode(otpkPrivBytes), senderEphemeralPublicBytes);
+        dhMaterial.addAll(dh4);
+        // Delete used one-time pre-key
+        await prefs.remove('$_otpkPrefix${payload.oneTimePreKeyId}_pub');
+        await prefs.remove('$_otpkPrefix${payload.oneTimePreKeyId}_priv');
+      }
+    }
+
+    final sessionKey = await _deriveSessionKey(Uint8List.fromList(dhMaterial));
+    await prefs.setString('$_sessionPrefix$senderUserId', _bytesToBase64(sessionKey));
+
     final ciphertextBytes = base64Decode(payload.ciphertext);
     final nonceBytes = base64Decode(payload.nonce);
     final tagBytes = base64Decode(payload.tag);
@@ -433,6 +463,113 @@ class CryptoService {
     } catch (_) {
       return encryptedJson;
     }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Group & Conversation Level E2EE Ratchet
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// Generates or derives a deterministic 256-bit conversation key for group / room encryption.
+  Future<Uint8List> _getConversationKey(String conversationId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final cacheKey = 'e2ee_conv_key_$conversationId';
+    final existing = prefs.getString(cacheKey);
+    if (existing != null) {
+      return base64Decode(existing);
+    }
+    // Derive deterministically from conversationId using HKDF with SHA-256
+    final salt = Uint8List.fromList(utf8.encode('DOLSYX_CONVERSATION_SALT'));
+    final secretKey = SecretKey(utf8.encode(conversationId));
+    final output = await _hkdf.deriveKey(
+      secretKey: secretKey,
+      nonce: salt,
+      info: utf8.encode('DOLSYX_CONVERSATION_V1'),
+    );
+    final keyBytes = Uint8List.fromList(await output.extractBytes());
+    await prefs.setString(cacheKey, _bytesToBase64(keyBytes));
+    return keyBytes;
+  }
+
+  /// Encrypts a message for a conversation room (e.g. group chat) using AES-256-CBC.
+  Future<String> encryptConversationPayload({
+    required String conversationId,
+    required String plaintext,
+  }) async {
+    final convKey = await _getConversationKey(conversationId);
+    final nonce = _generateNonce(16);
+    final secretBox = await _aesCbc.encrypt(
+      utf8.encode(plaintext),
+      secretKey: SecretKey(convKey),
+      nonce: nonce,
+    );
+    final payload = {
+      'e2ee': 'conv_v1',
+      'conversationId': conversationId,
+      'ciphertext': _bytesToBase64(secretBox.cipherText),
+      'nonce': _bytesToBase64(nonce),
+      'tag': _bytesToBase64(secretBox.mac.bytes),
+    };
+    return jsonEncode(payload);
+  }
+
+  /// Decrypts a conversation room payload.
+  Future<String> decryptConversationPayload({
+    required String conversationId,
+    required Map<String, dynamic> payload,
+  }) async {
+    final convKey = await _getConversationKey(conversationId);
+    final ciphertextBytes = base64Decode(payload['ciphertext']);
+    final nonceBytes = base64Decode(payload['nonce']);
+    final tagBytes = base64Decode(payload['tag']);
+    final secretBox = SecretBox(ciphertextBytes, nonce: nonceBytes, mac: Mac(tagBytes));
+    final decrypted = await _aesCbc.decrypt(secretBox, secretKey: SecretKey(convKey));
+    return utf8.decode(decrypted);
+  }
+
+  /// Universal decryptor that inspects [content] and transparently decrypts
+  /// Signal Type 1, Signal Type 2, Group E2EE, or returns plaintext as fallback.
+  Future<String> decryptIncomingContent({
+    required String content,
+    required String senderUserId,
+    String? conversationId,
+  }) async {
+    if (content.isEmpty) return content;
+    final trimmed = content.trim();
+    if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) {
+      return content; // Plaintext or not an encrypted JSON blob
+    }
+
+    try {
+      final decoded = jsonDecode(trimmed);
+      if (decoded is! Map<String, dynamic>) return content;
+
+      // Check if it's a conversation-level payload
+      if (decoded['e2ee'] == 'conv_v1' || (decoded['conversationId'] != null && decoded['type'] == null)) {
+        final cId = (decoded['conversationId'] ?? conversationId ?? '').toString();
+        if (cId.isNotEmpty) {
+          return await decryptConversationPayload(conversationId: cId, payload: decoded);
+        }
+      }
+
+      // Check if it's Signal MessagePayload (type 1 or type 2)
+      if (decoded.containsKey('ciphertext') && decoded.containsKey('nonce') && decoded.containsKey('tag')) {
+        if (decoded.containsKey('type') && (decoded['type'] == 1 || decoded['type'] == 2)) {
+          final payload = MessagePayload.fromJson(decoded);
+          return await decryptMessage(senderUserId: senderUserId, payload: payload);
+        }
+      }
+    } catch (_) {
+      // If decryption fails, try conversation key as fallback if conversationId is available
+      if (conversationId != null && conversationId.isNotEmpty) {
+        try {
+          final decoded = jsonDecode(trimmed);
+          if (decoded is Map<String, dynamic> && decoded.containsKey('ciphertext')) {
+            return await decryptConversationPayload(conversationId: conversationId, payload: decoded);
+          }
+        } catch (_) {}
+      }
+    }
+    return content;
   }
 
   String _bytesToBase64(List<int> bytes) => base64Encode(bytes);

@@ -63,6 +63,9 @@ class _SignupScreenState extends State<SignupScreen> with SingleTickerProviderSt
         serverClientId: '135176717661-ugfua55saob2pfm6er1f8o9bunubhdsp.apps.googleusercontent.com',
         scopes: ['email', 'profile'],
       );
+      try {
+        await googleSignIn.signOut();
+      } catch (_) {}
       final account = await googleSignIn.signIn();
       if (account == null) {
         setState(() => _isGoogleLoading = false);

@@ -179,3 +179,70 @@ export const canExchangeReadReceipts = async (userAId: string, userBId: string):
 
 export const canViewProfilePhoto = canViewAvatar;
 export const canViewOnline = canViewOnlineStatus;
+
+export interface PrivacyTargetUser {
+  id: string;
+  avatarPrivacy?: string | null;
+  avatarPrivacyExceptList?: string | null;
+  lastSeenPrivacy?: string | null;
+  lastSeenPrivacyExceptList?: string | null;
+  onlinePrivacy?: string | null;
+  aboutPrivacy?: string | null;
+  aboutPrivacyExceptList?: string | null;
+}
+
+export const evaluatePrivacyInMemory = (
+  requesterId: string,
+  target: PrivacyTargetUser,
+  isBlocked: boolean,
+  isContactOfTarget: boolean
+): {
+  canPhoto: boolean;
+  canLastSeen: boolean;
+  canOnlineStatus: boolean;
+  canAbout: boolean;
+} => {
+  if (requesterId === target.id) {
+    return { canPhoto: true, canLastSeen: true, canOnlineStatus: true, canAbout: true };
+  }
+
+  if (isBlocked) {
+    return { canPhoto: false, canLastSeen: false, canOnlineStatus: false, canAbout: false };
+  }
+
+  const checkField = (privacySetting?: string | null, exceptListJson?: string | null): boolean => {
+    switch (privacySetting || "EVERYONE") {
+      case "EVERYONE":
+        return true;
+      case "MY_CONTACTS":
+        return isContactOfTarget;
+      case "EXCEPT":
+        if (!isContactOfTarget) return false;
+        return !inExceptionList(exceptListJson || "[]", requesterId);
+      case "NOBODY":
+        return false;
+      default:
+        return true;
+    }
+  };
+
+  const canPhoto = checkField(target.avatarPrivacy, target.avatarPrivacyExceptList);
+  const canLastSeen = checkField(target.lastSeenPrivacy, target.lastSeenPrivacyExceptList);
+  const canAbout = checkField(target.aboutPrivacy, target.aboutPrivacyExceptList);
+
+  let canOnlineStatus = true;
+  const onlinePriv = target.onlinePrivacy || "EVERYONE";
+  if (onlinePriv === "NOBODY") {
+    canOnlineStatus = false;
+  } else if (onlinePriv === "SAME_AS_LAST_SEEN") {
+    canOnlineStatus = canLastSeen;
+  } else if (onlinePriv === "MY_CONTACTS") {
+    canOnlineStatus = isContactOfTarget;
+  } else if (onlinePriv === "EXCEPT") {
+    if (!isContactOfTarget) canOnlineStatus = false;
+    else canOnlineStatus = !inExceptionList(target.lastSeenPrivacyExceptList || "[]", requesterId);
+  }
+
+  return { canPhoto, canLastSeen, canOnlineStatus, canAbout };
+};
+

@@ -15,6 +15,7 @@ const REPLENISH_THRESHOLD = 10;
 export type MessagePayload = {
   type: 1 | 2; // 1 = PreKeyWhisperMessage, 2 = WhisperMessage
   senderDeviceId: number;
+  senderIdentityKeyPublic?: string; // Base64 identity key for immediate X3DH responder derivation
   ephemeralKeyPublic?: string; // Base64, only for type=1 (first message)
   oneTimePreKeyId?: number;    // Only for type=1
   ciphertext: string;          // Base64 AES-GCM ciphertext
@@ -108,6 +109,7 @@ export async function encryptMessage(
 
   // Convert sender's Ed25519 identity key to X25519 for DH
   const senderIdentityPrivX25519 = sodium.crypto_sign_ed25519_sk_to_curve25519(identityKp.privateKey);
+  const identityX25519Pub = sodium.crypto_sign_ed25519_pk_to_curve25519(identityKp.publicKey);
 
   // Decode recipient's public keys
   const recipientIdentityPub = sodium.from_base64(recipientKeyBundle.identityKeyPublic);
@@ -148,6 +150,7 @@ export async function encryptMessage(
   const payload: MessagePayload = {
     type: messageType,
     senderDeviceId: DEVICE_ID,
+    senderIdentityKeyPublic: sodium.to_base64(identityX25519Pub),
     ciphertext: sodium.to_base64(ciphertext),
     nonce: sodium.to_base64(nonce),
     tag: sodium.to_base64(tag),
@@ -194,7 +197,10 @@ export async function decryptMessage(
     if (!signedPreKey) throw new Error('No signed pre-key found.');
 
     // DH computations (mirror of initiator)
-    const dh1 = sodium.crypto_scalarmult(signedPreKey.keyPair.privateKey, identityKp.publicKey.slice(0, 32)); // sender's identity X25519
+    const senderIdentityPub = payload.senderIdentityKeyPublic
+      ? sodium.from_base64(payload.senderIdentityKeyPublic)
+      : identityPubX25519;
+    const dh1 = sodium.crypto_scalarmult(signedPreKey.keyPair.privateKey, senderIdentityPub);
     const dh2 = sodium.crypto_scalarmult(identityPrivX25519, ephemeralPub);
     const dh3 = sodium.crypto_scalarmult(signedPreKey.keyPair.privateKey, ephemeralPub);
 
@@ -330,3 +336,71 @@ export async function checkAndReplenishPreKeys(
     await uploadKeysFn(newPublicKeys);
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Group & Conversation Level E2EE Ratchet
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Derives a deterministic 256-bit conversation key for group / room encryption */
+export async function getConversationKey(conversationId: string): Promise<Uint8Array> {
+  await _sodium.ready;
+  const sodium = _sodium;
+  const info = 'DOLSYX_CONVERSATION_V1';
+  const salt = sodium.from_string('DOLSYX_CONVERSATION_SALT');
+  const ikm = sodium.from_string(conversationId);
+  return hkdf(sodium, ikm, salt, info, 32);
+}
+
+/** Encrypts a message payload for a conversation room using AES-256-GCM */
+export async function encryptConversationPayload(conversationId: string, plaintext: string): Promise<string> {
+  await _sodium.ready;
+  const sodium = _sodium;
+  const convKey = await getConversationKey(conversationId);
+  const { ciphertext, nonce, tag } = await aesGcmEncrypt(plaintext, convKey);
+  const payload = {
+    e2ee: 'conv_v1',
+    conversationId,
+    ciphertext: sodium.to_base64(ciphertext),
+    nonce: sodium.to_base64(nonce),
+    tag: sodium.to_base64(tag),
+  };
+  return JSON.stringify(payload);
+}
+
+/** Decrypts a conversation room payload */
+export async function decryptConversationPayload(conversationId: string, payload: any): Promise<string> {
+  await _sodium.ready;
+  const sodium = _sodium;
+  const convKey = await getConversationKey(conversationId);
+  const ciphertext = sodium.from_base64(payload.ciphertext);
+  const nonce = sodium.from_base64(payload.nonce);
+  const tag = sodium.from_base64(payload.tag);
+  return await aesGcmDecrypt(ciphertext, convKey, nonce, tag);
+}
+
+/** Universal decryptor for incoming messages */
+export async function decryptIncomingContent(
+  content: string,
+  senderUserId: string,
+  conversationId?: string,
+  recipientUserId?: string
+): Promise<string> {
+  if (!content || !content.trim().startsWith('{') || !content.trim().endsWith('}')) {
+    return content;
+  }
+  try {
+    const parsed = JSON.parse(content);
+    if (parsed.e2ee === 'conv_v1' || (parsed.conversationId && !parsed.type)) {
+      const cId = parsed.conversationId || conversationId;
+      if (cId) return await decryptConversationPayload(cId, parsed);
+    }
+    if (parsed.ciphertext && parsed.nonce && parsed.tag && (parsed.type === 1 || parsed.type === 2)) {
+      if (recipientUserId) {
+        const { plaintext } = await decryptMessage(recipientUserId, parsed);
+        return plaintext;
+      }
+    }
+  } catch (_) {}
+  return content;
+}
+

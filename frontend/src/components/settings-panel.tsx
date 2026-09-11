@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { X, Camera, Volume2, Music, Lock, Shield, Eye, EyeOff, Trash2, LogOut, Check, ArrowLeft, RefreshCw, Loader2, Ban, User, Palette, QrCode } from "lucide-react";
+import { X, Camera, Volume2, Music, Lock, Shield, Eye, EyeOff, Trash2, LogOut, Check, ArrowLeft, RefreshCw, Loader2, Ban, User, Palette, QrCode, Laptop, Smartphone, Monitor, CheckCircle2 } from "lucide-react";
 import { useAuth, API_URL } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
 import { SoundEngine } from "@/utils/sound";
@@ -12,13 +12,13 @@ import getCroppedImg from "@/utils/cropImage";
 interface SettingsPanelProps {
   onClose: () => void;
   onSelectChat: (chat: null) => void;
-  initialTab?: "profile" | "display" | "audio" | "privacy" | "lock";
+  initialTab?: "profile" | "display" | "audio" | "privacy" | "lock" | "devices";
 }
 
 export default function SettingsPanel({ onClose, onSelectChat, initialTab = "profile" }: SettingsPanelProps) {
   const { user, token, logout, updateUser } = useAuth();
   const { theme, setTheme, fontSize, setFontSize } = useTheme();
-  const [activeTab, setActiveTab] = useState<"profile" | "display" | "audio" | "privacy" | "lock">(initialTab);
+  const [activeTab, setActiveTab] = useState<"profile" | "display" | "audio" | "privacy" | "lock" | "devices">(initialTab);
 
   // Profile Form States
   const [editUsername, setEditUsername] = useState(user?.username || "");
@@ -61,6 +61,70 @@ export default function SettingsPanel({ onClose, onSelectChat, initialTab = "pro
   const [showQr, setShowQr] = useState(false);
   const [statusPrivacy, setStatusPrivacy] = useState("CONTACTS");
   const [showFullAvatar, setShowFullAvatar] = useState(false);
+
+  // Linked Devices State
+  const [linkedDevices, setLinkedDevices] = useState<any[]>([]);
+  const [isLoadingDevices, setIsLoadingDevices] = useState(false);
+  const [deviceActionMsg, setDeviceActionMsg] = useState("");
+
+  const loadLinkedDevices = async () => {
+    if (!token) return;
+    setIsLoadingDevices(true);
+    setDeviceActionMsg("");
+    try {
+      const res = await fetch(`${API_URL}/api/devices`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.devices) {
+          setLinkedDevices(data.devices);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to load linked devices:", e);
+    } finally {
+      setIsLoadingDevices(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === "devices") {
+      loadLinkedDevices();
+    }
+  }, [activeTab]);
+
+  const handleRevokeDevice = async (sessionId: string) => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_URL}/api/devices/${sessionId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        setDeviceActionMsg("Device logged out successfully");
+        setLinkedDevices((prev) => prev.filter((d) => d.id !== sessionId));
+      }
+    } catch (e) {
+      console.error("Failed to revoke device:", e);
+    }
+  };
+
+  const handleLogoutAllOther = async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_URL}/api/devices/logout-all`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        setDeviceActionMsg("All other devices logged out successfully");
+        loadLinkedDevices();
+      }
+    } catch (e) {
+      console.error("Failed to log out all other devices:", e);
+    }
+  };
 
   useEffect(() => {
     if (user) {
@@ -381,17 +445,19 @@ export default function SettingsPanel({ onClose, onSelectChat, initialTab = "pro
       </div>
 
       <div className="flex border-b border-[var(--theme-border-color)] px-4 py-2 bg-[var(--theme-bg-sidebar-header)] overflow-x-auto gap-2">
-        {["profile", "display", "audio", "privacy", "chat lock"].map((t) => (
+        {["profile", "display", "audio", "privacy", "chat lock", "linked devices"].map((t) => (
           <button
             key={t}
-            onClick={() => setActiveTab((t === "chat lock" ? "lock" : t) as any)}
+            onClick={() => setActiveTab((t === "chat lock" ? "lock" : t === "linked devices" ? "devices" : t) as any)}
             className={`px-3 py-1 text-xs font-bold rounded-lg capitalize transition-all cursor-pointer whitespace-nowrap ${
-              (activeTab === "lock" && t === "chat lock") || activeTab === t
+              (activeTab === "lock" && t === "chat lock") ||
+              (activeTab === "devices" && t === "linked devices") ||
+              activeTab === t
                 ? "bg-[var(--theme-accent)] text-[var(--theme-accent-text)]"
                 : "text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]"
             }`}
           >
-            {t === "chat lock" ? "Chat Lock" : t}
+            {t === "chat lock" ? "Chat Lock" : t === "linked devices" ? "Linked Devices" : t}
           </button>
         ))}
       </div>
@@ -969,6 +1035,119 @@ export default function SettingsPanel({ onClose, onSelectChat, initialTab = "pro
                   Reveal Chats
                 </button>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* ── Linked Devices Tab Content ── */}
+        {activeTab === "devices" && (
+          <div className="p-5 space-y-6 animate-fade-in">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-[var(--theme-text-primary)]">Linked Devices</h3>
+                <p className="text-[11px] text-[var(--theme-text-secondary)] mt-0.5">
+                  Devices currently logged into your DOLSYX account.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={loadLinkedDevices}
+                disabled={isLoadingDevices}
+                className="p-2 rounded-lg bg-[var(--theme-bg-sidebar-search)] hover:bg-[var(--theme-bg-sidebar-item-hover)] text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-colors cursor-pointer disabled:opacity-50"
+                title="Refresh Devices"
+              >
+                <RefreshCw className={`h-4 w-4 ${isLoadingDevices ? "animate-spin text-[var(--theme-accent)]" : ""}`} />
+              </button>
+            </div>
+
+            {deviceActionMsg && (
+              <div className="flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-xs text-emerald-400">
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+                <span>{deviceActionMsg}</span>
+              </div>
+            )}
+
+            {isLoadingDevices ? (
+              <div className="flex flex-col items-center justify-center py-12 gap-3">
+                <Loader2 className="h-7 w-7 animate-spin text-[var(--theme-accent)]" />
+                <span className="text-xs text-[var(--theme-text-secondary)]">Loading active devices...</span>
+              </div>
+            ) : linkedDevices.length === 0 ? (
+              <div className="rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] p-6 text-center">
+                <Laptop className="h-10 w-10 text-[var(--theme-text-secondary)] mx-auto mb-2 opacity-50" />
+                <p className="text-xs font-bold text-[var(--theme-text-primary)]">No other devices linked</p>
+                <p className="text-[11px] text-[var(--theme-text-secondary)] mt-1">
+                  Scan the QR code from your mobile app to link other computers or browsers.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {linkedDevices.map((dev) => {
+                  const isWeb = dev.deviceType === "web" || (dev.name || "").toLowerCase().includes("chrome") || (dev.name || "").toLowerCase().includes("safari");
+                  const isMobile = dev.deviceType === "android" || dev.deviceType === "ios" || (dev.name || "").toLowerCase().includes("phone");
+
+                  return (
+                    <div
+                      key={dev.id}
+                      className="flex items-center justify-between rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] p-3.5 transition-all hover:border-[var(--theme-accent)]/40"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--theme-accent)]/10 text-[var(--theme-accent)]">
+                          {isMobile ? <Smartphone className="h-5 w-5" /> : isWeb ? <Laptop className="h-5 w-5" /> : <Monitor className="h-5 w-5" />}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-[var(--theme-text-primary)]">{dev.name || "Device"}</span>
+                            {dev.isCurrent && (
+                              <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[9px] font-black text-emerald-400">
+                                This Device
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-[var(--theme-text-secondary)]">
+                            {dev.isCurrent ? "Active now" : dev.lastActive ? `Last seen ${new Date(dev.lastActive).toLocaleDateString()}` : "Linked session"}
+                          </span>
+                        </div>
+                      </div>
+
+                      {!dev.isCurrent && (
+                        <button
+                          type="button"
+                          onClick={() => handleRevokeDevice(dev.id)}
+                          className="flex items-center gap-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 px-2.5 py-1.5 text-[10px] font-bold text-red-400 hover:text-red-300 transition-colors cursor-pointer"
+                          title="Log out this device"
+                        >
+                          <LogOut className="h-3.5 w-3.5" />
+                          <span>Log out</span>
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {linkedDevices.filter((d) => !d.isCurrent).length > 0 && (
+                  <div className="pt-3">
+                    <button
+                      type="button"
+                      onClick={handleLogoutAllOther}
+                      className="flex w-full items-center justify-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 py-3 text-xs font-bold text-red-400 hover:bg-red-500/20 transition-all cursor-pointer"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      <span>Log Out All Other Devices</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-header)] p-4 text-[11px] text-[var(--theme-text-secondary)] space-y-1">
+              <div className="flex items-center gap-2 font-bold text-[var(--theme-text-primary)]">
+                <Lock className="h-3.5 w-3.5 text-[var(--theme-accent)]" />
+                <span>End-to-End Encrypted</span>
+              </div>
+              <p className="leading-relaxed">
+                Your personal chats, files, and voice notes remain end-to-end encrypted independently across every linked device.
+              </p>
             </div>
           </div>
         )}

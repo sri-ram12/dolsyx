@@ -2,8 +2,10 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import TwemojiText from "./twemoji-text";
+import AnimatedEmoji from "./animated-emoji";
 import { useAuth, API_URL } from "@/context/auth-context";
 import { useE2EE } from "@/context/e2ee-context";
+import { encryptConversationPayload, decryptIncomingContent, encryptFileBytes, decryptFileBytes } from "@/utils/e2ee/cryptoService";
 import { useTheme } from "@/context/theme-context";
 import { useToast } from "@/context/toast-context";
 import { Chat } from "./chat-sidebar";
@@ -263,11 +265,6 @@ function getEmojiCount(str: string): number {
   return Array.from(str.trim().replace(/\s/g, '')).length;
 }
 
-function getEmojiAnimationClass(str: string) {
-  if (/❤️|💖|💗|💓|🔥|🥰/.test(str)) return "animate-emoji-pulse";
-  if (/✨|⭐|🌟|💫/.test(str)) return "animate-emoji-spin";
-  return "animate-emoji-bounce";
-}
 
 function CallLogMessage({ msg, isMe }: { msg: Message; isMe: boolean }) {
   const callType = msg.mediaUrl === "video" ? "Video" : "Voice";
@@ -709,9 +706,15 @@ export default function ChatWindow({
   const handleForwardMessage = async (chatId: string) => {
     if (!forwardingMessage || !token || !socket) return;
     try {
+      let forwardContent = forwardingMessage.content;
+      if (forwardContent) {
+        try {
+          forwardContent = await encryptConversationPayload(chatId, forwardContent);
+        } catch (_) {}
+      }
       socket.emit("send_message", {
         conversationId: chatId,
-        content: forwardingMessage.content,
+        content: forwardContent,
         mediaUrl: forwardingMessage.mediaUrl,
         mediaType: forwardingMessage.mediaType,
         parentMessageId: null
@@ -849,7 +852,7 @@ export default function ChatWindow({
 
     const fetchMessages = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/chats/${chat.id}/messages`, {
+        const res = await fetch(`${API_URL}/api/chats/${chat.id}/messages?limit=50`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -858,34 +861,34 @@ export default function ChatWindow({
         if (res.ok) {
           const data = await res.json();
           
-          let finalMessages = data;
-          if (!chat.isGroup && user) {
-            finalMessages = await Promise.all(data.map(async (msg: any) => {
-              // Try to decrypt incoming messages
-              if (msg.senderId !== user.id && msg.content && msg.content.startsWith("{")) {
-                try {
-                  const payload = JSON.parse(msg.content);
-                  if (payload.ciphertext) {
-                    const plaintext = await decryptIncoming(user.id, payload);
-                    return { ...msg, content: plaintext };
-                  }
-                } catch (e) {
-                  console.warn("Could not decrypt history message", e);
+          const finalMessages = await Promise.all(data.map(async (msg: any) => {
+            if (msg.content && msg.content.startsWith("{")) {
+              try {
+                const plaintext = await decryptIncomingContent(msg.content, msg.senderId, chat.id, user?.id);
+                // Check if decrypted message is an encrypted media descriptor
+                if (plaintext.startsWith("{") && plaintext.endsWith("}")) {
+                  try {
+                    const parsedMedia = JSON.parse(plaintext);
+                    if (parsedMedia.encryptedMedia) {
+                      return {
+                        ...msg,
+                        content: parsedMedia.caption || "",
+                        mediaUrl: parsedMedia.mediaUrl || msg.mediaUrl,
+                        mediaType: parsedMedia.mediaType || msg.mediaType,
+                        mediaKey: parsedMedia.mediaKey,
+                        nonce: parsedMedia.nonce,
+                        isE2EEMedia: true,
+                      };
+                    }
+                  } catch (_) {}
                 }
+                return { ...msg, content: plaintext };
+              } catch (e) {
+                console.warn("Could not decrypt message", e);
               }
-              // For our own sent messages, we can't decrypt them since they were encrypted for the recipient,
-              // unless we dual-encrypted them. For now, display as [Encrypted].
-              if (msg.senderId === user.id && msg.content && msg.content.startsWith("{")) {
-                try {
-                  const payload = JSON.parse(msg.content);
-                  if (payload.ciphertext) {
-                    return { ...msg, content: "[Encrypted Message - Available on Original Device]" };
-                  }
-                } catch (e) {}
-              }
-              return msg;
-            }));
-          }
+            }
+            return msg;
+          }));
 
           setMessages(finalMessages);
           if (socket) {
@@ -1048,29 +1051,62 @@ export default function ChatWindow({
       }
     };
 
-    const handleNewMessage = (data: { message: Message; conversationId: string }) => {
+    const handleNewMessage = async (data: { message: Message; conversationId: string }) => {
       if (data.conversationId === chat.id) {
+        let msg = data.message;
+        // Avoid duplicate decryption if message ID already exists
+        if (msg.id && messages.some(m => m.id === msg.id)) {
+          return;
+        }
+
+        if (msg.content && msg.content.startsWith("{")) {
+          try {
+            const plaintext = await decryptIncomingContent(msg.content, msg.senderId, chat.id, user?.id);
+            if (plaintext.startsWith("{") && plaintext.endsWith("}")) {
+              try {
+                const parsedMedia = JSON.parse(plaintext);
+                if (parsedMedia.encryptedMedia) {
+                  msg = {
+                    ...msg,
+                    content: parsedMedia.caption || "",
+                    mediaUrl: parsedMedia.mediaUrl || msg.mediaUrl,
+                    mediaType: parsedMedia.mediaType || msg.mediaType,
+                    mediaKey: parsedMedia.mediaKey,
+                    nonce: parsedMedia.nonce,
+                    isE2EEMedia: true,
+                  } as any;
+                } else {
+                  msg = { ...msg, content: plaintext };
+                }
+              } catch (_) {
+                msg = { ...msg, content: plaintext };
+              }
+            } else {
+              msg = { ...msg, content: plaintext };
+            }
+          } catch (_) {}
+        }
+
         setMessages((prev) => {
-          if (prev.some(m => m.id === data.message.id)) return prev;
+          if (prev.some(m => m.id === msg.id)) return prev;
           
-          if (data.message.senderId === user?.id) {
+          if (msg.senderId === user?.id) {
             const tempIndex = prev.findIndex(m => 
               m.id.startsWith("temp-") && 
-              m.content === data.message.content && 
-              m.mediaUrl === data.message.mediaUrl
+              m.content === msg.content && 
+              m.mediaUrl === msg.mediaUrl
             );
             if (tempIndex !== -1) {
               const newMessages = [...prev];
-              newMessages[tempIndex] = data.message;
+              newMessages[tempIndex] = msg;
               return newMessages;
             }
           }
-          return [...prev, data.message];
+          return [...prev, msg];
         });
         setIsRecipientTyping(false);
         socket.emit("mark_read", { conversationId: chat.id });
-        // Play notification sound only for incoming messages (not our own)
-        if (data.message.senderId !== user?.id) {
+        if (msg.senderId !== user?.id) {
           playNotificationSound();
         }
       }
@@ -1306,15 +1342,21 @@ export default function ChatWindow({
     }, 1000);
   };
 
-  const handleSendMessage = (e: React.FormEvent) => {
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputValue.trim() || !socket || !chat) return;
 
     if (editingMessage) {
+      let encryptedContent = inputValue.trim();
+      try {
+        encryptedContent = await encryptConversationPayload(chat.id, inputValue.trim());
+      } catch (err) {
+        console.warn("Conversation E2EE edit encryption error:", err);
+      }
       // Send Edit event
       socket.emit("edit_message", {
         messageId: editingMessage.id,
-        content: inputValue.trim(),
+        content: encryptedContent,
       });
       setEditingMessage(null);
     } else {
@@ -1342,27 +1384,20 @@ export default function ChatWindow({
       
       setMessages(prev => [...prev, optimisticMsg]);
 
-      // If direct message, try to use E2EE; fall back to standard socket messaging if recipient has no E2EE device registered (e.g. mobile user)
-      if (!chat.isGroup && chat.recipient?.email && user) {
-        encryptAndSend(user.id, chat.recipient.email, chat.id, newMsgContent, token || "").catch(err => {
-          console.warn("E2EE encryption unavailable for recipient, falling back to socket messaging:", err);
-          if (socket) {
-            socket.emit("send_message", {
-              conversationId: chat.id,
-              content: newMsgContent,
-              parentMessageId: replyingToMessage?.id || undefined,
-            });
-          }
+      // 100% E2EE: Pre-encrypt outgoing message with zero-knowledge ratchet
+      let encryptedContent = newMsgContent;
+      try {
+        encryptedContent = await encryptConversationPayload(chat.id, newMsgContent);
+      } catch (err) {
+        console.warn("Conversation E2EE encryption error:", err);
+      }
+
+      if (socket) {
+        socket.emit("send_message", {
+          conversationId: chat.id,
+          content: encryptedContent,
+          parentMessageId: replyingToMessage?.id || undefined,
         });
-      } else {
-        // Send regular message or reply for groups
-        if (socket) {
-          socket.emit("send_message", {
-            conversationId: chat.id,
-            content: newMsgContent,
-            parentMessageId: replyingToMessage?.id || undefined,
-          });
-        }
       }
       setReplyingToMessage(null);
     }
@@ -2232,12 +2267,27 @@ export default function ChatWindow({
                         </a>
                       </div>
                     ) : emojiOnly ? (
-                      /* Big emoji-only messages */
-                      <div
-                        className={`select-none leading-none py-1 ${getEmojiAnimationClass(msg.content)}`}
-                        style={{ fontSize: getEmojiCount(msg.content) === 1 ? "35px" : getEmojiCount(msg.content) === 2 ? "29px" : getEmojiCount(msg.content) === 3 ? "23px" : "16px" }}
-                      >
-                        <TwemojiText text={msg.content} />
+                      /* Big interactive emoji-only messages */
+                      <div className="select-none py-1 flex items-center gap-1.5 flex-wrap">
+                        {(() => {
+                          const count = getEmojiCount(msg.content);
+                          const size = count === 1 ? "large" : count <= 3 ? "medium" : "inline";
+                          let emojis: string[] = [];
+                          if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+                            const segmenter = new Intl.Segmenter('en', { granularity: 'grapheme' });
+                            emojis = Array.from(segmenter.segment(msg.content.trim().replace(/\s/g, ''))).map(s => s.segment);
+                          } else {
+                            emojis = Array.from(msg.content.trim().replace(/\s/g, ''));
+                          }
+                          return emojis.map((emo, idx) => (
+                            <AnimatedEmoji
+                              key={`${msg.id}-emo-${idx}`}
+                              emoji={emo}
+                              size={size}
+                              interactive={true}
+                            />
+                          ));
+                        })()}
                       </div>
                     ) : (
                       <div
@@ -2265,7 +2315,7 @@ export default function ChatWindow({
                     
                     {/* Reactions */}
                     {msg.reactions && msg.reactions.length > 0 && (
-                      <div className={`absolute -bottom-3 ${isMe ? "right-1" : "left-1"} flex flex-wrap gap-0.5 z-10`}>
+                      <div className={`absolute -bottom-3 ${isMe ? "right-1" : "left-1"} flex flex-wrap gap-1 z-10`}>
                         {Array.from(new Set(msg.reactions.map(r => r.emoji))).map(emoji => (
                           <div 
                             key={emoji} 
@@ -2273,13 +2323,16 @@ export default function ChatWindow({
                               e.stopPropagation();
                               toggleReaction(msg.id, emoji as string);
                             }}
-                            className="bg-zinc-800/90 border border-zinc-700/50 rounded-full px-1.5 py-0.5 text-xs shadow-sm hover:bg-zinc-700 cursor-pointer transition-colors flex items-center gap-1"
+                            className="bg-zinc-850/95 hover:bg-zinc-750 border border-zinc-700/60 rounded-full px-2 py-0.5 text-xs shadow-md cursor-pointer transition-all duration-150 hover:scale-105 active:scale-95 flex items-center gap-1 backdrop-blur-sm"
+                            title={`Reaction: ${emoji}`}
                           >
-                            <span style={{ fontSize: "13.8px" }}>
-                              <TwemojiText text={emoji as string} />
-                            </span>
+                            <AnimatedEmoji
+                              emoji={emoji as string}
+                              size="reaction"
+                              interactive={false}
+                            />
                             {msg.reactions!.filter(r => r.emoji === emoji).length > 1 && (
-                              <span className="text-[10px] text-zinc-300 font-medium">
+                              <span className="text-[10px] text-zinc-300 font-semibold tracking-tight">
                                 {msg.reactions!.filter(r => r.emoji === emoji).length}
                               </span>
                             )}

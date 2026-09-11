@@ -69,6 +69,17 @@ export const authenticateToken = async (
       return;
     }
 
+    // Verify session revocation status if tracked in database
+    const trackedSession = await prisma.session.findFirst({
+      where: { token },
+      select: { id: true, isActive: true, revokedAt: true },
+    });
+
+    if (trackedSession && (!trackedSession.isActive || trackedSession.revokedAt)) {
+      res.status(401).json({ message: "This device session has been revoked. Please log in again." });
+      return;
+    }
+
     req.user = user;
     next();
   } catch (error) {

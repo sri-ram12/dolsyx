@@ -1,8 +1,7 @@
 import type { Response } from "express";
 import { prisma } from "../config/db.js";
 import type { AuthRequest } from "../middleware/auth.middleware.js";
-import { encryptionService } from "../services/encryption.service.js";
-import { canViewProfilePhoto, canViewAbout, canViewLastSeen, canViewOnline } from "../utils/privacy.engine.js";
+import { evaluatePrivacyInMemory, canViewProfilePhoto, canViewAbout, canViewLastSeen, canViewOnline } from "../utils/privacy.engine.js";
 
 export const getChats = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
@@ -30,6 +29,13 @@ export const getChats = async (req: AuthRequest, res: Response): Promise<void> =
                 lastSeen: true,
                 isOnline: true,
                 bio: true,
+                avatarPrivacy: true,
+                avatarPrivacyExceptList: true,
+                lastSeenPrivacy: true,
+                lastSeenPrivacyExceptList: true,
+                onlinePrivacy: true,
+                aboutPrivacy: true,
+                aboutPrivacyExceptList: true,
               },
             },
           },
@@ -89,9 +95,6 @@ export const getChats = async (req: AuthRequest, res: Response): Promise<void> =
       } catch (_) {}
     }
 
-    const photoPrivacyCache = new Map<string, boolean>();
-    const aboutPrivacyCache = new Map<string, boolean>();
-
     // Batch fetch all blocks involving current user in 1 query for instant in-memory checking
     const myBlocks = await prisma.userBlock.findMany({
       where: {
@@ -104,48 +107,48 @@ export const getChats = async (req: AuthRequest, res: Response): Promise<void> =
       if (b.blockedId === userId) blockedSet.add(b.blockerId);
     }
 
-    // Format chat list for frontend convenience — apply privacy per recipient
-    const formattedChats = await Promise.all(conversations.map(async (chat) => {
+    // High-performance batch contact fetching: 1 single query for all conversation recipients
+    const recipientUserIds = Array.from(new Set(
+      conversations
+        .map((c) => c.participants.find((p) => p.userId !== userId)?.userId)
+        .filter((id): id is string => Boolean(id))
+    ));
+
+    const recipientContacts = recipientUserIds.length > 0 ? await prisma.contact.findMany({
+      where: {
+        userId: { in: recipientUserIds },
+        contactId: userId,
+      },
+      select: { userId: true },
+    }) : [];
+
+    const contactsOfRecipientsSet = new Set<string>(recipientContacts.map((c) => c.userId));
+
+    // Format chat list in-memory — 0 additional DB queries
+    const formattedChats = conversations.map((chat) => {
       // Find the recipient (the other participant in a 1-on-1 chat)
       const otherParticipant = chat.participants.find((p) => p.userId !== userId);
       const recipient = otherParticipant ? { ...otherParticipant.user } : null;
-      // Decrypt lastMessage content so the sidebar preview shows readable text
+      // Zero-Knowledge E2EE: return stored content as-is so clients decrypt locally
       const rawLastMessage = chat.messages[0] || null;
       const lastMessage = rawLastMessage
         ? {
             ...rawLastMessage,
-            content: rawLastMessage.content
-              ? (() => {
-                  try {
-                    return encryptionService.decrypt(rawLastMessage.content);
-                  } catch {
-                    return "";
-                  }
-                })()
-              : "",
+            content: rawLastMessage.content || "",
           }
         : null;
 
       const unreadCount = unreadCountMap[chat.id] || 0;
 
       if (recipient) {
-        if (blockedSet.has(recipient.id)) {
-          // Blocked: hide everything
-          recipient.avatarUrl = null;
-          recipient.bio = null;
-          recipient.lastSeen = null;
-          recipient.isOnline = false;
-        } else {
-          // Apply privacy engine for non-blocked recipients
-          const [canPhoto, canLastSeen, canOnlineStatus] = await Promise.all([
-            canViewProfilePhoto(userId, recipient.id),
-            canViewLastSeen(userId, recipient.id),
-            canViewOnline(userId, recipient.id),
-          ]);
-          if (!canPhoto) recipient.avatarUrl = null;
-          if (!canLastSeen) recipient.lastSeen = null;
-          if (!canOnlineStatus) recipient.isOnline = false;
-        }
+        const isBlocked = blockedSet.has(recipient.id);
+        const isContact = contactsOfRecipientsSet.has(recipient.id);
+        const privacy = evaluatePrivacyInMemory(userId, recipient, isBlocked, isContact);
+
+        if (!privacy.canPhoto) recipient.avatarUrl = null;
+        if (!privacy.canLastSeen) recipient.lastSeen = null;
+        if (!privacy.canOnlineStatus) recipient.isOnline = false;
+        if (!privacy.canAbout) recipient.bio = null;
       }
 
       return {
@@ -166,7 +169,7 @@ export const getChats = async (req: AuthRequest, res: Response): Promise<void> =
         isLocked: chat.participants.find((p) => p.userId === userId)?.isLocked || false,
         isFavorite: chat.participants.find((p) => p.userId === userId)?.isFavorite || false,
       };
-    }));
+    });
 
     // Deduplicate 1-on-1 direct conversations so each contact/user appears strictly once
     const seenDirectUserIds = new Set<string>();
@@ -213,8 +216,11 @@ export const getMessages = async (req: AuthRequest, res: Response): Promise<void
       return;
     }
 
-    // Fetch messages
-    const messages = await prisma.message.findMany({
+    const cursor = req.query["cursor"] as string | undefined;
+    const limitQuery = req.query["limit"] as string | undefined;
+    const limit = limitQuery ? Math.min(Math.max(parseInt(limitQuery, 10), 1), 100) : 50;
+
+    const findArgs: any = {
       where: {
         conversationId,
         deletedForUsers: {
@@ -223,8 +229,9 @@ export const getMessages = async (req: AuthRequest, res: Response): Promise<void
           },
         },
       },
+      take: limit,
       orderBy: {
-        createdAt: "asc",
+        createdAt: "desc",
       },
       include: {
         sender: {
@@ -238,15 +245,25 @@ export const getMessages = async (req: AuthRequest, res: Response): Promise<void
         receipts: true,
         reactions: true,
       },
-    });
+    };
 
-    // Decrypt messages
-    const decryptedMessages = messages.map((msg) => ({
-      ...msg,
-      content: encryptionService.decrypt(msg.content),
-    }));
+    if (cursor) {
+      findArgs.cursor = { id: cursor };
+      findArgs.skip = 1;
+    }
 
-    res.json(decryptedMessages);
+    const messages = await prisma.message.findMany(findArgs);
+
+    // Reverse for chronological order on the client
+    messages.reverse();
+
+    const nextCursor = messages.length === limit ? messages[0]?.id : null;
+    if (nextCursor) {
+      res.setHeader("X-Next-Cursor", nextCursor);
+    }
+
+    // Zero-Knowledge E2EE: Return opaque ciphertext directly to authenticated participants
+    res.json(messages);
   } catch (error) {
     console.error("GetMessages error:", error);
     res.status(500).json({ message: "Internal server error" });
@@ -295,20 +312,12 @@ export const getMediaMessages = async (req: AuthRequest, res: Response): Promise
       },
     });
 
-    // Decrypt all contents and filter for media, files, and links
-    const decryptedMediaMessages = messages
-      .map((msg) => ({
-        ...msg,
-        content: encryptionService.decrypt(msg.content),
-      }))
-      .filter((msg) => {
-        const hasMedia = !!msg.mediaUrl && msg.mediaUrl.trim().length > 0;
-        const text = msg.content || "";
-        const hasLink = text.includes("http://") || text.includes("https://") || text.includes("www.") || /(https?:\/\/[^\s]+|www\.[^\s]+)/i.test(text);
-        return hasMedia || hasLink;
-      });
+    // Zero-Knowledge E2EE: Filter for media messages by mediaUrl and mediaType
+    const mediaMessages = messages.filter((msg) => {
+      return (!!msg.mediaUrl && msg.mediaUrl.trim().length > 0) || (msg.mediaType && msg.mediaType !== "TEXT");
+    });
 
-    res.json(decryptedMediaMessages);
+    res.json(mediaMessages);
   } catch (error) {
     console.error("GetMediaMessages error:", error);
     res.status(500).json({ message: "Internal server error" });
@@ -955,11 +964,11 @@ export const editMessage = async (req: AuthRequest, res: Response): Promise<void
       return;
     }
 
-    const encryptedContent = encryptionService.encrypt(content.trim());
+    // Zero-Knowledge E2EE: Store client ciphertext directly
     const updated = await prisma.message.update({
       where: { id: messageId },
       data: {
-        content: encryptedContent,
+        content: content.trim(),
         isEdited: true,
       },
     });

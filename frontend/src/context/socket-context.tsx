@@ -15,7 +15,7 @@ const SocketContext = createContext<SocketContextType>({
 });
 
 export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { token } = useAuth();
+  const { token, logout } = useAuth();
   const [socket, setSocket] = useState<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
 
@@ -50,6 +50,15 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     newSocket.on("connect_error", (err) => {
       console.error("Socket connection error:", err.message);
       setIsConnected(false);
+    });
+
+    // Handle real-time device revocation from mobile
+    newSocket.on("DEVICE_REVOKED", (data) => {
+      console.warn("[Auth] Device session revoked remotely:", data);
+      logout();
+      if (typeof window !== "undefined") {
+        alert("This device was logged out from another DOLSYX device.");
+      }
     });
 
     return () => {

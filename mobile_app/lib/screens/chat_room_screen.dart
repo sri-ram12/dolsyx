@@ -40,6 +40,7 @@ import '../utils/e2ee/crypto_service.dart';
 import '../utils/e2ee/e2ee_api.dart';
 import '../services/auto_download_service.dart';
 import '../widgets/app_lock_wrapper.dart';
+import '../utils/e2ee/e2ee_media_cache.dart';
 
 class ChatRoomScreen extends StatefulWidget {
   final String conversationId;
@@ -101,13 +102,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       'mediaType': mediaType,
       'tempId': tempId,
     });
-
-    _chatService.sendMessage(
-      conversationId: widget.conversationId,
-      content: '',
-      mediaUrl: mediaUrl,
-      mediaType: mediaType,
-    );
   }
   DateTime? _activeScheduledTime;
   Message? _editingMessage;
@@ -199,17 +193,36 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           continue;
         }
 
-        final response = await apiService.uploadMedia(file.path);
+        final rawBytes = await file.readAsBytes();
+        final encResult = await CryptoService.instance.encryptFileBytes(rawBytes);
+        final tempDir = await getTemporaryDirectory();
+        final encFile = File('${tempDir.path}/${DateTime.now().millisecondsSinceEpoch}_retry.enc');
+        await encFile.writeAsBytes(encResult['encryptedBytes'] as Uint8List);
+
+        final response = await apiService.uploadMedia(encFile.path);
+        encFile.delete().catchError((_) {});
+
         if (response != null && response['fileUrl'] != null && mounted) {
+          final serverFileUrl = response['fileUrl'] as String;
+          await E2EEMediaCache.saveDecryptedMedia(serverFileUrl, rawBytes);
           _pendingMediaUploadQueue.removeWhere((q) => q['tempId'] == tempId);
           setState(() {
             _messages.removeWhere((m) => m.id == tempId);
           });
           final authProvider = Provider.of<AuthProvider>(context, listen: false);
+          final mediaPayload = jsonEncode({
+            'encryptedMedia': true,
+            'mediaUrl': serverFileUrl,
+            'mediaKey': encResult['mediaKeyB64'],
+            'nonce': encResult['nonceB64'],
+            'mediaType': mediaType,
+            'caption': caption,
+            'isViewOnce': isViewOnce,
+          });
           authProvider.socketService.sendMessage(
             widget.conversationId,
-            caption,
-            mediaUrl: response['fileUrl'],
+            mediaPayload,
+            mediaUrl: serverFileUrl,
             mediaType: mediaType,
             isViewOnce: isViewOnce,
           );
@@ -1463,12 +1476,24 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     }
   }
 
-  void _handleMessageEdited(dynamic data) {
+  Future<void> _handleMessageEdited(dynamic data) async {
     if (mounted && data != null) {
       try {
         final Map<String, dynamic> rawMsg = data['message'] != null ? Map<String, dynamic>.from(data['message']) : Map<String, dynamic>.from(data);
         final String convId = (data['conversationId'] ?? rawMsg['conversationId'] ?? '').toString();
         if (convId.isNotEmpty && convId != widget.conversationId) return;
+
+        String content = (rawMsg['content'] ?? '').toString();
+        if (content.isNotEmpty && content.startsWith('{')) {
+          try {
+            content = await CryptoService.instance.decryptIncomingContent(
+              content: content,
+              senderUserId: (rawMsg['senderId'] ?? '').toString(),
+              conversationId: widget.conversationId,
+            );
+          } catch (_) {}
+        }
+        rawMsg['content'] = content;
 
         final editedMsg = Message.fromJson(rawMsg);
         setState(() {
@@ -1497,6 +1522,44 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     }
   }
 
+  Future<List<Message>> _decryptMessageList(List<Message> list) async {
+    final crypto = CryptoService.instance;
+    final result = <Message>[];
+    for (final m in list) {
+      if (m.content.isNotEmpty && m.content.startsWith('{')) {
+        try {
+          final decrypted = await crypto.decryptIncomingContent(
+            content: m.content,
+            senderUserId: m.senderId,
+            conversationId: widget.conversationId,
+          );
+          if (decrypted.startsWith('{') && decrypted.endsWith('}')) {
+            try {
+              final parsed = jsonDecode(decrypted);
+              if (parsed is Map && parsed['encryptedMedia'] == true) {
+                result.add(m.copyWith(
+                  content: parsed['caption']?.toString() ?? '',
+                  mediaUrl: parsed['mediaUrl']?.toString() ?? m.mediaUrl,
+                  mediaType: parsed['mediaType']?.toString() ?? m.mediaType,
+                  mediaKey: parsed['mediaKey']?.toString(),
+                  nonce: parsed['nonce']?.toString(),
+                  isE2EEMedia: true,
+                ));
+                continue;
+              }
+            } catch (_) {}
+          }
+          result.add(m.copyWith(content: decrypted));
+        } catch (_) {
+          result.add(m);
+        }
+      } else {
+        result.add(m);
+      }
+    }
+    return result;
+  }
+
   // Load cached messages from local storage instantly
   Future<void> _loadCachedMessages() async {
     try {
@@ -1504,11 +1567,15 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       final cached = prefs.getString('cached_messages_${widget.conversationId}');
       if (cached != null && mounted) {
         final List<dynamic> data = jsonDecode(cached);
-        setState(() {
-          _messages = data.map((json) => Message.fromJson(json)).toList();
-          _isLoading = false;
-        });
-        _scrollToBottom();
+        final rawList = data.map((json) => Message.fromJson(json)).toList();
+        final decryptedList = await _decryptMessageList(rawList);
+        if (mounted) {
+          setState(() {
+            _messages = decryptedList;
+            _isLoading = false;
+          });
+          _scrollToBottom();
+        }
       }
     } catch (e) {
       print('Error loading cached messages: $e');
@@ -1534,18 +1601,19 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('cached_messages_${widget.conversationId}', response.body);
 
-        final bool wasEmpty = _messages.isEmpty;
         final List<dynamic> data = jsonDecode(response.body);
-          if (mounted) {
-            setState(() {
-              _messages = data.map((json) => Message.fromJson(json)).toList();
-              _isLoading = false;
-              try {
-                _pinnedMessage = _messages.firstWhere((m) => m.isPinned);
-              } catch (_) {}
-            });
-            _scrollToBottom();
-          }
+        final rawList = data.map((json) => Message.fromJson(json)).toList();
+        final decryptedList = await _decryptMessageList(rawList);
+        if (mounted) {
+          setState(() {
+            _messages = decryptedList;
+            _isLoading = false;
+            try {
+              _pinnedMessage = _messages.firstWhere((m) => m.isPinned);
+            } catch (_) {}
+          });
+          _scrollToBottom();
+        }
       } else if (mounted) {
         setState(() => _isLoading = false);
       }
@@ -2115,11 +2183,22 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
       if (text != msgToEdit.content) {
         final authProvider = Provider.of<AuthProvider>(context, listen: false);
-        authProvider.socketService.socket?.emit('edit_message', {
-          'messageId': msgToEdit.id,
-          'content': text,
+        CryptoService.instance.encryptConversationPayload(
+          conversationId: widget.conversationId,
+          plaintext: text,
+        ).then((payloadContent) {
+          authProvider.socketService.socket?.emit('edit_message', {
+            'messageId': msgToEdit.id,
+            'content': payloadContent,
+          });
+          _chatService.editMessage(msgToEdit.id, payloadContent);
+        }).catchError((_) {
+          authProvider.socketService.socket?.emit('edit_message', {
+            'messageId': msgToEdit.id,
+            'content': text,
+          });
+          _chatService.editMessage(msgToEdit.id, text);
         });
-        _chatService.editMessage(msgToEdit.id, text);
         if (mounted) {
           setState(() {
             final idx = _messages.indexWhere((m) => m.id == msgToEdit.id);
@@ -2454,8 +2533,19 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
     try {
       final apiService = ApiService();
-      final response = await apiService.uploadMedia(file.path);
+      // 100% Client-Side E2EE Pre-Encryption
+      final rawBytes = await file.readAsBytes();
+      final encResult = await CryptoService.instance.encryptFileBytes(rawBytes);
+      final tempDir = await getTemporaryDirectory();
+      final encFile = File('${tempDir.path}/${DateTime.now().millisecondsSinceEpoch}_send.enc');
+      await encFile.writeAsBytes(encResult['encryptedBytes'] as Uint8List);
+
+      final response = await apiService.uploadMedia(encFile.path);
+      encFile.delete().catchError((_) {});
+
       if (response != null && response['fileUrl'] != null && mounted) {
+        final serverFileUrl = response['fileUrl'] as String;
+        await E2EEMediaCache.saveDecryptedMedia(serverFileUrl, rawBytes);
         _pendingMediaUploadQueue.removeWhere((q) => q['tempId'] == tempId);
         setState(() {
           final idx = _messages.indexWhere((m) => m.id == tempId);
@@ -2465,18 +2555,30 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               content: caption,
               senderId: myUserId,
               conversationId: widget.conversationId,
-              mediaUrl: response['fileUrl'],
+              mediaUrl: serverFileUrl,
               mediaType: mediaType,
               isViewOnce: isViewOnce,
               isPending: false,
               createdAt: _messages[idx].createdAt,
+              mediaKey: encResult['mediaKeyB64'],
+              nonce: encResult['nonceB64'],
+              isE2EEMedia: true,
             );
           }
         });
+        final mediaPayload = jsonEncode({
+          'encryptedMedia': true,
+          'mediaUrl': serverFileUrl,
+          'mediaKey': encResult['mediaKeyB64'],
+          'nonce': encResult['nonceB64'],
+          'mediaType': mediaType,
+          'caption': caption,
+          'isViewOnce': isViewOnce,
+        });
         authProvider.socketService.sendMessage(
           widget.conversationId, 
-          caption, 
-          mediaUrl: response['fileUrl'], 
+          mediaPayload, 
+          mediaUrl: serverFileUrl, 
           mediaType: mediaType,
           isViewOnce: isViewOnce,
         );
@@ -3987,8 +4089,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                         physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
                         padding: const EdgeInsets.all(16),
                         itemCount: _messages.length,
-                        cacheExtent: 1500.0,
-                        addAutomaticKeepAlives: true,
+                        cacheExtent: 500.0,
+                        addAutomaticKeepAlives: false,
                         addRepaintBoundaries: true,
                         itemBuilder: (context, index) {
                           final message = _messages[index];

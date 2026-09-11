@@ -6,11 +6,17 @@ import '../models/chat.dart';
 import '../models/message.dart';
 
 class ChatService {
-  Future<List<Message>> getMessages(String conversationId) async {
+  Future<List<Message>> getMessages(String conversationId, {String? cursor, int limit = 50}) async {
     try {
       final token = await ApiService().getToken();
+      final queryParams = <String, String>{
+        'limit': limit.toString(),
+        if (cursor != null && cursor.isNotEmpty) 'cursor': cursor,
+      };
+      final uri = Uri.parse('${ApiService.baseUrl}/chats/$conversationId/messages')
+          .replace(queryParameters: queryParams);
       final response = await http.get(
-        Uri.parse('${ApiService.baseUrl}/chats/$conversationId/messages'),
+        uri,
         headers: {
           'Content-Type': 'application/json',
           if (token != null) 'Authorization': 'Bearer $token',

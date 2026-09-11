@@ -24,6 +24,7 @@ import keyRoutes from "./routes/key.routes.js";
 import messageRoutes from "./routes/message.routes.js";
 import backupRoutes from "./routes/backup.routes.js";
 import aiRoutes from "./routes/ai.routes.js";
+import deviceRoutes from "./routes/device.routes.js";
 import { initChatSocket } from "./sockets/chat.socket.js";
 import { initCronJobs } from "./utils/cron.jobs.js";
 import { initFirebase } from "./config/firebase.config.js";
@@ -99,6 +100,7 @@ app.use("/api/keys", keyRoutes);
 app.use("/api/messages", messageRoutes);
 app.use("/api/backups", backupRoutes);
 app.use("/api/ai", aiRoutes);
+app.use("/api/devices", deviceRoutes);
 // ── Initialize Background Jobs & SDKs ──────────────────────────────────────────
 initFirebase();
 initCronJobs();

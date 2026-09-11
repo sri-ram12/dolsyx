@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import '../services/api_service.dart';
 import '../services/socket_service.dart';
 import '../utils/e2ee/crypto_service.dart';
@@ -348,6 +349,12 @@ class AuthProvider with ChangeNotifier {
   }
 
   Future<void> logout() async {
+    try {
+      final googleSignIn = GoogleSignIn(
+        serverClientId: '135176717661-ugfua55saob2pfm6er1f8o9bunubhdsp.apps.googleusercontent.com',
+      );
+      await googleSignIn.signOut();
+    } catch (_) {}
     await _apiService.logout();
     // Remove current user from active session but keep in saved accounts
     final prefs = await SharedPreferences.getInstance();

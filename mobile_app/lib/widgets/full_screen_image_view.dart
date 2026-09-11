@@ -12,7 +12,7 @@ import '../models/message.dart';
 import '../providers/auth_provider.dart';
 import '../screens/forward_message_screen.dart';
 import '../services/api_service.dart';
-import '../services/chat_service.dart';
+import '../utils/e2ee/e2ee_media_cache.dart';
 
 class FullScreenImageView extends StatefulWidget {
   final String imageUrl;
@@ -43,6 +43,8 @@ class _FullScreenImageViewState extends State<FullScreenImageView> {
   bool _isVideo = false;
   bool _isVideoInit = false;
   bool _isPlaying = false;
+  File? _decryptedFile;
+  bool _isDecrypting = false;
 
   @override
   void initState() {
@@ -53,7 +55,31 @@ class _FullScreenImageViewState extends State<FullScreenImageView> {
         resolvedUrl.toLowerCase().endsWith('.mov') ||
         resolvedUrl.toLowerCase().endsWith('.mkv');
 
-    if (_isVideo) {
+    if (widget.message?.isE2EEMedia == true && widget.message?.mediaKey != null) {
+      _isDecrypting = true;
+      E2EEMediaCache.getOrDownloadDecryptedMedia(
+        mediaUrl: widget.imageUrl,
+        mediaKey: widget.message!.mediaKey,
+        nonce: widget.message!.nonce,
+      ).then((file) {
+        if (mounted) {
+          setState(() {
+            _decryptedFile = file;
+            _isDecrypting = false;
+          });
+          if (file != null && _isVideo) {
+            _videoController = VideoPlayerController.file(file)
+              ..initialize().then((_) {
+                if (mounted) {
+                  setState(() => _isVideoInit = true);
+                  _videoController!.play();
+                  _isPlaying = true;
+                }
+              });
+          }
+        }
+      });
+    } else if (_isVideo) {
       _videoController = VideoPlayerController.networkUrl(Uri.parse(resolvedUrl))
         ..initialize().then((_) {
           if (mounted) {
@@ -77,44 +103,50 @@ class _FullScreenImageViewState extends State<FullScreenImageView> {
     if (_isDownloading) return;
     setState(() => _isDownloading = true);
     try {
-      final response = await http.get(Uri.parse(url));
-      if (response.statusCode == 200) {
-        final tempDir = await getTemporaryDirectory();
-        final ext = url.split('?').first.split('.').last.toLowerCase();
-        final safeExt = ['jpg', 'jpeg', 'png', 'webp', 'mp4', 'mov'].contains(ext) ? ext : (_isVideo ? 'mp4' : 'jpg');
-        final file = File('${tempDir.path}/DOLSYX_${DateTime.now().millisecondsSinceEpoch}.$safeExt');
-        await file.writeAsBytes(response.bodyBytes);
+      final tempDir = await getTemporaryDirectory();
+      final ext = url.split('?').first.split('.').last.toLowerCase();
+      final safeExt = ['jpg', 'jpeg', 'png', 'webp', 'mp4', 'mov'].contains(ext) ? ext : (_isVideo ? 'mp4' : 'jpg');
+      final file = File('${tempDir.path}/DOLSYX_${DateTime.now().millisecondsSinceEpoch}.$safeExt');
 
-        bool hasAccess = await Gal.hasAccess();
-        if (!hasAccess) {
-          hasAccess = await Gal.requestAccess();
-        }
-
-        if (hasAccess) {
-          if (_isVideo) {
-            await Gal.putVideo(file.path, album: 'DOLSYX');
-          } else {
-            await Gal.putImage(file.path, album: 'DOLSYX');
-          }
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(_isVideo ? '✅ Video saved to Gallery (DOLSYX)' : '✅ Image saved to Gallery (DOLSYX)'),
-                backgroundColor: const Color(0xFF00A884),
-              ),
-            );
-          }
+      if (_decryptedFile != null && await _decryptedFile!.exists()) {
+        await file.writeAsBytes(await _decryptedFile!.readAsBytes());
+      } else {
+        final response = await http.get(Uri.parse(url));
+        if (response.statusCode == 200) {
+          await file.writeAsBytes(response.bodyBytes);
         } else {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Storage permission denied.')),
+              const SnackBar(content: Text('Failed to download media.')),
             );
           }
+          return;
+        }
+      }
+
+      bool hasAccess = await Gal.hasAccess();
+      if (!hasAccess) {
+        hasAccess = await Gal.requestAccess();
+      }
+
+      if (hasAccess) {
+        if (_isVideo) {
+          await Gal.putVideo(file.path, album: 'DOLSYX');
+        } else {
+          await Gal.putImage(file.path, album: 'DOLSYX');
+        }
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(_isVideo ? '✅ Video saved to Gallery (DOLSYX)' : '✅ Image saved to Gallery (DOLSYX)'),
+              backgroundColor: const Color(0xFF00A884),
+            ),
+          );
         }
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Failed to download media.')),
+            const SnackBar(content: Text('Storage permission denied.')),
           );
         }
       }
@@ -135,18 +167,25 @@ class _FullScreenImageViewState extends State<FullScreenImageView> {
     if (_isSharing) return;
     setState(() => _isSharing = true);
     try {
-      final response = await http.get(Uri.parse(url));
-      if (response.statusCode == 200) {
-        final tempDir = await getTemporaryDirectory();
-        final ext = url.split('?').first.split('.').last.toLowerCase();
-        final safeExt = ['jpg', 'jpeg', 'png', 'webp', 'mp4'].contains(ext) ? ext : (_isVideo ? 'mp4' : 'jpg');
-        final file = File('${tempDir.path}/DOLSYX_share_${DateTime.now().millisecondsSinceEpoch}.$safeExt');
-        await file.writeAsBytes(response.bodyBytes);
-
+      if (_decryptedFile != null && await _decryptedFile!.exists()) {
         await Share.shareXFiles(
-          [XFile(file.path)],
+          [XFile(_decryptedFile!.path)],
           text: widget.message?.content.isNotEmpty == true ? widget.message!.content : 'Shared via DOLSYX',
         );
+      } else {
+        final response = await http.get(Uri.parse(url));
+        if (response.statusCode == 200) {
+          final tempDir = await getTemporaryDirectory();
+          final ext = url.split('?').first.split('.').last.toLowerCase();
+          final safeExt = ['jpg', 'jpeg', 'png', 'webp', 'mp4'].contains(ext) ? ext : (_isVideo ? 'mp4' : 'jpg');
+          final file = File('${tempDir.path}/DOLSYX_share_${DateTime.now().millisecondsSinceEpoch}.$safeExt');
+          await file.writeAsBytes(response.bodyBytes);
+
+          await Share.shareXFiles(
+            [XFile(file.path)],
+            text: widget.message?.content.isNotEmpty == true ? widget.message!.content : 'Shared via DOLSYX',
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -361,24 +400,28 @@ class _FullScreenImageViewState extends State<FullScreenImageView> {
             : InteractiveViewer(
                 minScale: 1.0,
                 maxScale: 5.0,
-                child: CachedNetworkImage(
-                  imageUrl: resolvedUrl,
-                  fit: BoxFit.contain,
-                  progressIndicatorBuilder: (context, url, downloadProgress) => Center(
-                    child: CircularProgressIndicator(
-                      value: downloadProgress.progress,
-                      color: Colors.white,
-                    ),
-                  ),
-                  errorWidget: (context, url, error) => const Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.broken_image, color: Colors.grey, size: 80),
-                      SizedBox(height: 12),
-                      Text('Failed to load image', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
-                    ],
-                  ),
-                ),
+                child: _decryptedFile != null
+                    ? Image.file(_decryptedFile!, fit: BoxFit.contain)
+                    : (_isDecrypting
+                        ? const Center(child: CircularProgressIndicator(color: Colors.white))
+                        : CachedNetworkImage(
+                            imageUrl: resolvedUrl,
+                            fit: BoxFit.contain,
+                            progressIndicatorBuilder: (context, url, downloadProgress) => Center(
+                              child: CircularProgressIndicator(
+                                value: downloadProgress.progress,
+                                color: Colors.white,
+                              ),
+                            ),
+                            errorWidget: (context, url, error) => const Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.broken_image, color: Colors.grey, size: 80),
+                                SizedBox(height: 12),
+                                Text('Failed to load image', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                          )),
               ),
       ),
     );

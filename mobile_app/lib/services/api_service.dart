@@ -5,8 +5,9 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_core/firebase_core.dart';
 
 class ApiService {
-  // DOLSYX Local Dev Backend (Your computer's Wi-Fi IP)
-  static const String baseUrl = 'http://192.168.0.76:4000/api';
+  // DOLSYX Production Render Backend (works on all devices, Wi-Fi, and 4G/5G)
+  static const String baseUrl = 'https://dolsyx-app.onrender.com/api';
+  static const String localUrl = 'http://192.168.0.76:4000/api';
 
   static String getMediaUrl(String? path) {
     if (path == null || path.isEmpty) return '';
@@ -327,63 +328,205 @@ class ApiService {
     }
   }
 
-  Future<bool> approveQrWebLogin(String token, String sessionId, {String? customBackendUrl, String? userId}) async {
-    try {
-      final candidateUrls = <String>[];
+  // ─────────────────────────────────────────────────────────────────────────
+  // DOLSYX Secure Linked Device QR Login & Multi-Device Management
+  // ─────────────────────────────────────────────────────────────────────────
 
-      void addCandidate(String? url) {
-        if (url == null || url.trim().isEmpty) return;
-        var clean = url.trim();
-        while (clean.endsWith('/')) {
-          clean = clean.substring(0, clean.length - 1);
-        }
-        if (clean.contains('localhost') || clean.contains('127.0.0.1')) {
-          clean = clean.replaceAll('localhost', '192.168.0.182').replaceAll('127.0.0.1', '192.168.0.182');
-        }
-        final withApi = clean.endsWith('/api') ? clean : '$clean/api';
-        if (!candidateUrls.contains(withApi)) candidateUrls.add(withApi);
-        if (clean.endsWith('/api')) {
-          final withoutApi = clean.substring(0, clean.length - 4);
-          if (!candidateUrls.contains(withoutApi)) candidateUrls.add(withoutApi);
-        } else {
-          if (!candidateUrls.contains(clean)) candidateUrls.add(clean);
-        }
+  List<String> _resolveCandidateUrls(String? customBackendUrl) {
+    final candidateUrls = <String>[];
+    void addCandidate(String? url) {
+      if (url == null || url.trim().isEmpty) return;
+      var clean = url.trim();
+      while (clean.endsWith('/')) {
+        clean = clean.substring(0, clean.length - 1);
       }
+      if (clean.contains('localhost') || clean.contains('127.0.0.1')) {
+        clean = clean.replaceAll('localhost', '192.168.0.76').replaceAll('127.0.0.1', '192.168.0.76');
+      }
+      final withApi = clean.endsWith('/api') ? clean : '$clean/api';
+      if (!candidateUrls.contains(withApi)) candidateUrls.add(withApi);
+      if (clean.endsWith('/api')) {
+        final withoutApi = clean.substring(0, clean.length - 4);
+        if (!candidateUrls.contains(withoutApi)) candidateUrls.add(withoutApi);
+      } else {
+        if (!candidateUrls.contains(clean)) candidateUrls.add(clean);
+      }
+    }
 
-      addCandidate(customBackendUrl);
-      addCandidate('http://192.168.0.182:4000/api');
-      addCandidate(baseUrl);
+    addCandidate(customBackendUrl);
+    addCandidate(localUrl);
+    addCandidate('http://192.168.0.76:4000/api');
+    addCandidate(baseUrl);
+    return candidateUrls;
+  }
 
-      final bodyData = <String, dynamic>{
-        'sessionId': sessionId,
-        if (userId != null && userId.isNotEmpty) 'userId': userId,
-      };
+  /// 1. Scan QR pairing session (verifies challenge & gets requesting device metadata)
+  Future<Map<String, dynamic>?> scanDevicePairing(
+    String token,
+    String pairingId,
+    String challenge, {
+    String? customBackendUrl,
+  }) async {
+    final candidateUrls = _resolveCandidateUrls(customBackendUrl);
+    final bodyData = jsonEncode({'pairingId': pairingId, 'challenge': challenge});
 
-      for (final targetUrl in candidateUrls) {
-        try {
-          final response = await http
-              .post(
-                Uri.parse('$targetUrl/auth/approve-qr-session'),
-                headers: {
-                  'Authorization': 'Bearer $token',
-                  'Content-Type': 'application/json',
-                },
-                body: jsonEncode(bodyData),
-              )
-              .timeout(const Duration(seconds: 15));
+    for (final targetUrl in candidateUrls) {
+      try {
+        final endpoint = targetUrl.endsWith('/api') ? '$targetUrl/devices/pair/scan' : '$targetUrl/api/devices/pair/scan';
+        final response = await http
+            .post(
+              Uri.parse(endpoint),
+              headers: authHeaders(token),
+              body: bodyData,
+            )
+            .timeout(const Duration(seconds: 10));
 
-          if (response.statusCode == 200 || response.statusCode == 201) {
+        if (response.statusCode == 200 || response.statusCode == 201) {
+          final data = jsonDecode(response.body);
+          if (data['success'] == true) {
+            return data;
+          }
+        }
+      } catch (_) {
+        // Try next candidate
+      }
+    }
+    return null;
+  }
+
+  /// 2. Explicitly approve QR pairing after user confirmation
+  Future<bool> approveDevicePairing(
+    String token,
+    String pairingId,
+    String challenge, {
+    String? customBackendUrl,
+  }) async {
+    final candidateUrls = _resolveCandidateUrls(customBackendUrl);
+    final bodyData = jsonEncode({'pairingId': pairingId, 'challenge': challenge});
+
+    for (final targetUrl in candidateUrls) {
+      try {
+        final endpoint = targetUrl.endsWith('/api') ? '$targetUrl/devices/pair/approve' : '$targetUrl/api/devices/pair/approve';
+        final response = await http
+            .post(
+              Uri.parse(endpoint),
+              headers: authHeaders(token),
+              body: bodyData,
+            )
+            .timeout(const Duration(seconds: 12));
+
+        if (response.statusCode == 200 || response.statusCode == 201) {
+          final data = jsonDecode(response.body);
+          if (data['success'] == true) {
             return true;
           }
-        } catch (_) {
-          // Try next candidate URL
         }
+      } catch (_) {
+        // Try next candidate
       }
-      return false;
-    } catch (e) {
-      print('Approve QR Web Login error: $e');
-      return false;
     }
+    return false;
+  }
+
+  /// 3. Reject / cancel QR pairing
+  Future<bool> rejectDevicePairing(
+    String token,
+    String pairingId, {
+    String? customBackendUrl,
+  }) async {
+    final candidateUrls = _resolveCandidateUrls(customBackendUrl);
+    final bodyData = jsonEncode({'pairingId': pairingId});
+
+    for (final targetUrl in candidateUrls) {
+      try {
+        final endpoint = targetUrl.endsWith('/api') ? '$targetUrl/devices/pair/reject' : '$targetUrl/api/devices/pair/reject';
+        final response = await http
+            .post(
+              Uri.parse(endpoint),
+              headers: authHeaders(token),
+              body: bodyData,
+            )
+            .timeout(const Duration(seconds: 8));
+
+        if (response.statusCode == 200) {
+          return true;
+        }
+      } catch (_) {
+        // Try next candidate
+      }
+    }
+    return false;
+  }
+
+  /// 4. Fetch all linked devices for authenticated user
+  Future<List<Map<String, dynamic>>> getLinkedDevices(String token) async {
+    final candidateUrls = _resolveCandidateUrls(null);
+    for (final targetUrl in candidateUrls) {
+      try {
+        final endpoint = targetUrl.endsWith('/api') ? '$targetUrl/devices' : '$targetUrl/api/devices';
+        final response = await http
+            .get(
+              Uri.parse(endpoint),
+              headers: authHeaders(token),
+            )
+            .timeout(const Duration(seconds: 10));
+
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          if (data['success'] == true && data['devices'] != null) {
+            return List<Map<String, dynamic>>.from(data['devices']);
+          }
+        }
+      } catch (_) {}
+    }
+    return [];
+  }
+
+  /// 5. Revoke a specific linked device session
+  Future<bool> revokeLinkedDevice(String token, String sessionId) async {
+    final candidateUrls = _resolveCandidateUrls(null);
+    for (final targetUrl in candidateUrls) {
+      try {
+        final endpoint = targetUrl.endsWith('/api') ? '$targetUrl/devices/$sessionId' : '$targetUrl/api/devices/$sessionId';
+        final response = await http
+            .delete(
+              Uri.parse(endpoint),
+              headers: authHeaders(token),
+            )
+            .timeout(const Duration(seconds: 10));
+
+        if (response.statusCode == 200) {
+          return true;
+        }
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  /// 6. Log out from all other linked devices
+  Future<bool> logoutAllOtherDevices(String token) async {
+    final candidateUrls = _resolveCandidateUrls(null);
+    for (final targetUrl in candidateUrls) {
+      try {
+        final endpoint = targetUrl.endsWith('/api') ? '$targetUrl/devices/logout-all' : '$targetUrl/api/devices/logout-all';
+        final response = await http
+            .post(
+              Uri.parse(endpoint),
+              headers: authHeaders(token),
+            )
+            .timeout(const Duration(seconds: 10));
+
+        if (response.statusCode == 200) {
+          return true;
+        }
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  /// Legacy support wrapper for approveQrWebLogin
+  Future<bool> approveQrWebLogin(String token, String sessionId, {String? customBackendUrl, String? userId}) async {
+    return approveDevicePairing(token, sessionId, "legacy", customBackendUrl: customBackendUrl);
   }
 
   // Mandatory Google Play Policy: Permanently delete account and user data

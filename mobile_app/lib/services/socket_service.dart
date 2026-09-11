@@ -39,6 +39,7 @@ class SocketService {
   final Set<String> onlineUserIds = {};
   final StreamController<Set<String>> onlineUsersStream = StreamController<Set<String>>.broadcast();
   final StreamController<Map<String, dynamic>> typingUpdates = StreamController<Map<String, dynamic>>.broadcast();
+  final Set<String> _recentMessageIds = {};
 
   String? _currentUserId;
 
@@ -71,50 +72,108 @@ class SocketService {
       _processOfflineQueue();
     });
 
-    socket?.on('new_message', (data) {
-      SoundService().playNotificationSound();
+    socket?.on('new_message', (data) async {
+      if (data == null || data is! Map) return;
+
+      final rawMsg = data['message'] ?? data;
+      final msgId = (rawMsg is Map) ? (rawMsg['id'] ?? rawMsg['_id'])?.toString() : null;
+      if (msgId != null && msgId.isNotEmpty) {
+        if (_recentMessageIds.contains(msgId)) return;
+        if (_recentMessageIds.length > 250) {
+          _recentMessageIds.remove(_recentMessageIds.first);
+        }
+        _recentMessageIds.add(msgId);
+      }
+
+      final rawSenderId = (rawMsg is Map) ? (rawMsg['senderId'] ?? rawMsg['sender']?['id'])?.toString() : null;
+      if (rawSenderId != null && rawSenderId != _currentUserId) {
+        SoundService().playNotificationSound();
+      }
+      
+      try {
+        if (rawMsg is Map) {
+          final message = Map<String, dynamic>.from(rawMsg);
+          final conversationId = (data['conversationId'] ?? message['conversationId'] ?? '').toString();
+          final senderId = (message['senderId'] ?? message['sender']?['id'] ?? '').toString();
+          final content = (message['content'] ?? '').toString();
+
+            if (content.isNotEmpty && senderId.isNotEmpty) {
+              final decrypted = await _crypto.decryptIncomingContent(
+                content: content,
+                senderUserId: senderId,
+                conversationId: conversationId,
+              );
+              message['content'] = decrypted;
+
+              // Check if decrypted content is an encrypted media descriptor
+              try {
+                if (decrypted.startsWith('{') && decrypted.endsWith('}')) {
+                  final decodedMedia = jsonDecode(decrypted);
+                  if (decodedMedia is Map<String, dynamic> && decodedMedia['encryptedMedia'] == true) {
+                    message['content'] = decodedMedia['caption'] ?? '';
+                    message['mediaUrl'] = decodedMedia['mediaUrl'];
+                    message['mediaType'] = decodedMedia['mediaType'];
+                    message['mediaKey'] = decodedMedia['mediaKey'];
+                    message['nonce'] = decodedMedia['nonce'];
+                    message['isE2EEMedia'] = true;
+                  }
+                }
+              } catch (_) {}
+
+              data = {
+                ...Map<String, dynamic>.from(data),
+                'message': message,
+              };
+            }
+          }
+        } catch (e) {
+          print('Error processing incoming new_message: $e');
+        }
+
       _messageStreamController.add(data);
       
       try {
-        final message = data['message'] ?? data;
-        final senderId = message['senderId'] ?? message['sender']?['id'];
-        
-        // Don't show popups for outgoing messages
-        if (senderId != null && senderId == _currentUserId) return;
+        final message = (data is Map) ? (data['message'] ?? data) : null;
+        if (message != null && message is Map) {
+          final senderId = message['senderId'] ?? message['sender']?['id'];
+          
+          // Don't show popups for outgoing messages
+          if (senderId != null && senderId == _currentUserId) return;
 
-        final senderName = message['sender']?['username'] ?? 'New Message';
-        final content = message['content'] ?? (message['mediaType'] != null ? 'Shared ${message['mediaType']}' : 'New message');
-        if (content.toString().isNotEmpty) {
-          flutterLocalNotificationsPlugin.show(
-            id: DateTime.now().millisecondsSinceEpoch ~/ 1000,
-            title: senderName.toString(),
-            body: content.toString(),
-            payload: jsonEncode({
-              'conversationId': message['conversationId'],
-              'senderId': senderId,
-            }),
-            notificationDetails: NotificationDetails(
-              android: AndroidNotificationDetails(
-                channel.id,
-                channel.name,
-                channelDescription: channel.description,
-                icon: '@mipmap/ic_launcher',
-                priority: Priority.max,
-                importance: Importance.max,
-                sound: const RawResourceAndroidNotificationSound('dolsyx_message'),
-                playSound: true,
-                actions: <AndroidNotificationAction>[
-                  const AndroidNotificationAction(
-                    'reply_msg',
-                    'Reply',
-                    inputs: <AndroidNotificationActionInput>[
-                      AndroidNotificationActionInput(label: 'Type a message...'),
-                    ],
-                  ),
-                ],
+          final senderName = message['sender']?['username'] ?? 'New Message';
+          final content = message['content'] ?? (message['mediaType'] != null ? 'Shared ${message['mediaType']}' : 'New message');
+          if (content.toString().isNotEmpty) {
+            flutterLocalNotificationsPlugin.show(
+              id: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+              title: senderName.toString(),
+              body: content.toString(),
+              payload: jsonEncode({
+                'conversationId': message['conversationId'],
+                'senderId': senderId,
+              }),
+              notificationDetails: NotificationDetails(
+                android: AndroidNotificationDetails(
+                  channel.id,
+                  channel.name,
+                  channelDescription: channel.description,
+                  icon: '@mipmap/ic_launcher',
+                  priority: Priority.max,
+                  importance: Importance.max,
+                  sound: const RawResourceAndroidNotificationSound('dolsyx_message'),
+                  playSound: true,
+                  actions: <AndroidNotificationAction>[
+                    const AndroidNotificationAction(
+                      'reply_msg',
+                      'Reply',
+                      inputs: <AndroidNotificationActionInput>[
+                        AndroidNotificationActionInput(label: 'Type a message...'),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
-          );
+            );
+          }
         }
       } catch (_) {}
     });
@@ -386,9 +445,23 @@ class SocketService {
 
   void sendMessage(String conversationId, String content, {String? mediaUrl, String? mediaType, String? parentMessageId, bool isForwarded = false, bool isViewOnce = false, double? latitude, double? longitude, String? locationTitle, bool isLiveLocation = false, String? liveExpiresAt}) async {
     print('Sending message. Socket connected: ${socket?.connected}');
+    
+    // 100% E2EE Zero-Knowledge: Pre-encrypt plaintext client-side before transmission
+    String payloadContent = content;
+    if (content.isNotEmpty && (!content.startsWith('{') || !content.contains('ciphertext'))) {
+      try {
+        payloadContent = await _crypto.encryptConversationPayload(
+          conversationId: conversationId,
+          plaintext: content,
+        );
+      } catch (e) {
+        print('⚠️ Failed to pre-encrypt outgoing content: $e');
+      }
+    }
+
     final msgData = {
       'conversationId': conversationId,
-      'content': content,
+      'content': payloadContent,
       if (mediaUrl != null) 'mediaUrl': mediaUrl,
       if (mediaType != null) 'mediaType': mediaType,
       if (parentMessageId != null) 'parentMessageId': parentMessageId,

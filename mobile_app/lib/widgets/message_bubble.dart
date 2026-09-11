@@ -18,6 +18,7 @@ import '../screens/view_once_screen.dart';
 import '../screens/forward_message_screen.dart';
 import 'full_screen_image_view.dart';
 import 'animated_emoji.dart';
+import '../utils/e2ee/e2ee_media_cache.dart';
 
 class MessageBubble extends StatelessWidget {
   final Message message;
@@ -50,10 +51,10 @@ class MessageBubble extends StatelessWidget {
       final emojiChars = text.trim().characters.toList();
       if (emojiChars.length == 1) {
         return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 6),
+          padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
           child: AnimatedEmoji(
             emoji: emojiChars[0],
-            size: 52.0,
+            size: 38.0,
             animateLoop: false,
           ),
         );
@@ -61,11 +62,11 @@ class MessageBubble extends StatelessWidget {
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
           child: Wrap(
-            spacing: 8,
+            spacing: 5,
             alignment: WrapAlignment.center,
             children: emojiChars.map((e) => AnimatedEmoji(
               emoji: e,
-              size: 38.0,
+              size: 28.0,
               animateLoop: false,
             )).toList(),
           ),
@@ -74,11 +75,11 @@ class MessageBubble extends StatelessWidget {
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
           child: Wrap(
-            spacing: 6,
+            spacing: 4,
             alignment: WrapAlignment.center,
             children: emojiChars.map((e) => AnimatedEmoji(
               emoji: e,
-              size: 30.0,
+              size: 22.0,
               animateLoop: false,
             )).toList(),
           ),
@@ -775,31 +776,56 @@ class MessageBubble extends StatelessWidget {
                                       width: imageSize,
                                       fit: BoxFit.cover,
                                     )
-                                  : CachedNetworkImage(
-                                      imageUrl: ApiService.getMediaUrl(message.mediaUrl),
-                                      width: imageSize,
-                                      fit: BoxFit.cover,
-                                      memCacheWidth: 600,
-                                      memCacheHeight: 600,
-                                      placeholder: (context, url) => Container(
-                                        width: imageSize,
-                                        height: imageSize * 0.75,
-                                        color: Colors.black26,
-                                        child: Center(
-                                          child: SizedBox(
-                                            width: 32,
-                                            height: 32,
-                                            child: CircularProgressIndicator(strokeWidth: 2.5, color: AppTheme.primaryColor),
+                                  : (message.isE2EEMedia && message.mediaKey != null && message.mediaUrl != null)
+                                      ? FutureBuilder<File?>(
+                                          future: E2EEMediaCache.getOrDownloadDecryptedMedia(
+                                            mediaUrl: message.mediaUrl!,
+                                            mediaKey: message.mediaKey,
+                                            nonce: message.nonce,
+                                          ),
+                                          builder: (ctx, snap) {
+                                            if (snap.connectionState == ConnectionState.done && snap.data != null) {
+                                              return Image.file(snap.data!, width: imageSize, fit: BoxFit.cover);
+                                            }
+                                            return Container(
+                                              width: imageSize,
+                                              height: imageSize * 0.75,
+                                              color: Colors.black26,
+                                              child: Center(
+                                                child: SizedBox(
+                                                  width: 32,
+                                                  height: 32,
+                                                  child: CircularProgressIndicator(strokeWidth: 2.5, color: AppTheme.primaryColor),
+                                                ),
+                                              ),
+                                            );
+                                          },
+                                        )
+                                      : CachedNetworkImage(
+                                          imageUrl: ApiService.getMediaUrl(message.mediaUrl),
+                                          width: imageSize,
+                                          fit: BoxFit.cover,
+                                          memCacheWidth: 600,
+                                          memCacheHeight: 600,
+                                          placeholder: (context, url) => Container(
+                                            width: imageSize,
+                                            height: imageSize * 0.75,
+                                            color: Colors.black26,
+                                            child: Center(
+                                              child: SizedBox(
+                                                width: 32,
+                                                height: 32,
+                                                child: CircularProgressIndicator(strokeWidth: 2.5, color: AppTheme.primaryColor),
+                                              ),
+                                            ),
+                                          ),
+                                          errorWidget: (context, url, error) => Container(
+                                            width: imageSize,
+                                            height: 140,
+                                            color: Colors.black26,
+                                            child: const Icon(Icons.broken_image_rounded, size: 44, color: Colors.grey),
                                           ),
                                         ),
-                                      ),
-                                      errorWidget: (context, url, error) => Container(
-                                        width: imageSize,
-                                        height: 140,
-                                        color: Colors.black26,
-                                        child: const Icon(Icons.broken_image_rounded, size: 44, color: Colors.grey),
-                                      ),
-                                    ),
                             ),
                             // 🟢 WhatsApp In-Bubble Circular Buffering Indicator
                             if (message.isPending)
@@ -1029,6 +1055,8 @@ class MessageBubble extends StatelessWidget {
                           url: message.mediaUrl!,
                           color: isMe ? Colors.white : AppTheme.textPrimary,
                           isPending: message.isPending,
+                          mediaKey: message.mediaKey,
+                          nonce: message.nonce,
                         )
                       else 
                         _buildDocumentCard(context, textColor, secondaryTextColor),
@@ -1130,6 +1158,19 @@ class MessageBubble extends StatelessWidget {
     return GestureDetector(
       onTap: () async {
         if (message.mediaUrl != null && message.mediaUrl!.isNotEmpty) {
+          if (message.isE2EEMedia && message.mediaKey != null) {
+            final decrypted = await E2EEMediaCache.getOrDownloadDecryptedMedia(
+              mediaUrl: message.mediaUrl!,
+              mediaKey: message.mediaKey,
+              nonce: message.nonce,
+            );
+            if (decrypted != null) {
+              try {
+                await launchUrl(Uri.file(decrypted.path), mode: LaunchMode.externalApplication);
+                return;
+              } catch (_) {}
+            }
+          }
           final fullUrl = ApiService.getMediaUrl(message.mediaUrl!);
           final uri = Uri.tryParse(fullUrl);
           if (uri != null) {
@@ -1891,12 +1932,16 @@ class AudioPlayWidget extends StatefulWidget {
   final String url;
   final Color color;
   final bool isPending;
+  final String? mediaKey;
+  final String? nonce;
 
   const AudioPlayWidget({
     super.key,
     required this.url,
     required this.color,
     this.isPending = false,
+    this.mediaKey,
+    this.nonce,
   });
 
   @override
@@ -1964,7 +2009,18 @@ class _AudioPlayWidgetState extends State<AudioPlayWidget> {
         if (mounted) setState(() => _isPlaying = false);
       } else {
         Source source;
-        if (!widget.url.startsWith('http') && File(widget.url).existsSync()) {
+        if (widget.mediaKey != null && widget.nonce != null) {
+          final decryptedFile = await E2EEMediaCache.getOrDownloadDecryptedMedia(
+            mediaUrl: widget.url,
+            mediaKey: widget.mediaKey,
+            nonce: widget.nonce,
+          );
+          if (decryptedFile != null) {
+            source = DeviceFileSource(decryptedFile.path);
+          } else {
+            source = UrlSource(ApiService.getMediaUrl(widget.url));
+          }
+        } else if (!widget.url.startsWith('http') && File(widget.url).existsSync()) {
           source = DeviceFileSource(widget.url);
         } else {
           final fullUrl = ApiService.getMediaUrl(widget.url);

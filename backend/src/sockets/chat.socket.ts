@@ -1,5 +1,9 @@
 import { Server } from "socket.io";
 import jwt from "jsonwebtoken";
+import fs from "fs";
+import path from "path";
+import { createAdapter } from "@socket.io/redis-adapter";
+import { createClient } from "redis";
 import { prisma } from "../config/db.js";
 import { encryptionService } from "../services/encryption.service.js";
 import { sendPushNotification } from "../config/firebase.config.js";
@@ -55,6 +59,55 @@ export interface ScheduledMsg {
   createdAt: number;
 }
 const scheduledMessagesStore = new Map<string, ScheduledMsg>();
+
+// Durable scheduled messages ledger path
+const SCHEDULED_STORE_FILE = path.join(process.cwd(), "uploads", ".scheduled_messages.json");
+
+function loadScheduledMessagesFromDisk() {
+  try {
+    if (fs.existsSync(SCHEDULED_STORE_FILE)) {
+      const raw = fs.readFileSync(SCHEDULED_STORE_FILE, "utf-8");
+      const list: ScheduledMsg[] = JSON.parse(raw);
+      if (Array.isArray(list)) {
+        for (const item of list) {
+          scheduledMessagesStore.set(item.id, item);
+        }
+        console.log(`[SCHEDULED MSG] Restored ${list.length} scheduled message(s) from durable storage.`);
+      }
+    }
+  } catch (err) {
+    console.warn("[SCHEDULED MSG] Error restoring scheduled messages from disk:", err);
+  }
+}
+
+function flushScheduledMessagesToDisk() {
+  try {
+    const list = Array.from(scheduledMessagesStore.values());
+    const dir = path.dirname(SCHEDULED_STORE_FILE);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(SCHEDULED_STORE_FILE, JSON.stringify(list, null, 2), "utf-8");
+  } catch (err) {
+    console.warn("[SCHEDULED MSG] Error persisting scheduled messages to disk:", err);
+  }
+}
+
+export const setupRedisAdapter = async (io: Server) => {
+  const redisUrl = process.env.REDIS_URL;
+  if (!redisUrl) {
+    return;
+  }
+  try {
+    const pubClient = createClient({ url: redisUrl });
+    const subClient = pubClient.duplicate();
+    await Promise.all([pubClient.connect(), subClient.connect()]);
+    io.adapter(createAdapter(pubClient, subClient));
+    console.log("🚀 [Socket.IO] Redis cluster adapter active for multi-node distribution.");
+  } catch (err) {
+    console.warn("⚠️ [Socket.IO] Redis adapter connection failed, defaulting to in-memory mode:", err);
+  }
+};
 
 let schedulerTickStarted = false;
 
@@ -158,6 +211,9 @@ async function executeScheduledMessage(io: Server, msg: ScheduledMsg) {
 }
 
 export const initChatSocket = (io: Server) => {
+  setupRedisAdapter(io);
+  loadScheduledMessagesFromDisk();
+
   if (!schedulerTickStarted) {
     schedulerTickStarted = true;
     setInterval(async () => {
@@ -165,6 +221,7 @@ export const initChatSocket = (io: Server) => {
       for (const [id, msg] of scheduledMessagesStore.entries()) {
         if (msg.scheduledFor <= now) {
           scheduledMessagesStore.delete(id);
+          flushScheduledMessagesToDisk();
           try {
             await executeScheduledMessage(io, msg);
           } catch (e) {
@@ -364,6 +421,7 @@ export const initChatSocket = (io: Server) => {
       };
 
       scheduledMessagesStore.set(scheduledMsg.id, scheduledMsg);
+      flushScheduledMessagesToDisk();
       console.log(`[SCHEDULED MSG] Scheduled for ${new Date(scheduledFor).toISOString()}: ${scheduledMsg.id}`);
 
       const userScheduled = Array.from(scheduledMessagesStore.values()).filter(
@@ -395,6 +453,7 @@ export const initChatSocket = (io: Server) => {
       const msg = scheduledMessagesStore.get(id);
       if (msg && msg.senderId === userId) {
         scheduledMessagesStore.delete(id);
+        flushScheduledMessagesToDisk();
       }
       const userScheduled = Array.from(scheduledMessagesStore.values()).filter(
         (m) => m.conversationId === conversationId && m.senderId === userId
@@ -411,6 +470,7 @@ export const initChatSocket = (io: Server) => {
       const msg = scheduledMessagesStore.get(id);
       if (msg && msg.senderId === userId) {
         scheduledMessagesStore.delete(id);
+        flushScheduledMessagesToDisk();
         await executeScheduledMessage(io, msg);
         if (callback) callback({ success: true });
       } else {
@@ -572,17 +632,6 @@ export const initChatSocket = (io: Server) => {
                 isLiveLocation: isLiveLocation || false,
                 liveExpiresAt: liveExpiresAt ? new Date(liveExpiresAt) : null,
               },
-              include: {
-                sender: {
-                  select: {
-                    id: true,
-                    username: true,
-                    avatarUrl: true,
-                  },
-                },
-                parentMessage: true,
-                receipts: true,
-              },
             });
 
             await prisma.conversation.update({
@@ -605,17 +654,14 @@ export const initChatSocket = (io: Server) => {
               });
             }
 
-            // Push notifications for offline recipients
+            // Push notifications for offline recipients (Zero extra sender query)
             const offlineParticipantIds = otherParticipantIds.filter((pId) => !onlineUsers.has(pId));
             if (offlineParticipantIds.length > 0) {
-              const [sender, recipientUsers] = await Promise.all([
-                prisma.user.findUnique({ where: { id: userId }, select: { username: true } }),
-                prisma.user.findMany({
-                  where: { id: { in: offlineParticipantIds } },
-                  select: { fcmToken: true },
-                }),
-              ]);
-              const pushTitle = cached?.isGroup ? `${cached.name}` : `${sender?.username || username}`;
+              const recipientUsers = await prisma.user.findMany({
+                where: { id: { in: offlineParticipantIds } },
+                select: { fcmToken: true },
+              });
+              const pushTitle = cached?.isGroup ? `${cached.name}` : `${username}`;
               const isMedia = mediaUrl || (mediaType && mediaType !== "TEXT");
               const pushBody = isMedia
                 ? `Sent ${mediaType || "media"}`
@@ -645,21 +691,12 @@ export const initChatSocket = (io: Server) => {
         const { messageId, conversationId, emoji } = data;
         if (!messageId || !conversationId || !emoji) return;
 
-        // Upsert reaction (only one per user per message)
-        let reaction = await prisma.messageReaction.findUnique({
-          where: { messageId_userId: { messageId, userId } }
+        // Atomic upsert reaction (only one per user per message in 1 DB roundtrip)
+        await prisma.messageReaction.upsert({
+          where: { messageId_userId: { messageId, userId } },
+          update: { emoji },
+          create: { messageId, userId, emoji },
         });
-
-        if (reaction) {
-          reaction = await prisma.messageReaction.update({
-            where: { id: reaction.id },
-            data: { emoji }
-          });
-        } else {
-          reaction = await prisma.messageReaction.create({
-            data: { messageId, userId, emoji }
-          });
-        }
 
         // Broadcast to conversation room safely
         io.to(conversationId).emit("reaction_added", {
@@ -819,14 +856,14 @@ export const initChatSocket = (io: Server) => {
           const missingReceiptMessageIds = messageIds.filter(id => !updatedMessageIds.has(id));
           
           if (missingReceiptMessageIds.length > 0) {
-            // Use upsert-style to avoid duplicate constraint errors
-            for (const mId of missingReceiptMessageIds) {
-              await prisma.messageReceipt.upsert({
-                where: { messageId_userId: { messageId: mId, userId } },
-                create: { messageId: mId, userId, status: "READ" },
-                update: { status: "READ" },
-              });
-            }
+            await prisma.messageReceipt.createMany({
+              data: missingReceiptMessageIds.map((mId) => ({
+                messageId: mId,
+                userId,
+                status: "READ",
+              })),
+              skipDuplicates: true,
+            });
           }
 
           // Broadcast to everyone in the conversation room ONLY if they have read receipts enabled

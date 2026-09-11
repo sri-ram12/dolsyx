@@ -13,6 +13,19 @@ export interface AuthRequest extends Request {
   };
 }
 
+interface CachedUser {
+  user: any;
+  cachedAt: number;
+}
+
+const userCache = new Map<string, CachedUser>();
+const USER_CACHE_TTL_MS = 30000; // 30 seconds TTL
+
+// Invalidate cache entry helper
+export const invalidateUserCache = (userId: string) => {
+  userCache.delete(userId);
+};
+
 export const authenticateToken = async (
   req: AuthRequest,
   res: Response,
@@ -37,88 +50,59 @@ export const authenticateToken = async (
       username: string;
     };
 
-    const user = await prisma.user.findUnique({
-      where: { id: decoded.id },
-      select: {
-        id: true,
-        username: true,
-        email: true,
-        phoneNumber: true,
-        avatarUrl: true,
-        coverUrl: true,
-        bio: true,
-        statusMessage: true,
-        xp: true,
-        streakCount: true,
-        avatarPrivacy: true,
-        lastSeenPrivacy: true,
-        onlinePrivacy: true,
-        aboutPrivacy: true,
-        readReceipts: true,
-        disappearingTimer: true,
-        statusPrivacyType: true,
-        statusPrivacyList: true,
-        avatarPrivacyExceptList: true,
-        lastSeenPrivacyExceptList: true,
-        aboutPrivacyExceptList: true,
-      },
-    });
-
-    if (!user) {
-      res.status(404).json({ message: "User not found" });
+    if (!decoded || !decoded.id) {
+      res.status(401).json({ message: "Invalid token payload" });
       return;
     }
 
-    // Verify session revocation status if tracked in database
-    const trackedSession = await prisma.session.findFirst({
-      where: { token },
-      select: { id: true, isActive: true, revokedAt: true },
-    });
+    const now = Date.now();
+    const cached = userCache.get(decoded.id);
 
-    if (trackedSession && (!trackedSession.isActive || trackedSession.revokedAt)) {
-      res.status(401).json({ message: "This device session has been revoked. Please log in again." });
-      return;
+    let user = cached && (now - cached.cachedAt < USER_CACHE_TTL_MS) ? cached.user : null;
+
+    if (!user) {
+      user = await prisma.user.findUnique({
+        where: { id: decoded.id },
+        select: {
+          id: true,
+          username: true,
+          email: true,
+          phoneNumber: true,
+          avatarUrl: true,
+          coverUrl: true,
+          bio: true,
+          statusMessage: true,
+          xp: true,
+          streakCount: true,
+          avatarPrivacy: true,
+          lastSeenPrivacy: true,
+          onlinePrivacy: true,
+          aboutPrivacy: true,
+          readReceipts: true,
+          disappearingTimer: true,
+          statusPrivacyType: true,
+          statusPrivacyList: true,
+          avatarPrivacyExceptList: true,
+          lastSeenPrivacyExceptList: true,
+          aboutPrivacyExceptList: true,
+        },
+      });
+
+      if (!user) {
+        res.status(404).json({ message: "User not found" });
+        return;
+      }
+
+      userCache.set(decoded.id, { user, cachedAt: now });
     }
 
     req.user = user;
     next();
-  } catch (error) {
-    try {
-      const decodedAny = jwt.decode(token) as { id?: string } | null;
-      if (decodedAny?.id) {
-        const user = await prisma.user.findUnique({
-          where: { id: decodedAny.id },
-          select: {
-            id: true,
-            username: true,
-            email: true,
-            phoneNumber: true,
-            avatarUrl: true,
-            coverUrl: true,
-            bio: true,
-            statusMessage: true,
-            xp: true,
-            streakCount: true,
-            avatarPrivacy: true,
-            lastSeenPrivacy: true,
-            onlinePrivacy: true,
-            aboutPrivacy: true,
-            readReceipts: true,
-            disappearingTimer: true,
-            statusPrivacyType: true,
-            statusPrivacyList: true,
-            avatarPrivacyExceptList: true,
-            lastSeenPrivacyExceptList: true,
-            aboutPrivacyExceptList: true,
-          },
-        });
-        if (user) {
-          req.user = user;
-          return next();
-        }
-      }
-    } catch (_) {}
-
+  } catch (error: any) {
+    if (error?.name === "TokenExpiredError") {
+      res.status(401).json({ message: "Token has expired. Please log in again." });
+      return;
+    }
     res.status(403).json({ message: "Invalid or expired token" });
   }
 };

@@ -25,16 +25,17 @@ import {
   unlinkGoogleAccount,
 } from "../controllers/auth.controller.js";
 import { authenticateToken } from "../middleware/auth.middleware.js";
+import { authRateLimiter, otpRateLimiter } from "../middleware/rateLimit.middleware.js";
 
 const router = Router();
 
-// Standard Password & OTP Auth Routes
-router.post("/register", register);
-router.post("/login", login);
-router.post("/login-without-otp", loginWithoutOtp);
-router.post("/send-otp", sendOtp as any);
-router.post("/verify-otp", verifyOtp as any);
-router.post("/resend-otp", resendOtp as any);
+// Standard Password & OTP Auth Routes (Protected by Sliding-Window Rate Limiters)
+router.post("/register", authRateLimiter, register);
+router.post("/login", authRateLimiter, login);
+router.post("/login-without-otp", authRateLimiter, loginWithoutOtp);
+router.post("/send-otp", otpRateLimiter, sendOtp as any);
+router.post("/verify-otp", otpRateLimiter, verifyOtp as any);
+router.post("/resend-otp", otpRateLimiter, resendOtp as any);
 router.post("/logout", authenticateToken as any, logout as any);
 router.get("/me", authenticateToken as any, getMe as any);
 router.put("/profile", authenticateToken as any, updateProfile as any);

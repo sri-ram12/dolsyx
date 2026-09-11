@@ -28,6 +28,7 @@ import deviceRoutes from "./routes/device.routes.js";
 import { initChatSocket } from "./sockets/chat.socket.js";
 import { initCronJobs } from "./utils/cron.jobs.js";
 import { initFirebase } from "./config/firebase.config.js";
+import { prisma } from "./config/db.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -38,7 +39,6 @@ const server = http.createServer(app);
 const PORT = process.env.PORT || 4000;
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
-// In production (monolith), CORS is not needed as frontend is served from same origin.
 // In dev, allow localhost:3000 + any comma-separated FRONTEND_URL entries.
 const FRONTEND_URLS = (process.env.FRONTEND_URL || "http://localhost:3000")
   .split(",")
@@ -49,10 +49,9 @@ const corsOriginFn = (
   origin: string | undefined,
   callback: (err: Error | null, allow?: boolean) => void
 ) => {
-  if (!origin) return callback(null, true); // Allow non-browser requests
-  if (IS_PRODUCTION) return callback(null, true); // Same-origin in production
+  if (!origin) return callback(null, true); // Allow non-browser requests (mobile apps, curl, etc.)
   
-  // Allow all origins in development (for local LAN testing on mobile, etc.)
+  // Allow all origins in local development for LAN and multi-device testing
   if (!IS_PRODUCTION) return callback(null, true);
 
   if (FRONTEND_URLS.includes(origin) || FRONTEND_URLS.includes("*")) {
@@ -105,9 +104,49 @@ app.use("/api/devices", deviceRoutes);
 initFirebase();
 initCronJobs();
 
-// ── Health Check ─────────────────────────────────────────────────────────────
-app.get("/health", (_req, res) => {
-  res.json({ status: "healthy", timestamp: new Date() });
+// ── Deep Health & Readiness Checks ──────────────────────────────────────────
+app.get("/health/live", (_req, res) => {
+  res.status(200).json({ status: "alive", uptimeSeconds: Math.floor(process.uptime()) });
+});
+
+app.get("/health/ready", async (_req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.status(200).json({ status: "ready", database: "connected" });
+  } catch (err: any) {
+    res.status(503).json({ status: "unready", database: "disconnected", error: err.message });
+  }
+});
+
+app.get("/health", async (_req, res) => {
+  const startTime = Date.now();
+  let dbStatus = "connected";
+  let dbLatencyMs = 0;
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    dbLatencyMs = Date.now() - startTime;
+  } catch (_e) {
+    dbStatus = "disconnected";
+  }
+
+  const mem = process.memoryUsage();
+  const healthData = {
+    status: dbStatus === "connected" ? "healthy" : "degraded",
+    timestamp: new Date().toISOString(),
+    uptimeSeconds: Math.floor(process.uptime()),
+    database: {
+      status: dbStatus,
+      latencyMs: dbLatencyMs,
+    },
+    memory: {
+      heapUsedMB: Math.round(mem.heapUsed / 1024 / 1024),
+      rssMB: Math.round(mem.rss / 1024 / 1024),
+    },
+    environment: process.env.NODE_ENV || "development",
+  };
+
+  const statusCode = dbStatus === "connected" ? 200 : 503;
+  res.status(statusCode).json(healthData);
 });
 
 // ── Socket.io ────────────────────────────────────────────────────────────────
@@ -117,6 +156,12 @@ const io = new Server(server, {
     methods: ["GET", "POST"],
     credentials: true,
   },
+  perMessageDeflate: {
+    threshold: 1024, // Compress WebSocket frames > 1KB
+  },
+  pingInterval: 10000, // 10s heartbeat for quick drop detection
+  pingTimeout: 5000,   // 5s timeout to trigger fast reconnect
+  maxHttpBufferSize: 1e7, // 10MB limit for efficient streaming
 });
 app.set("io", io);
 initChatSocket(io);
@@ -151,22 +196,47 @@ if (IS_PRODUCTION) {
     console.error(`[Monolith] Cannot find server.js under ${nextStandalonePath}`);
   } else {
     const serverDir = path.dirname(serverJsPath);
-    console.log(`[Monolith] Spawning Next.js standalone server from: ${serverDir}`);
+    
+    // Self-healing Next.js standalone process supervisor with exponential backoff
+    let nextProcess: any = null;
+    let nextRestartCount = 0;
+    const MAX_NEXT_RESTARTS = 10;
 
-    // Spawn the Next.js standalone server on its own port
-    const nextProcess = spawn(process.execPath, [serverJsPath], {
-      cwd: serverDir,
-      env: { ...process.env, PORT: String(NEXT_PORT), HOSTNAME: "127.0.0.1", NODE_ENV: "production" },
-      stdio: "inherit",
-    });
-    nextProcess.on("error", (err: Error) => console.error("[Monolith] Next.js process error:", err));
-    nextProcess.on("exit", (code: number) => console.warn(`[Monolith] Next.js process exited with code ${code}`));
+    const spawnNextJsServer = () => {
+      console.log(`[Monolith Supervisor] Spawning Next.js standalone server from: ${serverDir}`);
+      nextProcess = spawn(process.execPath, [serverJsPath], {
+        cwd: serverDir,
+        env: { ...process.env, PORT: String(NEXT_PORT), HOSTNAME: "127.0.0.1", NODE_ENV: "production" },
+        stdio: "inherit",
+      });
+
+      nextProcess.on("error", (err: Error) => {
+        console.error("[Monolith Supervisor] Next.js process error:", err);
+      });
+
+      nextProcess.on("exit", (code: number, signal: string) => {
+        console.warn(`[Monolith Supervisor] Next.js process exited with code ${code}, signal: ${signal}`);
+        nextJsReady = false;
+        if (nextRestartCount < MAX_NEXT_RESTARTS) {
+          nextRestartCount++;
+          const delay = Math.min(1000 * Math.pow(2, nextRestartCount), 30000);
+          console.log(`[Monolith Supervisor] Auto-restarting Next.js in ${delay}ms (attempt ${nextRestartCount}/${MAX_NEXT_RESTARTS})...`);
+          setTimeout(() => {
+            spawnNextJsServer();
+            waitForNextJs();
+          }, delay);
+        } else {
+          console.error("[Monolith Supervisor] Maximum restart limit reached for Next.js process.");
+        }
+      });
+    };
+
+    spawnNextJsServer();
 
     // Serve Next.js public/static files directly
     const nextStaticPath = path.join(__dirname, "../../frontend/.next/static");
     const nextPublicPath = path.join(__dirname, "../../frontend/public");
     app.use("/_next/static", express.static(nextStaticPath));
-    // Serve Next.js public files at root level (so /default-male.svg etc. work)
     app.use("/", express.static(nextPublicPath));
   }
 }
@@ -236,6 +306,56 @@ app.use((req, res, next) => {
   }
   return (nextProxy as any)(req, res, next);
 });
+
+// ── Centralized Express Error Handling Middleware ─────────────────────────────
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const status = err.status || err.statusCode || 500;
+  console.error(`[Global Error Handler] [${req.method} ${req.url}]:`, err.message || err);
+
+  if (res.headersSent) {
+    return next(err);
+  }
+
+  res.status(status).json({
+    error: true,
+    message: IS_PRODUCTION && status === 500 ? "Internal server error" : (err.message || "An unexpected error occurred"),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// ── Process-Level Safety Traps ────────────────────────────────────────────────
+process.on("uncaughtException", (err: Error) => {
+  console.error("[CRITICAL] Uncaught Exception trapped:", err);
+});
+
+process.on("unhandledRejection", (reason: any) => {
+  console.error("[CRITICAL] Unhandled Promise Rejection trapped:", reason);
+});
+
+// ── Graceful Shutdown ─────────────────────────────────────────────────────────
+const gracefulShutdown = async (signal: string) => {
+  console.log(`[Lifecycle] Received ${signal}. Initiating graceful shutdown...`);
+  server.close(async () => {
+    console.log("[Lifecycle] HTTP server stopped accepting new connections.");
+    try {
+      await prisma.$disconnect();
+      console.log("[Lifecycle] Prisma database connection closed.");
+      process.exit(0);
+    } catch (e) {
+      console.error("[Lifecycle] Error disconnecting Prisma during shutdown:", e);
+      process.exit(1);
+    }
+  });
+
+  // Force close after 10 seconds if graceful drain stalls
+  setTimeout(() => {
+    console.error("[Lifecycle] Shutdown timed out. Forcing process exit.");
+    process.exit(1);
+  }, 10000).unref();
+};
+
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 server.listen(PORT, () => {

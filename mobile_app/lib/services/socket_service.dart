@@ -51,6 +51,7 @@ class SocketService {
     if (socket != null && socket!.connected) return;
 
     if (socket != null) {
+      socket?.io.options?['auth'] = {'token': token};
       socket!.connect();
       return;
     }

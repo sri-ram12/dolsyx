@@ -2,7 +2,7 @@ import type { Response } from "express";
 import { prisma } from "../config/db.js";
 import type { AuthRequest } from "../middleware/auth.middleware.js";
 
-import { canViewProfilePhoto, canViewAbout, canViewLastSeen, canViewOnline } from "../utils/privacy.engine.js";
+import { evaluatePrivacyInMemory, canViewProfilePhoto, canViewAbout, canViewLastSeen, canViewOnline } from "../utils/privacy.engine.js";
 
 // Search user by email or username (before adding as contact)
 export const searchUser = async (req: AuthRequest, res: Response): Promise<void> => {
@@ -213,7 +213,7 @@ export const addContactById = async (req: AuthRequest, res: Response): Promise<v
   }
 };
 
-// Get all contacts for current user
+// Get all contacts for current user (Optimized Zero N+1 Batch Architecture)
 export const getContacts = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.user!.id;
@@ -222,26 +222,90 @@ export const getContacts = async (req: AuthRequest, res: Response): Promise<void
       where: { userId, isBlocked: false },
       include: {
         contact: {
-          select: { id: true, username: true, email: true, avatarUrl: true, statusMessage: true, lastSeen: true, isOnline: true },
+          select: {
+            id: true,
+            username: true,
+            email: true,
+            avatarUrl: true,
+            statusMessage: true,
+            lastSeen: true,
+            isOnline: true,
+            bio: true,
+            avatarPrivacy: true,
+            avatarPrivacyExceptList: true,
+            lastSeenPrivacy: true,
+            lastSeenPrivacyExceptList: true,
+            onlinePrivacy: true,
+            aboutPrivacy: true,
+            aboutPrivacyExceptList: true,
+          },
         },
       },
       orderBy: [{ isFavorite: "desc" }, { savedName: "asc" }],
     });
 
-    // Apply privacy engine filtering for each contact
-    await Promise.all(contacts.map(async (entry) => {
-      const c = entry.contact as any;
-      const [canPhoto, canLastSeen, canOnlineStatus] = await Promise.all([
-        canViewProfilePhoto(userId, c.id),
-        canViewLastSeen(userId, c.id),
-        canViewOnline(userId, c.id),
-      ]);
-      if (!canPhoto) c.avatarUrl = null;
-      if (!canLastSeen) c.lastSeen = null;
-      if (!canOnlineStatus) c.isOnline = false;
-    }));
+    if (contacts.length === 0) {
+      res.status(200).json([]);
+      return;
+    }
 
-    res.status(200).json(contacts);
+    const contactUserIds = contacts.map((c) => c.contactId);
+
+    // Batch fetch blocks and reciprocal contacts in 2 parallel indexed queries
+    const [myBlocks, reciprocalContacts] = await Promise.all([
+      prisma.userBlock.findMany({
+        where: {
+          OR: [{ blockerId: userId }, { blockedId: userId }],
+        },
+        select: { blockerId: true, blockedId: true },
+      }),
+      prisma.contact.findMany({
+        where: {
+          userId: { in: contactUserIds },
+          contactId: userId,
+        },
+        select: { userId: true },
+      }),
+    ]);
+
+    const blockedSet = new Set<string>();
+    for (const b of myBlocks) {
+      if (b.blockerId === userId) blockedSet.add(b.blockedId);
+      if (b.blockedId === userId) blockedSet.add(b.blockerId);
+    }
+    const reciprocalSet = new Set<string>(reciprocalContacts.map((c) => c.userId));
+
+    // Zero-overhead in-memory privacy evaluation
+    const formattedContacts = contacts.map((entry) => {
+      const c = { ...entry.contact };
+      const isBlocked = blockedSet.has(c.id);
+      const isContact = reciprocalSet.has(c.id);
+      const privacy = evaluatePrivacyInMemory(userId, c, isBlocked, isContact);
+
+      if (!privacy.canPhoto) c.avatarUrl = null;
+      if (!privacy.canLastSeen) c.lastSeen = null;
+      if (!privacy.canOnlineStatus) c.isOnline = false;
+      if (!privacy.canAbout) {
+        c.statusMessage = null;
+        c.bio = null;
+      }
+
+      // Clean privacy configuration metadata from response payload
+      delete (c as any).avatarPrivacy;
+      delete (c as any).avatarPrivacyExceptList;
+      delete (c as any).lastSeenPrivacy;
+      delete (c as any).lastSeenPrivacyExceptList;
+      delete (c as any).onlinePrivacy;
+      delete (c as any).aboutPrivacy;
+      delete (c as any).aboutPrivacyExceptList;
+
+      return {
+        ...entry,
+        contact: c,
+      };
+    });
+
+    res.status(200).json(formattedContacts);
   } catch (error) {
     console.error("Get contacts error:", error);
     res.status(500).json({ message: "Failed to retrieve contacts" });

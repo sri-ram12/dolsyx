@@ -549,6 +549,10 @@ function AudioMessage({ msg, isMe, theme }: { msg: Message; isMe: boolean; theme
   );
 }
 
+// High-performance Stale-While-Revalidate message and block cache
+const conversationMessageCache = new Map<string, any[]>();
+let cachedBlockedIds: string[] | null = null;
+
 export default function ChatWindow({
   chat,
   socket,

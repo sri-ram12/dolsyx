@@ -1548,7 +1548,25 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   Future<List<Message>> _decryptMessageList(List<Message> list) async {
     final crypto = CryptoService.instance;
     final result = <Message>[];
+
+    // O(1) lookup cache from currently loaded messages to avoid re-decrypting identical items
+    final existingMap = <String, Message>{};
+    for (final existing in _messages) {
+      existingMap[existing.id] = existing;
+    }
+
     for (final m in list) {
+      // Reuse already decrypted message instance if content is unchanged and not an encrypted payload
+      final existing = existingMap[m.id];
+      if (existing != null) {
+        final existingRaw = existing.content.trim();
+        final isCipher = existingRaw.startsWith('{') && (existingRaw.contains('"ciphertext"') || existingRaw.contains('"e2ee"'));
+        if (!isCipher && existing.reactions.length == m.reactions.length && existing.isViewed == m.isViewed) {
+          result.add(existing);
+          continue;
+        }
+      }
+
       final raw = m.content.trim();
       if (raw.isNotEmpty && (raw.startsWith('{') || (raw.contains(':') && raw.split(':').length == 3))) {
         try {
@@ -1640,14 +1658,32 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         final rawList = data.map((json) => Message.fromJson(json)).toList();
         final decryptedList = await _decryptMessageList(rawList);
         if (mounted) {
-          setState(() {
-            _messages = decryptedList;
-            _isLoading = false;
-            try {
-              _pinnedMessage = _messages.firstWhere((m) => m.isPinned);
-            } catch (_) {}
-          });
-          _scrollToBottom();
+          // Compare against current messages to avoid UI re-render jitter
+          bool hasChanges = _messages.length != decryptedList.length;
+          if (!hasChanges) {
+            for (int i = 0; i < _messages.length; i++) {
+              if (_messages[i].id != decryptedList[i].id || 
+                  _messages[i].content != decryptedList[i].content ||
+                  _messages[i].reactions.length != decryptedList[i].reactions.length ||
+                  _messages[i].isViewed != decryptedList[i].isViewed) {
+                hasChanges = true;
+                break;
+              }
+            }
+          }
+
+          if (hasChanges) {
+            setState(() {
+              _messages = decryptedList;
+              _isLoading = false;
+              try {
+                _pinnedMessage = _messages.firstWhere((m) => m.isPinned);
+              } catch (_) {}
+            });
+            _scrollToBottom();
+          } else {
+            setState(() => _isLoading = false);
+          }
         }
       } else if (mounted) {
         setState(() => _isLoading = false);

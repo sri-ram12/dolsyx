@@ -3,6 +3,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { authenticateToken } from "../middleware/auth.middleware.js";
+import { uploadRateLimiter } from "../middleware/rateLimit.middleware.js";
 
 const router = Router();
 
@@ -26,7 +27,7 @@ const upload = multer({
   limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max file size
 });
 
-router.post("/", authenticateToken, (req, res) => {
+router.post("/", uploadRateLimiter, authenticateToken, (req, res) => {
   upload.any()(req, res, (err: any) => {
     if (err) {
       return res.status(400).json({ message: err.message || "Upload error" });

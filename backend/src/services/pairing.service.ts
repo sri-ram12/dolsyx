@@ -81,7 +81,7 @@ export function hashIp(ip?: string): string {
 }
 
 // Periodic cleanup of expired pairing sessions every 30 seconds
-setInterval(() => {
+const pairingCleanupTimer = setInterval(() => {
   const now = Date.now();
   for (const [id, session] of activePairingSessions.entries()) {
     if (now > session.expiresAt + 60000 || session.status === "CONSUMED") {
@@ -89,6 +89,9 @@ setInterval(() => {
     }
   }
 }, 30000);
+if (pairingCleanupTimer.unref) {
+  pairingCleanupTimer.unref();
+}
 
 export class PairingService {
   /**

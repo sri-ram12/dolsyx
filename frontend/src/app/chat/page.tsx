@@ -326,19 +326,22 @@ export default function ChatPage() {
   const fetchChats = useCallback(async () => {
     if (!token) return;
 
-    // Load offline chats immediately if available
+    // Load offline chats immediately if available for 0ms instant display
     try {
       const cached = localStorage.getItem("dolsyx_offline_chats");
       if (cached) {
         const data = JSON.parse(cached);
-        setChats(data);
-        const initialUnreads: Record<string, number> = {};
-        data.forEach((c: any) => {
-          if (c.unreadCount > 0) {
-            initialUnreads[c.id] = c.unreadCount;
-          }
-        });
-        setUnreadCounts(initialUnreads);
+        if (Array.isArray(data) && data.length > 0) {
+          setChats(data);
+          setIsChatsLoading(false);
+          const initialUnreads: Record<string, number> = {};
+          data.forEach((c: any) => {
+            if (c.unreadCount > 0) {
+              initialUnreads[c.id] = c.unreadCount;
+            }
+          });
+          setUnreadCounts(initialUnreads);
+        }
       }
     } catch (e) {
       console.warn("Could not load offline chats", e);

@@ -273,7 +273,7 @@ model MessageReceipt {
   message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
   @@unique([messageId, userId])
-  @@index([messageId, userId])
+  @@index([userId, status])
 }
 
 model Note {
@@ -347,6 +347,7 @@ model UserBlock {
   blocked   User     @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
 
   @@unique([blockerId, blockedId])
+  @@index([blockedId])
 }
 
 model Contact {
@@ -365,6 +366,7 @@ model Contact {
   contact User @relation("SavedByContacts", fields: [contactId], references: [id], onDelete: Cascade)
 
   @@unique([userId, contactId])
+  @@index([contactId])
 }
 
 model StarredMessage {

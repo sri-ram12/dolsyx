@@ -9,26 +9,29 @@ import { googleAuthService } from "../services/googleAuth.service.js";
 
 const JWT_SECRET = process.env.JWT_SECRET || "dolsyx_super_secret_key_123456";
 
-// Helper to generate a unique username from a Full Name
+// Helper to generate a unique username from a Full Name safely and reliably
 async function generateUniqueUsername(fullName: string): Promise<string> {
-  const baseUsername = fullName.trim();
-  let uniqueUsername = baseUsername;
-  let counter = 1;
-
-  while (true) {
-    const existing = await prisma.user.findFirst({
-      where: {
-        username: {
-          equals: uniqueUsername,
-        },
-      },
-    });
-    if (!existing) {
-      return uniqueUsername;
-    }
-    uniqueUsername = `${baseUsername} ${counter}`;
-    counter++;
+  const baseUsername = fullName.trim().replace(/\s+/g, "_").toLowerCase() || "user";
+  const existing = await prisma.user.findUnique({
+    where: { username: baseUsername },
+    select: { id: true },
+  });
+  if (!existing) {
+    return baseUsername;
   }
+
+  // Try up to 5 times with random 4-digit suffixes using indexed O(1) lookups
+  for (let i = 0; i < 5; i++) {
+    const candidate = `${baseUsername}_${Math.floor(1000 + Math.random() * 9000)}`;
+    const match = await prisma.user.findUnique({
+      where: { username: candidate },
+      select: { id: true },
+    });
+    if (!match) return candidate;
+  }
+
+  // Guaranteed fallback unique timestamp
+  return `${baseUsername}_${Date.now().toString(36)}`;
 }
 
 // Generate OTP, enforce rate limiting (max 5 requests per hour), and send email

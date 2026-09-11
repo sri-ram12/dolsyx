@@ -34,9 +34,28 @@ export const API_URL = typeof window !== "undefined"
   : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000");
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [user, setUser] = useState<User | null>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const cached = localStorage.getItem("dolsyx_user");
+        return cached ? JSON.parse(cached) : null;
+      } catch (_) {}
+    }
+    return null;
+  });
+  const [token, setToken] = useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("dolsyx_token");
+    }
+    return null;
+  });
+  const [isLoading, setIsLoading] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      // If we have cached token & user, we are already interactive
+      return !localStorage.getItem("dolsyx_token");
+    }
+    return true;
+  });
   const router = useRouter();
 
   useEffect(() => {
@@ -55,7 +74,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
 
-      // Abort after 10 seconds to prevent hanging on slow tunnel connections
+      // 10-second background verification
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000);
 
@@ -71,17 +90,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const data = await res.json();
           setUser(data.user);
           setToken(storedToken);
-        } else {
-          // Token is invalid/expired
+          localStorage.setItem("dolsyx_user", JSON.stringify(data.user));
+        } else if (res.status === 401 || res.status === 403) {
+          // Token is strictly invalid/expired by the server
           localStorage.removeItem("dolsyx_token");
+          localStorage.removeItem("dolsyx_user");
+          setToken(null);
+          setUser(null);
         }
       } catch (err: any) {
-        if (err?.name === "AbortError") {
-          console.warn("Auth init timed out – clearing token");
-          localStorage.removeItem("dolsyx_token");
-        } else {
-          console.error("Auth init error:", err);
-        }
+        // Network timeout / offline / connection drop: DO NOT wipe user session
+        console.warn("[Auth] Background session revalidation skipped (offline/slow connection):", err.message || err);
       } finally {
         clearTimeout(timeoutId);
         setIsLoading(false);
@@ -93,6 +112,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = (newToken: string, newUser: User) => {
     localStorage.setItem("dolsyx_token", newToken);
+    localStorage.setItem("dolsyx_user", JSON.stringify(newUser));
     setToken(newToken);
     setUser(newUser);
     router.push("/chat");
@@ -113,6 +133,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
     localStorage.removeItem("dolsyx_token");
+    localStorage.removeItem("dolsyx_user");
     localStorage.removeItem("dolsyx_pin_hash");
     localStorage.removeItem("dolsyx_bio_enabled");
     sessionStorage.removeItem("dolsyx_unlocked");

@@ -1,21 +1,79 @@
-# CI/CD temporarily paused — will re-enable after deployment is stable
-# name: DOLSYX CI/CD Checks
-#
-# on:
-#   push:
-#     branches: [ "main", "master" ]
-#   pull_request:
-#     branches: [ "main", "master" ]
-
-# Placeholder job so GitHub doesn't complain about empty workflow
-name: CI Paused
+name: DOLSYX Production Reliability CI
 
 on:
-  workflow_dispatch:  # Only runs when manually triggered — NOT on push
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  placeholder:
+  backend-verification:
+    name: Backend Build & Test
     runs-on: ubuntu-latest
     steps:
-    - name: CI is paused
-      run: echo "CI is currently paused. Re-enable when ready."
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: 'backend/package-lock.json'
+
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          npm ci
+
+      - name: Generate Prisma Client
+        run: |
+          cd backend
+          npx prisma generate
+
+      - name: TypeScript Compilation Check
+        run: |
+          cd backend
+          npm run build
+
+      - name: Execute Automated Test Suite
+        run: |
+          cd backend
+          npm test
+
+  frontend-verification:
+    name: Frontend Build & Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package-lock.json'
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Run ESLint
+        run: |
+          cd frontend
+          npm run lint || true
+
+      - name: Next.js Production Build
+        run: |
+          cd frontend
+          npm run build
+        env:
+          NEXT_PUBLIC_API_URL: "http://localhost:4000"
+          NEXT_PUBLIC_SOCKET_URL: "http://localhost:4000"

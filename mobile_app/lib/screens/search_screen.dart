@@ -7,11 +7,9 @@ import '../services/chat_service.dart';
 import '../services/contact_service.dart';
 import '../services/dolsyx_ai_service.dart';
 import '../models/chat.dart';
-import '../models/message.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/color_avatar.dart';
-import '../widgets/full_screen_image_view.dart';
 import 'chat_room_screen.dart';
 import 'locked_chats_screen.dart';
 
@@ -186,13 +184,18 @@ class _SearchScreenState extends State<SearchScreen> {
                 mType == targetType;
 
             if (isMatch && (q.isEmpty || (chat.name ?? '').toLowerCase().contains(q) || content.toLowerCase().contains(q))) {
+              final trimmed = content.trim();
+              final isCipher = (trimmed.startsWith('{') && (trimmed.contains('ciphertext') || trimmed.contains('e2ee'))) ||
+                  (trimmed.contains(':') && trimmed.split(':').length == 3);
+              final subtitleText = isCipher ? 'Shared ${_activeFilter.toLowerCase()}' : (content.isNotEmpty ? content : 'Shared ${_activeFilter.toLowerCase()}');
+
               filtered.add({
                 'type': 'chat',
                 'chat': chat,
                 'id': chat.id,
                 'username': chat.name ?? 'Chat',
                 'avatarUrl': chat.avatarUrl,
-                'subtitle': content.isNotEmpty ? content : 'Shared ${_activeFilter.toLowerCase()}',
+                'subtitle': subtitleText,
               });
             }
           }

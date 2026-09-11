@@ -9,6 +9,7 @@ import '../theme/app_theme.dart';
 import '../widgets/color_avatar.dart';
 import 'chat_room_screen.dart';
 import 'secret_lock_settings_screen.dart';
+import '../utils/e2ee/crypto_service.dart';
 
 class LockedChatsScreen extends StatefulWidget {
   final List<Chat>? initialLockedChats;
@@ -102,7 +103,7 @@ class _LockedChatsScreenState extends State<LockedChatsScreen> {
     final lockedIds = (prefs.getStringList('locked_chat_ids') ?? []).toSet();
     lockedIds.remove(chatId);
     await prefs.setStringList('locked_chat_ids', lockedIds.toList());
-    _chatService.updateChatSettings(chatId, {'isLocked': false}).catchError((_) {});
+    _chatService.updateChatSettings(chatId, {'isLocked': false}).catchError((_) => false);
     widget.onChatsUpdated?.call();
     widget.onRefresh?.call();
     if (mounted) {
@@ -161,6 +162,42 @@ class _LockedChatsScreenState extends State<LockedChatsScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildSubtitle(Chat chat) {
+    if (chat.lastMessage == null) {
+      return const Text("No messages", style: TextStyle(color: Colors.white60, fontSize: 13));
+    }
+    final msg = chat.lastMessage!;
+    final mType = (msg['mediaType'] ?? '').toString();
+    if (mType == 'IMAGE') return const Text("📷 Photo", style: TextStyle(color: Colors.white60, fontSize: 13));
+    if (mType == 'VIDEO') return const Text("🎬 Video", style: TextStyle(color: Colors.white60, fontSize: 13));
+    if (mType == 'AUDIO') return const Text("🎵 Voice message", style: TextStyle(color: Colors.white60, fontSize: 13));
+    if (mType == 'FILE') return const Text("📎 Document", style: TextStyle(color: Colors.white60, fontSize: 13));
+    if (mType == 'CALL_LOG') return const Text("📞 Call", style: TextStyle(color: Colors.white60, fontSize: 13));
+
+    final raw = (msg['content'] ?? '').toString().trim();
+    if (raw.isEmpty) return const Text("Sent a message", style: TextStyle(color: Colors.white60, fontSize: 13));
+    if (raw.startsWith('{') && (raw.contains('ciphertext') || raw.contains('e2ee'))) {
+      return FutureBuilder<String>(
+        future: CryptoService.instance.decryptIncomingContent(
+          content: raw,
+          senderUserId: (msg['senderId'] ?? '').toString(),
+          conversationId: chat.id,
+        ),
+        builder: (context, snapshot) {
+          final text = snapshot.data;
+          if (text != null && text.isNotEmpty && text != raw && !text.contains('ciphertext')) {
+            return Text(text, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white60, fontSize: 13));
+          }
+          return const Text("Message", style: TextStyle(color: Colors.white60, fontSize: 13));
+        },
+      );
+    }
+    if (raw.contains(':') && raw.split(':').length == 3) {
+      return const Text("Message", style: TextStyle(color: Colors.white60, fontSize: 13));
+    }
+    return Text(raw, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white60, fontSize: 13));
   }
 
   @override
@@ -238,12 +275,7 @@ class _LockedChatsScreenState extends State<LockedChatsScreen> {
                             )
                           : ColorAvatar(name: name, radius: 24),
                       title: Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-                      subtitle: Text(
-                        chat.lastMessage?['content'] ?? (chat.lastMessage?['mediaUrl'] != null ? 'Media' : 'No messages'),
-                        style: const TextStyle(color: Colors.white60, fontSize: 13),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                      subtitle: _buildSubtitle(chat),
                       trailing: TextButton.icon(
                         icon: const Icon(Icons.lock_open, color: Color(0xFF00A884), size: 18),
                         label: const Text('Unlock', style: TextStyle(color: Color(0xFF00A884), fontSize: 12, fontWeight: FontWeight.bold)),

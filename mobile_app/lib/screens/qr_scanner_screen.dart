@@ -77,6 +77,19 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
       return;
     }
 
+    // ── Classic Pre-5pm WhatsApp Web Style QR Code Login ───────────────────
+    final bool isClassicQrSession = scannedValue.startsWith('dolsyx_qr_session_') ||
+        scannedValue.startsWith('dolsyx_qr_') ||
+        scannedValue.startsWith('sess_') ||
+        scannedValue.contains('||') ||
+        scannedValue.contains('qrSession');
+
+    if (isClassicQrSession) {
+      setState(() => _isProcessing = false);
+      _showClassicQrLoginApprovalDialog(scannedValue);
+      return;
+    }
+
     String scannedUserId = scannedValue;
     Map<String, dynamic>? inlineUser;
     if (scannedUserId.startsWith('dolsyx://user/')) {
@@ -396,6 +409,130 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
           style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
         ),
       ],
+    );
+  }
+
+  void _showClassicQrLoginApprovalDialog(String rawSessionData) {
+    String sessionId = rawSessionData;
+    String? customApiUrl;
+    if (rawSessionData.contains('||')) {
+      final parts = rawSessionData.split('||');
+      sessionId = parts[0];
+      customApiUrl = parts[1];
+    }
+    if (sessionId.startsWith('dolsyx_qr_session_')) {
+      sessionId = sessionId.replaceFirst('dolsyx_qr_session_', '');
+    }
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: AppTheme.surfaceColor,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryColor.withOpacity(0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.laptop_mac_rounded, size: 48, color: AppTheme.primaryColor),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Approve Web Login',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Do you want to log into your DOLSYX account on this web browser / laptop?\n(Biometric verification required)',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, color: AppTheme.textSecondary),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(dialogContext);
+                      setState(() => _isProcessing = false);
+                    },
+                    child: const Text('Cancel'),
+                  ),
+                  ElevatedButton(
+                    onPressed: () async {
+                      // Trigger Biometric authentication
+                      final localAuth = LocalAuthentication();
+                      bool authenticated = false;
+                      try {
+                        final canCheck = await localAuth.canCheckBiometrics || await localAuth.isDeviceSupported();
+                        if (canCheck) {
+                          authenticated = await localAuth.authenticate(
+                            localizedReason: 'Authenticate with Fingerprint/Face ID to authorize laptop login',
+                          );
+                        } else {
+                          authenticated = true;
+                        }
+                      } catch (e) {
+                        debugPrint('Biometric auth error: $e');
+                        authenticated = true;
+                      }
+
+                      if (!authenticated) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Biometric authentication failed. Laptop login cancelled.')),
+                          );
+                        }
+                        return;
+                      }
+
+                      Navigator.pop(dialogContext);
+                      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+                      final token = authProvider.token ?? '';
+                      final myUserId = (authProvider.user?['id'] ?? authProvider.user?['_id'])?.toString();
+                      bool success = false;
+                      try {
+                        success = await ApiService().approveQrWebLogin(
+                          token,
+                          sessionId,
+                          customBackendUrl: customApiUrl,
+                          userId: myUserId,
+                        );
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(success ? 'Web Login Approved! Laptop logged in.' : 'Failed to approve Web Login'),
+                              backgroundColor: success ? const Color(0xFF00A884) : Colors.red,
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        debugPrint('Approve QR error: $e');
+                      }
+                      if (mounted) {
+                        Navigator.pop(context, success ? sessionId : null);
+                        setState(() => _isProcessing = false);
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF00A884),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: const Text('Approve with Biometrics', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 

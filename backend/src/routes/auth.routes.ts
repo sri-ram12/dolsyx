@@ -23,6 +23,9 @@ import {
   logoutAllSessions,
   linkGoogleAccount,
   unlinkGoogleAccount,
+  createQrSession,
+  approveQrSession,
+  checkQrSession,
 } from "../controllers/auth.controller.js";
 import { authenticateToken } from "../middleware/auth.middleware.js";
 import { authRateLimiter, otpRateLimiter } from "../middleware/rateLimit.middleware.js";
@@ -61,6 +64,11 @@ router.delete("/account", authenticateToken as any, deleteAccount as any);
 router.post("/request-account-deletion", requestAccountDeletion as any);
 
 
+
+// Classic WhatsApp Web Style QR Code Login Routes (Backward Compatibility)
+router.get("/qr-session", createQrSession as any);
+router.post("/approve-qr-session", authenticateToken as any, approveQrSession as any);
+router.get("/check-qr-session/:sessionId", checkQrSession as any);
 
 // Block management
 router.post("/block/:targetUserId", authenticateToken as any, blockUser as any);

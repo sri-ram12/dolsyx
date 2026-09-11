@@ -39,11 +39,37 @@ const server = http.createServer(app);
 const PORT = process.env.PORT || 4000;
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
-// In dev, allow localhost:3000 + any comma-separated FRONTEND_URL entries.
-const FRONTEND_URLS = (process.env.FRONTEND_URL || "http://localhost:3000")
-  .split(",")
-  .map((u) => u.trim())
-  .filter(Boolean);
+const DEFAULT_ALLOWED_ORIGINS = [
+  "http://localhost:3000",
+  "http://localhost:3001",
+  "http://localhost:4000",
+  "http://localhost:5173",
+  "https://dolsyx-app.onrender.com",
+];
+
+const FRONTEND_URLS = [
+  ...DEFAULT_ALLOWED_ORIGINS,
+  ...(process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(",").map((u) => u.trim()) : []),
+].filter(Boolean);
+
+const isAllowedOrigin = (origin: string): boolean => {
+  const clean = origin.replace(/\/+$/, "");
+  if (FRONTEND_URLS.some((u) => u === "*" || u.replace(/\/+$/, "") === clean)) {
+    return true;
+  }
+  // Allow onrender, vercel, localhost, and local network IPs
+  if (
+    clean.endsWith(".onrender.com") ||
+    clean.endsWith(".vercel.app") ||
+    clean.startsWith("http://localhost:") ||
+    clean.startsWith("http://127.0.0.1:") ||
+    clean.startsWith("http://192.168.") ||
+    clean.startsWith("http://10.0.")
+  ) {
+    return true;
+  }
+  return false;
+};
 
 const corsOriginFn = (
   origin: string | undefined,
@@ -54,10 +80,12 @@ const corsOriginFn = (
   // Allow all origins in local development for LAN and multi-device testing
   if (!IS_PRODUCTION) return callback(null, true);
 
-  if (FRONTEND_URLS.includes(origin) || FRONTEND_URLS.includes("*")) {
+  if (isAllowedOrigin(origin)) {
     return callback(null, true);
   }
-  callback(new Error(`CORS: origin ${origin} not allowed`));
+
+  console.warn(`[CORS] Rejected unlisted origin: ${origin}`);
+  return callback(null, false); // Deny CORS headers without crashing Express pipeline with 500 error
 };
 
 import compression from "compression";

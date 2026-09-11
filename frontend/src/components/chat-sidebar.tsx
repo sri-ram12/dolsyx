@@ -12,6 +12,7 @@ import QRCode from "react-qr-code";
 import dynamic from "next/dynamic";
 
 const QRScanner = dynamic(() => import("./qr-scanner"), { ssr: false });
+import { decryptIncomingContent } from "@/utils/e2ee/cryptoService";
 
 export interface Chat {
   id: string;
@@ -101,6 +102,28 @@ export default function ChatSidebar({
   const [starredMessagesList, setStarredMessagesList] = useState<any[]>([]);
 
   const [globalUnlockedKey, setGlobalUnlockedKey] = useState<string>("");
+  const [decryptedPreviewCache, setDecryptedPreviewCache] = useState<Record<string, string>>({});
+
+  // Eagerly decrypt any E2EE chat last message previews
+  useEffect(() => {
+    chats.forEach((chat) => {
+      if (chat.lastMessage?.content) {
+        const raw = chat.lastMessage.content.trim();
+        if (raw.startsWith("{") && (raw.includes('"e2ee"') || raw.includes('"ciphertext"') || raw.includes('ciphertext'))) {
+          const cacheKey = `${chat.id}_${chat.lastMessage.id || ''}_${raw}`;
+          if (!decryptedPreviewCache[cacheKey]) {
+            decryptIncomingContent(raw, chat.lastMessage.senderId, chat.id)
+              .then((decrypted) => {
+                if (decrypted && decrypted !== raw) {
+                  setDecryptedPreviewCache((prev) => ({ ...prev, [cacheKey]: decrypted }));
+                }
+              })
+              .catch(() => {});
+          }
+        }
+      }
+    });
+  }, [chats]);
 
   // Initialize locked chats and global unlock key
   useEffect(() => {
@@ -824,7 +847,14 @@ export default function ChatSidebar({
                               if (m.mediaType === "AUDIO") return `${prefix}🎵 Voice message`;
                               if (m.mediaType === "FILE") return `${prefix}📎 File`;
                               if (m.mediaType === "LOCATION" || (typeof m.content === "string" && (m.content.includes('"latitude":') || m.content.includes('"mediaType":"LOCATION"')))) return `${prefix}📍 Location`;
-                              if (m.mediaType === "POLL" || (typeof m.content === "string" && (m.content.includes('"question":') || m.content.includes('"mediaType":"POLL"')))) return `${prefix}📊 Poll`;
+                              const raw = typeof m.content === "string" ? m.content.trim() : "";
+                              if (raw.startsWith("{") && (raw.includes('"e2ee"') || raw.includes('"ciphertext"') || raw.includes('ciphertext'))) {
+                                const cacheKey = `${chat.id}_${m.id || ''}_${raw}`;
+                                return prefix + (decryptedPreviewCache[cacheKey] || "Message");
+                              }
+                              if (raw.includes(":") && raw.split(":").length === 3) {
+                                return prefix + "Message";
+                              }
                               return prefix + m.content;
                             })()
                           : "No messages yet"}

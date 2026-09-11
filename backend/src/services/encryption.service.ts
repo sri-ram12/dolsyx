@@ -6,19 +6,30 @@ const KEY_LENGTH = 32;
 const ITERATIONS = 10000;
 
 class EncryptionService {
-  private key: Buffer;
+  private keys: Buffer[] = [];
 
   constructor() {
-    const secret = process.env.JWT_SECRET || "dolsyx_super_secret_key_123456";
-    // Generate a secure key deterministically using PBKDF2
-    this.key = crypto.pbkdf2Sync(secret, "dolsyx_salt_123456", ITERATIONS, KEY_LENGTH, "sha256");
+    const secrets = [
+      process.env.JWT_SECRET,
+      "dolsyx_super_secret_key_123456",
+      "dolsyx_secret_key_2024"
+    ].filter((s): s is string => Boolean(s && s.trim().length > 0));
+
+    // Deduplicate secrets
+    const uniqueSecrets = Array.from(new Set(secrets));
+    this.keys = uniqueSecrets.map((secret) =>
+      crypto.pbkdf2Sync(secret, "dolsyx_salt_123456", ITERATIONS, KEY_LENGTH, "sha256")
+    );
   }
 
   public encrypt(text: string): string {
     if (!text) return "";
     try {
+      const primaryKey = this.keys[0];
+      if (!primaryKey) return text;
+
       const iv = crypto.randomBytes(IV_LENGTH);
-      const cipher = crypto.createCipheriv(ALGORITHM, this.key, iv);
+      const cipher = crypto.createCipheriv(ALGORITHM, primaryKey, iv);
       let encrypted = cipher.update(text, "utf8", "hex");
       encrypted += cipher.final("hex");
       const authTag = cipher.getAuthTag().toString("hex");
@@ -32,35 +43,40 @@ class EncryptionService {
   }
 
   public decrypt(cipherText: string): string {
-    if (!cipherText) return "";
-    try {
-      const parts = cipherText.split(":");
-      if (parts.length !== 3) {
-        // Not encrypted (or old plain text messages)
-        return cipherText;
-      }
-      
-      const ivStr = parts[0];
-      const authTagStr = parts[1];
-      const encrypted = parts[2];
-      
-      if (!ivStr || !authTagStr || !encrypted) {
-        return cipherText;
-      }
-      
-      const iv = Buffer.from(ivStr, "hex");
-      const authTag = Buffer.from(authTagStr, "hex");
-      
-      const decipher = crypto.createDecipheriv(ALGORITHM, this.key, iv);
-      decipher.setAuthTag(authTag);
-      
-      let decrypted = decipher.update(encrypted, "hex", "utf8");
-      decrypted += decipher.final("utf8");
-      return decrypted;
-    } catch (err) {
-      // If decryption fails, it could be that it wasn't encrypted
+    if (!cipherText || typeof cipherText !== "string") return "";
+    const parts = cipherText.split(":");
+    if (parts.length !== 3) {
+      // Not encrypted (plain text or client E2EE JSON)
       return cipherText;
     }
+
+    const ivStr = parts[0];
+    const authTagStr = parts[1];
+    const encrypted = parts[2];
+
+    if (!ivStr || !authTagStr || !encrypted) {
+      return cipherText;
+    }
+
+    // Attempt decryption with each candidate key until one succeeds
+    for (const key of this.keys) {
+      try {
+        const iv = Buffer.from(ivStr, "hex");
+        const authTag = Buffer.from(authTagStr, "hex");
+
+        const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+        decipher.setAuthTag(authTag);
+
+        let decrypted = decipher.update(encrypted, "hex", "utf8");
+        decrypted += decipher.final("utf8");
+        return decrypted;
+      } catch (_) {
+        // Try next key
+      }
+    }
+
+    // If all fail, return raw cipherText
+    return cipherText;
   }
 }
 

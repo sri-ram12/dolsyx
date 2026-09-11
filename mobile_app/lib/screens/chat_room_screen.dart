@@ -1549,13 +1549,25 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     final crypto = CryptoService.instance;
     final result = <Message>[];
     for (final m in list) {
-      if (m.content.isNotEmpty && m.content.startsWith('{')) {
+      final raw = m.content.trim();
+      if (raw.isNotEmpty && (raw.startsWith('{') || (raw.contains(':') && raw.split(':').length == 3))) {
         try {
-          final decrypted = await crypto.decryptIncomingContent(
-            content: m.content,
+          var decrypted = await crypto.decryptIncomingContent(
+            content: raw,
             senderUserId: m.senderId,
             conversationId: widget.conversationId,
           );
+          // If the decrypted content is an inner JSON E2EE string, decrypt once more
+          if (decrypted.trim().startsWith('{') && (decrypted.contains('"ciphertext"') || decrypted.contains('"e2ee"'))) {
+            try {
+              decrypted = await crypto.decryptIncomingContent(
+                content: decrypted.trim(),
+                senderUserId: m.senderId,
+                conversationId: widget.conversationId,
+              );
+            } catch (_) {}
+          }
+
           if (decrypted.startsWith('{') && decrypted.endsWith('}')) {
             try {
               final parsed = jsonDecode(decrypted);

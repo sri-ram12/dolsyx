@@ -48,17 +48,21 @@ class MessageBubble extends StatelessWidget {
   static final RegExp _urlRegex = RegExp(r'(https?://[^\s]+|www\.[^\s]+)', caseSensitive: false);
 
   Widget _buildMessageText(String text, Color textColor, double fontSize) {
-    if (text.trim().startsWith('{') && text.contains('ciphertext')) {
+    final trimmed = text.trim();
+    if ((trimmed.startsWith('{') && (trimmed.contains('ciphertext') || trimmed.contains('e2ee'))) || (trimmed.contains(':') && trimmed.split(':').length == 3)) {
       return FutureBuilder<String>(
         future: CryptoService.instance.decryptIncomingContent(
-          content: text,
+          content: trimmed,
           senderUserId: message.senderId,
           conversationId: message.conversationId,
         ),
         builder: (context, snapshot) {
-          final resolvedText = snapshot.data ?? text;
-          if (resolvedText != text && !resolvedText.contains('ciphertext')) {
+          final resolvedText = snapshot.data ?? trimmed;
+          if (resolvedText != trimmed && !resolvedText.contains('ciphertext') && !resolvedText.contains('conv_v1')) {
             return _buildMessageText(resolvedText, textColor, fontSize);
+          }
+          if (resolvedText.contains(':') && resolvedText.split(':').length == 3) {
+            return Text("Encrypted message", style: TextStyle(color: textColor.withOpacity(0.7), fontSize: fontSize, fontStyle: FontStyle.italic));
           }
           return Text(resolvedText, style: TextStyle(color: textColor, fontSize: fontSize));
         },

@@ -35,6 +35,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'secret_lock_settings_screen.dart';
 import 'locked_chats_screen.dart';
 import 'linked_devices_screen.dart';
+import '../utils/e2ee/crypto_service.dart';
 
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
@@ -57,6 +58,35 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
   Set<String> _onlineUsers = {};
   Map<String, bool> _typingStatus = {};
   bool _hideLockedChats = false;
+  final Map<String, String> _decryptedPreviewCache = {};
+
+  void _preDecryptLastMessages(List<Chat> chats) {
+    for (final chat in chats) {
+      if (chat.lastMessage != null) {
+        final raw = (chat.lastMessage!['content'] ?? '').toString().trim();
+        if (raw.startsWith('{') && (raw.contains('"e2ee"') || raw.contains('"ciphertext"') || raw.contains('ciphertext'))) {
+          final cacheKey = "${chat.id}_${chat.lastMessage!['id'] ?? ''}_$raw";
+          if (!_decryptedPreviewCache.containsKey(cacheKey)) {
+            final senderUserId = (chat.lastMessage!['senderId'] ?? '').toString();
+            CryptoService.instance.decryptIncomingContent(
+              content: raw,
+              senderUserId: senderUserId,
+              conversationId: chat.id,
+            ).then((dec) {
+              if (mounted && dec.isNotEmpty && dec != raw) {
+                setState(() {
+                  _decryptedPreviewCache[cacheKey] = dec;
+                  if (chat.lastMessage != null) {
+                    chat.lastMessage!['content'] = dec;
+                  }
+                });
+              }
+            }).catchError((_) {});
+          }
+        }
+      }
+    }
+  }
 
   @override
   void initState() {
@@ -159,13 +189,33 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                  if (senderId != null && senderId != currentUserId) {
                    _chats[index].unreadCount += 1;
                  }
-                  if (message != null) {
-                    _chats[index].lastMessage = message;
-                    try {
-                      final msgObj = Message.fromJson(Map<String, dynamic>.from(message));
-                      AutoDownloadService.checkAndAutoDownload(msgObj);
-                    } catch (_) {}
-                  }
+                   if (message != null) {
+                     _chats[index].lastMessage = message;
+                     final raw = (message['content'] ?? '').toString().trim();
+                     if (raw.startsWith('{') && (raw.contains('"e2ee"') || raw.contains('"ciphertext"') || raw.contains('ciphertext'))) {
+                       final sId = (message['senderId'] ?? '').toString();
+                       final cId = _chats[index].id;
+                       final cacheKey = "${cId}_${message['id'] ?? ''}_$raw";
+                       CryptoService.instance.decryptIncomingContent(
+                         content: raw,
+                         senderUserId: sId,
+                         conversationId: cId,
+                       ).then((dec) {
+                         if (mounted && dec.isNotEmpty && dec != raw) {
+                           setState(() {
+                             _decryptedPreviewCache[cacheKey] = dec;
+                             if (_chats.length > index && _chats[index].lastMessage != null) {
+                               _chats[index].lastMessage!['content'] = dec;
+                             }
+                           });
+                         }
+                       }).catchError((_) {});
+                     }
+                     try {
+                       final msgObj = Message.fromJson(Map<String, dynamic>.from(message));
+                       AutoDownloadService.checkAndAutoDownload(msgObj);
+                     } catch (_) {}
+                   }
                   _chats[index].updatedAt = DateTime.now();
                   
                   // Move the updated chat to the top of the list
@@ -256,6 +306,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
     }).toList();
 
     _chats = uniqueChats;
+    _preDecryptLastMessages(uniqueChats);
     _sortChats();
   }
 
@@ -342,8 +393,78 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
             Flexible(child: Text("Photo", style: TextStyle(color: AppTheme.textSecondary), maxLines: 1, overflow: TextOverflow.ellipsis)),
           ],
         );
+      } else if (msg['mediaType'] == 'VIDEO') {
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.videocam, size: 14, color: AppTheme.textSecondary),
+            const SizedBox(width: 4),
+            Flexible(child: Text("Video", style: TextStyle(color: AppTheme.textSecondary), maxLines: 1, overflow: TextOverflow.ellipsis)),
+          ],
+        );
+      } else if (msg['mediaType'] == 'AUDIO') {
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.audiotrack, size: 14, color: AppTheme.textSecondary),
+            const SizedBox(width: 4),
+            Flexible(child: Text("Voice note", style: TextStyle(color: AppTheme.textSecondary), maxLines: 1, overflow: TextOverflow.ellipsis)),
+          ],
+        );
+      } else if (msg['mediaType'] == 'FILE') {
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.insert_drive_file, size: 14, color: AppTheme.textSecondary),
+            const SizedBox(width: 4),
+            Flexible(child: Text("Document", style: TextStyle(color: AppTheme.textSecondary), maxLines: 1, overflow: TextOverflow.ellipsis)),
+          ],
+        );
       }
-      return Text(msg['content'] ?? "Sent a message", style: TextStyle(color: AppTheme.textSecondary), maxLines: 1, overflow: TextOverflow.ellipsis);
+
+      final rawContent = (msg['content'] ?? "").toString();
+      if (rawContent.isEmpty) {
+        return Text("Sent a message", style: TextStyle(color: AppTheme.textSecondary), maxLines: 1, overflow: TextOverflow.ellipsis);
+      }
+
+      final trimmed = rawContent.trim();
+      final isJsonCipher = trimmed.startsWith('{') && (trimmed.contains('"e2ee"') || trimmed.contains('"ciphertext"') || trimmed.contains('ciphertext'));
+      final isLegacyServerCipher = trimmed.contains(':') && trimmed.split(':').length == 3;
+
+      if (isJsonCipher || isLegacyServerCipher) {
+        final cacheKey = "${chat.id}_${msg['id'] ?? ''}_$trimmed";
+        final cached = _decryptedPreviewCache[cacheKey];
+        if (cached != null) {
+          return Text(cached, style: TextStyle(color: AppTheme.textSecondary), maxLines: 1, overflow: TextOverflow.ellipsis);
+        }
+
+        if (isJsonCipher) {
+          final senderUserId = (msg['senderId'] ?? '').toString();
+          CryptoService.instance.decryptIncomingContent(
+            content: trimmed,
+            senderUserId: senderUserId,
+            conversationId: chat.id,
+          ).then((dec) {
+            if (mounted && dec.isNotEmpty && dec != trimmed) {
+              setState(() {
+                _decryptedPreviewCache[cacheKey] = dec;
+                if (chat.lastMessage != null) {
+                  chat.lastMessage!['content'] = dec;
+                }
+              });
+            }
+          }).catchError((_) {});
+        }
+
+        return Text(
+          "Message",
+          style: TextStyle(color: AppTheme.textSecondary),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        );
+      }
+
+      return Text(rawContent, style: TextStyle(color: AppTheme.textSecondary), maxLines: 1, overflow: TextOverflow.ellipsis);
     }
     return Text("No messages yet", style: TextStyle(color: AppTheme.textSecondary), maxLines: 1, overflow: TextOverflow.ellipsis);
   }

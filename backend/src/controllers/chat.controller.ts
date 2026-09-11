@@ -2,6 +2,7 @@ import type { Response } from "express";
 import { prisma } from "../config/db.js";
 import type { AuthRequest } from "../middleware/auth.middleware.js";
 import { evaluatePrivacyInMemory, canViewProfilePhoto, canViewAbout, canViewLastSeen, canViewOnline } from "../utils/privacy.engine.js";
+import { encryptionService } from "../services/encryption.service.js";
 
 export const getChats = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
@@ -129,12 +130,12 @@ export const getChats = async (req: AuthRequest, res: Response): Promise<void> =
       // Find the recipient (the other participant in a 1-on-1 chat)
       const otherParticipant = chat.participants.find((p) => p.userId !== userId);
       const recipient = otherParticipant ? { ...otherParticipant.user } : null;
-      // Zero-Knowledge E2EE: return stored content as-is so clients decrypt locally
+      // Zero-Knowledge E2EE: return stored content as-is so clients decrypt locally, but decrypt any server at-rest layer first
       const rawLastMessage = chat.messages[0] || null;
       const lastMessage = rawLastMessage
         ? {
             ...rawLastMessage,
-            content: rawLastMessage.content || "",
+            content: encryptionService.decrypt(rawLastMessage.content || ""),
           }
         : null;
 
@@ -244,6 +245,7 @@ export const getMessages = async (req: AuthRequest, res: Response): Promise<void
         },
         receipts: true,
         reactions: true,
+        parentMessage: true,
       },
     };
 
@@ -262,8 +264,19 @@ export const getMessages = async (req: AuthRequest, res: Response): Promise<void
       res.setHeader("X-Next-Cursor", nextCursor);
     }
 
-    // Zero-Knowledge E2EE: Return opaque ciphertext directly to authenticated participants
-    res.json(messages);
+    // Decrypt any at-rest server encryption layers (leaves client E2EE payloads intact for client decryption)
+    const processedMessages = messages.map((m: any) => ({
+      ...m,
+      content: encryptionService.decrypt(m.content || ""),
+      parentMessage: m.parentMessage
+        ? {
+            ...m.parentMessage,
+            content: encryptionService.decrypt(m.parentMessage.content || ""),
+          }
+        : null,
+    }));
+
+    res.json(processedMessages);
   } catch (error) {
     console.error("GetMessages error:", error);
     res.status(500).json({ message: "Internal server error" });
@@ -317,7 +330,12 @@ export const getMediaMessages = async (req: AuthRequest, res: Response): Promise
       return (!!msg.mediaUrl && msg.mediaUrl.trim().length > 0) || (msg.mediaType && msg.mediaType !== "TEXT");
     });
 
-    res.json(mediaMessages);
+    const processedMediaMessages = mediaMessages.map((m: any) => ({
+      ...m,
+      content: encryptionService.decrypt(m.content || ""),
+    }));
+
+    res.json(processedMediaMessages);
   } catch (error) {
     console.error("GetMediaMessages error:", error);
     res.status(500).json({ message: "Internal server error" });

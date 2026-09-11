@@ -29,11 +29,17 @@ export const isContactOf = async (ownerId: string, contactId: string): Promise<b
 // Helper: Check if a user is in an exception list
 const inExceptionList = (listJson: string | string[], userId: string): boolean => {
   try {
+    if (!listJson || listJson === "[]") return false;
     if (Array.isArray(listJson)) {
       return listJson.includes(userId);
     }
-    const list = JSON.parse(listJson);
-    return Array.isArray(list) && list.includes(userId);
+    if (typeof listJson === "string") {
+      // Substring fast-check: if the serialized list doesn't even contain the user's ID, skip JSON.parse
+      if (!listJson.includes(userId)) return false;
+      const list = JSON.parse(listJson);
+      return Array.isArray(list) && list.includes(userId);
+    }
+    return false;
   } catch (e) {
     return false;
   }

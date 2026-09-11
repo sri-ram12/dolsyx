@@ -80,16 +80,28 @@ function loadScheduledMessagesFromDisk() {
   }
 }
 
-function flushScheduledMessagesToDisk() {
+let isFlushingScheduled = false;
+let scheduledFlushPending = false;
+
+async function flushScheduledMessagesToDisk() {
+  if (isFlushingScheduled) {
+    scheduledFlushPending = true;
+    return;
+  }
+  isFlushingScheduled = true;
+  scheduledFlushPending = false;
   try {
     const list = Array.from(scheduledMessagesStore.values());
     const dir = path.dirname(SCHEDULED_STORE_FILE);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    fs.writeFileSync(SCHEDULED_STORE_FILE, JSON.stringify(list, null, 2), "utf-8");
+    await fs.promises.mkdir(dir, { recursive: true });
+    await fs.promises.writeFile(SCHEDULED_STORE_FILE, JSON.stringify(list, null, 2), "utf-8");
   } catch (err) {
     console.warn("[SCHEDULED MSG] Error persisting scheduled messages to disk:", err);
+  } finally {
+    isFlushingScheduled = false;
+    if (scheduledFlushPending) {
+      setImmediate(flushScheduledMessagesToDisk);
+    }
   }
 }
 

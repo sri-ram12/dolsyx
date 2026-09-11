@@ -58,6 +58,12 @@ class EncryptionService {
       return cipherText;
     }
 
+    // IV is 12 bytes = 24 hex chars; AuthTag is 16 bytes = 32 hex chars.
+    // If lengths differ or non-hex, it is plain text / JSON with colons. Skip crypto failure overhead.
+    if (ivStr.length !== 24 || authTagStr.length !== 32) {
+      return cipherText;
+    }
+
     // Attempt decryption with each candidate key until one succeeds
     for (const key of this.keys) {
       try {

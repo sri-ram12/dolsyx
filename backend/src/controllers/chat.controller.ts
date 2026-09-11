@@ -303,12 +303,16 @@ export const getMediaMessages = async (req: AuthRequest, res: Response): Promise
       return;
     }
 
-    // Fetch messages for conversation
+    // Fetch media messages for conversation directly using the indexed mediaType and mediaUrl fields
     const messages = await prisma.message.findMany({
       where: {
         conversationId,
         isDeleted: false,
         deletedForUsers: { none: { userId } },
+        OR: [
+          { mediaUrl: { not: null } },
+          { mediaType: { not: "TEXT" } },
+        ],
       },
       orderBy: { createdAt: "desc" },
       take: 500,

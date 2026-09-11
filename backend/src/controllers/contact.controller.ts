@@ -35,6 +35,13 @@ export const searchUser = async (req: AuthRequest, res: Response): Promise<void>
         statusMessage: true,
         isOnline: true,
         lastSeen: true,
+        avatarPrivacy: true,
+        avatarPrivacyExceptList: true,
+        lastSeenPrivacy: true,
+        lastSeenPrivacyExceptList: true,
+        onlinePrivacy: true,
+        aboutPrivacy: true,
+        aboutPrivacyExceptList: true,
       },
     });
 
@@ -43,28 +50,43 @@ export const searchUser = async (req: AuthRequest, res: Response): Promise<void>
       return;
     }
 
-    // Apply Privacy Engine Filtering
-    const [canViewPhoto, canViewBio, canSeeLastSeen, canSeeOnline] = await Promise.all([
-      canViewProfilePhoto(userId, user.id),
-      canViewAbout(userId, user.id),
-      canViewLastSeen(userId, user.id),
-      canViewOnline(userId, user.id),
+    // Check contact and block status in a single parallel batch query
+    const [existingContact, block] = await Promise.all([
+      prisma.contact.findUnique({
+        where: { userId_contactId: { userId, contactId: user.id } },
+      }),
+      prisma.userBlock.findFirst({
+        where: {
+          OR: [
+            { blockerId: userId, blockedId: user.id },
+            { blockerId: user.id, blockedId: userId },
+          ],
+        },
+      }),
     ]);
 
-    if (!canViewPhoto) user.avatarUrl = null;
-    if (!canViewBio) {
-      user.bio = null;
-      user.statusMessage = null;
+    const isContact = !!existingContact;
+    const isBlocked = !!block;
+    const privacy = evaluatePrivacyInMemory(userId, user, isBlocked, isContact);
+
+    const safeUser: any = { ...user };
+    if (!privacy.canPhoto) safeUser.avatarUrl = null;
+    if (!privacy.canAbout) {
+      safeUser.bio = null;
+      safeUser.statusMessage = null;
     }
-    if (!canSeeLastSeen) user.lastSeen = null;
-    if (!canSeeOnline) user.isOnline = false;
+    if (!privacy.canLastSeen) safeUser.lastSeen = null;
+    if (!privacy.canOnlineStatus) safeUser.isOnline = false;
 
-    // Check if already saved as contact
-    const existing = await prisma.contact.findUnique({
-      where: { userId_contactId: { userId, contactId: user.id } },
-    });
+    delete safeUser.avatarPrivacy;
+    delete safeUser.avatarPrivacyExceptList;
+    delete safeUser.lastSeenPrivacy;
+    delete safeUser.lastSeenPrivacyExceptList;
+    delete safeUser.onlinePrivacy;
+    delete safeUser.aboutPrivacy;
+    delete safeUser.aboutPrivacyExceptList;
 
-    res.status(200).json({ ...user, alreadySaved: !!existing });
+    res.status(200).json({ ...safeUser, alreadySaved: isContact });
   } catch (error) {
     console.error("Search user error:", error);
     res.status(500).json({ message: "Search failed" });
@@ -123,21 +145,53 @@ export const addContact = async (req: AuthRequest, res: Response): Promise<void>
       },
       include: {
         contact: {
-          select: { id: true, username: true, email: true, avatarUrl: true, statusMessage: true, isOnline: true, lastSeen: true },
+          select: {
+            id: true,
+            username: true,
+            email: true,
+            avatarUrl: true,
+            statusMessage: true,
+            isOnline: true,
+            lastSeen: true,
+            avatarPrivacy: true,
+            avatarPrivacyExceptList: true,
+            lastSeenPrivacy: true,
+            lastSeenPrivacyExceptList: true,
+            onlinePrivacy: true,
+            aboutPrivacy: true,
+            aboutPrivacyExceptList: true,
+          },
         },
       },
     });
 
-    // Apply privacy filtering on the returned contact
+    // Apply fast privacy filtering on the returned contact
     const c = contact.contact as any;
-    const [canPhoto, canLastSeen, canOnlineStatus] = await Promise.all([
-      canViewProfilePhoto(userId, c.id),
-      canViewLastSeen(userId, c.id),
-      canViewOnline(userId, c.id),
+    const [isReciprocal, block] = await Promise.all([
+      prisma.contact.findUnique({
+        where: { userId_contactId: { userId: c.id, contactId: userId } },
+      }),
+      prisma.userBlock.findFirst({
+        where: {
+          OR: [
+            { blockerId: userId, blockedId: c.id },
+            { blockerId: c.id, blockedId: userId },
+          ],
+        },
+      }),
     ]);
-    if (!canPhoto) c.avatarUrl = null;
-    if (!canLastSeen) c.lastSeen = null;
-    if (!canOnlineStatus) c.isOnline = false;
+    const privacy = evaluatePrivacyInMemory(userId, c, !!block, !!isReciprocal);
+    if (!privacy.canPhoto) c.avatarUrl = null;
+    if (!privacy.canLastSeen) c.lastSeen = null;
+    if (!privacy.canOnlineStatus) c.isOnline = false;
+
+    delete c.avatarPrivacy;
+    delete c.avatarPrivacyExceptList;
+    delete c.lastSeenPrivacy;
+    delete c.lastSeenPrivacyExceptList;
+    delete c.onlinePrivacy;
+    delete c.aboutPrivacy;
+    delete c.aboutPrivacyExceptList;
 
     res.status(201).json(contact);
   } catch (error) {
@@ -190,21 +244,53 @@ export const addContactById = async (req: AuthRequest, res: Response): Promise<v
       },
       include: {
         contact: {
-          select: { id: true, username: true, email: true, avatarUrl: true, statusMessage: true, isOnline: true, lastSeen: true },
+          select: {
+            id: true,
+            username: true,
+            email: true,
+            avatarUrl: true,
+            statusMessage: true,
+            isOnline: true,
+            lastSeen: true,
+            avatarPrivacy: true,
+            avatarPrivacyExceptList: true,
+            lastSeenPrivacy: true,
+            lastSeenPrivacyExceptList: true,
+            onlinePrivacy: true,
+            aboutPrivacy: true,
+            aboutPrivacyExceptList: true,
+          },
         },
       },
     });
 
-    // Apply privacy filtering on the returned contact
+    // Apply fast privacy filtering on the returned contact
     const c = contact.contact as any;
-    const [canPhoto, canLastSeen, canOnlineStatus] = await Promise.all([
-      canViewProfilePhoto(userId, c.id),
-      canViewLastSeen(userId, c.id),
-      canViewOnline(userId, c.id),
+    const [isReciprocal, block] = await Promise.all([
+      prisma.contact.findUnique({
+        where: { userId_contactId: { userId: c.id, contactId: userId } },
+      }),
+      prisma.userBlock.findFirst({
+        where: {
+          OR: [
+            { blockerId: userId, blockedId: c.id },
+            { blockerId: c.id, blockedId: userId },
+          ],
+        },
+      }),
     ]);
-    if (!canPhoto) c.avatarUrl = null;
-    if (!canLastSeen) c.lastSeen = null;
-    if (!canOnlineStatus) c.isOnline = false;
+    const privacy = evaluatePrivacyInMemory(userId, c, !!block, !!isReciprocal);
+    if (!privacy.canPhoto) c.avatarUrl = null;
+    if (!privacy.canLastSeen) c.lastSeen = null;
+    if (!privacy.canOnlineStatus) c.isOnline = false;
+
+    delete c.avatarPrivacy;
+    delete c.avatarPrivacyExceptList;
+    delete c.lastSeenPrivacy;
+    delete c.lastSeenPrivacyExceptList;
+    delete c.onlinePrivacy;
+    delete c.aboutPrivacy;
+    delete c.aboutPrivacyExceptList;
 
     res.status(201).json(contact);
   } catch (error) {

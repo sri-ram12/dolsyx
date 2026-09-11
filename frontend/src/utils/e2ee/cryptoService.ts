@@ -139,7 +139,7 @@ export async function encryptMessage(
     }
 
     // HKDF-SHA256 to derive shared secret
-    sharedSecret = hkdf(sodium, dhInput, new Uint8Array(32), 'X3DH_V1', 32);
+    sharedSecret = await deriveHkdfKey(dhInput, new Uint8Array(32), 'X3DH_V1', 32);
   } else {
     sharedSecret = existingSessionKey;
   }
@@ -216,16 +216,16 @@ export async function decryptMessage(
       }
     }
 
-    sharedSecret = hkdf(sodium, dhInput, new Uint8Array(32), 'X3DH_V1', 32);
+    sharedSecret = await deriveHkdfKey(dhInput, new Uint8Array(32), 'X3DH_V1', 32);
   } else if (existingSessionKey) {
     sharedSecret = existingSessionKey;
   } else {
     throw new Error('Cannot decrypt: no session key and payload is not a PreKeyWhisperMessage');
   }
 
-  const ciphertext = sodium.from_base64(payload.ciphertext);
-  const nonce = sodium.from_base64(payload.nonce);
-  const tag = sodium.from_base64(payload.tag);
+  const ciphertext = base64ToBytes(payload.ciphertext);
+  const nonce = base64ToBytes(payload.nonce);
+  const tag = base64ToBytes(payload.tag);
 
   const plaintext = await aesGcmDecrypt(ciphertext, sharedSecret, nonce, tag);
 
@@ -236,22 +236,70 @@ export async function decryptMessage(
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** HKDF-SHA256 using HMAC-SHA256 (extract + expand) */
-function hkdf(sodium: typeof _sodium, ikm: Uint8Array, salt: Uint8Array, info: string, length: number): Uint8Array {
-  const prk = sodium.crypto_auth_hmacsha256(ikm, salt.length === 0 ? new Uint8Array(32) : salt);
-  const infoBytes = sodium.from_string(info);
-  const expandInput = new Uint8Array([...infoBytes, 0x01]);
-  const t1 = sodium.crypto_auth_hmacsha256(expandInput, prk);
-  return t1.slice(0, length);
+/** Robust Base64 decode supporting standard, URL-safe, padded, and unpadded strings */
+export function base64ToBytes(b64: string): Uint8Array {
+  let base64 = b64.replace(/-/g, '+').replace(/_/g, '/');
+  while (base64.length % 4) {
+    base64 += '=';
+  }
+  const binString = atob(base64);
+  const bytes = new Uint8Array(binString.length);
+  for (let i = 0; i < binString.length; i++) {
+    bytes[i] = binString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+/** Robust Base64 encode */
+export function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+/** HKDF-SHA256 derivation using Web Crypto API */
+async function deriveHkdfKey(
+  ikm: Uint8Array,
+  salt: Uint8Array,
+  info: Uint8Array | string,
+  length: number = 32
+): Promise<Uint8Array> {
+  const enc = new TextEncoder();
+  const infoBytes = typeof info === 'string' ? enc.encode(info) : info;
+  const saltBytes = salt.length === 0 ? new Uint8Array(32) : salt;
+
+  const baseKey = await crypto.subtle.importKey(
+    'raw',
+    ikm as unknown as BufferSource,
+    { name: 'HKDF' },
+    false,
+    ['deriveBits']
+  );
+
+  const derivedBits = await crypto.subtle.deriveBits(
+    {
+      name: 'HKDF',
+      hash: 'SHA-256',
+      salt: saltBytes as unknown as BufferSource,
+      info: infoBytes as unknown as BufferSource
+    },
+    baseKey,
+    length * 8
+  );
+
+  return new Uint8Array(derivedBits);
 }
 
 /** AES-256-GCM encryption using Web Crypto API */
 async function aesGcmEncrypt(plaintext: string, key: Uint8Array): Promise<{ ciphertext: Uint8Array; nonce: Uint8Array; tag: Uint8Array }> {
   const nonce = crypto.getRandomValues(new Uint8Array(12)); // 96-bit IV
-  const cryptoKey = await crypto.subtle.importKey('raw', key.buffer as ArrayBuffer, { name: 'AES-GCM' }, false, ['encrypt']);
+  const cryptoKey = await crypto.subtle.importKey('raw', key as unknown as BufferSource, { name: 'AES-GCM' }, false, ['encrypt']);
   const enc = new TextEncoder();
   const ciphertextWithTag = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv: nonce },
+    { name: 'AES-GCM', iv: nonce as unknown as BufferSource },
     cryptoKey,
     enc.encode(plaintext)
   );
@@ -265,50 +313,65 @@ async function aesGcmEncrypt(plaintext: string, key: Uint8Array): Promise<{ ciph
 
 /** AES-256-GCM decryption using Web Crypto API */
 async function aesGcmDecrypt(ciphertext: Uint8Array, key: Uint8Array, nonce: Uint8Array, tag: Uint8Array): Promise<string> {
-  const cryptoKey = await crypto.subtle.importKey('raw', key.buffer as ArrayBuffer, { name: 'AES-GCM' }, false, ['decrypt']);
-  const ciphertextWithTag = new Uint8Array([...ciphertext, ...tag]);
+  const cryptoKey = await crypto.subtle.importKey('raw', key as unknown as BufferSource, { name: 'AES-GCM' }, false, ['decrypt']);
+  const ciphertextWithTag = new Uint8Array(ciphertext.length + tag.length);
+  ciphertextWithTag.set(ciphertext, 0);
+  ciphertextWithTag.set(tag, ciphertext.length);
   const decrypted = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: nonce.buffer as ArrayBuffer },
+    { name: 'AES-GCM', iv: nonce as unknown as BufferSource },
     cryptoKey,
-    ciphertextWithTag
+    ciphertextWithTag as unknown as BufferSource
   );
   return new TextDecoder().decode(decrypted);
 }
 
 /** Pre-encrypts a raw file (ArrayBuffer) with a random 256-bit media key for 100% E2EE media uploads */
 export async function encryptFileBytes(fileBuffer: ArrayBuffer): Promise<{ encryptedBuffer: ArrayBuffer; mediaKeyB64: string; nonceB64: string }> {
-  await _sodium.ready;
-  const sodium = _sodium;
   const rawMediaKey = crypto.getRandomValues(new Uint8Array(32));
   const nonce = crypto.getRandomValues(new Uint8Array(12));
 
-  const cryptoKey = await crypto.subtle.importKey('raw', rawMediaKey.buffer as ArrayBuffer, { name: 'AES-GCM' }, false, ['encrypt']);
+  const cryptoKey = await crypto.subtle.importKey('raw', rawMediaKey as unknown as BufferSource, { name: 'AES-GCM' }, false, ['encrypt']);
   const encryptedBuffer = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv: nonce },
+    { name: 'AES-GCM', iv: nonce as unknown as BufferSource },
     cryptoKey,
     fileBuffer
   );
 
   return {
     encryptedBuffer,
-    mediaKeyB64: sodium.to_base64(rawMediaKey),
-    nonceB64: sodium.to_base64(nonce)
+    mediaKeyB64: bytesToBase64(rawMediaKey),
+    nonceB64: bytesToBase64(nonce)
   };
 }
 
-/** Decrypts an encrypted file (ArrayBuffer) downloaded from the server using mediaKeyB64 and nonceB64 */
+/** Decrypts an encrypted file (ArrayBuffer) downloaded from the server using mediaKeyB64 and nonceB64 with dual cipher support */
 export async function decryptFileBytes(encryptedBuffer: ArrayBuffer, mediaKeyB64: string, nonceB64: string): Promise<ArrayBuffer> {
-  await _sodium.ready;
-  const sodium = _sodium;
-  const rawMediaKey = sodium.from_base64(mediaKeyB64);
-  const nonce = sodium.from_base64(nonceB64);
+  const rawMediaKey = base64ToBytes(mediaKeyB64);
+  const nonce = base64ToBytes(nonceB64);
 
-  const cryptoKey = await crypto.subtle.importKey('raw', rawMediaKey.buffer as ArrayBuffer, { name: 'AES-GCM' }, false, ['decrypt']);
-  return await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: nonce.buffer as ArrayBuffer },
-    cryptoKey,
-    encryptedBuffer
-  );
+  // Strategy 1: AES-GCM (Web format)
+  try {
+    const cryptoKey = await crypto.subtle.importKey('raw', rawMediaKey as unknown as BufferSource, { name: 'AES-GCM' }, false, ['decrypt']);
+    return await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: nonce as unknown as BufferSource },
+      cryptoKey,
+      encryptedBuffer
+    );
+  } catch (_) {}
+
+  // Strategy 2: AES-CBC (Mobile format with 32-byte trailing MAC tag)
+  try {
+    const cryptoKey = await crypto.subtle.importKey('raw', rawMediaKey as unknown as BufferSource, { name: 'AES-CBC' }, false, ['decrypt']);
+    const u8 = new Uint8Array(encryptedBuffer);
+    const cipherText = u8.length > 32 ? u8.slice(0, u8.length - 32) : u8;
+    return await crypto.subtle.decrypt(
+      { name: 'AES-CBC', iv: nonce as unknown as BufferSource },
+      cryptoKey,
+      cipherText as unknown as BufferSource
+    );
+  } catch (_) {}
+
+  throw new Error('Failed to decrypt file bytes');
 }
 
 /** Check if we need to upload more one-time prekeys */
@@ -341,83 +404,89 @@ export async function checkAndReplenishPreKeys(
 // Group & Conversation Level E2EE Ratchet
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Derives a deterministic 256-bit conversation key for group / room encryption */
+/** Derives primary 256-bit conversation key matching standard DOLSYX Web & Mobile clients */
 export async function getConversationKey(conversationId: string): Promise<Uint8Array> {
-  await _sodium.ready;
-  const sodium = _sodium;
-  const info = 'DOLSYX_CONVERSATION_V1';
-  const salt = sodium.from_string('DOLSYX_CONVERSATION_SALT');
-  const ikm = sodium.from_string(conversationId);
-  return hkdf(sodium, ikm, salt, info, 32);
+  const enc = new TextEncoder();
+  const ikm = enc.encode(conversationId);
+  const salt = enc.encode('DOLSYX_CONV_V1_SALT_2025');
+  const info = enc.encode('conversation_ratchet_key');
+  return await deriveHkdfKey(ikm, salt, info, 32);
+}
+
+/** Derives legacy 256-bit conversation key matching older DOLSYX clients */
+export async function getLegacyConversationKey(conversationId: string): Promise<Uint8Array> {
+  const enc = new TextEncoder();
+  const ikm = enc.encode(conversationId);
+  const salt = enc.encode('DOLSYX_CONVERSATION_SALT');
+  const info = enc.encode('DOLSYX_CONVERSATION_V1');
+  return await deriveHkdfKey(ikm, salt, info, 32);
 }
 
 /** Encrypts a message payload for a conversation room using AES-256-GCM */
 export async function encryptConversationPayload(conversationId: string, plaintext: string): Promise<string> {
-  await _sodium.ready;
-  const sodium = _sodium;
   const convKey = await getConversationKey(conversationId);
   const { ciphertext, nonce, tag } = await aesGcmEncrypt(plaintext, convKey);
   const payload = {
     e2ee: 'conv_v1',
     conversationId,
-    ciphertext: sodium.to_base64(ciphertext),
-    nonce: sodium.to_base64(nonce),
-    tag: sodium.to_base64(tag),
+    ciphertext: bytesToBase64(ciphertext),
+    nonce: bytesToBase64(nonce),
+    tag: bytesToBase64(tag),
   };
   return JSON.stringify(payload);
 }
 
-/** Derives mobile-compatible legacy conversation key */
-async function getMobileConversationKey(conversationId: string): Promise<Uint8Array> {
-  await _sodium.ready;
-  const sodium = _sodium;
-  const salt = sodium.from_string('DOLSYX_CONVERSATION_SALT');
-  const info = 'DOLSYX_CONVERSATION_V1';
-  const ikm = sodium.from_string(conversationId);
-  return hkdf(sodium, ikm, salt, info, 32);
-}
-
 /** AES-256-CBC decryption using Web Crypto API */
 async function aesCbcDecrypt(ciphertext: Uint8Array, key: Uint8Array, iv: Uint8Array): Promise<string> {
-  const cryptoKey = await crypto.subtle.importKey('raw', key.buffer as ArrayBuffer, { name: 'AES-CBC' }, false, ['decrypt']);
+  const cryptoKey = await crypto.subtle.importKey('raw', key as unknown as BufferSource, { name: 'AES-CBC' }, false, ['decrypt']);
   const decrypted = await crypto.subtle.decrypt(
-    { name: 'AES-CBC', iv: iv.buffer as ArrayBuffer },
+    { name: 'AES-CBC', iv: iv as unknown as BufferSource },
     cryptoKey,
-    ciphertext.buffer as ArrayBuffer
+    ciphertext as unknown as BufferSource
   );
   return new TextDecoder().decode(decrypted);
 }
 
-/** Decrypts a conversation room payload with dual AES-GCM and AES-CBC fallback */
+/** Decrypts a conversation room payload with dual AES-GCM and AES-CBC fallback across primary and legacy keys */
 export async function decryptConversationPayload(conversationId: string, payload: any): Promise<string> {
-  await _sodium.ready;
-  const sodium = _sodium;
-  const ciphertext = sodium.from_base64(payload.ciphertext);
-  const nonce = sodium.from_base64(payload.nonce);
-  const tag = sodium.from_base64(payload.tag);
+  const ciphertext = base64ToBytes(payload.ciphertext);
+  const nonce = base64ToBytes(payload.nonce);
+  const tag = base64ToBytes(payload.tag);
 
-  // If nonce is 16 bytes or tag is 32 bytes, try AES-CBC (Mobile format)
+  // If nonce is 16 bytes or tag is 32 bytes, prioritize AES-CBC (Mobile format)
   if (nonce.length === 16 || tag.length === 32) {
     try {
-      const mobileKey = await getMobileConversationKey(conversationId);
-      return await aesCbcDecrypt(ciphertext, mobileKey, nonce);
+      const legacyKey = await getLegacyConversationKey(conversationId);
+      return await aesCbcDecrypt(ciphertext, legacyKey, nonce);
     } catch (_) {}
     try {
-      const convKey = await getConversationKey(conversationId);
-      return await aesCbcDecrypt(ciphertext, convKey, nonce);
+      const primaryKey = await getConversationKey(conversationId);
+      return await aesCbcDecrypt(ciphertext, primaryKey, nonce);
     } catch (_) {}
   }
 
-  // Primary: AES-GCM (Standard Web & unified Mobile format)
+  // Strategy 1: Primary AES-GCM (DOLSYX 2025 standard)
   try {
-    const convKey = await getConversationKey(conversationId);
-    return await aesGcmDecrypt(ciphertext, convKey, nonce, tag);
+    const primaryKey = await getConversationKey(conversationId);
+    return await aesGcmDecrypt(ciphertext, primaryKey, nonce, tag);
   } catch (_) {}
 
-  // Fallback: try AES-CBC
+  // Strategy 2: Legacy AES-GCM (DOLSYX V1)
   try {
-    const mobileKey = await getMobileConversationKey(conversationId);
-    return await aesCbcDecrypt(ciphertext, mobileKey, nonce);
+    const legacyKey = await getLegacyConversationKey(conversationId);
+    return await aesGcmDecrypt(ciphertext, legacyKey, nonce, tag);
+  } catch (_) {}
+
+  // Strategy 3: Legacy AES-CBC
+  try {
+    const legacyKey = await getLegacyConversationKey(conversationId);
+    return await aesCbcDecrypt(ciphertext, legacyKey, nonce);
+  } catch (_) {}
+
+  // Strategy 4: Primary AES-CBC
+  try {
+    const primaryKey = await getConversationKey(conversationId);
+    return await aesCbcDecrypt(ciphertext, primaryKey, nonce);
   } catch (_) {}
 
   throw new Error('Failed to decrypt conversation payload');
@@ -430,11 +499,15 @@ export async function decryptIncomingContent(
   conversationId?: string,
   recipientUserId?: string
 ): Promise<string> {
-  if (!content || !content.trim().startsWith('{') || !content.trim().endsWith('}')) {
+  if (!content || typeof content !== 'string') {
+    return content || '';
+  }
+  const trimmed = content.trim();
+  if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) {
     return content;
   }
   try {
-    const parsed = JSON.parse(content);
+    const parsed = JSON.parse(trimmed);
     if (parsed.e2ee === 'conv_v1' || (parsed.conversationId && !parsed.type)) {
       const cId = parsed.conversationId || conversationId;
       if (cId) return await decryptConversationPayload(cId, parsed);
@@ -445,7 +518,17 @@ export async function decryptIncomingContent(
         return plaintext;
       }
     }
-  } catch (_) {}
+  } catch (err) {
+    if (conversationId) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (parsed && parsed.ciphertext && parsed.nonce && parsed.tag) {
+          return await decryptConversationPayload(conversationId, parsed);
+        }
+      } catch (_) {}
+    }
+  }
   return content;
 }
+
 

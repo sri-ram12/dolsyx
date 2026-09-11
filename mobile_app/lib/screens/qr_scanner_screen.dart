@@ -50,46 +50,60 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
     String scannedValue = barcodes.first.rawValue!.trim();
     print("SCANNED RAW VALUE: $scannedValue");
 
-    // ── Check if this is a DOLSYX Linked Device QR Login ───────────────────
+    // ── 1. Check if this is a DOLSYX Linked Device QR Login / Pairing ────────
     String? pairingId;
     String? challenge;
     String? customApiUrl;
+    String? sessionId;
 
-    if (scannedValue.startsWith('dolsyx://pair')) {
-      final uri = Uri.tryParse(scannedValue);
-      if (uri != null) {
-        pairingId = uri.queryParameters['pairingId'];
-        challenge = uri.queryParameters['challenge'];
-        customApiUrl = uri.queryParameters['api'];
-      }
-    } else if (scannedValue.startsWith('{') && scannedValue.contains('pairingId')) {
+    // Check JSON payload
+    if (scannedValue.startsWith('{') && scannedValue.endsWith('}')) {
       try {
         final parsed = jsonDecode(scannedValue);
-        pairingId = parsed['pairingId']?.toString();
-        challenge = parsed['challenge']?.toString();
-        customApiUrl = parsed['apiUrl']?.toString();
+        if (parsed is Map) {
+          pairingId = parsed['pairingId']?.toString();
+          challenge = parsed['challenge']?.toString();
+          customApiUrl = parsed['apiUrl']?.toString() ?? parsed['api']?.toString();
+          sessionId = parsed['sessionId']?.toString();
+        }
       } catch (_) {}
     }
 
-    if (pairingId != null && pairingId.isNotEmpty && challenge != null && challenge.isNotEmpty) {
+    // Check URI or query string (dolsyx://pair, https://.../pair, etc.)
+    if (pairingId == null && (scannedValue.contains('pairingId') || scannedValue.startsWith('dolsyx://pair'))) {
+      final uri = Uri.tryParse(scannedValue);
+      if (uri != null) {
+        pairingId = uri.queryParameters['pairingId'];
+        challenge = uri.queryParameters['challenge'] ?? '';
+        customApiUrl = uri.queryParameters['api'];
+      }
+    }
+
+    // If pairing ID found, handle high-entropy pairing
+    if (pairingId != null && pairingId.isNotEmpty) {
       setState(() => _isProcessing = true);
-      _processDevicePairing(pairingId, challenge, customBackendUrl: customApiUrl);
+      _processDevicePairing(pairingId, challenge ?? '', customBackendUrl: customApiUrl);
       return;
     }
 
-    // ── Classic Pre-5pm WhatsApp Web Style QR Code Login ───────────────────
-    final bool isClassicQrSession = scannedValue.startsWith('dolsyx_qr_session_') ||
+    // Check classic WhatsApp Web style QR session
+    final bool isClassicQrSession = sessionId != null ||
+        scannedValue.startsWith('dolsyx_qr_session_') ||
         scannedValue.startsWith('dolsyx_qr_') ||
         scannedValue.startsWith('sess_') ||
         scannedValue.contains('||') ||
-        scannedValue.contains('qrSession');
+        scannedValue.contains('qrSession') ||
+        scannedValue.contains('qr_session') ||
+        scannedValue.contains('pair') ||
+        scannedValue.contains('link-device');
 
     if (isClassicQrSession) {
       setState(() => _isProcessing = false);
-      _showClassicQrLoginApprovalDialog(scannedValue);
+      _showClassicQrLoginApprovalDialog(sessionId ?? scannedValue);
       return;
     }
 
+    // ── 2. Check if this is a User QR Code (to start chat) ──────────────────
     String scannedUserId = scannedValue;
     Map<String, dynamic>? inlineUser;
     if (scannedUserId.startsWith('dolsyx://user/')) {
@@ -97,13 +111,19 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
     }
 
     try {
-      final Map<String, dynamic> parsed = jsonDecode(scannedUserId);
-      if (parsed.containsKey('id')) scannedUserId = parsed['id'];
-      else if (parsed.containsKey('_id')) scannedUserId = parsed['_id'];
-      else if (parsed.containsKey('userId')) scannedUserId = parsed['userId'];
+      final parsed = jsonDecode(scannedUserId);
+      if (parsed is Map) {
+        if (parsed.containsKey('id')) {
+          scannedUserId = parsed['id']?.toString() ?? scannedUserId;
+        } else if (parsed.containsKey('_id')) {
+          scannedUserId = parsed['_id']?.toString() ?? scannedUserId;
+        } else if (parsed.containsKey('userId')) {
+          scannedUserId = parsed['userId']?.toString() ?? scannedUserId;
+        }
 
-      if (parsed.containsKey('username')) {
-        inlineUser = parsed;
+        if (parsed.containsKey('username')) {
+          inlineUser = Map<String, dynamic>.from(parsed);
+        }
       }
     } catch (e) {
       // Not a JSON string, assume raw ID
@@ -111,15 +131,25 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
     
     print("SCANNED EXTRACTED ID: $scannedUserId");
 
-    setState(() => _isProcessing = true);
-
     // If user details are embedded in QR code, go directly to chat INSTANTLY
     if (inlineUser != null && mounted) {
       final name = inlineUser['username'] ?? 'User';
       _startCommunication(scannedUserId, name, userMap: inlineUser);
       return;
     }
+
+    // If scannedUserId has URL schemes, query params, or slashes, it's not a user ID
+    if (scannedUserId.contains('/') || scannedUserId.contains('?') || scannedUserId.contains('=') || scannedUserId.contains(':')) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Invalid QR code format for DOLSYX.')),
+        );
+        setState(() => _isProcessing = false);
+      }
+      return;
+    }
     
+    setState(() => _isProcessing = true);
     try {
       final targetUser = await ApiService().getUserById(scannedUserId);
       if (targetUser != null && mounted) {
@@ -422,6 +452,12 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
     }
     if (sessionId.startsWith('dolsyx_qr_session_')) {
       sessionId = sessionId.replaceFirst('dolsyx_qr_session_', '');
+    }
+    if (sessionId.contains('pairingId=')) {
+      final uri = Uri.tryParse(sessionId);
+      if (uri != null && uri.queryParameters['pairingId'] != null) {
+        sessionId = uri.queryParameters['pairingId']!;
+      }
     }
 
     showDialog(

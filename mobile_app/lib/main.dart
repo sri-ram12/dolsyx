@@ -207,8 +207,17 @@ class _DolsyxAppState extends State<DolsyxApp> with WidgetsBindingObserver {
         Permission.notification,
         Permission.microphone,
         Permission.camera,
+        Permission.photos,
+        Permission.videos,
+        Permission.audio,
+        Permission.storage,
+        Permission.bluetoothConnect,
+        Permission.bluetoothScan,
+        Permission.nearbyWifiDevices,
       ].request();
-    } catch (_) {}
+    } catch (e) {
+      debugPrint("Permission request error: $e");
+    }
   }
 
   @override
@@ -377,7 +386,7 @@ class _DolsyxAppState extends State<DolsyxApp> with WidgetsBindingObserver {
                         payloadData['isAudioOnly'] != null);
 
                 if (isCallPayload) {
-                  final callTypeStr = (payloadData!['callType'] ?? '').toString().toLowerCase();
+                  final callTypeStr = (payloadData['callType'] ?? '').toString().toLowerCase();
                   final isAudioOnly = callTypeStr == 'video'
                       ? false
                       : (payloadData['isAudioOnly'] == true || callTypeStr == 'audio');

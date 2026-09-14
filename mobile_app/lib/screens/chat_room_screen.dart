@@ -78,14 +78,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   bool _isContact = true;
   FocusNode _focusNode = FocusNode();
 
-  @override
-  void initState() {
-    super.initState();
-    if (widget.initialText != null && widget.initialText!.isNotEmpty) {
-      _messageController.text = widget.initialText!;
-    }
-  }
-
   void _sendStickerOrGifMessage(String mediaUrl, String mediaType) {
     final tempId = 'temp_${DateTime.now().millisecondsSinceEpoch}';
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
@@ -1034,6 +1026,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.initialText != null && widget.initialText!.isNotEmpty) {
+      _messageController.text = widget.initialText!;
+    }
     if (widget.autoStartSearch) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _startSearch());
     }

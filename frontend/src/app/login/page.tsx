@@ -87,6 +87,23 @@ export default function LoginPage() {
   const { login, isAuthenticated, isLoading: authLoading } = useAuth();
   const router = useRouter();
 
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const err = params.get("error");
+      if (err) {
+        const errorDescriptions: Record<string, string> = {
+          invalid_oauth_state: "Google security verification failed or expired. Please try again.",
+          invalid_oauth_state_cookie: "Browser blocked session cookies. Please try again.",
+          access_denied: "Google login was cancelled.",
+          unverified_google_email: "Your Google account email is not verified.",
+          missing_oauth_parameters: "Missing required authentication parameters.",
+        };
+        setError(errorDescriptions[err] || `Authentication error: ${decodeURIComponent(err)}`);
+      }
+    }
+  }, []);
+
   // ─────────────────────────────────────────────────────────────────────────────
   // Google OAuth 2.0 PKCE Sign-In (Unified Single Handler)
   // ─────────────────────────────────────────────────────────────────────────────

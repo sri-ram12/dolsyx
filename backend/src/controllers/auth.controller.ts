@@ -876,7 +876,6 @@ export const initiateGoogleAuth = async (req: Request, res: Response): Promise<v
     const defaultRedirectUri = `${protocol}://${host}/api/auth/google/callback`;
     const redirectUri = process.env.GOOGLE_REDIRECT_URI || defaultRedirectUri;
 
-    const state = crypto.randomBytes(32).toString("hex");
     const { codeVerifier, codeChallenge } = googleAuthService.generatePkcePair();
 
     // Resolve dynamic client frontend URL to return to after auth
@@ -886,6 +885,19 @@ export const initiateGoogleAuth = async (req: Request, res: Response): Promise<v
       (req.headers.referer ? new URL(req.headers.referer).origin : null) ||
       process.env.FRONTEND_URL ||
       "http://localhost:3000";
+
+    // Encode state and PKCE into a tamper-proof signed token passed through Google's state parameter
+    const stateData = {
+      codeVerifier,
+      redirectUri,
+      frontendUrl: clientFrontendUrl,
+      nonce: crypto.randomBytes(16).toString("hex"),
+      ts: Date.now(),
+    };
+    const secret = process.env.JWT_SECRET || "dolsyx_jwt_secret_key_2026";
+    const dataB64 = Buffer.from(JSON.stringify(stateData)).toString("base64url");
+    const sig = crypto.createHmac("sha256", secret).update(dataB64).digest("base64url");
+    const state = `${dataB64}.${sig}`;
 
     const isProduction = process.env.NODE_ENV === "production";
     const statePayload = JSON.stringify({ state, codeVerifier, redirectUri, frontendUrl: clientFrontendUrl });
@@ -932,29 +944,51 @@ export const handleGoogleCallback = async (req: Request, res: Response): Promise
       return;
     }
 
-    const stateCookie = req.cookies?.dolsyx_oauth_state;
-    if (!stateCookie) {
-      res.redirect(`${frontendUrl}/login?error=invalid_oauth_state_cookie`);
-      return;
+    let parsedState: { state?: string; codeVerifier: string; redirectUri?: string; frontendUrl?: string } | null = null;
+
+    // 1. First priority: decode and cryptographically verify signed state token from query parameter
+    if (typeof state === "string" && state.includes(".")) {
+      try {
+        const parts = state.split(".");
+        if (parts.length === 2 && parts[0] && parts[1]) {
+          const dataB64 = parts[0];
+          const sig = parts[1];
+          const secret = process.env.JWT_SECRET || "dolsyx_jwt_secret_key_2026";
+          const expectedSig = crypto.createHmac("sha256", secret).update(dataB64).digest("base64url");
+          if (sig.length === expectedSig.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expectedSig))) {
+            const decoded = JSON.parse(Buffer.from(dataB64, "base64url").toString("utf8"));
+            if (decoded && (!decoded.ts || Date.now() - decoded.ts < 15 * 60 * 1000)) {
+              parsedState = decoded;
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[OAuth] Note: Query state is not a signed token, checking cookie fallback:", err);
+      }
     }
 
-    let parsedState: { state: string; codeVerifier: string; redirectUri?: string; frontendUrl?: string };
-    try {
-      parsedState = typeof stateCookie === "string" ? JSON.parse(stateCookie) : stateCookie;
-    } catch {
-      res.redirect(`${frontendUrl}/login?error=corrupted_oauth_state`);
+    // 2. Secondary fallback: check HTTP cookie
+    if (!parsedState) {
+      const stateCookie = req.cookies?.dolsyx_oauth_state;
+      if (stateCookie) {
+        try {
+          const fromCookie = typeof stateCookie === "string" ? JSON.parse(stateCookie) : stateCookie;
+          if (fromCookie && (!fromCookie.state || fromCookie.state === state)) {
+            parsedState = fromCookie;
+          }
+        } catch (_) {}
+      }
+    }
+
+    if (!parsedState || !parsedState.codeVerifier) {
+      console.error("[OAuth] No valid OAuth state found (cookie missing and signed state invalid).");
+      res.redirect(`${frontendUrl}/login?error=invalid_oauth_state`);
       return;
     }
 
     const resolvedFrontend = (parsedState.frontendUrl && parsedState.frontendUrl !== "*")
       ? parsedState.frontendUrl
       : (process.env.FRONTEND_URL && process.env.FRONTEND_URL !== "*" ? process.env.FRONTEND_URL : "http://localhost:3000");
-
-    if (parsedState.state !== state) {
-      console.error("[OAuth] State mismatch! Possible CSRF attack.");
-      res.redirect(`${frontendUrl}/login?error=invalid_oauth_state`);
-      return;
-    }
 
     res.clearCookie("dolsyx_oauth_state");
 

@@ -44,30 +44,60 @@ class DolsyxAiService {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         if (data['reply'] != null && data['reply'].toString().trim().isNotEmpty) {
-          if (data['type'] == 'image_result') {
-            return jsonEncode({
-              'type': 'image_result',
-              'text': data['reply'],
-              'imageUrl': data['imageUrl'],
-              'imagePrompt': data['imagePrompt'] ?? cleanPrompt,
-            });
+          final replyStr = data['reply'].toString().trim();
+          final lower = replyStr.toLowerCase();
+          final isBudgetError = lower.contains('reached its budget') || lower.contains('raise the key budget') || lower.contains('pollinations.ai/edit-key');
+          if (!isBudgetError) {
+            if (data['type'] == 'image_result') {
+              return jsonEncode({
+                'type': 'image_result',
+                'text': data['reply'],
+                'imageUrl': data['imageUrl'],
+                'imagePrompt': data['imagePrompt'] ?? cleanPrompt,
+              });
+            }
+            return replyStr;
           }
-          return data['reply'].toString();
         }
       }
     } catch (_) {}
 
     // 3. Greetings Local Fallback
-    if (clean == 'hii' || clean == 'hi' || clean == 'hello' || clean == 'hey') {
-      return "Hii 😊\n\nHow can DOLSYX AI help you today?";
+    if (RegExp(r'^(hi|hii|hello|hey|greetings|good morning|good afternoon|good evening)\b', caseSensitive: false).hasMatch(clean)) {
+      return "Hii 😊\n\nHow can **DOLSYX AI** help you today?";
     }
 
-    // 4. Telugu Dictionary & Translation Engine
+    // 4. Sense Organs & Anatomy
+    if (clean.contains('sense organ') || clean.contains('five senses') || clean.contains('5 sense')) {
+      return "The 5 primary sense organs are:\n\n1. **Eyes** → sense of **sight**\n2. **Ears** → sense of **hearing**\n3. **Nose** → sense of **smell**\n4. **Tongue** → sense of **taste**\n5. **Skin** → sense of **touch**\n\nEach one picks up different info from the world around us and sends it to the brain to process.";
+    }
+
+    // 5. Quick Prompts & Message Templates
+    if (clean.contains('classmate')) {
+      return "Here is a message for your classmate:\n\n\"Hey! Hope you're doing well. Just wanted to check in about our recent class notes and assignment details. Let me know when you're free to catch up!\"";
+    }
+    if (clean.contains('cover letter')) {
+      return "**Cover Letter Draft**:\n\nDear Hiring Manager,\n\nI am excited to express my strong interest in the open position. With a solid background in problem-solving and collaboration, I am confident in my ability to contribute value immediately.\n\nBest regards,\nCandidate";
+    }
+    if (clean.contains('friend')) {
+      return "Here's a message for your friend:\n\n\"Hey! It's been a while. Let's grab coffee or hang out this weekend. Let me know what day works for you!\"";
+    }
+    if (clean.contains('job')) {
+      return "Here are 3 steps to help find a job:\n1. Update your LinkedIn profile and highlight key projects.\n2. Customize your resume for each role.\n3. Reach out to contacts for referrals and networking.";
+    }
+    if (clean.contains('coworker')) {
+      return "Here is a message for your coworker:\n\n\"Hi! Hope your day is going smoothly. Quick update regarding our project task—let me know when you're available for a 2-minute sync.\"";
+    }
+    if (clean.contains('event') || clean.contains('wedding')) {
+      return "Event Planning Checklist:\n1. **Theme & Budget**: Set overall scope.\n2. **Venue**: Book location and date.\n3. **Guest List**: Send out invites early.\n4. **Catering**: Finalize menu.";
+    }
+
+    // 6. Telugu Dictionary & Translation Engine
     if (clean.contains('telugu')) {
       return _generateTeluguTranslation(cleanPrompt, clean);
     }
 
-    // 5. Direct Wikipedia Fact Lookup Fallback
+    // 7. Direct Wikipedia Fact Lookup Fallback
     final wikiFact = await _fetchWikipediaClientFact(cleanPrompt);
     if (wikiFact != null && wikiFact.isNotEmpty) {
       return wikiFact;

@@ -266,7 +266,7 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
                   Row(
                     children: [
                       Text(
-                        'Meta AI',
+                        'DOLSYX AI',
                         style: TextStyle(color: AppTheme.textPrimary, fontSize: 17, fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(width: 4),
@@ -506,7 +506,7 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
                 children: [
                   SizedBox(width: 14, height: 14, child: CircularProgressIndicator(color: AppTheme.primaryColor, strokeWidth: 2)),
                   const SizedBox(width: 10),
-                  Text('Meta AI is typing...', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontStyle: FontStyle.italic)),
+                  Text('DOLSYX AI is typing...', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontStyle: FontStyle.italic)),
                 ],
               ),
             ),

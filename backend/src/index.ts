@@ -337,7 +337,7 @@ app.use((req, res, next) => {
 // ── Centralized Express Error Handling Middleware ─────────────────────────────
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   const status = err.status || err.statusCode || 500;
-  console.error(`[Global Error Handler] [${req.method} ${req.url}]:`, err.message || err);
+  console.error(`[Global Error Handler] [${req.method} ${req.url}]:`, err.stack || err);
 
   if (res.headersSent) {
     return next(err);

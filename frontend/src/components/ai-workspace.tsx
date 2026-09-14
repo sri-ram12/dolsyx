@@ -13,30 +13,46 @@ import {
   RefreshCw,
   Copy,
   Check,
-  ChevronDown,
+  Paperclip,
+  Share2,
+  Code,
+  Download,
+  Terminal,
+  HelpCircle,
+  Zap,
+  ArrowRight,
+  MessageSquare,
 } from "lucide-react";
 import { useAuth, API_URL } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
+import { Chat } from "@/components/chat-sidebar";
 
-interface AiMessage {
+export interface AiMessage {
   id: string;
   sender: "user" | "ai";
   text: string;
   time: string;
-  type?: "text" | "image_result";
+  type?: "text" | "image_result" | "code_result" | "chat_summary";
   imageUrl?: string | null;
   imagePrompt?: string | null;
+  attachedImage?: string | null;
+}
+
+interface AiWorkspaceProps {
+  initialPrompt?: string;
+  chats?: Chat[];
+  onSelectChat?: (chat: Chat) => void;
 }
 
 const QUICK_PROMPTS = [
-  "I want to write a message to a classmate",
-  "I want to write a cover letter",
-  "I want to write a message to a friend",
-  "I need help finding a job",
-  "I want to write a message to a coworker",
-  "I want to plan an event",
-  "I need help with my math homework",
-  "I want to plan a wedding",
+  "Explain AWS EC2 simply",
+  "Write a Java solution for Two Sum",
+  "Generate an image of a futuristic cyberpunk city",
+  "Create a professional resume summary",
+  "Compare Docker vs Kubernetes",
+  "Generate a modern logo for my startup",
+  "Help me debug and optimize this code",
+  "Create a study plan for System Design",
 ];
 
 const STYLE_PRESETS = [
@@ -48,7 +64,7 @@ const STYLE_PRESETS = [
   "Minimalist",
 ];
 
-export default function AiWorkspace() {
+export default function AiWorkspace({ initialPrompt, chats = [], onSelectChat }: AiWorkspaceProps) {
   const { user, token } = useAuth();
   const { currentTheme } = useTheme();
 
@@ -58,9 +74,15 @@ export default function AiWorkspace() {
   const [activePreset, setActivePreset] = useState("Photorealistic");
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [attachedImage, setAttachedImage] = useState<string | null>(null);
+  const [shareTargetMsg, setShareTargetMsg] = useState<AiMessage | null>(null);
+  const [isSharing, setIsSharing] = useState(false);
+  const [shareSuccess, setShareSuccess] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const initialSentRef = useRef(false);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -70,147 +92,94 @@ export default function AiWorkspace() {
     scrollToBottom();
   }, [messages, isThinking]);
 
-  // Handle local intent classification identical to Android DolsyxAiService
-  const isImageIntent = (clean: string): boolean => {
-    const imageKeywords = [
-      "image", "picture", "pic", "photo", "draw", "wallpaper",
-      "generate", "create pic", "paint", "sketch", "car", "porsche",
-      "landscape", "portrait", "avatar", "art",
-    ];
-    const nonImage = [
-      "what is an image", "image format", "what is a picture",
-      "how to take a photo", "what is a car", "car mechanism",
-    ];
-    if (nonImage.some((q) => clean.includes(q))) return false;
-    return imageKeywords.some((k) => clean.includes(k));
-  };
-
-  const extractImagePrompt = (raw: string): string => {
-    let p = raw
-      .replace(/generate an image of/gi, "")
-      .replace(/create an image of/gi, "")
-      .replace(/draw a picture of/gi, "")
-      .replace(/generate image of/gi, "")
-      .replace(/create image of/gi, "")
-      .replace(/generate image/gi, "")
-      .replace(/create image/gi, "")
-      .replace(/generate pic of/gi, "")
-      .replace(/generate photo of/gi, "")
-      .replace(/generate/gi, "")
-      .replace(/image/gi, "")
-      .replace(/picture/gi, "")
-      .replace(/photo/gi, "")
-      .replace(/pic/gi, "")
-      .replace(/draw/gi, "")
-      .trim();
-
-    if (!p || p.length < 2 || p.toLowerCase() === "car" || p.toLowerCase() === "porsche") {
-      return `A sleek silver modern Porsche sports car driving on a scenic mountain highway under bright sunny clear sky, style: ${activePreset}`;
+  // If initialPrompt is passed from the search bar, send it on mount
+  useEffect(() => {
+    if (initialPrompt && initialPrompt.trim() && !initialSentRef.current) {
+      initialSentRef.current = true;
+      handleSend(initialPrompt.trim());
     }
-    return `${p}, style: ${activePreset}`;
+  }, [initialPrompt]);
+
+  const handleImageAttachment = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      alert("Please upload an image file (PNG, JPG, WEBP).");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setAttachedImage(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
   };
 
   const handleSend = async (promptToSend?: string) => {
     const prompt = (promptToSend || inputText).trim();
-    if (!prompt || isThinking) return;
+    if (!prompt && !attachedImage) return;
+    if (isThinking) return;
 
+    const currentAttached = attachedImage;
+    setAttachedImage(null);
     setInputText("");
+
     const userMsgTime = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const userMessageId = Date.now().toString();
 
     const userMessage: AiMessage = {
-      id: Date.now().toString(),
+      id: userMessageId,
       sender: "user",
-      text: prompt,
+      text: prompt || "Analyze this attached image",
       time: userMsgTime,
       type: "text",
+      attachedImage: currentAttached,
     };
 
     setMessages((prev) => [...prev, userMessage]);
     setIsThinking(true);
 
-    const clean = prompt.toLowerCase();
+    const aiMessageId = (Date.now() + 1).toString();
+    const aiMsgTime = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-    // 1. Image Generation Intent
-    if (isImageIntent(clean)) {
-      const imgPrompt = extractImagePrompt(prompt);
-      const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(
-        imgPrompt
-      )}?width=1024&height=1024&nologo=true&seed=${Date.now()}`;
-
-      const emoji = clean.includes("car") ? "🚗" : "✨";
-
-      setTimeout(() => {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: (Date.now() + 1).toString(),
-            sender: "ai",
-            text: `Here you go ${emoji}`,
-            time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-            type: "image_result",
-            imageUrl,
-            imagePrompt: imgPrompt,
+    // Multimodal Vision Query
+    if (currentAttached) {
+      try {
+        const res = await fetch(`${API_URL}/api/ai/analyze-image`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
-        ]);
-        setIsThinking(false);
-      }, 1200);
-      return;
+          body: JSON.stringify({
+            prompt: prompt || "Analyze and describe this image in detail.",
+            imageUrl: currentAttached,
+          }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: aiMessageId,
+              sender: "ai",
+              text: data.reply || "Image analysis completed.",
+              time: aiMsgTime,
+              type: "text",
+            },
+          ]);
+          setIsThinking(false);
+          return;
+        }
+      } catch (e) {
+        console.error("Multimodal error:", e);
+      }
     }
 
-    // 2. Greetings
-    if (clean === "hi" || clean === "hii" || clean === "hello" || clean === "hey") {
-      setTimeout(() => {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: (Date.now() + 1).toString(),
-            sender: "ai",
-            text: `Hii 😊\n\nHow's your day going so far? How can I assist you today?`,
-            time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-            type: "text",
-          },
-        ]);
-        setIsThinking(false);
-      }, 500);
-      return;
-    }
-
-    // 3. Quick prompts direct responses
-    if (clean.includes("classmate")) {
-      setTimeout(() => {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: (Date.now() + 1).toString(),
-            sender: "ai",
-            text: 'Here is a message for your classmate:\n\n"Hey! Hope you\'re doing well. Just wanted to check in about our recent class notes and assignment details. Let me know when you\'re free to catch up!"',
-            time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-            type: "text",
-          },
-        ]);
-        setIsThinking(false);
-      }, 600);
-      return;
-    }
-
-    if (clean.includes("cover letter")) {
-      setTimeout(() => {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: (Date.now() + 1).toString(),
-            sender: "ai",
-            text: "**Cover Letter Draft**:\n\nDear Hiring Manager,\n\nI am excited to express my strong interest in the open position. With a solid background in problem-solving and collaboration, I am confident in my ability to contribute value immediately to your team.\n\nBest regards,\n" + (user?.username || "Candidate"),
-            time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-            type: "text",
-          },
-        ]);
-        setIsThinking(false);
-      }, 600);
-      return;
-    }
-
-    // 4. Try Backend API endpoint
+    // Standard Chat & Image Generation Query via Unified Backend
     try {
       const res = await fetch(`${API_URL}/api/ai/chat`, {
         method: "POST",
@@ -218,7 +187,10 @@ export default function AiWorkspace() {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ prompt, preset: activePreset }),
+        body: JSON.stringify({
+          prompt,
+          preset: activePreset.toLowerCase(),
+        }),
       });
 
       if (res.ok) {
@@ -243,52 +215,30 @@ export default function AiWorkspace() {
         setMessages((prev) => [
           ...prev,
           {
-            id: (Date.now() + 1).toString(),
+            id: aiMessageId,
             sender: "ai",
             text: replyText || "Here is your response.",
-            time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            time: aiMsgTime,
             type,
             imageUrl,
+            imagePrompt: prompt,
           },
         ]);
         setIsThinking(false);
         return;
       }
-    } catch (_) {}
+    } catch (err) {
+      console.error("AI execution error:", err);
+    }
 
-    // 5. Fallback Wikipedia client lookup
-    try {
-      const cleanTopic = prompt.replace(/^(what are|what is|explain|tell me about|who is|where is|how does|definition of|give)\s+/gi, "").trim();
-      if (cleanTopic.length > 2) {
-        const wikiRes = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(cleanTopic.replace(/ /g, "_"))}`);
-        if (wikiRes.ok) {
-          const wikiData = await wikiRes.json();
-          if (wikiData.extract && wikiData.type !== "disambiguation") {
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: (Date.now() + 1).toString(),
-                sender: "ai",
-                text: wikiData.extract,
-                time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-                type: "text",
-              },
-            ]);
-            setIsThinking(false);
-            return;
-          }
-        }
-      }
-    } catch (_) {}
-
-    // Default intelligent response
+    // Graceful error state
     setMessages((prev) => [
       ...prev,
       {
-        id: (Date.now() + 1).toString(),
+        id: aiMessageId,
         sender: "ai",
-        text: `Here is the operational synthesis for "${prompt}":\n\nTask processed cleanly with DOLSYX AI Engine.`,
-        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        text: "DOLSYX AI encountered a network delay. Please verify your connection and try again.",
+        time: aiMsgTime,
         type: "text",
       },
     ]);
@@ -301,11 +251,150 @@ export default function AiWorkspace() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  const handleShareToChat = async (targetChatId: string) => {
+    if (!shareTargetMsg || !token) return;
+    setIsSharing(true);
+
+    try {
+      const content = shareTargetMsg.imageUrl
+        ? shareTargetMsg.imageUrl
+        : shareTargetMsg.text;
+
+      const mediaType = shareTargetMsg.imageUrl ? "IMAGE" : "TEXT";
+
+      const res = await fetch(`${API_URL}/api/messages`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          conversationId: targetChatId,
+          content,
+          mediaType,
+          mediaUrl: shareTargetMsg.imageUrl || undefined,
+        }),
+      });
+
+      if (res.ok) {
+        setShareSuccess(true);
+        setTimeout(() => {
+          setShareSuccess(false);
+          setShareTargetMsg(null);
+          const target = chats.find((c) => c.id === targetChatId);
+          if (target && onSelectChat) {
+            onSelectChat(target);
+          }
+        }, 800);
+      } else {
+        alert("Failed to share message to chat.");
+      }
+    } catch (e) {
+      console.error("Share error:", e);
+      alert("Error connecting to chat server.");
+    } finally {
+      setIsSharing(false);
+    }
+  };
+
+  // Helper to parse message text into text and code blocks
+  const renderFormattedContent = (content: string, msgId: string) => {
+    const codeBlockRegex = /```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g;
+    const parts = [];
+    let lastIndex = 0;
+    let match;
+
+    while ((match = codeBlockRegex.exec(content)) !== null) {
+      if (match.index > lastIndex) {
+        parts.push({
+          type: "text",
+          content: content.substring(lastIndex, match.index),
+        });
+      }
+
+      parts.push({
+        type: "code",
+        language: match[1] || "code",
+        code: match[2].trim(),
+      });
+
+      lastIndex = match.index + match[0].length;
+    }
+
+    if (lastIndex < content.length) {
+      parts.push({
+        type: "text",
+        content: content.substring(lastIndex),
+      });
+    }
+
+    if (parts.length === 0) {
+      return <p className="text-sm font-medium whitespace-pre-wrap leading-relaxed">{content}</p>;
+    }
+
+    return (
+      <div className="space-y-3">
+        {parts.map((part, idx) => {
+          if (part.type === "code") {
+            const codeKey = `${msgId}_code_${idx}`;
+            return (
+              <div key={idx} className="rounded-xl overflow-hidden border border-purple-500/30 bg-[#090d16] text-slate-100 my-2 shadow-lg">
+                <div className="flex items-center justify-between px-3 py-1.5 bg-slate-900/90 border-b border-purple-500/20 text-xs text-purple-300">
+                  <div className="flex items-center gap-1.5 font-mono">
+                    <Terminal className="h-3.5 w-3.5 text-purple-400" />
+                    <span>{part.language || "code"}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleCopy(part.code || "", codeKey)}
+                      className="hover:text-white flex items-center gap-1 cursor-pointer transition-colors px-1.5 py-0.5 rounded bg-white/5"
+                    >
+                      {copiedId === codeKey ? (
+                        <>
+                          <Check className="h-3 w-3 text-green-400" /> Copied
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="h-3 w-3" /> Copy Code
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => handleSend(`Explain this ${part.language} code step by step:\n\n${part.code}`)}
+                      className="hover:text-purple-200 flex items-center gap-1 cursor-pointer px-1.5 py-0.5 rounded bg-purple-500/10 hover:bg-purple-500/20 transition-colors"
+                      title="Ask AI to Explain"
+                    >
+                      <HelpCircle className="h-3 w-3" /> Explain
+                    </button>
+                    <button
+                      onClick={() => handleSend(`Optimize and refactor this ${part.language} code for better performance and clean architecture:\n\n${part.code}`)}
+                      className="hover:text-emerald-200 flex items-center gap-1 cursor-pointer px-1.5 py-0.5 rounded bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors text-emerald-400"
+                      title="Optimize Code"
+                    >
+                      <Zap className="h-3 w-3" /> Optimize
+                    </button>
+                  </div>
+                </div>
+                <pre className="p-3.5 text-xs font-mono overflow-x-auto text-emerald-300 leading-relaxed">
+                  <code>{part.code}</code>
+                </pre>
+              </div>
+            );
+          }
+          return (
+            <p key={idx} className="text-sm font-medium whitespace-pre-wrap leading-relaxed">
+              {part.content}
+            </p>
+          );
+        })}
+      </div>
+    );
+  };
+
   return (
     <div className="flex flex-col h-full w-full bg-[var(--theme-bg-app)] text-[var(--theme-text-primary)] relative overflow-hidden">
-      
-      {/* AI Header (Meta AI Style with gradient ring) */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-header)] backdrop-blur-md z-10">
+      {/* AI Header */}
+      <div className="flex items-center justify-between px-6 py-3.5 border-b border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-header)] backdrop-blur-md z-10">
         <div className="flex items-center gap-3">
           <div className="p-0.5 rounded-full bg-gradient-to-tr from-purple-500 via-pink-500 to-blue-500 shadow-md">
             <div className="w-9 h-9 rounded-full bg-zinc-900 flex items-center justify-center">
@@ -314,18 +403,18 @@ export default function AiWorkspace() {
           </div>
           <div>
             <div className="flex items-center gap-1.5">
-              <h2 className="font-extrabold text-base tracking-wide">Dolsyx AI Assistant</h2>
-              <span className="bg-blue-500/20 text-blue-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
-                <CheckCircle2 className="h-3 w-3" /> Verified
+              <h2 className="font-extrabold text-base tracking-wide">DOLSYX AI</h2>
+              <span className="bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[10px] font-bold px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                <CheckCircle2 className="h-3 w-3 text-purple-400" /> Neural Assistant
               </span>
             </div>
-            <p className="text-[11px] text-[var(--theme-text-secondary)]">Powered by Pollinations & DOLSYX Neural Core</p>
+            <p className="text-[11px] text-[var(--theme-text-secondary)]">Search, Coding, Image Generation & Multimodal Vision</p>
           </div>
         </div>
 
         {/* Style Presets Dropdown */}
         <div className="flex items-center gap-2">
-          <span className="text-xs text-[var(--theme-text-secondary)] hidden sm:inline">Image Preset:</span>
+          <span className="text-xs text-[var(--theme-text-secondary)] hidden sm:inline">Image Style:</span>
           <div className="flex items-center gap-1 bg-white/5 border border-[var(--theme-border-color)] rounded-xl px-2 py-1">
             <ImageIcon className="h-3.5 w-3.5 text-purple-400" />
             <select
@@ -356,17 +445,17 @@ export default function AiWorkspace() {
       {/* Main Stream Area */}
       <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
         {messages.length === 0 ? (
-          /* Welcome View (Matching Android DolsyxAiScreen) */
-          <div className="max-w-2xl mx-auto flex flex-col items-center justify-center min-h-[70vh] text-center px-4">
+          /* Welcome View */
+          <div className="max-w-2xl mx-auto flex flex-col items-center justify-center min-h-[65vh] text-center px-4">
             <div className="p-3 rounded-3xl bg-gradient-to-tr from-purple-500/20 via-pink-500/20 to-blue-500/20 border border-purple-500/30 mb-6 shadow-xl">
-              <Bot className="h-16 w-16 text-purple-400" />
+              <Bot className="h-14 w-14 text-purple-400" />
             </div>
 
             <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight mb-2 bg-clip-text text-transparent bg-gradient-to-r from-white via-slate-200 to-purple-300">
-              Hi, {user?.username || "there"}
+              Welcome to DOLSYX AI
             </h1>
             <p className="text-sm text-[var(--theme-text-secondary)] max-w-md mb-8">
-              Ask anything, draft emails, translate languages, or generate state-of-the-art AI imagery.
+              Ask anything, write code, generate photorealistic images, debug errors, or analyze diagrams.
             </p>
 
             {/* Quick Prompts Grid */}
@@ -375,7 +464,7 @@ export default function AiWorkspace() {
                 <button
                   key={idx}
                   onClick={() => handleSend(prompt)}
-                  className="flex items-center gap-3 p-4 rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] hover:border-purple-500/50 hover:bg-white/5 transition-all group cursor-pointer shadow-sm"
+                  className="flex items-center gap-3 p-3.5 rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] hover:border-purple-500/50 hover:bg-white/5 transition-all group cursor-pointer shadow-sm text-left"
                 >
                   <Sparkles className="h-4 w-4 text-purple-400 shrink-0 group-hover:scale-110 transition-transform" />
                   <span className="text-xs font-semibold text-[var(--theme-text-primary)] group-hover:text-purple-300 transition-colors">
@@ -397,52 +486,82 @@ export default function AiWorkspace() {
                   className={`flex flex-col ${isUser ? "items-end" : "items-start"} animate-fade-in`}
                 >
                   <div
-                    className={`relative max-w-[85%] rounded-2xl p-4 shadow-md ${
+                    className={`relative max-w-[88%] rounded-2xl p-4 shadow-md ${
                       isUser
                         ? "rounded-br-none bg-[var(--theme-bubble-sent)] text-[var(--theme-bubble-sent-text)]"
                         : "rounded-bl-none bg-[var(--theme-bubble-received)] text-[var(--theme-bubble-received-text)] border border-[var(--theme-border-color)]"
                     }`}
                   >
-                    {/* Render Image If Available */}
-                    {msg.imageUrl && (
-                      <div className="relative group mb-3 rounded-xl overflow-hidden border border-white/10 shadow-lg">
-                        <img
-                          src={msg.imageUrl}
-                          alt="AI Output"
-                          className="w-full max-h-[420px] object-cover rounded-xl transition-transform duration-300 group-hover:scale-102"
-                        />
-                        <button
-                          onClick={() => setFullscreenImage(msg.imageUrl!)}
-                          className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:bg-black/80"
-                          title="View Fullscreen"
-                        >
-                          <Maximize2 className="h-4 w-4" />
-                        </button>
+                    {/* Render Attached Image on User Message */}
+                    {msg.attachedImage && (
+                      <div className="mb-2 rounded-xl overflow-hidden border border-white/10 max-h-48 max-w-xs">
+                        <img src={msg.attachedImage} alt="User attachment" className="object-cover w-full h-full" />
                       </div>
                     )}
 
-                    <p className="text-sm font-medium whitespace-pre-wrap leading-relaxed">
-                      {msg.text}
-                    </p>
+                    {/* Render Generated Image If Available */}
+                    {msg.imageUrl && (
+                      <div className="relative group mb-3 rounded-xl overflow-hidden border border-purple-500/30 shadow-lg">
+                        <img
+                          src={msg.imageUrl}
+                          alt="AI Output"
+                          className="w-full max-h-[460px] object-cover rounded-xl transition-transform duration-300 group-hover:scale-101"
+                        />
+                        <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={() => setFullscreenImage(msg.imageUrl!)}
+                            className="p-1.5 rounded-lg bg-black/70 text-white cursor-pointer hover:bg-black/90"
+                            title="Fullscreen"
+                          >
+                            <Maximize2 className="h-4 w-4" />
+                          </button>
+                          <a
+                            href={msg.imageUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            download="dolsyx-ai-image.jpg"
+                            className="p-1.5 rounded-lg bg-black/70 text-white cursor-pointer hover:bg-black/90"
+                            title="Download Image"
+                          >
+                            <Download className="h-4 w-4" />
+                          </a>
+                        </div>
+                      </div>
+                    )}
 
-                    <div className="flex items-center justify-between gap-4 mt-2 pt-1 border-t border-white/10 text-[10px] opacity-70">
+                    {/* Formatted Text & Code Content */}
+                    {renderFormattedContent(msg.text, msg.id)}
+
+                    {/* Message Actions */}
+                    <div className="flex items-center justify-between gap-4 mt-2.5 pt-1.5 border-t border-white/10 text-[10px] opacity-75">
                       <span>{msg.time}</span>
-                      {!isUser && (
-                        <button
-                          onClick={() => handleCopy(msg.text, msg.id)}
-                          className="hover:opacity-100 cursor-pointer flex items-center gap-1"
-                        >
-                          {copiedId === msg.id ? (
-                            <>
-                              <Check className="h-3 w-3 text-green-400" /> Copied
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="h-3 w-3" /> Copy
-                            </>
-                          )}
-                        </button>
-                      )}
+                      <div className="flex items-center gap-3">
+                        {!isUser && (
+                          <>
+                            <button
+                              onClick={() => handleCopy(msg.text, msg.id)}
+                              className="hover:opacity-100 cursor-pointer flex items-center gap-1 text-[var(--theme-text-secondary)] hover:text-white"
+                            >
+                              {copiedId === msg.id ? (
+                                <>
+                                  <Check className="h-3 w-3 text-green-400" /> Copied
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="h-3 w-3" /> Copy
+                                </>
+                              )}
+                            </button>
+                            <button
+                              onClick={() => setShareTargetMsg(msg)}
+                              className="hover:opacity-100 cursor-pointer flex items-center gap-1 text-purple-300 hover:text-purple-200"
+                              title="Send to DOLSYX Chat"
+                            >
+                              <Share2 className="h-3 w-3" /> Send to Chat
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -450,10 +569,10 @@ export default function AiWorkspace() {
             })}
 
             {isThinking && (
-              <div className="flex items-center gap-2 p-3.5 rounded-2xl bg-[var(--theme-bubble-received)] border border-[var(--theme-border-color)] max-w-xs animate-pulse">
+              <div className="flex items-center gap-2 p-3.5 rounded-2xl bg-[var(--theme-bubble-received)] border border-purple-500/30 max-w-xs animate-pulse">
                 <Loader2 className="h-4 w-4 animate-spin text-purple-400" />
-                <span className="text-xs font-semibold text-[var(--theme-text-secondary)]">
-                  Dolsyx AI is thinking...
+                <span className="text-xs font-semibold text-purple-300">
+                  DOLSYX AI is generating...
                 </span>
               </div>
             )}
@@ -462,28 +581,54 @@ export default function AiWorkspace() {
         )}
       </div>
 
-      {/* Input Bar */}
+      {/* Input Bar with Image Attachment */}
       <div className="p-4 border-t border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-header)] backdrop-blur-md">
+        {attachedImage && (
+          <div className="max-w-3xl mx-auto mb-2 flex items-center gap-2 p-2 rounded-xl bg-purple-500/10 border border-purple-500/30">
+            <img src={attachedImage} alt="Attachment" className="h-10 w-10 object-cover rounded-lg" />
+            <span className="text-xs text-purple-300 flex-1 truncate">Image attached for analysis</span>
+            <button onClick={() => setAttachedImage(null)} className="p-1 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white cursor-pointer">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+
         <form
           onSubmit={(e) => {
             e.preventDefault();
             handleSend();
           }}
-          className="max-w-3xl mx-auto flex items-center gap-3 bg-[var(--theme-bg-sidebar-search)] border border-[var(--theme-border-color)] rounded-2xl px-4 py-2 shadow-inner focus-within:border-purple-500/60 transition-all"
+          className="max-w-3xl mx-auto flex items-center gap-2 bg-[var(--theme-bg-sidebar-search)] border border-[var(--theme-border-color)] rounded-2xl px-3 py-1.5 shadow-inner focus-within:border-purple-500/60 transition-all"
         >
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleImageAttachment}
+            accept="image/*"
+            className="hidden"
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="p-2 rounded-xl text-[var(--theme-text-secondary)] hover:text-purple-300 hover:bg-white/5 transition-colors cursor-pointer"
+            title="Attach Image for AI Analysis"
+          >
+            <Paperclip className="h-4 w-4" />
+          </button>
+
           <input
             ref={inputRef}
             type="text"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            placeholder="Ask Dolsyx AI or generate images (e.g. 'draw a futuristic city')..."
+            placeholder="Ask DOLSYX AI, write code, or create images ('generate a cyberpunk car')..."
             className="flex-1 bg-transparent py-1.5 text-sm text-[var(--theme-text-primary)] focus:outline-none placeholder-[var(--theme-text-secondary)]/50"
           />
 
           <button
             type="submit"
-            disabled={!inputText.trim() || isThinking}
-            className="p-2 rounded-xl bg-[var(--theme-primary)] text-white disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition-opacity cursor-pointer shadow-md"
+            disabled={(!inputText.trim() && !attachedImage) || isThinking}
+            className="p-2 rounded-xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-white disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-95 transition-opacity cursor-pointer shadow-md"
           >
             {isThinking ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -493,6 +638,55 @@ export default function AiWorkspace() {
           </button>
         </form>
       </div>
+
+      {/* Share to Chat Modal */}
+      {shareTargetMsg && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="w-full max-w-md rounded-2xl border border-[var(--theme-border-color)] bg-[#111827] p-5 shadow-2xl text-[var(--theme-text-primary)]">
+            <div className="flex items-center justify-between pb-3 border-b border-white/10">
+              <div className="flex items-center gap-2">
+                <Share2 className="h-5 w-5 text-purple-400" />
+                <h3 className="font-bold text-sm">Send to DOLSYX Chat</h3>
+              </div>
+              <button onClick={() => setShareTargetMsg(null)} className="p-1 rounded-lg hover:bg-white/10 cursor-pointer">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {shareSuccess ? (
+              <div className="py-8 text-center flex flex-col items-center gap-2">
+                <CheckCircle2 className="h-10 w-10 text-emerald-400 animate-bounce" />
+                <p className="text-sm font-bold text-emerald-300">Sent to chat successfully!</p>
+              </div>
+            ) : (
+              <div className="mt-4 space-y-2 max-h-64 overflow-y-auto">
+                <p className="text-xs text-[var(--theme-text-secondary)] mb-2">Select a chat to share this AI content with:</p>
+                {chats.length === 0 ? (
+                  <p className="text-xs text-center py-4 text-slate-400">No active conversations found.</p>
+                ) : (
+                  chats.map((chat) => (
+                    <button
+                      key={chat.id}
+                      disabled={isSharing}
+                      onClick={() => handleShareToChat(chat.id)}
+                      className="flex w-full items-center gap-3 p-2.5 rounded-xl border border-white/5 hover:border-purple-500/40 hover:bg-white/5 transition-all text-left cursor-pointer group"
+                    >
+                      <div className="w-9 h-9 rounded-full bg-slate-800 flex items-center justify-center font-bold text-xs text-purple-300">
+                        {chat.name?.slice(0, 2).toUpperCase() || "CH"}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold truncate group-hover:text-purple-300">{chat.name || "Chat"}</p>
+                        <p className="text-[10px] text-slate-400 truncate">{chat.isGroup ? "Group" : "Direct Message"}</p>
+                      </div>
+                      <ArrowRight className="h-4 w-4 text-slate-400 group-hover:text-purple-300" />
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Fullscreen Image Preview Modal */}
       {fullscreenImage && (

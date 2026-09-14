@@ -35,6 +35,7 @@ export default function ChatPage() {
   const [isProductivityOpen, setIsProductivityOpen] = useState(false);
   const [isLocked, setIsLocked] = useState(false); // starts false; useEffect below sets it if PIN exists
   const [activeRailTab, setActiveRailTab] = useState<"chats" | "ai" | "contacts" | "calls">("chats");
+  const [aiInitialPrompt, setAiInitialPrompt] = useState<string | null>(null);
   const [showSettingsPanel, setShowSettingsPanel] = useState(false);
 
   useEffect(() => {
@@ -854,7 +855,14 @@ export default function ChatPage() {
             </div>
           ) : activeRailTab === "ai" ? (
             <div className="w-full h-full">
-              <AiWorkspace />
+              <AiWorkspace
+                initialPrompt={aiInitialPrompt || undefined}
+                chats={chats}
+                onSelectChat={(chat) => {
+                  setActiveRailTab("chats");
+                  handleSelectChat(chat);
+                }}
+              />
             </div>
           ) : activeRailTab === "contacts" ? (
             <div className="w-full h-full">
@@ -916,7 +924,8 @@ export default function ChatPage() {
                   onChatCreated={handleChatCreated}
                   unreadCounts={unreadCounts}
                   onOpenStatus={() => setShowStatusPanel(true)}
-                  onOpenAi={() => {
+                  onOpenAi={(prompt?: string) => {
+                    setAiInitialPrompt(prompt || null);
                     setActiveRailTab("ai");
                     setSelectedChat(null);
                   }}

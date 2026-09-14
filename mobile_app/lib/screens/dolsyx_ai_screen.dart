@@ -1,15 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'dart:convert';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_theme.dart';
 import '../services/dolsyx_ai_service.dart';
+import '../services/chat_service.dart';
+import '../models/chat.dart';
 import '../widgets/full_screen_image_view.dart';
-
 import 'ai_profile_screen.dart';
+import 'chat_room_screen.dart';
 
 class DolsyxAiScreen extends StatefulWidget {
-  const DolsyxAiScreen({super.key});
+  final String? initialPrompt;
+  const DolsyxAiScreen({super.key, this.initialPrompt});
 
   @override
   State<DolsyxAiScreen> createState() => _DolsyxAiScreenState();
@@ -42,6 +46,11 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
   void initState() {
     super.initState();
     _loadUserName();
+    if (widget.initialPrompt != null && widget.initialPrompt!.trim().isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _sendPrompt(widget.initialPrompt!.trim());
+      });
+    }
   }
 
   Future<void> _loadUserName() async {
@@ -58,6 +67,100 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
         }
       }
     } catch (_) {}
+  }
+
+  void _shareToChat(String text, {String? imageUrl}) async {
+    final chatService = ChatService();
+    final chats = await chatService.getChats();
+
+    if (!mounted) return;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF0F172A),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return Container(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.6,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                child: Row(
+                  children: [
+                    const Icon(Icons.send_rounded, color: Color(0xFF8B5CF6), size: 20),
+                    const SizedBox(width: 10),
+                    const Text(
+                      'Send to DOLSYX Chat',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white70),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(color: Colors.white12),
+              if (chats.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Center(
+                    child: Text('No active chats found.', style: TextStyle(color: Colors.white54)),
+                  ),
+                )
+              else
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: chats.length,
+                    itemBuilder: (context, idx) {
+                      final c = chats[idx];
+                      return ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: const Color(0xFF1E293B),
+                          backgroundImage: c.avatarUrl != null && c.avatarUrl!.isNotEmpty
+                              ? NetworkImage(c.avatarUrl!)
+                              : null,
+                          child: c.avatarUrl == null || c.avatarUrl!.isEmpty
+                              ? Text(
+                                  (c.name ?? 'C').substring(0, 1).toUpperCase(),
+                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                )
+                              : null,
+                        ),
+                        title: Text(c.name ?? 'Chat', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                        subtitle: Text(c.isGroup ? 'Group' : 'Direct message', style: const TextStyle(color: Colors.white38, fontSize: 12)),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => ChatRoomScreen(
+                                conversationId: c.id,
+                                chatName: c.name ?? 'Chat',
+                                avatarUrl: c.avatarUrl,
+                                initialText: imageUrl != null && imageUrl.isNotEmpty ? '$text\n$imageUrl' : text,
+                              ),
+                            ),
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _sendPrompt(String promptText, {String? parentImageId}) async {
@@ -80,7 +183,7 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
     });
     _scrollToBottom();
 
-    final rawResponse = await _aiService.queryAiEngine(prompt);
+    final rawResponse = await _aiService.queryAiEngine(prompt, preset: _activePreset);
 
     if (mounted) {
       String replyText = rawResponse;
@@ -332,6 +435,60 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
                               ],
                             ),
                           ),
+                          if (!isUser) ...[
+                            const SizedBox(height: 4),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                InkWell(
+                                  onTap: () {
+                                    Clipboard.setData(ClipboardData(text: msg['text'] ?? ''));
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Copied to clipboard!'), duration: Duration(seconds: 1)),
+                                    );
+                                  },
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: AppTheme.surfaceColor,
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(color: Colors.white10),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.copy_rounded, size: 12, color: AppTheme.textSecondary),
+                                        const SizedBox(width: 4),
+                                        Text('Copy', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                InkWell(
+                                  onTap: () => _shareToChat(msg['text'] ?? '', imageUrl: imageUrl),
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF8B5CF6).withOpacity(0.15),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(color: const Color(0xFF8B5CF6).withOpacity(0.3)),
+                                    ),
+                                    child: const Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.forward_to_inbox_rounded, size: 13, color: Color(0xFFC084FC)),
+                                        SizedBox(width: 4),
+                                        Text('Send to Chat', style: TextStyle(fontSize: 11, color: Color(0xFFC084FC), fontWeight: FontWeight.bold)),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
                         ],
                       ),
                     ),

@@ -31,6 +31,7 @@
     "firebase-admin": "^14.2.0",
     "google-auth-library": "^11.0.2",
     "http-proxy-middleware": "^3.0.7",
+    "iconv-lite": "^0.7.3",
     "jsonwebtoken": "^9.0.3",
     "libsodium-wrappers": "^0.8.4",
     "multer": "^2.2.0",

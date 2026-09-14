@@ -12,6 +12,7 @@ import '../theme/app_theme.dart';
 import '../widgets/color_avatar.dart';
 import 'chat_room_screen.dart';
 import 'locked_chats_screen.dart';
+import 'dolsyx_ai_screen.dart';
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -287,17 +288,16 @@ class _SearchScreenState extends State<SearchScreen> {
     _performSearch(_searchController.text);
   }
 
-  void _askAiInSearch(String prompt) async {
-    if (prompt.trim().isEmpty) return;
+  void _askAiInSearch(String prompt) {
+    final cleanPrompt = prompt.trim();
+    if (cleanPrompt.isEmpty) return;
     FocusScope.of(context).unfocus();
-    setState(() => _isAiThinking = true);
-
-    final aiAnswer = await _dolsyxAiService.queryAiEngine(prompt);
-
-    if (mounted) {
-      setState(() => _isAiThinking = false);
-      _showAiAnswerBottomSheet(prompt, aiAnswer);
-    }
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => DolsyxAiScreen(initialPrompt: cleanPrompt),
+      ),
+    );
   }
 
   void _showAiAnswerBottomSheet(String question, String answer) {
@@ -605,6 +605,11 @@ class _SearchScreenState extends State<SearchScreen> {
           onChanged: (val) {
             setState(() {});
             _performSearch(val);
+          },
+          onSubmitted: (val) {
+            if (val.trim().isNotEmpty) {
+              _askAiInSearch(val);
+            }
           },
         ),
       ),

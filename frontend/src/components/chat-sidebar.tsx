@@ -45,7 +45,7 @@ interface ChatSidebarProps {
   onChatCreated: (chat: Chat) => void;
   unreadCounts?: Record<string, number>;
   onOpenStatus?: () => void;
-  onOpenAi?: () => void;
+  onOpenAi?: (prompt?: string) => void;
 }
 
 export default function ChatSidebar({
@@ -706,44 +706,89 @@ export default function ChatSidebar({
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search users..."
-            className="w-full rounded-full border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] px-9 py-2.5 text-sm text-[var(--theme-text-primary)] placeholder-[var(--theme-text-secondary)]/40 focus:border-[var(--theme-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--theme-accent)]"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && searchQuery.trim().length > 0) {
+                if (searchResults.length === 0 || searchQuery.startsWith("@ai") || searchQuery.startsWith("/ai") || searchQuery.length > 15) {
+                  onOpenAi?.(searchQuery.trim());
+                  setSearchQuery("");
+                  setSearchResults([]);
+                }
+              }
+            }}
+            placeholder="Search or ask DOLSYX AI..."
+            className="w-full rounded-full border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] pl-9 pr-8 py-2.5 text-sm text-[var(--theme-text-primary)] placeholder-[var(--theme-text-secondary)]/40 focus:border-[var(--theme-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--theme-accent)] transition-all"
           />
+          {searchQuery && (
+            <button
+              onClick={() => {
+                setSearchQuery("");
+                setSearchResults([]);
+              }}
+              className="absolute right-3 top-3 text-[var(--theme-text-secondary)]/50 hover:text-[var(--theme-text-primary)]"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
         </div>
 
-        {/* Search Results Dropdown */}
-        {searchQuery.trim().length >= 2 && (
-          <div className="absolute left-4 right-4 top-16 z-50 rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] p-2 shadow-2xl transition-colors duration-300">
+        {/* Search Results & AI Prompt Dropdown */}
+        {searchQuery.trim().length >= 1 && (
+          <div className="absolute left-4 right-4 top-16 z-50 rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)]/95 backdrop-blur-xl p-2 shadow-2xl transition-colors duration-300">
+            {/* Primary AI Option */}
+            <button
+              onClick={() => {
+                onOpenAi?.(searchQuery.trim());
+                setSearchQuery("");
+                setSearchResults([]);
+              }}
+              className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left bg-gradient-to-r from-teal-500/20 via-cyan-500/20 to-blue-500/20 border border-cyan-500/30 hover:border-cyan-400 text-cyan-300 hover:text-white transition-all cursor-pointer mb-2 group shadow-sm"
+            >
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-tr from-cyan-500 to-teal-400 text-black shadow-md shrink-0 group-hover:scale-105 transition-transform">
+                <Bot className="h-4 w-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-cyan-300">
+                  <Sparkles className="h-3 w-3 animate-pulse" />
+                  <span>Ask DOLSYX AI</span>
+                </div>
+                <p className="text-xs text-slate-300 truncate font-mono mt-0.5">"{searchQuery}"</p>
+              </div>
+              <span className="text-[10px] font-semibold uppercase tracking-wider bg-cyan-500/20 px-2 py-0.5 rounded text-cyan-300 border border-cyan-500/40">
+                Enter ↵
+              </span>
+            </button>
+
             {isSearching ? (
-              <div className="flex items-center justify-center py-4 text-sm text-[var(--theme-text-secondary)]">
-                <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-[var(--theme-accent)] border-t-transparent" />
-                Searching...
+              <div className="flex items-center justify-center py-3 text-xs text-[var(--theme-text-secondary)]">
+                <div className="mr-2 h-3.5 w-3.5 animate-spin rounded-full border-2 border-[var(--theme-accent)] border-t-transparent" />
+                Searching users...
               </div>
             ) : searchError ? (
               <div className="py-2 text-center text-xs text-red-400">{searchError}</div>
-            ) : searchResults.length === 0 ? (
-              <div className="py-4 text-center text-sm text-[var(--theme-text-secondary)]">No users found</div>
-            ) : (
-              <div className="max-h-60 overflow-y-auto space-y-1">
+            ) : searchResults.length > 0 ? (
+              <div className="max-h-56 overflow-y-auto space-y-1 pt-1 border-t border-[var(--theme-border-color)]/30">
+                <div className="px-2 py-1 text-[10px] font-semibold tracking-wider text-[var(--theme-text-secondary)]/70 uppercase">
+                  Direct Chats
+                </div>
                 {searchResults.map((userResult) => (
                   <button
                     key={userResult.id}
                     onClick={() => handleStartChat(userResult)}
-                    className="flex w-full items-center gap-4 rounded-xl px-3 py-3 text-left hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-all cursor-pointer border border-transparent hover:border-[var(--theme-border-color)]/30"
+                    className="flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left hover:bg-[var(--theme-bg-sidebar-item-hover)] transition-all cursor-pointer border border-transparent hover:border-[var(--theme-border-color)]/30"
                   >
                     <img
                       src={getAvatarUrl(userResult.avatarUrl, userResult.username)}
                       alt={userResult.username}
-                      className="h-10 w-10 shrink-0 rounded-full border border-[var(--theme-border-color)] object-cover shadow-sm bg-zinc-800"
+                      className="h-8 w-8 shrink-0 rounded-full border border-[var(--theme-border-color)] object-cover shadow-sm bg-zinc-800"
                     />
                     <div className="flex-1 min-w-0 flex flex-col justify-center">
-                      <p className="text-sm font-bold truncate text-[var(--theme-text-primary)] leading-tight mb-0.5">{userResult.username}</p>
-                      <p className="text-xs text-[var(--theme-text-secondary)] truncate font-medium">{userResult.email || "Phone user"}</p>
+                      <p className="text-xs font-bold truncate text-[var(--theme-text-primary)] leading-tight">{userResult.username}</p>
+                      <p className="text-[11px] text-[var(--theme-text-secondary)] truncate font-medium">{userResult.email || "Phone user"}</p>
                     </div>
                   </button>
                 ))}
               </div>
-            )}
+            ) : null}
           </div>
         )}
       </div>
@@ -774,7 +819,7 @@ export default function ChatSidebar({
       {/* Dolsyx AI Assistant Entry (Matching Android chat_list_screen.dart line 579) */}
       {onOpenAi && activeFilterPill === "all" && !searchQuery && (
         <div
-          onClick={onOpenAi}
+          onClick={() => onOpenAi()}
           className="flex items-center gap-3 p-3 mx-2 mb-1.5 rounded-2xl border border-purple-500/30 bg-gradient-to-r from-purple-500/10 via-pink-500/5 to-transparent hover:border-purple-500/60 hover:bg-purple-500/15 transition-all cursor-pointer shadow-sm group shrink-0"
         >
           <div className="p-0.5 rounded-full bg-gradient-to-tr from-purple-500 via-pink-500 to-blue-500 shadow shrink-0">

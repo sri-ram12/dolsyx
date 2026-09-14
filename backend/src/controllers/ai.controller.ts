@@ -27,7 +27,7 @@ export class AIController {
         res.json({
           reply: mathResult,
           type: 'text',
-          sender: 'AI Assistant',
+          sender: 'DOLSYX AI',
           createdAt: new Date().toISOString(),
         });
         return;
@@ -85,7 +85,7 @@ export class AIController {
           }),
           type: 'image_result',
           imageUrl: imageRes.imageUrl,
-          sender: 'AI Assistant',
+          sender: 'DOLSYX AI',
           createdAt: new Date().toISOString(),
         });
         return;
@@ -115,7 +115,7 @@ export class AIController {
         reply: textResult.text,
         type: 'text',
         model: textResult.model,
-        sender: 'AI Assistant',
+        sender: 'DOLSYX AI',
         createdAt: new Date().toISOString(),
       });
     } catch (error: any) {
@@ -124,10 +124,10 @@ export class AIController {
   }
 
   /**
-   * SSE Server-Sent Events Token Streaming Endpoint
+   * Real Token-by-Token SSE Server-Sent Events Streaming Endpoint
    */
   public static async streamChat(req: Request, res: Response): Promise<void> {
-    const { prompt } = req.body;
+    const { prompt, conversationId } = req.body;
     if (!prompt) {
       res.status(400).json({ error: 'Prompt is required' });
       return;
@@ -137,17 +137,128 @@ export class AIController {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
 
-    const result = await AIOrchestrator.generateTextResponse(prompt);
-    const tokens = result.text.split(' ');
-
-    for (let i = 0; i < tokens.length; i++) {
-      const chunk = (i === 0 ? '' : ' ') + tokens[i];
-      res.write(`data: ${JSON.stringify({ token: chunk })}\n\n`);
-      await new Promise(r => setTimeout(r, 25));
+    let history: any[] = [];
+    if (conversationId) {
+      history = await AIOrchestrator.buildConversationContext(conversationId);
     }
 
-    res.write(`data: [DONE]\n\n`);
-    res.end();
+    const cancel = AIOrchestrator.streamTextResponse(
+      prompt,
+      history,
+      (token) => {
+        res.write(`data: ${JSON.stringify({ token })}\n\n`);
+      },
+      (fullText) => {
+        res.write(`data: [DONE]\n\n`);
+        res.end();
+      },
+      (err) => {
+        console.error('[AIController] Stream error:', err);
+        res.write(`data: ${JSON.stringify({ error: err.message || 'Streaming failed' })}\n\n`);
+        res.end();
+      }
+    );
+
+    req.on('close', () => {
+      cancel();
+    });
+  }
+
+  /**
+   * Intent Classification endpoint for Main Search Bar
+   */
+  public static async classifyQuery(req: Request, res: Response): Promise<void> {
+    try {
+      const { query, hasAttachment } = req.body;
+      if (!query || typeof query !== 'string') {
+        res.status(400).json({ error: 'Query string is required' });
+        return;
+      }
+
+      const classification = AIOrchestrator.classifyIntent(query, !!hasAttachment);
+      res.json(classification);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  /**
+   * Multimodal Vision Image Understanding Endpoint
+   */
+  public static async analyzeImage(req: Request, res: Response): Promise<void> {
+    try {
+      const { prompt, imageUrl } = req.body;
+      if (!imageUrl) {
+        res.status(400).json({ error: 'Image URL or data is required' });
+        return;
+      }
+
+      const result = await AIOrchestrator.analyzeImage(prompt || 'Analyze this image in detail', imageUrl);
+      res.json({
+        reply: result.text,
+        model: result.model,
+        sender: 'DOLSYX AI',
+        createdAt: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  /**
+   * Authorized Chat Summarization & Intelligence Endpoint
+   */
+  public static async summarizeChat(req: Request, res: Response): Promise<void> {
+    try {
+      const user = (req as any).user;
+      const { conversationId, query } = req.body;
+      if (!conversationId) {
+        res.status(400).json({ error: 'Conversation ID is required' });
+        return;
+      }
+
+      // Security Check: Caller must be a participant of the conversation
+      if (user?.id) {
+        const isParticipant = await (prisma as any).participant.findFirst({
+          where: { conversationId, userId: user.id },
+        });
+        if (!isParticipant) {
+          res.status(403).json({ error: 'Access denied: You are not a participant in this conversation.' });
+          return;
+        }
+      }
+
+      // Fetch recent messages
+      const rawMessages = await (prisma as any).message.findMany({
+        where: { conversationId },
+        orderBy: { createdAt: 'desc' },
+        take: 30,
+        include: { sender: { select: { username: true } } },
+      });
+
+      if (!rawMessages || rawMessages.length === 0) {
+        res.json({ summary: 'No messages found in this conversation to summarize.', messageCount: 0 });
+        return;
+      }
+
+      const formattedTranscript = rawMessages
+        .reverse()
+        .map((m: any) => `${m.sender?.username || 'User'}: ${m.content}`)
+        .join('\n');
+
+      const userPrompt = query || 'Provide a concise, structured summary of what was discussed, key decisions made, and any action items.';
+      const contextPrompt = `Conversation Transcript:\n${formattedTranscript}\n\nTask: ${userPrompt}`;
+
+      const aiReply = await AIOrchestrator.generateTextResponse(contextPrompt);
+      res.json({
+        summary: aiReply.text,
+        messageCount: rawMessages.length,
+        sender: 'DOLSYX AI',
+        createdAt: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || 'Failed to summarize conversation' });
+    }
   }
 
   /**
@@ -178,7 +289,7 @@ export class AIController {
       const contextPrompt = `Context Transcript:\n${formattedTranscript}\n\nTask: ${userPrompt}`;
 
       const aiReply = await AIOrchestrator.generateTextResponse(contextPrompt);
-      res.json({ reply: aiReply.text, type: 'chat_summary' });
+      res.json({ reply: aiReply.text, type: 'chat_summary', sender: 'DOLSYX AI' });
     } catch (error: any) {
       res.status(500).json({ error: error.message || 'Failed to process chat context' });
     }

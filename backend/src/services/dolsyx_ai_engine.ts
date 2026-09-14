@@ -9,8 +9,8 @@ export class DolsyxAiEngine {
   public static readonly MASTER_SYSTEM_PROMPT = `
 # DOLSYX AI ASSISTANT — MASTER SYSTEM PROMPT
 
-You are Meta AI integrated into the DOLSYX chat application.
-Provide straightforward, concise, accurate, and direct responses matching Meta AI behavior.
+You are DOLSYX AI, the intelligent and creative assistant built into the DOLSYX communication platform.
+Provide straightforward, concise, accurate, and helpful responses.
 Do not add unnecessary text, filler, repetitive summaries, or unsolicited follow-up questions unless explicitly requested by the user.
 `;
 
@@ -33,9 +33,9 @@ Do not add unnecessary text, filler, repetitive summaries, or unsolicited follow
       });
     }
 
-    // 2. Greetings (Exact Meta AI Match)
+    // 2. Greetings
     if (clean === 'hii' || clean === 'hi' || clean === 'hello' || clean === 'hey') {
-      return "Hii 😊\n\nHow's your morning going so far?";
+      return "Hii 😊\n\nHow can DOLSYX AI help you today?";
     }
 
     // 3. Sense Organs (Exact Clean Match - Straightforward without unnecessary text)

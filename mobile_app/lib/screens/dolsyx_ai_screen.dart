@@ -285,7 +285,7 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
       ),
       body: Column(
         children: [
-          // If no messages yet, show Meta AI Welcome Screen with dynamic logged-in user name
+          // If no messages yet, show DOLSYX AI Welcome Screen with dynamic logged-in user name
           if (_messages.isEmpty)
             Expanded(
               child: SingleChildScrollView(

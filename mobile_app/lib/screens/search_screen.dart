@@ -641,7 +641,7 @@ class _SearchScreenState extends State<SearchScreen> {
           if (_isAiThinking)
             const LinearProgressIndicator(color: Color(0xFFEC4899), backgroundColor: Color(0xFF1E293B)),
 
-          // 🤖 Top Search Result: Meta AI Search Bar Chip
+          // 🤖 Top Search Result: DOLSYX AI Search Bar Chip
           if (queryText.isNotEmpty)
             Container(
               margin: const EdgeInsets.fromLTRB(16, 4, 16, 8),
@@ -672,7 +672,7 @@ class _SearchScreenState extends State<SearchScreen> {
                         color: const Color(0xFFEC4899).withOpacity(0.2),
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      child: const Text('Meta AI Style', style: TextStyle(color: Color(0xFFEC4899), fontSize: 10, fontWeight: FontWeight.bold)),
+                      child: const Text('DOLSYX AI', style: TextStyle(color: Color(0xFFEC4899), fontSize: 10, fontWeight: FontWeight.bold)),
                     ),
                   ],
                 ),

@@ -94,7 +94,8 @@ export default function LoginPage() {
     setIsLoading(true);
     setInfo("Connecting to Google authentication...");
     setError("");
-    window.location.href = `${API_URL}/api/auth/google`;
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    window.location.href = `${API_URL}/api/auth/google?frontendUrl=${encodeURIComponent(origin)}`;
   }, []);
 
   // ─────────────────────────────────────────────────────────────────────────────

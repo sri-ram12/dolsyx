@@ -879,8 +879,16 @@ export const initiateGoogleAuth = async (req: Request, res: Response): Promise<v
     const state = crypto.randomBytes(32).toString("hex");
     const { codeVerifier, codeChallenge } = googleAuthService.generatePkcePair();
 
+    // Resolve dynamic client frontend URL to return to after auth
+    const clientFrontendUrl =
+      (typeof req.query.frontendUrl === "string" ? req.query.frontendUrl : null) ||
+      (req.headers.origin as string) ||
+      (req.headers.referer ? new URL(req.headers.referer).origin : null) ||
+      process.env.FRONTEND_URL ||
+      "http://localhost:3000";
+
     const isProduction = process.env.NODE_ENV === "production";
-    const statePayload = JSON.stringify({ state, codeVerifier, redirectUri });
+    const statePayload = JSON.stringify({ state, codeVerifier, redirectUri, frontendUrl: clientFrontendUrl });
 
     res.cookie("dolsyx_oauth_state", statePayload, {
       httpOnly: true,
@@ -930,13 +938,17 @@ export const handleGoogleCallback = async (req: Request, res: Response): Promise
       return;
     }
 
-    let parsedState: { state: string; codeVerifier: string; redirectUri?: string };
+    let parsedState: { state: string; codeVerifier: string; redirectUri?: string; frontendUrl?: string };
     try {
       parsedState = typeof stateCookie === "string" ? JSON.parse(stateCookie) : stateCookie;
     } catch {
       res.redirect(`${frontendUrl}/login?error=corrupted_oauth_state`);
       return;
     }
+
+    const resolvedFrontend = (parsedState.frontendUrl && parsedState.frontendUrl !== "*")
+      ? parsedState.frontendUrl
+      : (process.env.FRONTEND_URL && process.env.FRONTEND_URL !== "*" ? process.env.FRONTEND_URL : "http://localhost:3000");
 
     if (parsedState.state !== state) {
       console.error("[OAuth] State mismatch! Possible CSRF attack.");
@@ -971,8 +983,8 @@ export const handleGoogleCallback = async (req: Request, res: Response): Promise
     );
 
     const redirectTarget = needsUsername
-      ? `${frontendUrl}/auth/google/callback?token=${encodeURIComponent(token)}&needsUsername=true&email=${encodeURIComponent(user.email || "")}`
-      : `${frontendUrl}/auth/google/callback?token=${encodeURIComponent(token)}&isNewUser=${isNewUser}`;
+      ? `${resolvedFrontend}/auth/google/callback?token=${encodeURIComponent(token)}&needsUsername=true&email=${encodeURIComponent(user.email || "")}`
+      : `${resolvedFrontend}/auth/google/callback?token=${encodeURIComponent(token)}&isNewUser=${isNewUser}`;
 
     res.redirect(redirectTarget);
   } catch (error: any) {

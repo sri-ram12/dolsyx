@@ -26,11 +26,10 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const API_URL = typeof window !== "undefined"
-  ? (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
-      ? (process.env.NEXT_PUBLIC_LOCAL_API_URL || "http://localhost:4000")
-      : (process.env.NEXT_PUBLIC_API_URL || "https://dolsyx-app.onrender.com"))
-  : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000");
+export const API_URL = (
+  process.env.NEXT_PUBLIC_API_URL ||
+  "https://dolsyx-app.onrender.com"
+).replace(/\/+$/, "");
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(() => {

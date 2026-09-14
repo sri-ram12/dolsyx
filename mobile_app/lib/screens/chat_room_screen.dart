@@ -49,6 +49,7 @@ class ChatRoomScreen extends StatefulWidget {
   final String? remoteUserId;
   final Map<String, dynamic>? remoteUser;
   final bool autoStartSearch;
+  final String? initialText;
 
   const ChatRoomScreen({
     super.key,
@@ -58,6 +59,7 @@ class ChatRoomScreen extends StatefulWidget {
     this.remoteUserId,
     this.remoteUser,
     this.autoStartSearch = false,
+    this.initialText,
   });
 
   @override
@@ -75,6 +77,14 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   int _bottomPickerTab = 0; // 0 = Emoji, 1 = Stickers & GIFs
   bool _isContact = true;
   FocusNode _focusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialText != null && widget.initialText!.isNotEmpty) {
+      _messageController.text = widget.initialText!;
+    }
+  }
 
   void _sendStickerOrGifMessage(String mediaUrl, String mediaType) {
     final tempId = 'temp_${DateTime.now().millisecondsSinceEpoch}';

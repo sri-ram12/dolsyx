@@ -196,18 +196,18 @@ export default function AiWorkspace({ initialPrompt, chats = [], onSelectChat }:
       if (res.ok) {
         const data = await res.json();
         let replyText = data.reply || "";
-        let type: "text" | "image_result" = "text";
-        let imageUrl = data.imageUrl || null;
+        let type: "text" | "image_result" = data.type === "image_result" || data.imageUrl ? "image_result" : "text";
+        let imageUrl = data.imageUrl || data.media?.url || null;
 
         try {
           if (typeof replyText === "string" && replyText.startsWith("{")) {
             const parsed = JSON.parse(replyText);
-            if (parsed.type === "image_result") {
+            if (parsed.type === "image_result" || parsed.imageUrl) {
               type = "image_result";
-              imageUrl = parsed.imageUrl;
-              replyText = parsed.text || "Here you go ✨";
-            } else if (parsed.text) {
-              replyText = parsed.text;
+              imageUrl = parsed.imageUrl || parsed.media?.url || imageUrl;
+              replyText = parsed.text || parsed.reply || "Here is your generated image ✨";
+            } else if (parsed.text || parsed.reply) {
+              replyText = parsed.text || parsed.reply;
             }
           }
         } catch (_) {}

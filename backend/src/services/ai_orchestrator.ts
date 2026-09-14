@@ -84,11 +84,13 @@ Behavioral Guidelines:
       'generate an image', 'create an image', 'draw a', 'draw an', 'picture of',
       'photo of', 'wallpaper of', 'generate pic', 'make an image', 'create a logo',
       'cyberpunk', 'anime style', 'portrait of', 'car image', 'landscape photo',
-      'design a logo', 'generate a banner', 'make a poster', 'generate image'
+      'design a logo', 'generate a banner', 'make a poster', 'generate image',
+      'generate avatar', 'create avatar', 'avatar of', 'illustration of', 'artwork of'
     ];
+    const imageRegex = /\b(generate|create|draw|make|design|render)\s+(an?\s+)?(image|photo|picture|pic|avatar|wallpaper|logo|banner|poster|illustration|artwork|painting|drawing|sketch)\b/i;
     const nonImageQuestions = ['what is an image', 'image format', 'what is a picture', 'how to take a photo'];
 
-    if (!nonImageQuestions.some(q => clean.includes(q)) && imageKeywords.some(kw => clean.includes(kw))) {
+    if (!nonImageQuestions.some(q => clean.includes(q)) && (imageRegex.test(clean) || imageKeywords.some(kw => clean.includes(kw)))) {
       return { intent: 'IMAGE_GENERATION', confidence: 0.96, extractedPrompt: raw };
     }
 
@@ -247,53 +249,59 @@ Behavioral Guidelines:
   }
 
   /**
-   * Comprehensive intelligent knowledge synthesizer
+   * Search-Augmented Factual Knowledge Resolver
    */
-  public static async synthesizeIntelligentResponse(rawPrompt: string, username?: string): Promise<string> {
-    const cleanPrompt = rawPrompt.trim();
-    const clean = cleanPrompt.toLowerCase();
+  public static async resolveSearchAugmentedFactuals(cleanPrompt: string): Promise<string | null> {
+    const clean = cleanPrompt.toLowerCase().trim();
 
-    // 1. Conversational Greetings
-    if (/^(hi|hii|hello|hey|greetings|good morning|good afternoon|good evening)\b/i.test(clean)) {
-      const nameGreeting = username ? `, ${username}` : '';
-      return `Hii${nameGreeting} 😊\n\nHow can **DOLSYX AI** assist you today? Feel free to ask a question, generate an image, solve a coding problem, or draft a message!`;
-    }
+    // 1. Direct Factual Entity & Abbreviation Dictionary (High Precision)
+    const factualEntities: Record<string, string> = {
+      'cm of ap': 'The current **Chief Minister of Andhra Pradesh** is **N. Chandrababu Naidu** (Nara Chandrababu Naidu), who assumed office on June 12, 2024 following the 2024 Andhra Pradesh Legislative Assembly election.',
+      'who is cm of ap': 'The current **Chief Minister of Andhra Pradesh** is **N. Chandrababu Naidu** (Nara Chandrababu Naidu), who assumed office on June 12, 2024 following the 2024 Andhra Pradesh Legislative Assembly election.',
+      'chief minister of andhra pradesh': 'The current **Chief Minister of Andhra Pradesh** is **N. Chandrababu Naidu** (Nara Chandrababu Naidu), who assumed office on June 12, 2024.',
+      'who is chief minister of andhra pradesh': 'The current **Chief Minister of Andhra Pradesh** is **N. Chandrababu Naidu** (Nara Chandrababu Naidu), who assumed office on June 12, 2024.',
+      'cm of tg': 'The current **Chief Minister of Telangana** is **A. Revanth Reddy** (Anumula Revanth Reddy), who assumed office on December 7, 2023.',
+      'cm of telangana': 'The current **Chief Minister of Telangana** is **A. Revanth Reddy** (Anumula Revanth Reddy), who assumed office on December 7, 2023.',
+      'who is cm of telangana': 'The current **Chief Minister of Telangana** is **A. Revanth Reddy** (Anumula Revanth Reddy), who assumed office on December 7, 2023.',
+      'cm of tamil nadu': 'The current **Chief Minister of Tamil Nadu** is **M. K. Stalin** (Muthuvel Karunanidhi Stalin).',
+      'cm of tn': 'The current **Chief Minister of Tamil Nadu** is **M. K. Stalin**.',
+      'cm of karnataka': 'The current **Chief Minister of Karnataka** is **Siddaramaiah**.',
+      'pm of india': 'The current **Prime Minister of India** is **Narendra Modi**, who has been serving as the 14th Prime Minister of India since May 26, 2014.',
+      'who is pm of india': 'The current **Prime Minister of India** is **Narendra Modi**, who has been serving as the 14th Prime Minister of India since May 26, 2014.',
+      'prime minister of india': 'The current **Prime Minister of India** is **Narendra Modi**.',
+      'president of india': 'The current **President of India** is **Droupadi Murmu**, who assumed office on July 25, 2022 as the 15th President of India.',
+      'who is president of india': 'The current **President of India** is **Droupadi Murmu**, who assumed office on July 25, 2022 as the 15th President of India.',
+      'president of usa': 'The current **President of the United States** is **Joe Biden** (46th US President).',
+      'president of us': 'The current **President of the United States** is **Joe Biden** (46th US President).',
+      'who is president of us': 'The current **President of the United States** is **Joe Biden** (46th US President).',
+      'capital of india': 'The capital of India is **New Delhi**.',
+      'capital of ap': 'The capital of Andhra Pradesh is **Amaravati**.',
+      'capital of andhra pradesh': 'The capital of Andhra Pradesh is **Amaravati**.',
+      'capital of telangana': 'The capital of Telangana is **Hyderabad**.',
+      'capital of usa': 'The capital of the United States is **Washington, D.C.**',
+      'capital of france': 'The capital of France is **Paris**.',
+      'capital of japan': 'The capital of Japan is **Tokyo**.',
+      'capital of australia': 'The capital of Australia is **Canberra**.',
+      'capital of germany': 'The capital of Germany is **Berlin**.',
+      'capital of canada': 'The capital of Canada is **Ottawa**.',
+      'capital of uk': 'The capital of the United Kingdom is **London**.',
+      'ceo of google': 'The CEO of Google and Alphabet is **Sundar Pichai**.',
+      'ceo of microsoft': 'The CEO of Microsoft is **Satya Nadella**.',
+      'ceo of apple': 'The CEO of Apple is **Tim Cook**.',
+      'ceo of tesla': 'The CEO of Tesla is **Elon Musk**.',
+      'ceo of meta': 'The CEO of Meta is **Mark Zuckerberg**.',
+      'who founded amazon': 'Amazon was founded by **Jeff Bezos** on July 5, 1994.',
+      'who founded microsoft': 'Microsoft was founded by **Bill Gates** and **Paul Allen** on April 4, 1975.',
+      'who founded apple': 'Apple was founded by **Steve Jobs**, **Steve Wozniak**, and **Ronald Wayne** on April 1, 1976.',
+    };
 
-    // 2. Sense Organs & Anatomy
-    if (clean.includes('sense organ') || clean.includes('five senses') || clean.includes('5 sense')) {
-      return `The 5 primary sense organs are:\n\n1. **Eyes** → Sense of **Sight** (visual perception via photoreceptors)\n2. **Ears** → Sense of **Hearing & Balance** (auditory perception via acoustic waves)\n3. **Nose** → Sense of **Smell** (olfactory perception via chemical receptors)\n4. **Tongue** → Sense of **Taste** (gustatory perception for sweet, sour, salty, bitter, umami)\n5. **Skin** → Sense of **Touch** (tactile perception of pressure, temperature, texture, and pain)\n\nEach sense organ detects environmental stimuli and transmits neural signals to the brain for processing.`;
-    }
-
-    // 3. Technical & Coding Explanations
-    if (clean.includes('docker')) {
-      return `### Docker Overview & Core Concepts\n\n**Docker** is an open-source containerization platform that packages applications and their dependencies into isolated, lightweight environments called **containers**.\n\n#### Key Components:\n- **Dockerfile**: Blueprint text file defining image build steps.\n- **Image**: Immutable snapshot of an application with runtime dependencies.\n- **Container**: Running instance of a Docker image.\n- **Docker Compose**: Tool for defining multi-container applications using YAML.\n\n\`\`\`dockerfile\n# Example Node.js Production Dockerfile\nFROM node:20-alpine AS builder\nWORKDIR /app\nCOPY package*.json ./\nRUN npm ci\nCOPY . .\nRUN npm run build\n\nFROM node:20-alpine AS runner\nWORKDIR /app\nENV NODE_ENV=production\nCOPY --from=builder /app/dist ./dist\nCOPY --from=builder /app/node_modules ./node_modules\nEXPOSE 3000\nCMD ["node", "dist/index.js"]\n\`\`\``;
-    }
-
-    if (clean.includes('two sum') || (clean.includes('dsa') && clean.includes('array'))) {
-      return `### Two Sum Problem (LeetCode #1)\n\n**Problem**: Given an array of integers \`nums\` and an integer \`target\`, return indices of the two numbers such that they add up to \`target\`.\n\n#### Optimal Solution (Hash Map Approach):\n- **Time Complexity**: $\\mathcal{O}(n)$\n- **Space Complexity**: $\\mathcal{O}(n)$\n\n\`\`\`typescript\nfunction twoSum(nums: number[], target: number): number[] {\n  const map = new Map<number, number>();\n  for (let i = 0; i < nums.length; i++) {\n    const complement = target - nums[i];\n    if (map.has(complement)) {\n      return [map.get(complement)!, i];\n    }\n    map.set(nums[i], i);\n  }\n  return [];\n}\n\`\`\``;
-    }
-
-    // 4. Quick Message & Template Writing
-    if (clean.includes('cover letter')) {
-      return `**Professional Cover Letter**\n\nDear Hiring Team,\n\nI am writing to express my enthusiastic interest in the open role. With a proven background in delivering scalable solutions, problem-solving, and collaborating cross-functionally, I am confident in my ability to make an immediate, positive impact.\n\nThroughout my experience, I have focused on driving efficiency, building high-quality software, and continually learning emerging technologies. I would welcome the opportunity to discuss how my skillset aligns with your team's goals.\n\nThank you for your time and consideration.\n\nSincerely,\n[Your Name]`;
-    }
-
-    if (clean.includes('classmate')) {
-      return `Here is a message for your classmate:\n\n*"Hey! Hope you're doing well. Just wanted to check in regarding our recent class notes and assignment details. Let me know when you have a quick moment to sync up!"*`;
-    }
-
-    if (clean.includes('coworker')) {
-      return `Here is a message for your coworker:\n\n*"Hi! Hope your day is going well. Quick update regarding our project task—let me know when you're available for a 2-minute sync to finalize the deliverables."*`;
-    }
-
-    if (clean.includes('friend')) {
-      return `Here is a message for your friend:\n\n*"Hey! It's been a while since we caught up. Let's grab coffee or hang out this weekend. Let me know what day works best for you!"*`;
-    }
-
-    // 5. Telugu Translation Engine
+    // Telugu phrases and dictionary mappings
     if (clean.includes('telugu')) {
       if (clean.includes("i don't know") || clean.includes('dont know') || clean.includes('do not know')) {
         return `**నాకు తెలియదు (Naaku theliyadu)**`;
+      }
+      if (clean.includes('love letter') || clean.includes('letter')) {
+        return `నా ప్రియమైన బంగారం ❤️,\n\nనువ్వు నా జీవితంలోకి వచ్చిన క్షణం నుంచి ప్రతి రోజు ఒక అందమైన కలలా ఉంది. నీ నవ్వు నా ప్రపంచాన్ని వెలిగిస్తుంది, నీ మాటలు నా మనసుకు ప్రశాంతతను ఇస్తాయి.\n\nనేను నిన్ను ప్రాణంగా ప్రేమిస్తున్నాను. ప్రతి జన్మలోనూ నువ్వే నా తోడుగా ఉండాలని కోరుకుంటున్నాను.\n\nఎల్లప్పుడూ నీ ప్రేమతో 💖`;
       }
       if (clean.includes('thank you') || clean.includes('thanks')) {
         return `**ధన్యవాదాలు (Dhanyavaadalu)**`;
@@ -301,18 +309,68 @@ Behavioral Guidelines:
       if (clean.includes('how are you')) {
         return `**ఎలా ఉన్నారు? (Ela unnaaru?)**`;
       }
-      const targetPhrase = rawPrompt.replace(/(in telugu meaning|telugu meaning|meaning in telugu|in telugu|telugu)/gi, '').trim();
-      return `**${targetPhrase || 'తెలుగు అర్ధం'}**: తెలుగు అనువాదం విజయవంతంగా ప్రాసెస్ చేయబడింది.`;
+      if (clean.includes('good morning')) {
+        return `**శుభోదయం (Shubhodayam)**`;
+      }
+      if (clean.includes('good night')) {
+        return `**శుభరాత్రి (Shubharaathri)**`;
+      }
     }
 
-    // 6. Live Wikipedia Fact Lookup
+    const normalized = clean.replace(/^(who is the|who is|what is the|what is|tell me|where is|when was)\s+/i, '').replace(/[?.,!]/g, '').trim();
+    if (factualEntities[clean]) return factualEntities[clean];
+    if (factualEntities[normalized]) return factualEntities[normalized];
+    for (const [key, val] of Object.entries(factualEntities)) {
+      if (clean.includes(key) || normalized.includes(key)) return val;
+    }
+
+    // 2. Query Live DuckDuckGo Instant Answer API
     try {
-      const cleanTopic = cleanPrompt.replace(/^(what are|what is|explain|tell me about|who is|where is|how does|definition of|give)\s+/i, '').trim();
-      if (cleanTopic.length > 2) {
-        const formatted = encodeURIComponent(cleanTopic.replace(/\s+/g, '_'));
-        const wikiUrl = `https://en.wikipedia.org/api/rest_v1/page/summary/${formatted}`;
-        const res = await new Promise<string | null>((resolve) => {
-          https.get(wikiUrl, { headers: { 'User-Agent': 'DOLSYX-AI/1.0' } }, (res) => {
+      const ddgUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(cleanPrompt)}&format=json&no_html=1&skip_disambig=1`;
+      const ddgRes = await new Promise<any>((resolve) => {
+        https.get(ddgUrl, { headers: { 'User-Agent': 'DOLSYX-AI/1.0' }, timeout: 5000 }, (res) => {
+          let data = '';
+          res.on('data', chunk => data += chunk);
+          res.on('end', () => {
+            try {
+              resolve(JSON.parse(data));
+            } catch (_) {
+              resolve(null);
+            }
+          });
+        }).on('error', () => resolve(null));
+      });
+
+      if (ddgRes?.Abstract && ddgRes.Abstract.length > 25) {
+        const heading = ddgRes.Heading ? `### ${ddgRes.Heading}\n\n` : '';
+        const source = ddgRes.AbstractSource ? `\n\n*Source: ${ddgRes.AbstractSource}*` : '';
+        return `${heading}${ddgRes.Abstract}${source}`;
+      }
+    } catch (_) {}
+
+    // 3. Query Wikipedia Full-Text Search
+    try {
+      const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(cleanPrompt)}&format=json&utf8=`;
+      const wikiSearch = await new Promise<any>((resolve) => {
+        https.get(searchUrl, { headers: { 'User-Agent': 'DOLSYX-AI/1.0 (https://dolsyx-app.onrender.com; contact@dolsyx.com)' }, timeout: 5000 }, (res) => {
+          let data = '';
+          res.on('data', chunk => data += chunk);
+          res.on('end', () => {
+            try {
+              resolve(JSON.parse(data));
+            } catch (_) {
+              resolve(null);
+            }
+          });
+        }).on('error', () => resolve(null));
+      });
+
+      const topResult = wikiSearch?.query?.search?.[0];
+      if (topResult?.title) {
+        const pageTitle = topResult.title;
+        const summaryUrl = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(pageTitle.replace(/\s+/g, '_'))}`;
+        const summary = await new Promise<string | null>((resolve) => {
+          https.get(summaryUrl, { headers: { 'User-Agent': 'DOLSYX-AI/1.0' }, timeout: 5000 }, (res) => {
             let data = '';
             res.on('data', chunk => data += chunk);
             res.on('end', () => {
@@ -330,13 +388,82 @@ Behavioral Guidelines:
           }).on('error', () => resolve(null));
         });
 
-        if (res) {
-          return `### ${cleanTopic.toUpperCase()}\n\n${res}`;
+        if (summary) {
+          return `### ${pageTitle}\n\n${summary}`;
         }
       }
     } catch (_) {}
 
-    return `Here is the information regarding **"${cleanPrompt}"**:\n\nProcessed accurately by **DOLSYX AI**. If you have follow-up questions or want code examples, please let me know!`;
+    return null;
+  }
+
+  /**
+   * Comprehensive intelligent knowledge synthesizer
+   */
+  public static async synthesizeIntelligentResponse(rawPrompt: string, username?: string): Promise<string> {
+    const cleanPrompt = rawPrompt.trim();
+    const clean = cleanPrompt.toLowerCase();
+
+    // 1. Conversational Greetings
+    if (/^(hi|hii|hello|hey|greetings|good morning|good afternoon|good evening)\b/i.test(clean)) {
+      const nameGreeting = username ? `, ${username}` : '';
+      return `Hii${nameGreeting} 😊\n\nHow can **DOLSYX AI** assist you today? Feel free to ask a question, generate an image, solve a coding problem, or draft a message!`;
+    }
+
+    // 2. Factual Search & Entity Resolution (e.g. "who is cm of ap", "who is pm of india", capitals, founders)
+    const factualAnswer = await this.resolveSearchAugmentedFactuals(cleanPrompt);
+    if (factualAnswer) {
+      return factualAnswer;
+    }
+
+    // 3. Sense Organs & Anatomy
+    if (clean.includes('sense organ') || clean.includes('five senses') || clean.includes('5 sense')) {
+      return `The 5 primary sense organs are:\n\n1. **Eyes** → Sense of **Sight** (visual perception via photoreceptors)\n2. **Ears** → Sense of **Hearing & Balance** (auditory perception via acoustic waves)\n3. **Nose** → Sense of **Smell** (olfactory perception via chemical receptors)\n4. **Tongue** → Sense of **Taste** (gustatory perception for sweet, sour, salty, bitter, umami)\n5. **Skin** → Sense of **Touch** (tactile perception of pressure, temperature, texture, and pain)\n\nEach sense organ detects environmental stimuli and transmits neural signals to the brain for processing.`;
+    }
+
+    // 4. Technical & Coding Explanations
+    if (clean.includes('docker')) {
+      return `### Docker Overview & Core Concepts\n\n**Docker** is an open-source containerization platform that packages applications and their dependencies into isolated, lightweight environments called **containers**.\n\n#### Key Components:\n- **Dockerfile**: Blueprint text file defining image build steps.\n- **Image**: Immutable snapshot of an application with runtime dependencies.\n- **Container**: Running instance of a Docker image.\n- **Docker Compose**: Tool for defining multi-container applications using YAML.\n\n\`\`\`dockerfile\n# Example Node.js Production Dockerfile\nFROM node:20-alpine AS builder\nWORKDIR /app\nCOPY package*.json ./\nRUN npm ci\nCOPY . .\nRUN npm run build\n\nFROM node:20-alpine AS runner\nWORKDIR /app\nENV NODE_ENV=production\nCOPY --from=builder /app/dist ./dist\nCOPY --from=builder /app/node_modules ./node_modules\nEXPOSE 3000\nCMD ["node", "dist/index.js"]\n\`\`\``;
+    }
+
+    if (clean.includes('two sum') || (clean.includes('dsa') && (clean.includes('array') || clean.includes('hash')))) {
+      return `### Two Sum Problem (LeetCode #1)\n\n**Problem**: Given an array of integers \`nums\` and an integer \`target\`, return indices of the two numbers such that they add up to \`target\`.\n\n#### Java Solution:\n\`\`\`java\nimport java.util.HashMap;\nimport java.util.Map;\n\npublic class Solution {\n    public int[] twoSum(int[] nums, int target) {\n        Map<Integer, Integer> map = new HashMap<>();\n        for (int i = 0; i < nums.length; i++) {\n            int complement = target - nums[i];\n            if (map.containsKey(complement)) {\n                return new int[] { map.get(complement), i };\n            }\n            map.put(nums[i], i);\n        }\n        return new int[0];\n    }\n}\n\`\`\`\n\n#### Complexity Analysis:\n- **Time Complexity**: $\\mathcal{O}(n)$ — Single pass through the array.\n- **Space Complexity**: $\\mathcal{O}(n)$ — Storing elements in the HashMap.`;
+    }
+
+    // 5. Quick Message & Template Writing
+    if (clean.includes('cover letter')) {
+      return `**Professional Cover Letter**\n\nDear Hiring Team,\n\nI am writing to express my enthusiastic interest in the open role. With a proven background in delivering scalable solutions, problem-solving, and collaborating cross-functionally, I am confident in my ability to make an immediate, positive impact.\n\nThroughout my experience, I have focused on driving efficiency, building high-quality software, and continually learning emerging technologies. I would welcome the opportunity to discuss how my skillset aligns with your team's goals.\n\nThank you for your time and consideration.\n\nSincerely,\n[Your Name]`;
+    }
+
+    if (clean.includes('classmate')) {
+      return `Here is a message for your classmate:\n\n*"Hey! Hope you're doing well. Just wanted to check in regarding our recent class notes and assignment details. Let me know when you have a quick moment to sync up!"*`;
+    }
+
+    if (clean.includes('coworker')) {
+      return `Here is a message for your coworker:\n\n*"Hi! Hope your day is going well. Quick update regarding our project task—let me know when you're available for a 2-minute sync to finalize the deliverables."*`;
+    }
+
+    if (clean.includes('friend')) {
+      return `Here is a message for your friend:\n\n*"Hey! It's been a while since we caught up. Let's grab coffee or hang out this weekend. Let me know what day works best for you!"*`;
+    }
+
+    // 6. Telugu Translation Engine
+    if (clean.includes('telugu')) {
+      if (clean.includes("i don't know") || clean.includes('dont know') || clean.includes('do not know')) {
+        return `**నాకు తెలియదు (Naaku theliyadu)**`;
+      }
+      if (clean.includes('thank you') || clean.includes('thanks')) {
+        return `**ధన్యవాదాలు (Dhanyavaadalu)**`;
+      }
+      if (clean.includes('how are you')) {
+        return `**ఎలా ఉన్నారు? (Ela unnaaru?)**`;
+      }
+      const targetPhrase = rawPrompt.replace(/(in telugu meaning|telugu meaning|meaning in telugu|in telugu|telugu)/gi, '').trim();
+      return `**${targetPhrase || 'తెలుగు అర్ధం'}**: తెలుగు అనువాదం విజయవంతంగా ప్రాసెస్ చేయబడింది.`;
+    }
+
+    // 7. Honest fallback if completely unknown
+    return `I couldn't find a verified answer for **"${cleanPrompt}"**. Please try rephrasing your question or specify additional context so I can assist you better!`;
   }
 
   /**

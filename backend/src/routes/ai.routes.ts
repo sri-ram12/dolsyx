@@ -18,6 +18,7 @@ const optionalAuthMiddleware = (req: Request, res: Response, next: NextFunction)
 };
 
 router.post('/chat', optionalAuthMiddleware, AIController.handleChat);
+router.post('/generate-image', optionalAuthMiddleware, AIController.generateImage);
 router.post('/messages/stream', optionalAuthMiddleware, AIController.streamChat);
 router.post('/chat-context', optionalAuthMiddleware, AIController.handleChatContext);
 router.post('/classify', optionalAuthMiddleware, AIController.classifyQuery);

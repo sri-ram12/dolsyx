@@ -10,7 +10,45 @@ class DolsyxAiService {
     if (cleanPrompt.isEmpty) return 'Please type a valid prompt.';
     final clean = cleanPrompt.toLowerCase();
 
-    // 1. Image Generation Intent
+    // 1. Try Backend AI API endpoint first (with Cloudinary Image Verification & Factual Search)
+    try {
+      final token = await _apiService.getToken();
+      final response = await http.post(
+        Uri.parse('${ApiService.baseUrl}/ai/chat'),
+        headers: {
+          'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'prompt': cleanPrompt,
+          'preset': preset,
+        }),
+      ).timeout(const Duration(seconds: 25));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['reply'] != null && data['reply'].toString().trim().isNotEmpty) {
+          final replyStr = data['reply'].toString().trim();
+          final lower = replyStr.toLowerCase();
+          final isBudgetError = lower.contains('reached its budget') || lower.contains('raise the key budget') || lower.contains('pollinations.ai/edit-key');
+          if (!isBudgetError) {
+            if (data['type'] == 'image_result' || data['imageUrl'] != null) {
+              return jsonEncode({
+                'type': 'image_result',
+                'text': data['reply'],
+                'imageUrl': data['imageUrl'] ?? (data['media'] != null ? data['media']['url'] : null),
+                'imagePrompt': data['imagePrompt'] ?? cleanPrompt,
+              });
+            }
+            return replyStr;
+          }
+        }
+      }
+    } catch (e) {
+      // Backend request timeout/error, fallback below
+    }
+
+    // 2. Client-side fallback for Image Generation Intent if backend was unreachable
     if (_isImageIntent(clean)) {
       final imagePrompt = _extractImagePrompt(cleanPrompt);
       final styleSuffix = preset != null && preset.isNotEmpty ? ', $preset style, ultra detailed, 8k resolution' : '';
@@ -25,42 +63,6 @@ class DolsyxAiService {
         'imagePrompt': fullPrompt,
       });
     }
-
-    // 2. Try Backend AI API endpoint first (Multi-tier LLM: Groq / OpenAI / Gemini)
-    try {
-      final token = await _apiService.getToken();
-      final response = await http.post(
-        Uri.parse('${ApiService.baseUrl}/ai/chat'),
-        headers: {
-          'Content-Type': 'application/json',
-          if (token != null) 'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({
-          'prompt': cleanPrompt,
-          'preset': preset,
-        }),
-      ).timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data['reply'] != null && data['reply'].toString().trim().isNotEmpty) {
-          final replyStr = data['reply'].toString().trim();
-          final lower = replyStr.toLowerCase();
-          final isBudgetError = lower.contains('reached its budget') || lower.contains('raise the key budget') || lower.contains('pollinations.ai/edit-key');
-          if (!isBudgetError) {
-            if (data['type'] == 'image_result') {
-              return jsonEncode({
-                'type': 'image_result',
-                'text': data['reply'],
-                'imageUrl': data['imageUrl'],
-                'imagePrompt': data['imagePrompt'] ?? cleanPrompt,
-              });
-            }
-            return replyStr;
-          }
-        }
-      }
-    } catch (_) {}
 
     // 3. Greetings Local Fallback
     if (RegExp(r'^(hi|hii|hello|hey|greetings|good morning|good afternoon|good evening)\b', caseSensitive: false).hasMatch(clean)) {

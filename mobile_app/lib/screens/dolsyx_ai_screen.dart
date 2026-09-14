@@ -194,10 +194,10 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
       try {
         if (rawResponse.trim().startsWith('{') && rawResponse.trim().endsWith('}')) {
           final parsed = jsonDecode(rawResponse);
-          replyText = parsed['text'] ?? rawResponse;
+          replyText = parsed['text'] ?? parsed['reply'] ?? rawResponse;
           messageType = parsed['type'] ?? 'text';
           options = parsed['options'] ?? [];
-          imageUrl = parsed['imageUrl'];
+          imageUrl = parsed['imageUrl'] ?? (parsed['media'] != null ? parsed['media']['url'] : null);
         }
       } catch (_) {}
 

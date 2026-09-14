@@ -43,7 +43,18 @@ export class AIController {
           } catch (_) {}
         }
 
-        const imageRes = ImagePipelineEngine.generateImage(prompt, preset || 'photorealistic', parentPrompt);
+        const imageRes = await ImagePipelineEngine.generateVerifiedImage(prompt, preset || 'photorealistic', parentPrompt);
+
+        if (!imageRes.success) {
+          res.json({
+            reply: imageRes.error || 'Failed to generate image. Please try a different prompt.',
+            type: 'text',
+            error: imageRes.error,
+            sender: 'DOLSYX AI',
+            createdAt: new Date().toISOString(),
+          });
+          return;
+        }
 
         // Record metadata in database if user is authenticated
         let imageRecord: any = null;
@@ -75,16 +86,17 @@ export class AIController {
         }
 
         res.json({
-          reply: JSON.stringify({
-            type: 'image_result',
-            text: imageRes.text,
-            imageUrl: imageRes.imageUrl,
-            imagePrompt: prompt,
-            enhancedPrompt: imageRes.enhancedPrompt,
-            imageId: imageRecord?.id || null,
-          }),
+          reply: imageRes.text,
           type: 'image_result',
           imageUrl: imageRes.imageUrl,
+          imagePrompt: prompt,
+          enhancedPrompt: imageRes.enhancedPrompt,
+          media: {
+            url: imageRes.imageUrl,
+            width: imageRes.width,
+            height: imageRes.height,
+          },
+          imageId: imageRecord?.id || null,
           sender: 'DOLSYX AI',
           createdAt: new Date().toISOString(),
         });
@@ -351,6 +363,31 @@ export class AIController {
       res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
+    }
+  }
+
+  public static async generateImage(req: Request, res: Response): Promise<void> {
+    try {
+      const { prompt, preset, parentPrompt } = req.body;
+      if (!prompt || typeof prompt !== 'string') {
+        res.status(400).json({ error: 'Prompt is required', success: false });
+        return;
+      }
+      const imageRes = await ImagePipelineEngine.generateVerifiedImage(prompt, preset || 'photorealistic', parentPrompt);
+      if (!imageRes.success) {
+        res.status(500).json({ error: imageRes.error || 'Image generation failed', success: false });
+        return;
+      }
+      res.json({
+        success: true,
+        imageUrl: imageRes.imageUrl,
+        enhancedPrompt: imageRes.enhancedPrompt,
+        text: imageRes.text,
+        sender: 'DOLSYX AI',
+        createdAt: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || 'Image generation failed', success: false });
     }
   }
 

@@ -10,6 +10,7 @@ import { useTheme } from "@/context/theme-context";
 import { useToast } from "@/context/toast-context";
 import { Chat } from "./chat-sidebar";
 import GroupProfileModal from "./group-profile-modal";
+import WallpaperModal from "./wallpaper-modal";
 import { ReactionPopup } from "./reaction-popup";
 import {
   Send,
@@ -565,7 +566,7 @@ export default function ChatWindow({
 }: ChatWindowProps) {
   const { user, token } = useAuth();
   const { encryptAndSend, decryptIncoming } = useE2EE();
-  const { theme } = useTheme();
+  const { theme, getWallpaperForChat } = useTheme();
   const { toast } = useToast();
 
   // Blocked and Block list states
@@ -1797,6 +1798,38 @@ export default function ChatWindow({
     <div className="flex h-full flex-col bg-[#0b141a] relative w-full overflow-hidden">
       {/* Wallpaper rendering logic */}
       {(() => {
+        const chatWp = chat ? getWallpaperForChat(chat.id) : null;
+        if (chatWp && chatWp.type !== "default") {
+          const bgStyle: React.CSSProperties = {
+            opacity: chatWp.opacity ?? 0.85,
+            filter: (chatWp.blur ?? 0) > 0 ? `blur(${chatWp.blur}px)` : undefined,
+          };
+          if (chatWp.type === "solid") {
+            return (
+              <div
+                className="absolute inset-0 pointer-events-none z-0 transition-all duration-300"
+                style={{ ...bgStyle, backgroundColor: chatWp.value }}
+              />
+            );
+          }
+          if (chatWp.type === "pattern") {
+            return (
+              <div
+                className="absolute inset-0 pointer-events-none z-0 transition-all duration-300"
+                style={{ ...bgStyle, backgroundImage: chatWp.value }}
+              />
+            );
+          }
+          if (chatWp.type === "custom") {
+            return (
+              <div
+                className="absolute inset-0 pointer-events-none z-0 bg-cover bg-center transition-all duration-300"
+                style={{ ...bgStyle, backgroundImage: `url(${chatWp.value})` }}
+              />
+            );
+          }
+        }
+
         const wp = CHAT_WALLPAPERS.find(w => w.id === selectedWallpaper) || customWallpapers.find(w => w.id === selectedWallpaper);
         if (!wp || wp.id === "default") {
           return <div className="whatsapp-wallpaper z-0" />;
@@ -1817,6 +1850,7 @@ export default function ChatWindow({
             />
           );
         }
+        return <div className="whatsapp-wallpaper z-0" />;
       })()}
 
       {/* Header */}
@@ -2841,163 +2875,13 @@ export default function ChatWindow({
         className="hidden"
       />
 
-      {/* Wallpaper Picker Modal */}
-      {showWallpaperPicker && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fade-in">
-          <div className="w-full max-w-2xl max-h-[85vh] flex flex-col rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] shadow-2xl overflow-hidden animate-scale-up">
-            <div className="p-4 border-b border-[var(--theme-border-color)] flex justify-between items-center shrink-0">
-              <h3 className="text-[var(--theme-text-primary)] font-bold flex items-center gap-2">
-                <ImageIcon className="h-5 w-5 text-[var(--theme-accent)]" />
-                Chat Wallpaper Customization
-              </h3>
-              <button onClick={() => setShowWallpaperPicker(false)} className="text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] bg-[var(--theme-bg-sidebar-item-hover)] p-1.5 rounded-lg cursor-pointer">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            
-            {/* Category Filter Tabs */}
-            <div className="flex gap-2 px-4 py-2.5 border-b border-[var(--theme-border-color)] overflow-x-auto bg-[var(--theme-bg-sidebar-search)]/30 shrink-0 select-none scrollbar-none">
-              {[
-                { id: "doodle", name: "Doodle" },
-                { id: "gradient", name: "Gradients" },
-                { id: "nature", name: "Nature" },
-                { id: "abstract", name: "Abstract" },
-                { id: "minimal", name: "Minimal" },
-                { id: "texture", name: "Textures" },
-                { id: "geometric", name: "Geometric" },
-                { id: "dark", name: "Dark Mode" },
-                { id: "artistic", name: "Artistic" },
-              ].map(cat => (
-                <button
-                  key={cat.id}
-                  onClick={() => setActiveWallpaperCat(cat.id)}
-                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap cursor-pointer ${
-                    activeWallpaperCat === cat.id
-                      ? "bg-[var(--theme-accent)] text-black font-extrabold"
-                      : "text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-sidebar-item-hover)]"
-                  }`}
-                >
-                  {cat.name}
-                </button>
-              ))}
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
-              {/* My Uploads section only visible on Doodle category */}
-              {activeWallpaperCat === "doodle" && (
-                <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-bold text-[var(--theme-text-secondary)] uppercase tracking-wider">My Uploads</span>
-                    <button
-                      onClick={() => wallpaperUploadRef.current?.click()}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--theme-accent)]/15 border border-[var(--theme-accent)]/40 text-[var(--theme-accent)] text-xs font-semibold hover:bg-[var(--theme-accent)]/25 transition-all cursor-pointer"
-                    >
-                      <ImageIcon className="h-3.5 w-3.5" />
-                      Upload Image
-                    </button>
-                  </div>
-                  {customWallpapers.length === 0 ? (
-                    <button
-                      onClick={() => wallpaperUploadRef.current?.click()}
-                      className="w-full flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[var(--theme-border-color)] hover:border-[var(--theme-accent)]/55 p-8 text-[var(--theme-text-secondary)] hover:text-[var(--theme-accent)] transition-all cursor-pointer"
-                    >
-                      <ImageIcon className="h-8 w-8 opacity-50" />
-                      <span className="text-xs font-medium">Click to upload your own background</span>
-                      <span className="text-[10px] opacity-60">Supports JPG, PNG, WEBP, GIF</span>
-                    </button>
-                  ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                      {customWallpapers.map((wp) => (
-                        <div key={wp.id} className="relative group">
-                          <button
-                            onClick={() => {
-                              setSelectedWallpaper(wp.id);
-                              if (typeof window !== "undefined") {
-                                localStorage.setItem("dolsyx_chat_wallpaper", wp.id);
-                              }
-                            }}
-                            className={`relative flex flex-col items-center gap-2 w-full cursor-pointer transition-all hover:scale-105 ${selectedWallpaper === wp.id ? 'ring-2 ring-[var(--theme-accent)] ring-offset-2 ring-offset-[var(--theme-bg-sidebar)] rounded-xl' : ''}`}
-                          >
-                            <div
-                              className="w-full aspect-[9/16] rounded-xl border border-[var(--theme-border-color)] shadow-md overflow-hidden relative"
-                              style={{
-                                backgroundImage: `url(${wp.value})`,
-                                backgroundSize: 'cover',
-                                backgroundPosition: 'center'
-                              }}
-                            >
-                              {selectedWallpaper === wp.id && (
-                                <div className="absolute top-2 right-2 h-6 w-6 rounded-full bg-[var(--theme-accent)] flex items-center justify-center text-black shadow-lg">
-                                  <CheckSquare className="h-4 w-4" />
-                                </div>
-                              )}
-                            </div>
-                            <span className="text-xs font-medium text-[var(--theme-text-primary)] truncate w-full text-center px-1">{wp.name}</span>
-                          </button>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleDeleteCustomWallpaper(wp.id); }}
-                            className="absolute top-1 left-1 h-6 w-6 rounded-full bg-red-500/80 hover:bg-red-500 flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity shadow-lg cursor-pointer"
-                            title="Remove"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Built-in Wallpapers section (filtered by category) */}
-              <div>
-                <span className="text-xs font-bold text-[var(--theme-text-secondary)] uppercase tracking-wider block mb-3">
-                  {WALLPAPER_CATEGORIES.find(c => c.id === activeWallpaperCat)?.name || "Wallpapers"}
-                </span>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                  {CHAT_WALLPAPERS.filter(wp => wp.category === activeWallpaperCat).map((wp) => (
-                    <button
-                      key={wp.id}
-                      onClick={() => {
-                        setSelectedWallpaper(wp.id);
-                        if (typeof window !== "undefined") {
-                          localStorage.setItem("dolsyx_chat_wallpaper", wp.id);
-                        }
-                      }}
-                      className={`relative flex flex-col items-center gap-2 cursor-pointer transition-all hover:scale-105 ${selectedWallpaper === wp.id ? 'ring-2 ring-[var(--theme-accent)] ring-offset-2 ring-offset-[var(--theme-bg-sidebar)] rounded-xl' : ''}`}
-                    >
-                      <div 
-                        className="w-full aspect-[9/16] rounded-xl border border-[var(--theme-border-color)] shadow-md overflow-hidden relative"
-                        style={{
-                          background: wp.type === 'css' ? wp.value || 'var(--theme-bg-app)' : 'var(--theme-bg-app)',
-                          backgroundImage: wp.type === 'image' ? `url(${wp.value})` : 'none',
-                          backgroundSize: 'cover',
-                          backgroundPosition: 'center'
-                        }}
-                      >
-                        {wp.id === 'default' && (
-                          <div className="aqua-wallpaper" />
-                        )}
-                        {selectedWallpaper === wp.id && (
-                          <div className="absolute top-2 right-2 h-6 w-6 rounded-full bg-[var(--theme-accent)] flex items-center justify-center text-black shadow-lg">
-                            <CheckSquare className="h-4 w-4" />
-                          </div>
-                        )}
-                      </div>
-                      <span className="text-xs font-medium text-[var(--theme-text-primary)]">{wp.name}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-            
-            <div className="p-4 border-t border-[var(--theme-border-color)] shrink-0 flex justify-end">
-              <button onClick={() => setShowWallpaperPicker(false)} className="px-6 py-2 rounded-xl bg-[var(--theme-accent)] text-black font-bold cursor-pointer">
-                Done
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Android-Parity Wallpaper Customization Modal */}
+      <WallpaperModal
+        isOpen={showWallpaperPicker}
+        onClose={() => setShowWallpaperPicker(false)}
+        conversationId={chat?.id}
+        conversationName={chat?.name}
+      />
 
       {/* Generic Profile View – Full Screen */}
       {profileUser && (

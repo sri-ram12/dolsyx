@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useAuth, API_URL, User } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
 import { useToast } from "@/context/toast-context";
-import { Search, LogOut, MessageSquare, Circle, Users, Camera, Loader2, X, Settings, Radio, MoreVertical, Pin, Trash2, Archive, Star, CheckSquare, User as UserIcon, QrCode, ScanLine } from "lucide-react";
+import { Search, LogOut, MessageSquare, Circle, Users, Camera, Loader2, X, Settings, Radio, MoreVertical, Pin, Trash2, Archive, Star, CheckSquare, User as UserIcon, QrCode, ScanLine, Bot, Sparkles } from "lucide-react";
 import GroupDialog from "./group-dialog";
 import SettingsPanel from "./settings-panel";
 import { getDefaultAvatar, getAvatarUrl } from "@/utils/avatar";
@@ -45,6 +45,7 @@ interface ChatSidebarProps {
   onChatCreated: (chat: Chat) => void;
   unreadCounts?: Record<string, number>;
   onOpenStatus?: () => void;
+  onOpenAi?: () => void;
 }
 
 export default function ChatSidebar({
@@ -55,11 +56,15 @@ export default function ChatSidebar({
   onChatCreated,
   unreadCounts = {},
   onOpenStatus,
+  onOpenAi,
 }: ChatSidebarProps) {
   const { user, token, logout, updateUser } = useAuth();
   const { theme, setTheme } = useTheme();
   const { toast } = useToast();
   
+  // Filter pills state
+  const [activeFilterPill, setActiveFilterPill] = useState<"all" | "unread" | "favorites" | "groups">("all");
+
   // Search & Navigation
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<User[]>([]);
@@ -514,6 +519,11 @@ export default function ChatSidebar({
   // OR the global secret key has been entered in Settings.
   const sortedChats = [...chats]
     .filter(chat => {
+      // Filter by active category pill
+      if (activeFilterPill === "unread" && (unreadCounts[chat.id] || 0) <= 0) return false;
+      if (activeFilterPill === "favorites" && !favoriteChats.includes(chat.id)) return false;
+      if (activeFilterPill === "groups" && !chat.isGroup) return false;
+
       const lock = lockedChats[chat.id];
       if (lock) {
         if (lock.secretKey) {
@@ -737,6 +747,56 @@ export default function ChatSidebar({
           </div>
         )}
       </div>
+
+      {/* Category Filter Pills (All, Unread, Favourites, Groups) */}
+      <div className="flex items-center gap-1.5 px-4 pb-2 text-[11px] font-bold overflow-x-auto">
+        {[
+          { id: "all", label: "All" },
+          { id: "unread", label: "Unread" },
+          { id: "favorites", label: "Favourites" },
+          { id: "groups", label: "Groups" },
+        ].map((pill) => (
+          <button
+            key={pill.id}
+            type="button"
+            onClick={() => setActiveFilterPill(pill.id as any)}
+            className={`px-3 py-1 rounded-full border transition-all cursor-pointer whitespace-nowrap ${
+              activeFilterPill === pill.id
+                ? "bg-[var(--theme-accent)] text-white border-transparent shadow-sm"
+                : "border-[var(--theme-border-color)] text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] hover:bg-white/5"
+            }`}
+          >
+            {pill.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Dolsyx AI Assistant Entry (Matching Android chat_list_screen.dart line 579) */}
+      {onOpenAi && activeFilterPill === "all" && !searchQuery && (
+        <div
+          onClick={onOpenAi}
+          className="flex items-center gap-3 p-3 mx-2 mb-1.5 rounded-2xl border border-purple-500/30 bg-gradient-to-r from-purple-500/10 via-pink-500/5 to-transparent hover:border-purple-500/60 hover:bg-purple-500/15 transition-all cursor-pointer shadow-sm group shrink-0"
+        >
+          <div className="p-0.5 rounded-full bg-gradient-to-tr from-purple-500 via-pink-500 to-blue-500 shadow shrink-0">
+            <div className="w-10 h-10 rounded-full bg-zinc-950 flex items-center justify-center">
+              <Bot className="h-5 w-5 text-purple-400 group-hover:scale-110 transition-transform" />
+            </div>
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5">
+              <h4 className="font-extrabold text-sm truncate text-[var(--theme-text-primary)]">
+                Dolsyx AI Assistant
+              </h4>
+              <span className="bg-purple-500/20 text-purple-300 text-[9px] font-bold px-1.5 py-0.2 rounded-full flex items-center gap-0.5">
+                <Sparkles className="h-2.5 w-2.5" /> Neural
+              </span>
+            </div>
+            <p className="text-xs text-[var(--theme-text-secondary)] truncate">
+              Chat, generate imagery & translations
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Chat List */}
       <div className="flex-1 overflow-y-auto px-2 py-1 space-y-1">

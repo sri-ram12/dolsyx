@@ -5,9 +5,48 @@ import type { AuthRequest } from '../middleware/auth.middleware.js';
 export const uploadKeys = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user!.id;
-    const { deviceId, identityKeyPublic, signedPreKeyPublic, signedPreKeySignature, oneTimePreKeys } = req.body;
+    const { deviceId, identityKeyPublic, signedPreKeyPublic, signedPreKeySignature, oneTimePreKeys, replenishOnly } = req.body;
 
-    if (!deviceId || !identityKeyPublic || !signedPreKeyPublic || !signedPreKeySignature || !oneTimePreKeys) {
+    if (deviceId === undefined || deviceId === null) {
+      return res.status(400).json({ error: 'Missing deviceId' });
+    }
+
+    const numericDeviceId = Number(deviceId);
+
+    // Handle OPK replenishment only
+    if (replenishOnly) {
+      if (!Array.isArray(oneTimePreKeys) || oneTimePreKeys.length === 0) {
+        return res.status(400).json({ error: 'Missing oneTimePreKeys for replenishment' });
+      }
+
+      const device = await prisma.device.findUnique({
+        where: {
+          userId_deviceId: {
+            userId,
+            deviceId: numericDeviceId
+          }
+        }
+      });
+
+      if (!device) {
+        return res.status(404).json({ error: 'Device not found for replenishment' });
+      }
+
+      const preKeysData = oneTimePreKeys.map((k: any) => ({
+        deviceId: device.id,
+        keyId: Number(k.keyId),
+        publicKey: String(k.publicKey)
+      }));
+
+      await prisma.oneTimePreKey.createMany({
+        data: preKeysData,
+        skipDuplicates: true
+      });
+
+      return res.status(200).json({ success: true, message: 'PreKeys replenished successfully' });
+    }
+
+    if (!identityKeyPublic || !signedPreKeyPublic || !signedPreKeySignature || !oneTimePreKeys) {
       return res.status(400).json({ error: 'Missing required key data' });
     }
 
@@ -16,7 +55,7 @@ export const uploadKeys = async (req: AuthRequest, res: Response) => {
       where: {
         userId_deviceId: {
           userId,
-          deviceId
+          deviceId: numericDeviceId
         }
       },
       update: {
@@ -26,7 +65,7 @@ export const uploadKeys = async (req: AuthRequest, res: Response) => {
       },
       create: {
         userId,
-        deviceId,
+        deviceId: numericDeviceId,
         identityKeyPublic,
         signedPreKeyPublic,
         signedPreKeySignature,
@@ -34,20 +73,21 @@ export const uploadKeys = async (req: AuthRequest, res: Response) => {
     });
 
     // Insert One-Time PreKeys
-    if (Array.isArray(oneTimePreKeys)) {
-      // Clear existing unused keys for this device to prevent bloat (optional, but good practice if re-registering)
+    if (Array.isArray(oneTimePreKeys) && oneTimePreKeys.length > 0) {
+      // Clear existing unused keys for this device to prevent bloat
       await prisma.oneTimePreKey.deleteMany({
         where: { deviceId: device.id }
       });
 
       const preKeysData = oneTimePreKeys.map((k: any) => ({
         deviceId: device.id,
-        keyId: k.keyId,
-        publicKey: k.publicKey
+        keyId: Number(k.keyId),
+        publicKey: String(k.publicKey)
       }));
 
       await prisma.oneTimePreKey.createMany({
-        data: preKeysData
+        data: preKeysData,
+        skipDuplicates: true
       });
     }
 

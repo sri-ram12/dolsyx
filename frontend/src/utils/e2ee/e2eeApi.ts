@@ -3,10 +3,11 @@
  * message delivery, and encrypted backup.
  */
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
+import { API_URL } from "@/context/auth-context";
 
 async function authFetch(endpoint: string, options: RequestInit = {}, token: string): Promise<Response> {
-  const res = await fetch(`${API_BASE}${endpoint}`, {
+  const base = API_URL;
+  const res = await fetch(`${base}${endpoint}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -17,7 +18,7 @@ async function authFetch(endpoint: string, options: RequestInit = {}, token: str
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body?.error || `Request failed: ${res.status}`);
+    throw new Error(body?.error || body?.message || `Request failed: ${res.status}`);
   }
 
   return res;

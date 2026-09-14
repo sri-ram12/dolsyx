@@ -150,9 +150,10 @@ export const sendOtp = async (req: Request, res: Response): Promise<void> => {
     if (!emailSent) {
       console.warn(`[OTP] Failed to deliver email to ${trimmedEmail}, fallback to console display.`);
       res.status(200).json({
-        message: `OTP email delivery failed. For demo purposes, use code: ${code}`,
+        message: `OTP email delivery unavailable. Verification code: ${code}`,
         otpCode: code,
         isNewUser: !existing,
+        requiresLocalAuth: !!existing,
       });
       return;
     }
@@ -160,6 +161,7 @@ export const sendOtp = async (req: Request, res: Response): Promise<void> => {
     res.status(200).json({
       message: "OTP sent successfully. Please check your inbox.",
       isNewUser: !existing,
+      requiresLocalAuth: !!existing,
     });
   } catch (error) {
     console.error("SendOtp error:", error);
@@ -868,11 +870,17 @@ async function createAndStoreSession(
 // ─────────────────────────────────────────────────────────────────────────────
 export const initiateGoogleAuth = async (req: Request, res: Response): Promise<void> => {
   try {
+    const host = req.get("host") || "localhost:4000";
+    const forwardedProto = req.headers["x-forwarded-proto"];
+    const protocol = (typeof forwardedProto === "string" ? forwardedProto : req.protocol) || "http";
+    const defaultRedirectUri = `${protocol}://${host}/api/auth/google/callback`;
+    const redirectUri = process.env.GOOGLE_REDIRECT_URI || defaultRedirectUri;
+
     const state = crypto.randomBytes(32).toString("hex");
     const { codeVerifier, codeChallenge } = googleAuthService.generatePkcePair();
 
     const isProduction = process.env.NODE_ENV === "production";
-    const statePayload = JSON.stringify({ state, codeVerifier });
+    const statePayload = JSON.stringify({ state, codeVerifier, redirectUri });
 
     res.cookie("dolsyx_oauth_state", statePayload, {
       httpOnly: true,
@@ -882,10 +890,10 @@ export const initiateGoogleAuth = async (req: Request, res: Response): Promise<v
       path: "/",
     });
 
-    const authUrl = googleAuthService.generateAuthUrl(state, codeChallenge);
+    const authUrl = googleAuthService.generateAuthUrl(state, codeChallenge, redirectUri);
 
     if (req.query.json === "true" || req.headers["accept"]?.includes("application/json")) {
-      res.json({ authUrl, state });
+      res.json({ authUrl, state, redirectUri });
       return;
     }
 
@@ -922,7 +930,7 @@ export const handleGoogleCallback = async (req: Request, res: Response): Promise
       return;
     }
 
-    let parsedState: { state: string; codeVerifier: string };
+    let parsedState: { state: string; codeVerifier: string; redirectUri?: string };
     try {
       parsedState = typeof stateCookie === "string" ? JSON.parse(stateCookie) : stateCookie;
     } catch {
@@ -941,7 +949,8 @@ export const handleGoogleCallback = async (req: Request, res: Response): Promise
     // Exchange code for verified identity
     const googleIdentity = await googleAuthService.exchangeCodeForIdentity(
       String(code),
-      parsedState.codeVerifier
+      parsedState.codeVerifier,
+      parsedState.redirectUri
     );
 
     if (!googleIdentity.emailVerified) {

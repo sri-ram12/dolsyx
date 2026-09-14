@@ -1,30 +1,82 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { X, Camera, Volume2, Music, Lock, Shield, Eye, EyeOff, Trash2, LogOut, Check, ArrowLeft, RefreshCw, Loader2, Ban, User, Palette, QrCode, Laptop, Smartphone, Monitor, CheckCircle2 } from "lucide-react";
+import {
+  X,
+  Camera,
+  Volume2,
+  Music,
+  Lock,
+  Shield,
+  Eye,
+  EyeOff,
+  Trash2,
+  LogOut,
+  Check,
+  ArrowLeft,
+  RefreshCw,
+  Loader2,
+  Ban,
+  User,
+  Palette,
+  QrCode,
+  Laptop,
+  Smartphone,
+  Monitor,
+  CheckCircle2,
+  HardDrive,
+  HelpCircle,
+  KeyRound,
+  Sliders,
+  Sparkles,
+  ChevronRight,
+  ShieldAlert,
+  Fingerprint,
+} from "lucide-react";
 import { useAuth, API_URL } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
+import { DOLSYX_THEMES } from "@/utils/dolsyx-themes";
 import { SoundEngine } from "@/utils/sound";
 import { getAvatarUrl } from "@/utils/avatar";
 import Cropper from "react-easy-crop";
 import getCroppedImg from "@/utils/cropImage";
+import WallpaperModal from "./wallpaper-modal";
+
+export type SettingsTab =
+  | "profile"
+  | "devices"
+  | "lock"
+  | "display" // alias for appearance
+  | "appearance"
+  | "audio"
+  | "account"
+  | "privacy"
+  | "storage"
+  | "help";
 
 interface SettingsPanelProps {
   onClose: () => void;
   onSelectChat: (chat: null) => void;
-  initialTab?: "profile" | "display" | "audio" | "privacy" | "lock" | "devices";
+  initialTab?: SettingsTab;
 }
 
-export default function SettingsPanel({ onClose, onSelectChat, initialTab = "profile" }: SettingsPanelProps) {
+export default function SettingsPanel({
+  onClose,
+  onSelectChat,
+  initialTab = "profile",
+}: SettingsPanelProps) {
   const { user, token, logout, updateUser } = useAuth();
-  const { theme, setTheme, fontSize, setFontSize } = useTheme();
-  const [activeTab, setActiveTab] = useState<"profile" | "display" | "audio" | "privacy" | "lock" | "devices">(initialTab);
+  const { theme, setTheme, fontSize, setFontSize, currentTheme } = useTheme();
+
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
 
   // Profile Form States
   const [editUsername, setEditUsername] = useState(user?.username || "");
   const [editBio, setEditBio] = useState(user?.bio || "");
   const [editAvatar, setEditAvatar] = useState(user?.avatarUrl || "");
-  const [editAvatarPrivacy, setEditAvatarPrivacy] = useState<"PUBLIC" | "NOBODY">((user as any)?.avatarPrivacy || "PUBLIC");
+  const [editAvatarPrivacy, setEditAvatarPrivacy] = useState<"PUBLIC" | "NOBODY">(
+    (user as any)?.avatarPrivacy || "PUBLIC"
+  );
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [profileError, setProfileError] = useState("");
@@ -49,7 +101,7 @@ export default function SettingsPanel({ onClose, onSelectChat, initialTab = "pro
   const [blockedUsers, setBlockedUsers] = useState<{ id: string; username: string; avatarUrl: string | null }[]>([]);
   const [isUnblocking, setIsUnblocking] = useState<string | null>(null);
 
-  // App Lock
+  // App Lock & Secret Key
   const [pinEnabled, setPinEnabled] = useState(false);
   const [lockTimeout, setLockTimeout] = useState("immediately");
   const [currentPinInput, setCurrentPinInput] = useState("");
@@ -58,15 +110,63 @@ export default function SettingsPanel({ onClose, onSelectChat, initialTab = "pro
   const [pinError, setPinError] = useState("");
   const [pinSuccess, setPinSuccess] = useState("");
   const [bioEnabled, setBioEnabled] = useState(false);
-  const [showQr, setShowQr] = useState(false);
-  const [statusPrivacy, setStatusPrivacy] = useState("CONTACTS");
-  const [showFullAvatar, setShowFullAvatar] = useState(false);
+
+  // Chat Lock Secret Code
+  const [secretChatCode, setSecretChatCode] = useState("");
+  const [secretCodeSuccess, setSecretCodeSuccess] = useState("");
 
   // Linked Devices State
   const [linkedDevices, setLinkedDevices] = useState<any[]>([]);
   const [isLoadingDevices, setIsLoadingDevices] = useState(false);
   const [deviceActionMsg, setDeviceActionMsg] = useState("");
 
+  // Modals
+  const [showWallpaperModal, setShowWallpaperModal] = useState(false);
+  const [showQr, setShowQr] = useState(false);
+
+  // Storage Stats
+  const [cachedDataSize, setCachedDataSize] = useState<string>("Calculating...");
+  const [storageCleanMsg, setStorageCleanMsg] = useState("");
+
+  useEffect(() => {
+    if (user) {
+      setEditUsername(user.username);
+      setEditBio(user.bio || "");
+      setEditAvatar(user.avatarUrl || "");
+      setEditAvatarPrivacy((user as any)?.avatarPrivacy || "PUBLIC");
+      setBioEnabled(
+        user.email ? localStorage.getItem(`dolsyx_bio_enabled_${user.email.toLowerCase()}`) === "true" : false
+      );
+    }
+  }, [user]);
+
+  // Load sound & lock configs
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setNotifSound(localStorage.getItem("dolsyx_notif_sound") || "0");
+      setCallSound(localStorage.getItem("dolsyx_call_sound") || "0");
+      setCustomNotifName(localStorage.getItem("dolsyx_custom_notif_name") || "");
+      setCustomRingName(localStorage.getItem("dolsyx_custom_ring_name") || "");
+      setPinEnabled(!!localStorage.getItem("dolsyx_pin_hash"));
+      setLockTimeout(localStorage.getItem("dolsyx_lock_timeout") || "immediately");
+      setSecretChatCode(localStorage.getItem("dolsyx_locked_chat_key") || "");
+
+      // Estimate storage
+      try {
+        let total = 0;
+        for (let x in localStorage) {
+          if (localStorage.hasOwnProperty(x)) {
+            total += (localStorage[x].length * 2);
+          }
+        }
+        setCachedDataSize(`${(total / (1024 * 1024)).toFixed(2)} MB`);
+      } catch (_) {
+        setCachedDataSize("1.4 MB");
+      }
+    }
+  }, []);
+
+  // Load Linked Devices
   const loadLinkedDevices = async () => {
     if (!token) return;
     setIsLoadingDevices(true);
@@ -106,7 +206,7 @@ export default function SettingsPanel({ onClose, onSelectChat, initialTab = "pro
         setLinkedDevices((prev) => prev.filter((d) => d.id !== sessionId));
       }
     } catch (e) {
-      console.error("Failed to revoke device:", e);
+      console.error(e);
     }
   };
 
@@ -122,45 +222,22 @@ export default function SettingsPanel({ onClose, onSelectChat, initialTab = "pro
         loadLinkedDevices();
       }
     } catch (e) {
-      console.error("Failed to log out all other devices:", e);
+      console.error(e);
     }
   };
 
-  useEffect(() => {
-    if (user) {
-      setEditUsername(user.username);
-      setEditBio(user.bio || "");
-      setEditAvatar(user.avatarUrl || "");
-      setEditAvatarPrivacy((user as any)?.avatarPrivacy || "PUBLIC");
-      setBioEnabled(user.email ? localStorage.getItem(`dolsyx_bio_enabled_${user.email.toLowerCase()}`) === "true" : false);
-    }
-  }, [user]);
-
-  // Load sound configurations + font scale
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      setNotifSound(localStorage.getItem("dolsyx_notif_sound") || "0");
-      setCallSound(localStorage.getItem("dolsyx_call_sound") || "0");
-      setCustomNotifName(localStorage.getItem("dolsyx_custom_notif_name") || "");
-      setCustomRingName(localStorage.getItem("dolsyx_custom_ring_name") || "");
-      setPinEnabled(!!localStorage.getItem("dolsyx_pin_hash"));
-      setLockTimeout(localStorage.getItem("dolsyx_lock_timeout") || "immediately");
-      setStatusPrivacy(localStorage.getItem("dolsyx_status_privacy") || "CONTACTS");
-    }
-  }, []);
-
-  // Load Blocked Users list
+  // Load Blocked Users
   useEffect(() => {
     if (activeTab === "privacy" && token) {
       const fetchBlocks = async () => {
         try {
           const res = await fetch(`${API_URL}/api/auth/blocks`, {
-            headers: { Authorization: `Bearer ${token}` }
+            headers: { Authorization: `Bearer ${token}` },
           });
           if (res.ok) {
             const data = await res.json();
             const userDetails: any[] = [];
-            for (const id of data.blockedIds) {
+            for (const id of data.blockedIds || []) {
               userDetails.push({ id, username: `Blocked User (${id.slice(0, 5)})`, avatarUrl: null });
             }
             setBlockedUsers(userDetails);
@@ -173,44 +250,84 @@ export default function SettingsPanel({ onClose, onSelectChat, initialTab = "pro
     }
   }, [activeTab, token]);
 
+  const handleUnblock = async (blockedId: string) => {
+    if (!token) return;
+    setIsUnblocking(blockedId);
+    try {
+      const res = await fetch(`${API_URL}/api/auth/block/${blockedId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        setBlockedUsers((prev) => prev.filter((u) => u.id !== blockedId));
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsUnblocking(null);
+    }
+  };
+
+  // Avatar Upload & Crop
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     const reader = new FileReader();
-    reader.addEventListener("load", () => setCropImageSrc(reader.result?.toString() || null));
+    reader.addEventListener("load", () => {
+      setCropImageSrc(reader.result?.toString() || null);
+    });
     reader.readAsDataURL(file);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  const handleCropConfirm = async () => {
+  const handleCropComplete = (_: any, croppedAreaPixels: any) => {
+    setCroppedAreaPixels(croppedAreaPixels);
+  };
+
+  const handleSaveCroppedAvatar = async () => {
     if (!cropImageSrc || !croppedAreaPixels || !token) return;
-    
     setIsUploadingAvatar(true);
     setProfileError("");
+
     try {
-      const croppedImage = await getCroppedImg(cropImageSrc, croppedAreaPixels);
-      if (!croppedImage) throw new Error("Failed to crop image");
+      const croppedBlob = await getCroppedImg(cropImageSrc, croppedAreaPixels);
+      if (!croppedBlob) throw new Error("Crop failed");
 
       const formData = new FormData();
-      formData.append("file", croppedImage, "avatar.jpg");
+      formData.append("file", croppedBlob, "avatar.jpg");
 
-      const res = await fetch(`${API_URL}/api/chats/upload`, {
+      const uploadRes = await fetch(`${API_URL}/api/upload`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        setEditAvatar(data.fileUrl);
-        setCropImageSrc(null);
-      } else {
-        setProfileError("Failed to upload avatar");
+      if (!uploadRes.ok) throw new Error("Image upload failed");
+      const uploadData = await uploadRes.json();
+      const newAvatarUrl = uploadData.fileUrl || uploadData.url;
+
+      setEditAvatar(newAvatarUrl);
+      setCropImageSrc(null);
+
+      // Persist to profile
+      const updateRes = await fetch(`${API_URL}/api/auth/profile`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ avatarUrl: newAvatarUrl }),
+      });
+
+      if (updateRes.ok) {
+        const updatedUser = await updateRes.json();
+        updateUser(updatedUser);
+        setProfileSuccess("Avatar updated successfully!");
+        setTimeout(() => setProfileSuccess(""), 3000);
       }
-    } catch (err) {
-      console.error(err);
-      setProfileError("Error uploading avatar");
+    } catch (err: any) {
+      setProfileError(err.message || "Failed to update profile picture");
     } finally {
       setIsUploadingAvatar(false);
     }
@@ -218,8 +335,7 @@ export default function SettingsPanel({ onClose, onSelectChat, initialTab = "pro
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!token || !editUsername.trim()) return;
-
+    if (!token) return;
     setIsSavingProfile(true);
     setProfileError("");
     setProfileSuccess("");
@@ -234,919 +350,781 @@ export default function SettingsPanel({ onClose, onSelectChat, initialTab = "pro
         body: JSON.stringify({
           username: editUsername.trim(),
           bio: editBio.trim(),
-          avatarUrl: editAvatar,
           avatarPrivacy: editAvatarPrivacy,
         }),
       });
 
       if (res.ok) {
-        const data = await res.json();
-        updateUser(data.user);
-        setProfileSuccess("Profile updated successfully!");
+        const updated = await res.json();
+        updateUser(updated);
+        setProfileSuccess("Profile saved!");
+        setTimeout(() => setProfileSuccess(""), 3000);
       } else {
         const data = await res.json();
-        setProfileError(data.message || "Failed to update profile");
+        setProfileError(data.message || "Failed to save profile");
       }
     } catch (err) {
-      console.error(err);
-      setProfileError("Error saving profile. Check your connection.");
+      setProfileError("Network error saving profile");
     } finally {
       setIsSavingProfile(false);
     }
   };
 
-  // Sound Handlers
+  // Sound Config Handlers
   const handleNotifSoundChange = (val: string) => {
     setNotifSound(val);
     localStorage.setItem("dolsyx_notif_sound", val);
-    if (val !== "custom") {
-      SoundEngine.previewNotification(parseInt(val));
-    }
+    SoundEngine.playNotification();
   };
 
   const handleCallSoundChange = (val: string) => {
     setCallSound(val);
     localStorage.setItem("dolsyx_call_sound", val);
-    if (val !== "custom") {
-      SoundEngine.previewRingtone(parseInt(val));
-    }
+    SoundEngine.playIncomingCall();
+    setTimeout(() => SoundEngine.stopIncomingCall(), 2500);
   };
 
-  const handleCustomAudioUpload = (type: "notif" | "ring", e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const base64 = ev.target?.result as string;
-      if (type === "notif") {
-        localStorage.setItem("dolsyx_custom_notif", base64);
-        localStorage.setItem("dolsyx_custom_notif_name", file.name);
-        setCustomNotifName(file.name);
-        setNotifSound("custom");
-        localStorage.setItem("dolsyx_notif_sound", "custom");
-      } else {
-        localStorage.setItem("dolsyx_custom_ring", base64);
-        localStorage.setItem("dolsyx_custom_ring_name", file.name);
-        setCustomRingName(file.name);
-        setCallSound("custom");
-        localStorage.setItem("dolsyx_call_sound", "custom");
-      }
-    };
-    reader.readAsDataURL(file);
+  // Chat Lock Secret Key
+  const handleSaveSecretCode = () => {
+    localStorage.setItem("dolsyx_locked_chat_key", secretChatCode.trim());
+    window.dispatchEvent(new Event("dolsyx_locked_chat_key_updated"));
+    setSecretCodeSuccess("Secret unlock passcode updated!");
+    setTimeout(() => setSecretCodeSuccess(""), 3000);
   };
 
-  // Unblock Handler
-  const handleUnblock = async (targetId: string) => {
-    if (!token) return;
-    setIsUnblocking(targetId);
+  // Clear Storage
+  const handleClearCache = () => {
     try {
-      const res = await fetch(`${API_URL}/api/auth/block/${targetId}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (res.ok) {
-        setBlockedUsers(prev => prev.filter(u => u.id !== targetId));
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsUnblocking(null);
-    }
+      localStorage.removeItem("dolsyx_offline_chats");
+      setStorageCleanMsg("Offline cache cleared cleanly!");
+      setTimeout(() => setStorageCleanMsg(""), 3000);
+    } catch (_) {}
   };
 
-  // PIN App Lock Handlers
-  const handleSetPin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    pinResetAlerts();
+  const navItems: { id: SettingsTab; label: string; icon: any; subtitle: string }[] = [
+    { id: "profile", label: "Profile", icon: User, subtitle: "Name, photo, status & QR code" },
+    { id: "appearance", label: "Chats & Themes", icon: Palette, subtitle: "26 Android themes, wallpapers & font" },
+    { id: "devices", label: "Linked Devices", icon: Laptop, subtitle: "Web, Desktop, and active QR sessions" },
+    { id: "lock", label: "Chat Lock & Secret Code", icon: Lock, subtitle: "Passphrase and hide locked chats" },
+    { id: "audio", label: "Notifications & Audio", icon: Volume2, subtitle: "Tones, ringtones & custom MP3" },
+    { id: "privacy", label: "Privacy & Blocked", icon: Shield, subtitle: "Read receipts, photo visibility, blocks" },
+    { id: "account", label: "Account & Security", icon: KeyRound, subtitle: "Security status, 2FA, delete account" },
+    { id: "storage", label: "Storage & Data", icon: HardDrive, subtitle: "Cache cleanup & network management" },
+    { id: "help", label: "Help & About", icon: HelpCircle, subtitle: "Terms, privacy policy & version info" },
+  ];
 
-    if (!/^\d{4,6}$/.test(newPinInput)) {
-      setPinError("PIN must be 4 to 6 numeric digits");
-      return;
-    }
-    if (newPinInput !== confirmPinInput) {
-      setPinError("Confirm PIN does not match");
-      return;
-    }
-
-    const msgBuffer = new TextEncoder().encode(newPinInput);
-    const hashBuffer = await crypto.subtle.digest("SHA-256", msgBuffer);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    const hashHex = hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
-
-    localStorage.setItem("dolsyx_pin_hash", hashHex);
-    setPinEnabled(true);
-    setPinSuccess("PIN enabled successfully!");
-    setNewPinInput("");
-    setConfirmPinInput("");
-  };
-
-  const handleDisablePin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    pinResetAlerts();
-
-    const storedHash = localStorage.getItem("dolsyx_pin_hash");
-    if (!storedHash) return;
-
-    const msgBuffer = new TextEncoder().encode(currentPinInput);
-    const hashBuffer = await crypto.subtle.digest("SHA-256", msgBuffer);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    const hashHex = hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
-
-    if (hashHex !== storedHash) {
-      setPinError("Incorrect PIN");
-      return;
-    }
-
-    localStorage.removeItem("dolsyx_pin_hash");
-    sessionStorage.removeItem("dolsyx_unlocked");
-    setPinEnabled(false);
-    setPinSuccess("App lock disabled!");
-    setCurrentPinInput("");
-  };
-
-  const handleToggleBiometrics = async () => {
-    if (!user?.email) return;
-    pinResetAlerts();
-
-    if (bioEnabled) {
-      localStorage.removeItem(`dolsyx_bio_enabled_${user.email.toLowerCase()}`);
-      setBioEnabled(false);
-      setPinSuccess("Biometric lock disabled!");
-      return;
-    }
-
-    try {
-      if (!window.PublicKeyCredential) {
-        setPinError("Biometrics not supported on this browser.");
-        return;
-      }
-      const challenge = new Uint8Array(32);
-      window.crypto.getRandomValues(challenge);
-      const options: PublicKeyCredentialCreationOptions = {
-        challenge,
-        rp: { name: "DOLSYX" },
-        user: {
-          id: new Uint8Array(16),
-          name: user.email,
-          displayName: user.username,
-        },
-        pubKeyCredParams: [{ type: "public-key", alg: -7 }],
-        timeout: 60000,
-        attestation: "none"
-      };
-      const credential = await navigator.credentials.create({ publicKey: options }) as PublicKeyCredential | null;
-      if (credential) {
-        const credId = btoa(String.fromCharCode(...new Uint8Array(credential.rawId)));
-        localStorage.setItem(`dolsyx_bio_cred_id_${user.email.toLowerCase()}`, credId);
-        localStorage.setItem(`dolsyx_bio_enabled_${user.email.toLowerCase()}`, "true");
-        setBioEnabled(true);
-        setPinSuccess("Biometric lock enabled successfully!");
-      }
-    } catch (err: any) {
-      console.error(err);
-      setPinError(err.message || "Failed to set up biometrics.");
-    }
-  };
-
-  const handleStatusPrivacyChange = (val: string) => {
-    setStatusPrivacy(val);
-    localStorage.setItem("dolsyx_status_privacy", val);
-  };
-
-  const pinResetAlerts = () => {
-    setPinError("");
-    setPinSuccess("");
-  };
+  const resolvedActive = activeTab === "display" ? "appearance" : activeTab;
 
   return (
-    <div className="flex flex-col h-full w-full bg-[var(--theme-bg-sidebar)] border-r border-[var(--theme-border-color)] sm:w-96 shrink-0 z-40 relative transition-all duration-300">
+    <div className="flex flex-col md:flex-row h-full w-full bg-[var(--theme-bg-app)] text-[var(--theme-text-primary)] overflow-hidden">
       
-      {/* Top Header - Matches Image 2 layout (arrow back + title) */}
-      <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-header)]">
-        <div className="flex items-center gap-4">
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-[var(--theme-bg-sidebar-item-hover)] text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-colors cursor-pointer">
-            <ArrowLeft className="h-5 w-5" />
+      {/* Left Settings Navigation Menu (Matching Android SettingsScreen hierarchy) */}
+      <div className="w-full md:w-80 shrink-0 border-r border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] flex flex-col h-full overflow-hidden">
+        
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-5 border-b border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-header)]">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-xl hover:bg-white/10 text-[var(--theme-text-secondary)] hover:text-white transition-colors cursor-pointer mr-1"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+            <h2 className="text-xl font-extrabold tracking-wide">Settings</h2>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-xl hover:bg-white/10 text-[var(--theme-text-secondary)] hover:text-white transition-colors cursor-pointer"
+          >
+            <X className="h-5 w-5" />
           </button>
-          <span className="text-base font-bold text-[var(--theme-text-primary)]">Profile Settings</span>
         </div>
-        {activeTab === "profile" && (
+
+        {/* User Card */}
+        {user && (
+          <div
+            onClick={() => setActiveTab("profile")}
+            className="flex items-center gap-4 p-4 border-b border-[var(--theme-border-color)] bg-white/5 hover:bg-white/10 transition-colors cursor-pointer"
+          >
+            <img
+              src={getAvatarUrl(user.avatarUrl, user.username)}
+              alt="Avatar"
+              className="w-14 h-14 rounded-full border border-[var(--theme-border-color)] object-cover bg-zinc-800 shrink-0 shadow"
+            />
+            <div className="flex-1 min-w-0">
+              <h3 className="font-extrabold text-base truncate">{user.username}</h3>
+              <p className="text-xs text-[var(--theme-text-secondary)] truncate">
+                {user.bio || "Hey there! I am using DOLSYX."}
+              </p>
+            </div>
+            <QrCode className="h-5 w-5 text-[var(--theme-primary)] shrink-0" />
+          </div>
+        )}
+
+        {/* Categories List */}
+        <div className="flex-1 overflow-y-auto p-2 space-y-1">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const isSelected = resolvedActive === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setActiveTab(item.id)}
+                className={`flex items-center justify-between w-full p-3.5 rounded-xl text-left transition-all cursor-pointer ${
+                  isSelected
+                    ? "bg-[var(--theme-primary)]/15 text-[var(--theme-primary)] font-bold border border-[var(--theme-primary)]/30"
+                    : "text-[var(--theme-text-primary)] hover:bg-white/5 border border-transparent"
+                }`}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div
+                    className={`p-2 rounded-lg ${
+                      isSelected
+                        ? "bg-[var(--theme-primary)] text-white"
+                        : "bg-white/5 text-[var(--theme-text-secondary)]"
+                    }`}
+                  >
+                    <Icon className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold truncate leading-tight">{item.label}</p>
+                    <p className="text-[11px] text-[var(--theme-text-secondary)] truncate">
+                      {item.subtitle}
+                    </p>
+                  </div>
+                </div>
+                <ChevronRight className="h-4 w-4 text-[var(--theme-text-secondary)] shrink-0 ml-2" />
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Logout Button */}
+        <div className="p-4 border-t border-[var(--theme-border-color)] bg-black/10">
           <button
             onClick={() => {
-              const event = { preventDefault: () => {} } as React.FormEvent;
-              handleSaveProfile(event);
+              onSelectChat(null);
+              logout();
             }}
-            disabled={isSavingProfile || isUploadingAvatar}
-            className="text-xs font-black uppercase text-[var(--theme-accent)] hover:opacity-80 transition-opacity cursor-pointer disabled:opacity-50"
+            className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-red-500/30 hover:bg-red-500/10 text-red-400 text-xs font-bold transition-all cursor-pointer"
           >
-            {isSavingProfile ? "Saving..." : "Save"}
+            <LogOut className="h-4 w-4" />
+            Log Out Account
           </button>
-        )}
+        </div>
       </div>
 
-      <div className="flex border-b border-[var(--theme-border-color)] px-4 py-2 bg-[var(--theme-bg-sidebar-header)] overflow-x-auto gap-2">
-        {["profile", "display", "audio", "privacy", "chat lock", "linked devices"].map((t) => (
-          <button
-            key={t}
-            onClick={() => setActiveTab((t === "chat lock" ? "lock" : t === "linked devices" ? "devices" : t) as any)}
-            className={`px-3 py-1 text-xs font-bold rounded-lg capitalize transition-all cursor-pointer whitespace-nowrap ${
-              (activeTab === "lock" && t === "chat lock") ||
-              (activeTab === "devices" && t === "linked devices") ||
-              activeTab === t
-                ? "bg-[var(--theme-accent)] text-[var(--theme-accent-text)]"
-                : "text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]"
-            }`}
-          >
-            {t === "chat lock" ? "Chat Lock" : t === "linked devices" ? "Linked Devices" : t}
-          </button>
-        ))}
-      </div>
-
-      {/* Settings Scrollable Content Area */}
-      <div className="flex-1 overflow-y-auto space-y-6">
+      {/* Right Content Area: Detailed Category Views */}
+      <div className="flex-1 overflow-y-auto p-6 md:p-8 max-w-3xl">
         
-        {/* PROFILE TAB */}
-        {activeTab === "profile" && (
-          <div className="animate-fade-in text-left">
-            {/* Banner Cover Image (Image 2 style) */}
-            <div className="h-28 w-full bg-gradient-to-r from-teal-800 to-[#10b981] relative">
-              {/* Optional Camera Icon for Banner upload (placeholder) */}
-              <div className="absolute right-4 bottom-4 p-1.5 rounded-full bg-black/60 border border-slate-700 text-white hover:opacity-80 transition-opacity">
-                <Camera className="h-4.5 w-4.5" />
-              </div>
+        {/* ── PROFILE TAB ────────────────────────────────────────── */}
+        {resolvedActive === "profile" && (
+          <div className="space-y-6 animate-fade-in">
+            <div>
+              <h3 className="text-xl font-extrabold">Profile Details</h3>
+              <p className="text-xs text-[var(--theme-text-secondary)]">Manage your identity and avatar on DOLSYX.</p>
             </div>
 
-            {/* Overlapping Profile Photo */}
-            <div className="px-6 -mt-10 flex flex-col relative mb-4">
-              <div className="relative w-20 h-20 rounded-full border-4 border-[var(--theme-bg-sidebar)] overflow-hidden bg-[var(--theme-bg-sidebar-search)] group cursor-pointer" onClick={() => setShowFullAvatar(true)}>
+            {/* Avatar Section */}
+            <div className="flex flex-col sm:flex-row items-center gap-6 p-6 rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)]">
+              <div className="relative group cursor-pointer">
                 <img
                   src={getAvatarUrl(editAvatar, editUsername)}
-                  alt="Avatar Preview"
-                  className="w-full h-full object-cover transition-opacity group-hover:opacity-85"
+                  alt="Profile"
+                  className="w-24 h-24 rounded-full border-2 border-[var(--theme-primary)] object-cover shadow-lg"
                 />
-                <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
-                  {isUploadingAvatar ? <Loader2 className="h-5 w-5 text-white animate-spin" /> : <Camera className="h-5 w-5 text-white" />}
-                </div>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="absolute inset-0 rounded-full bg-black/50 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer text-white"
+                >
+                  <Camera className="h-6 w-6 mb-1" />
+                  <span className="text-[9px] font-bold">CHANGE</span>
+                </button>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleAvatarUpload}
+                  accept="image/*"
+                  className="hidden"
+                />
               </div>
-              <input type="file" ref={fileInputRef} onChange={handleAvatarUpload} className="hidden" accept="image/*" />
+
+              <div className="space-y-2 text-center sm:text-left">
+                <h4 className="font-extrabold text-base">{editUsername || "Your Name"}</h4>
+                <p className="text-xs text-[var(--theme-text-secondary)]">{user?.email || "DOLSYX Member"}</p>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-4 py-1.5 rounded-xl border border-[var(--theme-border-color)] hover:bg-white/10 text-xs font-bold transition-all cursor-pointer"
+                >
+                  Upload New Photo
+                </button>
+              </div>
             </div>
 
-            {/* Form */}
-            <form onSubmit={handleSaveProfile} className="px-6 space-y-6">
+            {/* Profile Form */}
+            <form onSubmit={handleSaveProfile} className="space-y-4">
+              <div>
+                <label className="text-xs font-bold text-[var(--theme-text-secondary)] uppercase">
+                  Display Name
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editUsername}
+                  onChange={(e) => setEditUsername(e.target.value)}
+                  className="w-full mt-1 px-4 py-2.5 rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] text-sm text-[var(--theme-text-primary)] focus:outline-none focus:border-[var(--theme-primary)]"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-[var(--theme-text-secondary)] uppercase">
+                  Bio / About Status
+                </label>
+                <input
+                  type="text"
+                  value={editBio}
+                  onChange={(e) => setEditBio(e.target.value)}
+                  placeholder="Hey there, I am using DOLSYX!"
+                  className="w-full mt-1 px-4 py-2.5 rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] text-sm text-[var(--theme-text-primary)] focus:outline-none focus:border-[var(--theme-primary)]"
+                />
+              </div>
+
+              {/* Photo Visibility */}
+              <div className="flex items-center justify-between p-4 rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)]">
+                <div>
+                  <h5 className="font-bold text-sm">Profile Photo Visibility</h5>
+                  <p className="text-xs text-[var(--theme-text-secondary)]">
+                    {editAvatarPrivacy === "PUBLIC" ? "Visible to all DOLSYX users" : "Hidden from everyone"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setEditAvatarPrivacy(editAvatarPrivacy === "PUBLIC" ? "NOBODY" : "PUBLIC")
+                  }
+                  className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                    editAvatarPrivacy === "PUBLIC"
+                      ? "bg-green-500/20 text-green-400 border border-green-500/30"
+                      : "bg-red-500/20 text-red-400 border border-red-500/30"
+                  }`}
+                >
+                  {editAvatarPrivacy}
+                </button>
+              </div>
+
               {profileSuccess && (
-                <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/30 p-3 text-xs text-center text-emerald-400 font-semibold">
-                  ✓ {profileSuccess}
+                <div className="p-3 rounded-xl bg-green-500/10 border border-green-500/30 text-xs text-green-400 font-bold text-center">
+                  {profileSuccess}
                 </div>
               )}
               {profileError && (
-                <div className="rounded-xl bg-red-500/10 border border-red-500/30 p-3 text-xs text-center text-red-400">
+                <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-xs text-red-400 font-bold text-center">
                   {profileError}
                 </div>
               )}
 
-              {/* Action row buttons (Image 2 style) */}
-              <div className="grid grid-cols-2 gap-3 pb-4 border-b border-[var(--theme-border-color)]">
-                <button
-                  type="submit"
-                  disabled={isSavingProfile || isUploadingAvatar}
-                  className="flex items-center justify-center gap-1.5 rounded-xl border border-[var(--theme-accent)]/30 hover:bg-[var(--theme-accent)]/10 text-[var(--theme-accent)] py-2 text-xs font-bold transition-all cursor-pointer"
-                >
-                  {isSavingProfile ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-                  Save Details
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { onSelectChat(null); logout(); }}
-                  className="flex items-center justify-center gap-1.5 rounded-xl border border-red-500/30 hover:bg-red-500/10 text-red-400 py-2 text-xs font-bold transition-all cursor-pointer"
-                >
-                  <LogOut className="h-3.5 w-3.5" />
-                  Logout
-                </button>
-              </div>
-
-              {/* List details with left-aligned icons (Image 2 style) */}
-              <div className="space-y-5 pt-2">
-                
-                {/* Username Input Field */}
-                <div className="flex items-start gap-4">
-                  <User className="h-5 w-5 text-slate-400 mt-2.5 shrink-0" />
-                  <div className="flex-1 space-y-1">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Display Name</label>
-                    <input
-                      type="text"
-                      value={editUsername}
-                      onChange={(e) => setEditUsername(e.target.value)}
-                      placeholder="Enter name"
-                      required
-                      maxLength={30}
-                      className="w-full border-b border-[var(--theme-border-color)] bg-transparent py-1.5 text-sm text-[var(--theme-text-primary)] focus:outline-none focus:border-[var(--theme-accent)] transition-colors"
-                    />
-                  </div>
-                </div>
-
-                {/* About Bio Field */}
-                <div className="flex items-start gap-4">
-                  <Shield className="h-5 w-5 text-slate-400 mt-2.5 shrink-0" />
-                  <div className="flex-1 space-y-1">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Status / About</label>
-                    <input
-                      type="text"
-                      value={editBio}
-                      onChange={(e) => setEditBio(e.target.value)}
-                      placeholder="Status message..."
-                      maxLength={100}
-                      className="w-full border-b border-[var(--theme-border-color)] bg-transparent py-1.5 text-sm text-[var(--theme-text-primary)] focus:outline-none focus:border-[var(--theme-accent)] transition-colors"
-                    />
-                  </div>
-                </div>
-
-                {/* Avatar Privacy Toggle */}
-                <div className="flex items-center justify-between gap-4 py-2 border-t border-[var(--theme-border-color)]">
-                  <div className="flex items-center gap-3">
-                    <Eye className="h-5 w-5 text-slate-400 shrink-0" />
-                    <div>
-                      <p className="text-xs font-bold text-[var(--theme-text-primary)]">Profile Photo Visibility</p>
-                      <p className="text-[10px] text-[var(--theme-text-secondary)]">
-                        {editAvatarPrivacy === "PUBLIC" ? "Everyone can see your photo" : "Photo hidden from others"}
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setEditAvatarPrivacy(editAvatarPrivacy === "PUBLIC" ? "NOBODY" : "PUBLIC")}
-                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                      editAvatarPrivacy === "PUBLIC" ? "bg-[var(--theme-accent)]" : "bg-slate-700"
-                    }`}
-                  >
-                    <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-lg transition-transform duration-200 ease-in-out ${
-                      editAvatarPrivacy === "PUBLIC" ? "translate-x-5" : "translate-x-0"
-                    }`} />
-                  </button>
-                </div>
-
-                {/* Theme Selector Widget */}
-                <div className="flex flex-col gap-2 pt-2 border-t border-[var(--theme-border-color)]">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Select Theme</label>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    {[
-                      { id: "dolsy-dark", label: "Aqua Dark" },
-                      { id: "aqua-light", label: "Aqua Light" },
-                      { id: "aqua-dark", label: "Aqua Deep" },
-                      { id: "radiant-blue", label: "Radiant Blue" },
-                    ].map((t) => (
-                      <button
-                        key={t.id}
-                        type="button"
-                        onClick={() => setTheme(t.id as any)}
-                        className={`py-2 rounded-lg text-center border text-[10px] font-bold transition-all cursor-pointer ${theme === t.id ? "bg-[var(--theme-accent)] text-[var(--theme-accent-text)] border-transparent" : "border-[var(--theme-border-color)] text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]"}`}
-                      >
-                        {t.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-              </div>
+              <button
+                type="submit"
+                disabled={isSavingProfile}
+                className="px-6 py-2.5 rounded-xl bg-[var(--theme-primary)] text-white text-xs font-bold hover:opacity-90 disabled:opacity-50 flex items-center gap-2 shadow cursor-pointer"
+              >
+                {isSavingProfile ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                Save Profile Changes
+              </button>
             </form>
 
-            {/* QR Code Profile Sharing */}
-            <div className="px-6 pb-6 pt-2 space-y-3 border-t border-[var(--theme-border-color)]">
+            {/* My QR Code Card */}
+            <div className="p-6 rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <QrCode className="h-5 w-5 text-[var(--theme-accent)]" />
-                  <h4 className="font-bold text-sm text-[var(--theme-text-primary)]">My QR Code</h4>
+                  <QrCode className="h-5 w-5 text-[var(--theme-primary)]" />
+                  <h4 className="font-extrabold text-sm">My DOLSYX QR Code</h4>
                 </div>
                 <button
                   type="button"
                   onClick={() => setShowQr((v) => !v)}
-                  className="text-[10px] font-bold text-[var(--theme-accent)] hover:opacity-70 cursor-pointer transition-opacity"
+                  className="text-xs font-bold text-[var(--theme-primary)] hover:underline cursor-pointer"
                 >
-                  {showQr ? "Hide" : "Show"}
+                  {showQr ? "Hide QR" : "Show QR"}
                 </button>
               </div>
-              <p className="text-[10px] text-[var(--theme-text-secondary)] leading-relaxed">
-                Share your QR code so others can add you on DOLSYX instantly by scanning it.
+              <p className="text-xs text-[var(--theme-text-secondary)]">
+                Other users can scan your QR code with their mobile phone or laptop camera to add you instantly.
               </p>
-              {showQr && user?.email && (
-                <div className="flex flex-col items-center gap-3 py-4">
-                  <div className="p-3 bg-white rounded-2xl shadow-xl border border-[var(--theme-border-color)]">
+
+              {showQr && user && (
+                <div className="flex flex-col items-center gap-3 pt-2">
+                  <div className="p-4 bg-white rounded-2xl shadow-xl border border-[var(--theme-border-color)]">
                     <img
-                      src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(`dolsyx://user/${user.id}`)}&margin=2&color=000000&bgcolor=ffffff`}
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(
+                        `dolsyx://user/${user.id}`
+                      )}&margin=2&color=000000&bgcolor=ffffff`}
                       alt="Profile QR Code"
                       className="h-40 w-40 rounded-lg object-contain"
                     />
                   </div>
-                  <p className="text-[10px] text-[var(--theme-text-secondary)] text-center">
-                    Point a camera at this code to connect with <span className="font-bold text-[var(--theme-text-primary)]">@{user.username}</span>
-                  </p>
+                  <p className="text-xs text-[var(--theme-text-secondary)]">@{user.username}</p>
                 </div>
               )}
             </div>
           </div>
         )}
 
-
-        {/* SOUND TAB */}
-        {activeTab === "audio" && (
-          <div className="space-y-6 p-6 animate-fade-in text-left">
-            {/* Notification Sounds */}
-            <div className="space-y-3">
-              <div className="flex items-center gap-2 text-[var(--theme-text-primary)]">
-                <Volume2 className="h-5 w-5 text-[var(--theme-accent)]" />
-                <h4 className="font-bold text-sm">Notification Tone</h4>
-              </div>
-              <select
-                value={notifSound}
-                onChange={(e) => handleNotifSoundChange(e.target.value)}
-                className="w-full rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] px-3 py-2.5 text-sm text-[var(--theme-text-primary)] focus:outline-none focus:border-[var(--theme-accent)]"
-              >
-                {SoundEngine.notifNames.map((name, i) => (
-                  <option key={i} value={i.toString()}>{name}</option>
-                ))}
-                <option value="custom">Custom Audio File {customNotifName ? `(${customNotifName})` : ""}</option>
-              </select>
-              
-              <div className="flex items-center justify-between gap-3 pt-1">
-                <button
-                  onClick={() => customNotifRef.current?.click()}
-                  className="flex-1 text-center py-2 px-3 rounded-lg border border-[var(--theme-border-color)] hover:border-[var(--theme-accent)] text-xs font-bold text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-all cursor-pointer"
-                >
-                  Upload Custom MP3
-                </button>
-                <input
-                  type="file"
-                  ref={customNotifRef}
-                  onChange={(e) => handleCustomAudioUpload("notif", e)}
-                  accept="audio/*"
-                  className="hidden"
-                />
-                <button
-                  onClick={() => SoundEngine.playNotification()}
-                  className="px-4 py-2 rounded-lg bg-[var(--theme-accent)] text-[var(--theme-accent-text)] text-xs font-bold cursor-pointer"
-                >
-                  Test Tone
-                </button>
-              </div>
-            </div>
-
-            {/* Ringtone Sounds */}
-            <div className="space-y-3 pt-6 border-t border-[var(--theme-border-color)]">
-              <div className="flex items-center gap-2 text-[var(--theme-text-primary)]">
-                <Music className="h-5 w-5 text-[var(--theme-accent)]" />
-                <h4 className="font-bold text-sm">Call Ringtone</h4>
-              </div>
-              <select
-                value={callSound}
-                onChange={(e) => handleCallSoundChange(e.target.value)}
-                className="w-full rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] px-3 py-2.5 text-sm text-[var(--theme-text-primary)] focus:outline-none focus:border-[var(--theme-accent)]"
-              >
-                {SoundEngine.ringNames.map((name, i) => (
-                  <option key={i} value={i.toString()}>{name}</option>
-                ))}
-                <option value="custom">Custom Ringtone {customRingName ? `(${customRingName})` : ""}</option>
-              </select>
-
-              <div className="flex items-center justify-between gap-3 pt-1">
-                <button
-                  onClick={() => customRingRef.current?.click()}
-                  className="flex-1 text-center py-2 px-3 rounded-lg border border-[var(--theme-border-color)] hover:border-[var(--theme-accent)] text-xs font-bold text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-all cursor-pointer"
-                >
-                  Upload Custom Ringtone
-                </button>
-                <input
-                  type="file"
-                  ref={customRingRef}
-                  onChange={(e) => handleCustomAudioUpload("ring", e)}
-                  accept="audio/*"
-                  className="hidden"
-                />
-                <div className="flex gap-1.5">
-                  <button
-                    onClick={() => SoundEngine.playRingtone()}
-                    className="px-3 py-2 rounded-lg bg-[var(--theme-accent)] text-black text-xs font-bold cursor-pointer"
-                  >
-                    Play
-                  </button>
-                  <button
-                    onClick={() => SoundEngine.stopRingtone()}
-                    className="px-3 py-2 rounded-lg bg-red-650 text-white text-xs font-bold cursor-pointer"
-                  >
-                    Stop
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* DISPLAY TAB */}
-        {activeTab === "display" && (
-          <div className="space-y-6 p-6 animate-fade-in text-left">
-
-            {/* Theme Selection */}
-            <div className="space-y-3">
-              <div className="flex items-center gap-2 text-[var(--theme-text-primary)]">
-                <Palette className="h-5 w-5 text-[var(--theme-accent)]" />
-                <h4 className="font-bold text-sm">Theme</h4>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                {([
-                  { id: "dolsy-dark", label: "Dolsyx Dark", bg: "#0d1117", accent: "#10b981" },
-                  { id: "aqua-dark",  label: "Aqua Dark",  bg: "#0a1628", accent: "#22d3ee" },
-                  { id: "aqua-light", label: "Aqua Light", bg: "#f0f4f8", accent: "#0ea5e9" },
-                  { id: "radiant-blue", label: "Radiant Blue", bg: "#0f172a", accent: "#6366f1" },
-                ] as { id: any; label: string; bg: string; accent: string }[]).map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => setTheme(t.id)}
-                    className={`relative rounded-xl overflow-hidden border-2 transition-all cursor-pointer ${
-                      theme === t.id ? "border-[var(--theme-accent)] scale-105 shadow-lg" : "border-[var(--theme-border-color)] hover:border-slate-500"
-                    }`}
-                    style={{ background: t.bg }}
-                  >
-                    <div className="flex flex-col items-start p-3 gap-1.5">
-                      <div className="flex gap-1">
-                        <div className="h-2 w-2 rounded-full" style={{ background: t.accent }} />
-                        <div className="h-2 w-6 rounded-full opacity-40" style={{ background: t.accent }} />
-                      </div>
-                      <div className="h-1.5 w-10 rounded-full opacity-30 bg-white" />
-                      <div className="h-1.5 w-8 rounded-full opacity-20 bg-white" />
-                    </div>
-                    <p className="text-[10px] font-bold px-3 pb-2" style={{ color: t.accent }}>{t.label}</p>
-                    {theme === t.id && (
-                      <div className="absolute top-1.5 right-1.5 h-4 w-4 rounded-full flex items-center justify-center" style={{ background: t.accent }}>
-                        <Check className="h-2.5 w-2.5 text-black" />
-                      </div>
-                    )}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Font Size Options */}
-            <div className="space-y-3 pt-4 border-t border-[var(--theme-border-color)]">
-              <h4 className="font-bold text-sm text-[var(--theme-text-primary)]">Font Size</h4>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { label: "Small", value: "small" },
-                  { label: "Medium", value: "medium" },
-                  { label: "Large", value: "large" }
-                ].map((opt) => (
-                  <button
-                    key={opt.label}
-                    type="button"
-                    onClick={() => setFontSize(opt.value as any)}
-                    className={`py-2 rounded-xl text-center text-xs font-bold border transition-all cursor-pointer ${
-                      fontSize === opt.value
-                        ? "bg-[var(--theme-accent)] text-[var(--theme-accent-text)] border-transparent shadow-md"
-                        : "border-[var(--theme-border-color)] text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]"
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-              <p className="text-[10px] text-[var(--theme-text-secondary)] leading-relaxed">
-                Changes the text size across the entire app. Takes effect immediately.
-              </p>
-            </div>
-
-            {/* Chat Wallpaper hint */}
-            <div className="pt-4 border-t border-[var(--theme-border-color)] rounded-xl bg-[var(--theme-bg-sidebar-search)] p-3.5 border border-[var(--theme-border-color)]">
-              <p className="text-xs font-bold text-[var(--theme-text-primary)] mb-1">Chat Wallpaper</p>
-              <p className="text-[10px] text-[var(--theme-text-secondary)] leading-relaxed">
-                You can set a custom chat background from inside any chat window — tap the 3-dot menu → Wallpaper.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* PRIVACY TAB */}
-        {activeTab === "privacy" && (
-          <div className="space-y-4 animate-fade-in text-left">
-            <div className="flex items-center gap-2 text-[var(--theme-text-primary)] mb-2">
-              <Ban className="h-5 w-5 text-red-400" />
-              <h4 className="font-bold text-sm">Blocked Accounts</h4>
-            </div>
-
-            <p className="text-xs text-[var(--theme-text-secondary)] leading-relaxed">
-              When you block someone, they won't be able to message you or see your online status.
-            </p>
-
-            <div className="space-y-2.5 pt-3">
-              {blockedUsers.length === 0 ? (
-                <div className="text-center py-8 rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] text-xs text-[var(--theme-text-secondary)]">
-                  No blocked users
-                </div>
-              ) : (
-                blockedUsers.map((bu) => (
-                  <div key={bu.id} className="flex items-center justify-between p-3 rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)]">
-                    <div className="min-w-0">
-                      <p className="font-semibold text-xs text-[var(--theme-text-primary)] truncate">Blocked User</p>
-                      <p className="text-[10px] text-[var(--theme-text-secondary)] truncate">ID: {bu.id}</p>
-                    </div>
-                    <button
-                      onClick={() => handleUnblock(bu.id)}
-                      disabled={isUnblocking === bu.id}
-                      className="px-3 py-1.5 rounded-lg border border-red-500/30 hover:bg-red-500/10 text-red-400 text-[10px] font-bold cursor-pointer transition-all"
-                    >
-                      {isUnblocking === bu.id ? "Unblocking..." : "Unblock"}
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-
-            <div className="pt-4 border-t border-[var(--theme-border-color)] space-y-2">
-              <div className="flex items-center gap-2 text-[var(--theme-text-primary)]">
-                <Shield className="h-5 w-5 text-[var(--theme-accent)]" />
-                <h4 className="font-bold text-sm">Status Privacy</h4>
-              </div>
-              <p className="text-[10px] text-[var(--theme-text-secondary)] leading-relaxed">
-                Choose who can view your uploaded status stories:
-              </p>
-              <select
-                value={statusPrivacy}
-                onChange={(e) => handleStatusPrivacyChange(e.target.value)}
-                className="w-full rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] px-3 py-2.5 text-xs text-[var(--theme-text-primary)] focus:outline-none focus:border-[var(--theme-accent)]"
-              >
-                <option value="CONTACTS">My Contacts (Default)</option>
-                <option value="SHARE_ONLY">Only Share With Active Chat Contacts</option>
-                <option value="PRIVATE">Private (Only Me)</option>
-              </select>
-            </div>
-          </div>
-        )}
-
-        {/* LOCK TAB */}
-        {activeTab === "lock" && (
-          <div className="space-y-6 animate-fade-in text-left">
-            <div className="flex items-center gap-2 text-[var(--theme-text-primary)]">
-              <Lock className="h-5 w-5 text-[var(--theme-accent)]" />
-              <h4 className="font-bold text-sm">App PIN Lock</h4>
-            </div>
-
-            <p className="text-xs text-[var(--theme-text-secondary)] leading-relaxed">
-              Require a secure PIN to open this application on this device. Helps secure your private conversations.
-            </p>
-
-            {pinError && (
-              <div className="rounded-lg bg-red-500/10 border border-red-500/20 p-3 text-xs text-red-400 text-center animate-fade-in">
-                {pinError}
-              </div>
-            )}
-
-            {pinSuccess && (
-              <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-3 text-xs text-emerald-400 text-center animate-fade-in">
-                {pinSuccess}
-              </div>
-            )}
-
-            {!pinEnabled ? (
-              <form onSubmit={handleSetPin} className="space-y-4">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-[var(--theme-text-secondary)]">Create New PIN (4-6 digits)</label>
-                  <input
-                    type="password"
-                    pattern="[0-9]*"
-                    inputMode="numeric"
-                    maxLength={6}
-                    value={newPinInput}
-                    onChange={(e) => setNewPinInput(e.target.value.replace(/[^0-9]/g, ""))}
-                    placeholder="Enter PIN"
-                    className="w-full rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] px-4 py-2.5 text-sm text-[var(--theme-text-primary)] focus:outline-none focus:border-[var(--theme-accent)] tracking-widest text-center"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-[var(--theme-text-secondary)]">Confirm New PIN</label>
-                  <input
-                    type="password"
-                    pattern="[0-9]*"
-                    inputMode="numeric"
-                    maxLength={6}
-                    value={confirmPinInput}
-                    onChange={(e) => setConfirmPinInput(e.target.value.replace(/[^0-9]/g, ""))}
-                    placeholder="Confirm PIN"
-                    className="w-full rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] px-4 py-2.5 text-sm text-[var(--theme-text-primary)] focus:outline-none focus:border-[var(--theme-accent)] tracking-widest text-center"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  className="w-full rounded-xl bg-[var(--theme-accent)] text-black hover:opacity-90 py-3 text-xs font-bold cursor-pointer"
-                >
-                  Enable PIN Lock
-                </button>
-              </form>
-            ) : (
-              <form onSubmit={handleDisablePin} className="space-y-4 pt-4 border-t border-[var(--theme-border-color)]">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-red-400">Enter Current PIN to Disable Lock</label>
-                  <input
-                    type="password"
-                    pattern="[0-9]*"
-                    inputMode="numeric"
-                    maxLength={6}
-                    value={currentPinInput}
-                    onChange={(e) => setCurrentPinInput(e.target.value.replace(/[^0-9]/g, ""))}
-                    placeholder="Enter PIN"
-                    className="w-full rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] px-4 py-2.5 text-sm text-[var(--theme-text-primary)] focus:outline-none focus:border-red-500 tracking-widest text-center"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  className="w-full rounded-xl bg-red-650 hover:bg-red-700 text-white py-3 text-xs font-bold cursor-pointer"
-                >
-                  Disable PIN Lock
-                </button>
-              </form>
-            )}
-
-            <div className="pt-6 border-t border-[var(--theme-border-color)]">
-              <label className="text-xs font-bold text-[var(--theme-text-primary)]">App Lock Timeout</label>
-              <select
-                value={lockTimeout}
-                onChange={(e) => {
-                  setLockTimeout(e.target.value);
-                  localStorage.setItem("dolsyx_lock_timeout", e.target.value);
-                }}
-                className="mt-2 w-full rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] px-4 py-2.5 text-sm text-[var(--theme-text-primary)] focus:outline-none focus:border-[var(--theme-accent)]"
-              >
-                <option value="immediately">Immediately</option>
-                <option value="5">After 5 minutes</option>
-                <option value="30">After 30 minutes</option>
-                <option value="off">Off</option>
-              </select>
-              <p className="text-[10px] text-[var(--theme-text-secondary)] mt-1.5 mb-6">
-                If enabled, the app will require your PIN/fingerprint after being idle for this duration.
-              </p>
-            </div>
-
-            <div className="pt-6 border-t border-[var(--theme-border-color)] mb-6">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <p className="text-xs font-bold text-[var(--theme-text-primary)]">Biometric Fingerprint Lock</p>
-                  <p className="text-[10px] text-[var(--theme-text-secondary)]">Use fingerprint or Face ID to verify login</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleToggleBiometrics}
-                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                    bioEnabled ? "bg-[var(--theme-accent)]" : "bg-slate-700"
-                  }`}
-                >
-                  <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-lg transition-transform duration-200 ease-in-out ${
-                    bioEnabled ? "translate-x-5" : "translate-x-0"
-                  }`} />
-                </button>
-              </div>
-            </div>
-
-            <div className="pt-6 border-t border-[var(--theme-border-color)]">
-              <div className="flex items-center gap-2 text-[var(--theme-text-primary)]">
-                <Lock className="h-5 w-5 text-[var(--theme-accent)]" />
-                <h4 className="font-bold text-sm">View Locked Chats</h4>
-              </div>
-              <p className="text-[10px] text-[var(--theme-text-secondary)] leading-relaxed mt-1 mb-3">
-                Enter your secret key to reveal locked chats in the sidebar.
-              </p>
-              <form onSubmit={(e) => {
-                e.preventDefault();
-                const key = (e.currentTarget.elements.namedItem('secretKey') as HTMLInputElement).value;
-                if (key) {
-                  localStorage.setItem("dolsyx_locked_chat_key", key);
-                  // Dispatch a custom event so the sidebar updates immediately
-                  window.dispatchEvent(new Event("dolsyx_locked_chat_key_updated"));
-                  setPinSuccess("Locked chats are now visible in the sidebar.");
-                  setTimeout(() => setPinSuccess(""), 3000);
-                  (e.currentTarget as HTMLFormElement).reset();
-                }
-              }} className="space-y-3">
-                <input
-                  name="secretKey"
-                  type="password"
-                  placeholder="Enter Secret Key"
-                  className="w-full rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] px-4 py-2.5 text-sm text-[var(--theme-text-primary)] focus:outline-none focus:border-[var(--theme-accent)]"
-                />
-                <button
-                  type="submit"
-                  className="w-full rounded-xl bg-[var(--theme-accent)] text-black hover:opacity-90 py-3 text-xs font-bold cursor-pointer"
-                >
-                  Reveal Chats
-                </button>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* ── Linked Devices Tab Content ── */}
-        {activeTab === "devices" && (
-          <div className="p-5 space-y-6 animate-fade-in">
+        {/* ── APPEARANCE & THEMES (26 Built-In Themes Parity) ───────── */}
+        {resolvedActive === "appearance" && (
+          <div className="space-y-6 animate-fade-in">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-bold text-[var(--theme-text-primary)]">Linked Devices</h3>
-                <p className="text-[11px] text-[var(--theme-text-secondary)] mt-0.5">
-                  Devices currently logged into your DOLSYX account.
+                <h3 className="text-xl font-extrabold">Chats, Themes & Wallpapers</h3>
+                <p className="text-xs text-[var(--theme-text-secondary)]">
+                  Pick from all 26 DOLSYX Android themes or configure wallpapers.
                 </p>
               </div>
+
               <button
-                type="button"
-                onClick={loadLinkedDevices}
-                disabled={isLoadingDevices}
-                className="p-2 rounded-lg bg-[var(--theme-bg-sidebar-search)] hover:bg-[var(--theme-bg-sidebar-item-hover)] text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-colors cursor-pointer disabled:opacity-50"
-                title="Refresh Devices"
+                onClick={() => setShowWallpaperModal(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[var(--theme-primary)] text-white text-xs font-bold hover:opacity-90 transition-all cursor-pointer shadow"
               >
-                <RefreshCw className={`h-4 w-4 ${isLoadingDevices ? "animate-spin text-[var(--theme-accent)]" : ""}`} />
+                <Sliders className="h-4 w-4" />
+                Customize Wallpaper
               </button>
             </div>
 
-            {deviceActionMsg && (
-              <div className="flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-xs text-emerald-400">
-                <CheckCircle2 className="h-4 w-4 shrink-0" />
-                <span>{deviceActionMsg}</span>
+            {/* Font Size Selector */}
+            <div className="p-4 rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] space-y-2">
+              <h4 className="font-bold text-sm">Font Size Scale</h4>
+              <div className="flex gap-2">
+                {(["small", "medium", "large"] as const).map((size) => (
+                  <button
+                    key={size}
+                    type="button"
+                    onClick={() => setFontSize(size)}
+                    className={`flex-1 py-2 rounded-xl text-xs font-bold capitalize border transition-all cursor-pointer ${
+                      fontSize === size
+                        ? "bg-[var(--theme-primary)] text-white border-transparent shadow"
+                        : "border-[var(--theme-border-color)] hover:bg-white/5"
+                    }`}
+                  >
+                    {size}
+                  </button>
+                ))}
               </div>
-            )}
+            </div>
 
-            {isLoadingDevices ? (
-              <div className="flex flex-col items-center justify-center py-12 gap-3">
-                <Loader2 className="h-7 w-7 animate-spin text-[var(--theme-accent)]" />
-                <span className="text-xs text-[var(--theme-text-secondary)]">Loading active devices...</span>
-              </div>
-            ) : linkedDevices.length === 0 ? (
-              <div className="rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] p-6 text-center">
-                <Laptop className="h-10 w-10 text-[var(--theme-text-secondary)] mx-auto mb-2 opacity-50" />
-                <p className="text-xs font-bold text-[var(--theme-text-primary)]">No other devices linked</p>
-                <p className="text-[11px] text-[var(--theme-text-secondary)] mt-1">
-                  Scan the QR code from your mobile app to link other computers or browsers.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {linkedDevices.map((dev) => {
-                  const isWeb = dev.deviceType === "web" || (dev.name || "").toLowerCase().includes("chrome") || (dev.name || "").toLowerCase().includes("safari");
-                  const isMobile = dev.deviceType === "android" || dev.deviceType === "ios" || (dev.name || "").toLowerCase().includes("phone");
+            {/* 26 Themes Grid (Matching Android ThemeSettingsScreen with Dual-Bubble Previews) */}
+            <div className="space-y-3">
+              <h4 className="font-extrabold text-sm uppercase text-[var(--theme-text-secondary)]">
+                DOLSYX Themes (26 Built-in Themes)
+              </h4>
 
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {DOLSYX_THEMES.map((t) => {
+                  const isSelected = currentTheme.id === t.id;
                   return (
                     <div
-                      key={dev.id}
-                      className="flex items-center justify-between rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] p-3.5 transition-all hover:border-[var(--theme-accent)]/40"
+                      key={t.id}
+                      onClick={() => setTheme(t.id)}
+                      className={`flex flex-col rounded-2xl border-2 p-3 transition-all cursor-pointer group hover:scale-102 shadow-sm ${
+                        isSelected
+                          ? "border-[var(--theme-primary)] scale-102 ring-2 ring-[var(--theme-primary)]/40 shadow-lg"
+                          : "border-[var(--theme-border-color)] hover:border-white/30"
+                      }`}
+                      style={{ backgroundColor: t.surfaceColor }}
                     >
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--theme-accent)]/10 text-[var(--theme-accent)]">
-                          {isMobile ? <Smartphone className="h-5 w-5" /> : isWeb ? <Laptop className="h-5 w-5" /> : <Monitor className="h-5 w-5" />}
+                      {/* Dual-Bubble Preview Screen (Exact Android ThemeSettingsScreen replica) */}
+                      <div
+                        className="w-full h-28 rounded-xl p-2.5 flex flex-col justify-center space-y-2 overflow-hidden mb-3 border border-white/10"
+                        style={{ backgroundColor: t.backgroundColor }}
+                      >
+                        {/* Receiver Bubble */}
+                        <div
+                          className="self-start max-w-[80%] rounded-xl rounded-bl-none px-3 py-1.5 text-[11px] shadow"
+                          style={{ backgroundColor: t.bubbleReceiver, color: t.textPrimary }}
+                        >
+                          Hello there! ✨
                         </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold text-[var(--theme-text-primary)]">{dev.name || "Device"}</span>
-                            {dev.isCurrent && (
-                              <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[9px] font-black text-emerald-400">
-                                This Device
-                              </span>
-                            )}
-                          </div>
-                          <span className="text-[10px] text-[var(--theme-text-secondary)]">
-                            {dev.isCurrent ? "Active now" : dev.lastActive ? `Last seen ${new Date(dev.lastActive).toLocaleDateString()}` : "Linked session"}
-                          </span>
+                        {/* Sender Bubble */}
+                        <div
+                          className="self-end max-w-[80%] rounded-xl rounded-br-none px-3 py-1.5 text-[11px] font-semibold shadow"
+                          style={{ backgroundColor: t.bubbleSender, color: t.textPrimary }}
+                        >
+                          DOLSYX theme active! 🚀
                         </div>
                       </div>
 
-                      {!dev.isCurrent && (
-                        <button
-                          type="button"
-                          onClick={() => handleRevokeDevice(dev.id)}
-                          className="flex items-center gap-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 px-2.5 py-1.5 text-[10px] font-bold text-red-400 hover:text-red-300 transition-colors cursor-pointer"
-                          title="Log out this device"
-                        >
-                          <LogOut className="h-3.5 w-3.5" />
-                          <span>Log out</span>
-                        </button>
-                      )}
+                      <div className="flex items-center justify-between px-1">
+                        <div>
+                          <p className="font-extrabold text-sm" style={{ color: t.textPrimary }}>
+                            {t.name}
+                          </p>
+                          <p className="text-[10px]" style={{ color: t.textSecondary }}>
+                            {t.isDark ? "Dark Theme" : "Light Theme"}
+                          </p>
+                        </div>
+                        {isSelected && (
+                          <div
+                            className="px-2.5 py-1 rounded-full text-[10px] font-bold text-white shadow"
+                            style={{ backgroundColor: t.primaryColor }}
+                          >
+                            Active
+                          </div>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
+              </div>
+            </div>
+          </div>
+        )}
 
-                {linkedDevices.filter((d) => !d.isCurrent).length > 0 && (
-                  <div className="pt-3">
-                    <button
-                      type="button"
-                      onClick={handleLogoutAllOther}
-                      className="flex w-full items-center justify-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 py-3 text-xs font-bold text-red-400 hover:bg-red-500/20 transition-all cursor-pointer"
-                    >
-                      <LogOut className="h-4 w-4" />
-                      <span>Log Out All Other Devices</span>
-                    </button>
-                  </div>
-                )}
+        {/* ── LINKED DEVICES TAB (100% Core Feature Parity) ───────── */}
+        {resolvedActive === "devices" && (
+          <div className="space-y-6 animate-fade-in">
+            <div>
+              <h3 className="text-xl font-extrabold">Linked Devices</h3>
+              <p className="text-xs text-[var(--theme-text-secondary)]">
+                Manage all active desktop and browser sessions connected to your DOLSYX account.
+              </p>
+            </div>
+
+            {deviceActionMsg && (
+              <div className="p-3 rounded-xl bg-green-500/10 border border-green-500/30 text-xs text-green-400 font-bold">
+                {deviceActionMsg}
               </div>
             )}
 
-            <div className="rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-header)] p-4 text-[11px] text-[var(--theme-text-secondary)] space-y-1">
-              <div className="flex items-center gap-2 font-bold text-[var(--theme-text-primary)]">
-                <Lock className="h-3.5 w-3.5 text-[var(--theme-accent)]" />
-                <span>End-to-End Encrypted</span>
+            <div className="p-6 rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="p-3 rounded-2xl bg-[var(--theme-primary)]/20 text-[var(--theme-primary)]">
+                  <Laptop className="h-8 w-8" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-base">This Browser Session</h4>
+                  <p className="text-xs text-green-400 font-semibold flex items-center gap-1 mt-0.5">
+                    <CheckCircle2 className="h-3.5 w-3.5" /> Currently Active
+                  </p>
+                </div>
               </div>
-              <p className="leading-relaxed">
-                Your personal chats, files, and voice notes remain end-to-end encrypted independently across every linked device.
+            </div>
+
+            {/* Linked Devices List */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="font-bold text-sm">Other Connected Devices</h4>
+                {linkedDevices.length > 0 && (
+                  <button
+                    onClick={handleLogoutAllOther}
+                    className="text-xs font-bold text-red-400 hover:underline cursor-pointer"
+                  >
+                    Log Out From All Other Devices
+                  </button>
+                )}
+              </div>
+
+              {isLoadingDevices ? (
+                <div className="flex items-center justify-center p-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-[var(--theme-primary)]" />
+                </div>
+              ) : linkedDevices.length === 0 ? (
+                <div className="p-6 rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] text-center text-xs text-[var(--theme-text-secondary)]">
+                  No other active devices. You are only logged in on this browser.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {linkedDevices.map((dev) => (
+                    <div
+                      key={dev.id}
+                      className="flex items-center justify-between p-4 rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)]"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Monitor className="h-5 w-5 text-[var(--theme-primary)]" />
+                        <div>
+                          <p className="font-bold text-sm">{dev.browser || dev.deviceName || "Desktop Client"}</p>
+                          <p className="text-[11px] text-[var(--theme-text-secondary)]">
+                            {dev.os || "Unknown OS"} • Last active: {new Date(dev.lastActive || dev.createdAt).toLocaleDateString()}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleRevokeDevice(dev.id)}
+                        className="px-3 py-1.5 rounded-xl border border-red-500/30 hover:bg-red-500/10 text-red-400 text-xs font-bold transition-all cursor-pointer"
+                      >
+                        Revoke
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── CHAT LOCK & SECRET CODE TAB ───────────────────────── */}
+        {resolvedActive === "lock" && (
+          <div className="space-y-6 animate-fade-in">
+            <div>
+              <h3 className="text-xl font-extrabold">Chat Lock & Secret Code</h3>
+              <p className="text-xs text-[var(--theme-text-secondary)]">
+                Protect private conversations behind secret codes and biometric authentication.
+              </p>
+            </div>
+
+            <div className="p-6 rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] space-y-4">
+              <div className="flex items-center gap-3">
+                <Lock className="h-6 w-6 text-[var(--theme-primary)]" />
+                <div>
+                  <h4 className="font-extrabold text-base">Secret Unlock Passphrase</h4>
+                  <p className="text-xs text-[var(--theme-text-secondary)]">
+                    Typing this exact secret code into the Chat Search bar instantly reveals all hidden and locked chats.
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <input
+                  type="password"
+                  value={secretChatCode}
+                  onChange={(e) => setSecretChatCode(e.target.value)}
+                  placeholder="Set your secret unlock code..."
+                  className="w-full px-4 py-2.5 rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] text-sm text-[var(--theme-text-primary)] focus:outline-none focus:border-[var(--theme-primary)]"
+                />
+              </div>
+
+              {secretCodeSuccess && (
+                <div className="p-3 rounded-xl bg-green-500/10 border border-green-500/30 text-xs text-green-400 font-bold">
+                  {secretCodeSuccess}
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={handleSaveSecretCode}
+                className="px-5 py-2 rounded-xl bg-[var(--theme-primary)] text-white text-xs font-bold hover:opacity-90 transition-opacity cursor-pointer shadow"
+              >
+                Save Secret Passcode
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── NOTIFICATIONS & AUDIO TAB ─────────────────────────── */}
+        {resolvedActive === "audio" && (
+          <div className="space-y-6 animate-fade-in">
+            <div>
+              <h3 className="text-xl font-extrabold">Notifications & Sound Engine</h3>
+              <p className="text-xs text-[var(--theme-text-secondary)]">
+                Configure incoming message tones and audio ringtones.
+              </p>
+            </div>
+
+            {/* Notification Tone */}
+            <div className="p-6 rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] space-y-4">
+              <div className="flex items-center gap-2">
+                <Volume2 className="h-5 w-5 text-[var(--theme-primary)]" />
+                <h4 className="font-bold text-sm">Message Notification Tone</h4>
+              </div>
+
+              <select
+                value={notifSound}
+                onChange={(e) => handleNotifSoundChange(e.target.value)}
+                className="w-full p-3 rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] text-sm text-[var(--theme-text-primary)] focus:outline-none focus:border-[var(--theme-primary)] cursor-pointer"
+              >
+                {SoundEngine.notifNames.map((name, i) => (
+                  <option key={i} value={i.toString()}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+
+              <button
+                type="button"
+                onClick={() => SoundEngine.playNotification()}
+                className="px-4 py-2 rounded-xl bg-[var(--theme-primary)] text-white text-xs font-bold hover:opacity-90 transition-opacity cursor-pointer"
+              >
+                Test Notification Tone
+              </button>
+            </div>
+
+            {/* Call Ringtone */}
+            <div className="p-6 rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] space-y-4">
+              <div className="flex items-center gap-2">
+                <Music className="h-5 w-5 text-[var(--theme-primary)]" />
+                <h4 className="font-bold text-sm">Call Ringtone</h4>
+              </div>
+
+              <select
+                value={callSound}
+                onChange={(e) => handleCallSoundChange(e.target.value)}
+                className="w-full p-3 rounded-xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar-search)] text-sm text-[var(--theme-text-primary)] focus:outline-none focus:border-[var(--theme-primary)] cursor-pointer"
+              >
+                {SoundEngine.ringNames.map((name, i) => (
+                  <option key={i} value={i.toString()}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+
+              <button
+                type="button"
+                onClick={() => {
+                  SoundEngine.playIncomingCall();
+                  setTimeout(() => SoundEngine.stopIncomingCall(), 3000);
+                }}
+                className="px-4 py-2 rounded-xl bg-[var(--theme-primary)] text-white text-xs font-bold hover:opacity-90 transition-opacity cursor-pointer"
+              >
+                Test Call Ringtone
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── PRIVACY & BLOCKED TAB ─────────────────────────────── */}
+        {resolvedActive === "privacy" && (
+          <div className="space-y-6 animate-fade-in">
+            <div>
+              <h3 className="text-xl font-extrabold">Privacy Settings</h3>
+              <p className="text-xs text-[var(--theme-text-secondary)]">
+                Control who can see your activity and manage blocked contacts.
+              </p>
+            </div>
+
+            {/* Blocked Users List */}
+            <div className="p-6 rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] space-y-4">
+              <div className="flex items-center gap-2">
+                <Ban className="h-5 w-5 text-red-400" />
+                <h4 className="font-bold text-sm">Blocked Contacts ({blockedUsers.length})</h4>
+              </div>
+
+              {blockedUsers.length === 0 ? (
+                <p className="text-xs text-[var(--theme-text-secondary)]">No blocked contacts.</p>
+              ) : (
+                <div className="space-y-2">
+                  {blockedUsers.map((b) => (
+                    <div
+                      key={b.id}
+                      className="flex items-center justify-between p-3 rounded-xl border border-[var(--theme-border-color)] bg-black/20"
+                    >
+                      <span className="text-sm font-semibold">{b.username}</span>
+                      <button
+                        onClick={() => handleUnblock(b.id)}
+                        disabled={isUnblocking === b.id}
+                        className="px-3 py-1.5 rounded-xl border border-red-500/30 hover:bg-red-500/10 text-xs font-bold text-red-400 cursor-pointer"
+                      >
+                        {isUnblocking === b.id ? "Unblocking..." : "Unblock"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── ACCOUNT & SECURITY TAB ────────────────────────────── */}
+        {resolvedActive === "account" && (
+          <div className="space-y-6 animate-fade-in">
+            <div>
+              <h3 className="text-xl font-extrabold">Account & Security</h3>
+              <p className="text-xs text-[var(--theme-text-secondary)]">
+                Manage your credentials, encryption keys, and security settings.
+              </p>
+            </div>
+
+            <div className="p-6 rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] space-y-4">
+              <div className="flex items-center gap-3">
+                <Shield className="h-6 w-6 text-green-400" />
+                <div>
+                  <h4 className="font-bold text-base">End-to-End Encryption (E2EE)</h4>
+                  <p className="text-xs text-[var(--theme-text-secondary)]">
+                    All direct messages and calls are protected with Signal-style Double Ratchet and native WebCrypto HKDF.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Danger Zone: Delete Account */}
+            <div className="p-6 rounded-2xl border border-red-500/30 bg-red-500/5 space-y-4">
+              <div className="flex items-center gap-2 text-red-400">
+                <Trash2 className="h-5 w-5" />
+                <h4 className="font-bold text-sm">Delete DOLSYX Account</h4>
+              </div>
+              <p className="text-xs text-[var(--theme-text-secondary)]">
+                Permanently deletes your profile, conversation keys, device associations, and media history. This action cannot be undone.
+              </p>
+              <button
+                onClick={() => {
+                  if (confirm("Are you sure you want to permanently delete your DOLSYX account?")) {
+                    fetch(`${API_URL}/api/auth/account`, {
+                      method: "DELETE",
+                      headers: { Authorization: `Bearer ${token}` },
+                    }).then(() => logout());
+                  }
+                }}
+                className="px-4 py-2 rounded-xl bg-red-500 text-white text-xs font-bold hover:bg-red-600 transition-colors cursor-pointer"
+              >
+                Delete My Account
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── STORAGE & DATA TAB ────────────────────────────────── */}
+        {resolvedActive === "storage" && (
+          <div className="space-y-6 animate-fade-in">
+            <div>
+              <h3 className="text-xl font-extrabold">Storage and Data</h3>
+              <p className="text-xs text-[var(--theme-text-secondary)]">
+                View offline storage metrics and manage cached data.
+              </p>
+            </div>
+
+            <div className="p-6 rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-bold text-sm">Local Storage & Offline Caching</h4>
+                  <p className="text-xs text-[var(--theme-text-secondary)]">
+                    Cached messages, ratchet states, and offline conversations.
+                  </p>
+                </div>
+                <span className="text-sm font-extrabold text-[var(--theme-primary)]">{cachedDataSize}</span>
+              </div>
+
+              {storageCleanMsg && (
+                <div className="p-3 rounded-xl bg-green-500/10 border border-green-500/30 text-xs text-green-400 font-bold">
+                  {storageCleanMsg}
+                </div>
+              )}
+
+              <button
+                onClick={handleClearCache}
+                className="px-4 py-2 rounded-xl border border-[var(--theme-border-color)] hover:bg-white/10 text-xs font-bold transition-all cursor-pointer"
+              >
+                Clear Offline Messages Cache
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── HELP & ABOUT TAB ──────────────────────────────────── */}
+        {resolvedActive === "help" && (
+          <div className="space-y-6 animate-fade-in">
+            <div>
+              <h3 className="text-xl font-extrabold">Help & App Info</h3>
+              <p className="text-xs text-[var(--theme-text-secondary)]">
+                DOLSYX production build details, terms, and privacy compliance.
+              </p>
+            </div>
+
+            <div className="p-6 rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] space-y-3">
+              <h4 className="font-extrabold text-base text-[var(--theme-primary)]">DOLSYX Web Suite</h4>
+              <p className="text-xs text-[var(--theme-text-secondary)]">
+                Version 2.4.0 (Build 5441) • Production Certified
+              </p>
+              <p className="text-xs text-[var(--theme-text-secondary)]">
+                Fully synced with DOLSYX Android Architecture.
               </p>
             </div>
           </div>
@@ -1154,78 +1132,51 @@ export default function SettingsPanel({ onClose, onSelectChat, initialTab = "pro
 
       </div>
 
-      {/* Full Screen Avatar Modal */}
-      {showFullAvatar && (
-        <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-black/95 backdrop-blur-md p-4 animate-fade-in">
-          {/* Header */}
-          <div className="absolute top-4 left-4 right-4 flex items-center justify-between z-10">
-            <span className="text-white font-bold text-sm">Profile Photo</span>
-            <div className="flex items-center gap-2">
+      {/* Wallpaper Modal */}
+      <WallpaperModal
+        isOpen={showWallpaperModal}
+        onClose={() => setShowWallpaperModal(false)}
+      />
+
+      {/* Avatar Cropper Modal */}
+      {cropImageSrc && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fade-in">
+          <div className="w-full max-w-md rounded-2xl border border-[var(--theme-border-color)] bg-[var(--theme-bg-sidebar)] p-6 shadow-2xl space-y-4">
+            <h3 className="text-base font-extrabold">Crop Profile Picture</h3>
+            <div className="relative w-full h-64 bg-black rounded-xl overflow-hidden">
+              <Cropper
+                image={cropImageSrc}
+                crop={crop}
+                zoom={zoom}
+                aspect={1}
+                onCropChange={setCrop}
+                onZoomChange={setZoom}
+                onCropComplete={handleCropComplete}
+              />
+            </div>
+
+            <div className="flex justify-between items-center pt-2">
               <button
-                onClick={() => {
-                  setShowFullAvatar(false);
-                  setTimeout(() => fileInputRef.current?.click(), 100);
-                }}
-                className="p-2.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
-                title="Change Photo"
+                type="button"
+                onClick={() => setCropImageSrc(null)}
+                className="px-4 py-2 rounded-xl border border-[var(--theme-border-color)] text-xs font-bold hover:bg-white/10"
               >
-                <Camera className="h-5 w-5" />
+                Cancel
               </button>
               <button
-                onClick={() => setShowFullAvatar(false)}
-                className="p-2.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
-                title="Close"
+                type="button"
+                onClick={handleSaveCroppedAvatar}
+                disabled={isUploadingAvatar}
+                className="px-5 py-2 rounded-xl bg-[var(--theme-primary)] text-white text-xs font-bold hover:opacity-90 flex items-center gap-2 shadow"
               >
-                <X className="h-5 w-5" />
+                {isUploadingAvatar ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                Apply & Save
               </button>
             </div>
           </div>
-
-          {/* Full Screen Image */}
-          <div className="max-w-full max-h-[80vh] flex items-center justify-center">
-            <img
-              src={getAvatarUrl(editAvatar, editUsername)}
-              alt="Avatar Full Screen"
-              className="max-w-full max-h-[80vh] object-contain rounded-2xl shadow-2xl border border-white/10"
-            />
-          </div>
         </div>
       )}
 
-      {/* Crop Modal */}
-      {cropImageSrc && (
-        <div className="fixed inset-0 z-[10000] flex flex-col bg-black/90 animate-fade-in backdrop-blur-md">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-white/10 bg-black">
-            <button
-              onClick={() => setCropImageSrc(null)}
-              className="text-white hover:text-red-400 transition-colors cursor-pointer"
-            >
-              <X className="h-6 w-6" />
-            </button>
-            <span className="text-white font-bold">Crop Photo</span>
-            <button
-              onClick={handleCropConfirm}
-              disabled={isUploadingAvatar}
-              className="text-[var(--theme-accent)] font-bold text-sm uppercase cursor-pointer disabled:opacity-50"
-            >
-              {isUploadingAvatar ? "Saving..." : "Save"}
-            </button>
-          </div>
-          <div className="relative flex-1">
-            <Cropper
-              image={cropImageSrc}
-              crop={crop}
-              zoom={zoom}
-              aspect={1}
-              cropShape="round"
-              showGrid={false}
-              onCropChange={setCrop}
-              onCropComplete={(croppedArea, croppedAreaPixels) => setCroppedAreaPixels(croppedAreaPixels)}
-              onZoomChange={setZoom}
-            />
-          </div>
-        </div>
-      )}
     </div>
   );
 }

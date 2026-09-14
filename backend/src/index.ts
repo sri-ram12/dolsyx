@@ -1,8 +1,7 @@
+import "dotenv/config";
 import express from "express";
 import http from "http";
 import dns from "dns";
-import dotenv from "dotenv";
-dotenv.config(); // Load variables before anything else
 
 dns.setDefaultResultOrder("ipv4first");
 import { Server } from "socket.io";

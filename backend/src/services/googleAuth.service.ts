@@ -1,9 +1,7 @@
 import { OAuth2Client } from "google-auth-library";
 import crypto from "crypto";
 
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
-const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
-const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || "http://localhost:5000/api/auth/google/callback";
+const DEFAULT_GOOGLE_CLIENT_ID = "135176717661-ugfua55saob2pfm6er1f8o9bunubhdsp.apps.googleusercontent.com";
 
 export interface GoogleVerifiedIdentity {
   sub: string;
@@ -17,13 +15,26 @@ export interface GoogleVerifiedIdentity {
 }
 
 export class GoogleAuthService {
-  private client: OAuth2Client;
+  public getClientId(): string {
+    return process.env.GOOGLE_CLIENT_ID || DEFAULT_GOOGLE_CLIENT_ID;
+  }
 
-  constructor() {
-    this.client = new OAuth2Client(
-      GOOGLE_CLIENT_ID,
-      GOOGLE_CLIENT_SECRET,
-      GOOGLE_REDIRECT_URI
+  public getClientSecret(): string {
+    return process.env.GOOGLE_CLIENT_SECRET || "";
+  }
+
+  public getRedirectUri(customUri?: string): string {
+    if (customUri) return customUri;
+    if (process.env.GOOGLE_REDIRECT_URI) return process.env.GOOGLE_REDIRECT_URI;
+    const port = process.env.PORT || "4000";
+    return `http://localhost:${port}/api/auth/google/callback`;
+  }
+
+  public getClient(redirectUri?: string): OAuth2Client {
+    return new OAuth2Client(
+      this.getClientId(),
+      this.getClientSecret(),
+      this.getRedirectUri(redirectUri)
     );
   }
 
@@ -43,8 +54,9 @@ export class GoogleAuthService {
   /**
    * Generates Google OAuth Authorization URL for web redirect
    */
-  public generateAuthUrl(state: string, codeChallenge: string): string {
-    return this.client.generateAuthUrl({
+  public generateAuthUrl(state: string, codeChallenge: string, redirectUri?: string): string {
+    const client = this.getClient(redirectUri);
+    return client.generateAuthUrl({
       access_type: "offline",
       scope: [
         "openid",
@@ -66,9 +78,7 @@ export class GoogleAuthService {
     codeVerifier: string,
     redirectUri?: string
   ): Promise<GoogleVerifiedIdentity> {
-    const client = redirectUri
-      ? new OAuth2Client(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, redirectUri)
-      : this.client;
+    const client = this.getClient(redirectUri);
 
     const { tokens } = await client.getToken({
       code,
@@ -86,9 +96,11 @@ export class GoogleAuthService {
    * Cryptographically verifies Google OIDC ID token signature, issuer, audience, and expiration
    */
   public async verifyIdToken(idToken: string): Promise<GoogleVerifiedIdentity> {
-    const ticket = await this.client.verifyIdToken(
-      GOOGLE_CLIENT_ID
-        ? { idToken, audience: GOOGLE_CLIENT_ID }
+    const clientId = this.getClientId();
+    const client = this.getClient();
+    const ticket = await client.verifyIdToken(
+      clientId
+        ? { idToken, audience: clientId }
         : { idToken }
     );
 

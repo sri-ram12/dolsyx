@@ -330,6 +330,15 @@ class SoundEngineClass {
     }
   }
 
+  /* ── Aliases for incoming call ringing ──────────────────────────── */
+  playIncomingCall() {
+    this.playRingtone();
+  }
+
+  stopIncomingCall() {
+    this.stopRingtone();
+  }
+
   /* ── Public: Tone names ───────────────────────────────────────────── */
 
   notifNames = [

@@ -12,9 +12,11 @@ import CallModal from "@/components/call-modal";
 import AppLock from "@/components/app-lock";
 import { useWebRTC } from "@/hooks/use-webrtc";
 import { SoundEngine } from "@/utils/sound";
-import { MessageSquare, Phone, Circle, Settings as SettingsIcon } from "lucide-react";
+import { MessageSquare, Phone, Circle, Settings as SettingsIcon, Bot, Users } from "lucide-react";
 import SettingsPanel from "@/components/settings-panel";
 import CallsSidebar from "@/components/calls-sidebar";
+import AiWorkspace from "@/components/ai-workspace";
+import ContactsWorkspace from "@/components/contacts-workspace";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { useE2EEInit } from "@/hooks/use-e2ee-init";
 
@@ -32,7 +34,7 @@ export default function ChatPage() {
   const [isChatsLoading, setIsChatsLoading] = useState(true);
   const [isProductivityOpen, setIsProductivityOpen] = useState(false);
   const [isLocked, setIsLocked] = useState(false); // starts false; useEffect below sets it if PIN exists
-  const [activeRailTab, setActiveRailTab] = useState<"chats" | "calls">("chats");
+  const [activeRailTab, setActiveRailTab] = useState<"chats" | "ai" | "contacts" | "calls">("chats");
   const [showSettingsPanel, setShowSettingsPanel] = useState(false);
 
   useEffect(() => {
@@ -756,37 +758,63 @@ export default function ChatPage() {
           shrink-0 transition-colors duration-300 z-10
         `}>
           <div className="flex flex-row sm:flex-col items-center justify-around sm:justify-start gap-1 sm:gap-4 w-full h-full sm:h-auto px-2 sm:px-0">
+            {/* Chats Tab */}
             <button
-              onClick={() => { setActiveRailTab("chats"); setShowSettingsPanel(false); setSelectedChat(null); }}
+              onClick={() => { setActiveRailTab("chats"); setShowSettingsPanel(false); }}
               className={`flex flex-col sm:flex-row items-center justify-center p-2 sm:p-3 rounded-xl transition-all cursor-pointer flex-1 sm:flex-none ${activeRailTab === "chats" && !showSettingsPanel ? "text-[var(--theme-accent)] sm:bg-[var(--theme-accent)]/20" : "text-[var(--theme-text-secondary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] hover:text-[var(--theme-text-primary)]"}`}
               title="Chats"
             >
-              <MessageSquare className="h-6 w-6 sm:h-6 sm:w-6 mb-1 sm:mb-0" />
+              <MessageSquare className="h-5 w-5 sm:h-6 sm:w-6 mb-0.5 sm:mb-0" />
               <span className="text-[10px] font-medium sm:hidden">Chats</span>
             </button>
+
+            {/* Dolsyx AI Assistant Tab */}
             <button
-              onClick={() => setShowStatusPanel(true)}
-              className="flex flex-col sm:flex-row items-center justify-center p-2 sm:p-3 rounded-xl text-[var(--theme-text-secondary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] hover:text-[var(--theme-text-primary)] transition-all cursor-pointer flex-1 sm:flex-none"
-              title="Status Updates"
+              onClick={() => { setActiveRailTab("ai"); setShowSettingsPanel(false); setSelectedChat(null); }}
+              className={`flex flex-col sm:flex-row items-center justify-center p-2 sm:p-3 rounded-xl transition-all cursor-pointer flex-1 sm:flex-none ${activeRailTab === "ai" && !showSettingsPanel ? "text-purple-400 sm:bg-purple-500/20" : "text-[var(--theme-text-secondary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] hover:text-purple-300"}`}
+              title="Dolsyx AI"
             >
-              <Circle className="h-6 w-6 sm:h-6 sm:w-6 mb-1 sm:mb-0" />
-              <span className="text-[10px] font-medium sm:hidden">Status</span>
+              <Bot className="h-5 w-5 sm:h-6 sm:w-6 mb-0.5 sm:mb-0" />
+              <span className="text-[10px] font-medium sm:hidden">AI</span>
             </button>
+
+            {/* Contacts Tab */}
+            <button
+              onClick={() => { setActiveRailTab("contacts"); setShowSettingsPanel(false); setSelectedChat(null); }}
+              className={`flex flex-col sm:flex-row items-center justify-center p-2 sm:p-3 rounded-xl transition-all cursor-pointer flex-1 sm:flex-none ${activeRailTab === "contacts" && !showSettingsPanel ? "text-[var(--theme-accent)] sm:bg-[var(--theme-accent)]/20" : "text-[var(--theme-text-secondary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] hover:text-[var(--theme-text-primary)]"}`}
+              title="Contacts"
+            >
+              <Users className="h-5 w-5 sm:h-6 sm:w-6 mb-0.5 sm:mb-0" />
+              <span className="text-[10px] font-medium sm:hidden">Contacts</span>
+            </button>
+
+            {/* Calls Tab */}
             <button
               onClick={() => { setActiveRailTab("calls"); setShowSettingsPanel(false); setSelectedChat(null); }}
               className={`flex flex-col sm:flex-row items-center justify-center p-2 sm:p-3 rounded-xl transition-all cursor-pointer flex-1 sm:flex-none ${activeRailTab === "calls" && !showSettingsPanel ? "text-[var(--theme-accent)] sm:bg-[var(--theme-accent)]/20" : "text-[var(--theme-text-secondary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] hover:text-[var(--theme-text-primary)]"}`}
               title="Calls"
             >
-              <Phone className="h-6 w-6 sm:h-6 sm:w-6 mb-1 sm:mb-0" />
+              <Phone className="h-5 w-5 sm:h-6 sm:w-6 mb-0.5 sm:mb-0" />
               <span className="text-[10px] font-medium sm:hidden">Calls</span>
             </button>
+
+            {/* Status updates button */}
+            <button
+              onClick={() => setShowStatusPanel(true)}
+              className="flex flex-col sm:flex-row items-center justify-center p-2 sm:p-3 rounded-xl text-[var(--theme-text-secondary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] hover:text-[var(--theme-text-primary)] transition-all cursor-pointer flex-1 sm:flex-none"
+              title="Status Updates"
+            >
+              <Circle className="h-5 w-5 sm:h-6 sm:w-6 mb-0.5 sm:mb-0" />
+              <span className="text-[10px] font-medium sm:hidden">Status</span>
+            </button>
+
             {/* Settings button on mobile */}
             <button
               onClick={() => setShowSettingsPanel(true)}
               className={`flex sm:hidden flex-col items-center justify-center p-2 rounded-xl transition-all cursor-pointer flex-1 ${showSettingsPanel ? "text-[var(--theme-accent)]" : "text-[var(--theme-text-secondary)] hover:bg-[var(--theme-bg-sidebar-item-hover)] hover:text-[var(--theme-text-primary)]"}`}
               title="Settings"
             >
-              <SettingsIcon className="h-6 w-6 mb-1" />
+              <SettingsIcon className="h-5 w-5 mb-0.5" />
               <span className="text-[10px] font-medium">Settings</span>
             </button>
           </div>
@@ -817,66 +845,112 @@ export default function ChatPage() {
 
         {/* Content Area */}
         <div className="flex flex-row flex-1 overflow-hidden w-full relative">
-          {/* On mobile, show sidebar only if no chat is selected */}
-          <div
-            className={`${selectedChat ? "hidden sm:flex" : "flex"} h-full w-full sm:w-auto shrink-0`}
-          >
-            {showSettingsPanel ? (
-              <div className="w-full sm:w-80 h-full">
-                <SettingsPanel
-                  onClose={() => setShowSettingsPanel(false)}
-                  onSelectChat={handleSelectChat as any}
+          {showSettingsPanel ? (
+            <div className="w-full h-full">
+              <SettingsPanel
+                onClose={() => setShowSettingsPanel(false)}
+                onSelectChat={handleSelectChat as any}
+              />
+            </div>
+          ) : activeRailTab === "ai" ? (
+            <div className="w-full h-full">
+              <AiWorkspace />
+            </div>
+          ) : activeRailTab === "contacts" ? (
+            <div className="w-full h-full">
+              <ContactsWorkspace
+                onStartChat={async (targetUser) => {
+                  setActiveRailTab("chats");
+                  try {
+                    const res = await fetch(`${API_URL}/api/chats/direct`, {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${token}`,
+                      },
+                      body: JSON.stringify({ targetUserId: targetUser.id }),
+                    });
+                    if (res.ok) {
+                      const chatData = await res.json();
+                      handleChatCreated(chatData);
+                      handleSelectChat(chatData);
+                    }
+                  } catch (e) {
+                    console.error(e);
+                  }
+                }}
+                onStartCall={(type, targetUser) => {
+                  handleStartCall(type, {
+                    id: `direct_${targetUser.id}`,
+                    isGroup: false,
+                    name: targetUser.username,
+                    avatarUrl: targetUser.avatarUrl,
+                    recipient: targetUser,
+                    lastMessage: null,
+                    updatedAt: new Date().toISOString(),
+                  } as any);
+                }}
+              />
+            </div>
+          ) : activeRailTab === "calls" ? (
+            <div className="h-full w-full sm:w-80 border-r border-[var(--theme-border-color)]">
+              <CallsSidebar onStartCall={(chatId, type) => {
+                const chat = chats.find(c => c.id === chatId);
+                if (chat) {
+                  setSelectedChat(chat);
+                  handleStartCall(type, chat);
+                }
+              }} />
+            </div>
+          ) : (
+            <>
+              {/* On mobile, show sidebar only if no chat is selected */}
+              <div
+                className={`${selectedChat ? "hidden sm:flex" : "flex"} h-full w-full sm:w-80 shrink-0 border-r border-[var(--theme-border-color)]`}
+              >
+                <ChatSidebar
+                  chats={chats}
+                  selectedChatId={selectedChat?.id || null}
+                  onSelectChat={handleSelectChat}
+                  onlineUsers={onlineUsers}
+                  onChatCreated={handleChatCreated}
+                  unreadCounts={unreadCounts}
+                  onOpenStatus={() => setShowStatusPanel(true)}
+                  onOpenAi={() => {
+                    setActiveRailTab("ai");
+                    setSelectedChat(null);
+                  }}
                 />
               </div>
-            ) : activeRailTab === "calls" ? (
-              <div className="h-full w-full sm:w-80 border-r border-[var(--theme-border-color)]">
-                <CallsSidebar onStartCall={(chatId, type) => {
-                  const chat = chats.find(c => c.id === chatId);
-                  if (chat) {
-                    setSelectedChat(chat);
-                    handleStartCall(type, chat);
-                  }
-                }} />
+
+              {/* On mobile, show chat window only if a chat is selected */}
+              <div className={`${selectedChat ? "flex" : "hidden sm:flex"} h-full flex-1 w-full relative`}>
+                <ChatWindow
+                  chat={selectedChat}
+                  socket={socket}
+                  onlineUsers={onlineUsers}
+                  onBack={() => setSelectedChat(null)}
+                  onToggleProductivity={() => setIsProductivityOpen(!isProductivityOpen)}
+                  isProductivityOpen={isProductivityOpen}
+                  onChatDeleted={(conversationId) => {
+                    setChats((prev) => prev.filter((c) => c.id !== conversationId));
+                    setSelectedChat(null);
+                  }}
+                  onStartCall={handleStartCall}
+                />
               </div>
-            ) : (
-              <ChatSidebar
-                chats={chats}
-                selectedChatId={selectedChat?.id || null}
-                onSelectChat={handleSelectChat}
-                onlineUsers={onlineUsers}
-                onChatCreated={handleChatCreated}
-                unreadCounts={unreadCounts}
-                onOpenStatus={() => setShowStatusPanel(true)}
-              />
-            )}
-          </div>
 
-          {/* On mobile, show chat window only if a chat is selected */}
-          <div className={`${selectedChat ? "flex" : "hidden sm:flex"} h-full flex-1 w-full relative`}>
-            <ChatWindow
-              chat={selectedChat}
-              socket={socket}
-              onlineUsers={onlineUsers}
-              onBack={() => setSelectedChat(null)}
-              onToggleProductivity={() => setIsProductivityOpen(!isProductivityOpen)}
-              isProductivityOpen={isProductivityOpen}
-              onChatDeleted={(conversationId) => {
-                setChats((prev) => prev.filter((c) => c.id !== conversationId));
-                setSelectedChat(null);
-              }}
-              onStartCall={handleStartCall}
-            />
-          </div>
-
-          {/* Productivity Workspace slide-out panel */}
-          {isProductivityOpen && (
-            <ProductivityPanel
-              activeConversationId={selectedChat?.id || null}
-              activeConversationName={selectedChat?.name || null}
-              isGroupChat={selectedChat?.isGroup || false}
-              participants={(selectedChat as any)?.participants || []}
-              onClose={() => setIsProductivityOpen(false)}
-            />
+              {/* Productivity Workspace slide-out panel */}
+              {isProductivityOpen && (
+                <ProductivityPanel
+                  activeConversationId={selectedChat?.id || null}
+                  activeConversationName={selectedChat?.name || null}
+                  isGroupChat={selectedChat?.isGroup || false}
+                  participants={(selectedChat as any)?.participants || []}
+                  onClose={() => setIsProductivityOpen(false)}
+                />
+              )}
+            </>
           )}
         </div>
       </div>

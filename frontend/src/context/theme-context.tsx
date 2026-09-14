@@ -1,43 +1,61 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect } from "react";
+import {
+  ChatTheme,
+  DOLSYX_THEMES,
+  getThemeById,
+  applyThemeToDocument,
+  WallpaperConfig,
+  DEFAULT_WALLPAPER,
+} from "@/utils/dolsyx-themes";
 
-export type ThemeType = "dolsy-dark" | "aqua-light" | "aqua-dark" | "radiant-blue";
+export type LegacyThemeType = "dolsy-dark" | "aqua-light" | "aqua-dark" | "radiant-blue";
+export type ThemeType = LegacyThemeType | string;
 export type FontSizeType = "small" | "medium" | "large";
 
 interface ThemeContextType {
   theme: ThemeType;
-  setTheme: (theme: ThemeType) => void;
+  currentTheme: ChatTheme;
+  setTheme: (themeId: ThemeType) => void;
   fontSize: FontSizeType;
   setFontSize: (size: FontSizeType) => void;
+  // Wallpaper settings
+  globalWallpaper: WallpaperConfig;
+  setGlobalWallpaper: (config: WallpaperConfig) => void;
+  getWallpaperForChat: (conversationId: string) => WallpaperConfig;
+  setChatWallpaper: (conversationId: string, config: WallpaperConfig) => void;
+  removeChatWallpaper: (conversationId: string) => void;
+  wallpaperOpacity: number;
+  setWallpaperOpacity: (opacity: number, conversationId?: string) => void;
+  wallpaperBlur: number;
+  setWallpaperBlur: (blur: number, conversationId?: string) => void;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
-// Maps theme ID → CSS class on <html> (must match globals.css selectors)
-const THEME_CLASS_MAP: Record<ThemeType, string> = {
-  "dolsy-dark": "",                   // :root (default) — no extra class needed
-  "aqua-light": "theme-whatsapp-light",
-  "aqua-dark": "theme-whatsapp-dark",
-  "radiant-blue": "theme-radiant-blue",
+// Legacy theme mapping to Android IDs
+const LEGACY_TO_ANDROID_MAP: Record<LegacyThemeType, string> = {
+  "dolsy-dark": "midnight_black",
+  "aqua-light": "default_whatsapp",
+  "aqua-dark": "emerald_oasis",
+  "radiant-blue": "titanium_eclipse",
 };
 
-const ALL_THEME_CLASSES = Object.values(THEME_CLASS_MAP).filter(Boolean);
-
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [theme, setThemeState] = useState<ThemeType>("dolsy-dark");
+  const [themeId, setThemeId] = useState<string>("midnight_black");
+  const [currentTheme, setCurrentTheme] = useState<ChatTheme>(getThemeById("midnight_black"));
   const [fontSize, setFontSizeState] = useState<FontSizeType>("medium");
 
-  const applyTheme = (newTheme: ThemeType) => {
-    if (typeof window === "undefined") return;
-    const root = window.document.documentElement;
-    // Remove all theme classes first
-    root.classList.remove(...ALL_THEME_CLASSES);
-    // Apply the correct class (empty string = default dark, no class added)
-    const cls = THEME_CLASS_MAP[newTheme];
-    if (cls) root.classList.add(cls);
-    // Set color-scheme for browser chrome
-    root.style.colorScheme = newTheme === "aqua-light" ? "light" : "dark";
+  const [globalWallpaper, setGlobalWallpaperState] = useState<WallpaperConfig>(DEFAULT_WALLPAPER);
+  const [chatWallpapers, setChatWallpapers] = useState<Record<string, WallpaperConfig>>({});
+
+  const applyTheme = (id: string) => {
+    // Map legacy names if passed
+    const resolvedId = LEGACY_TO_ANDROID_MAP[id as LegacyThemeType] || id;
+    const themeObj = getThemeById(resolvedId);
+    setCurrentTheme(themeObj);
+    applyThemeToDocument(themeObj);
   };
 
   const applyFontSize = (size: FontSizeType) => {
@@ -48,24 +66,39 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   useEffect(() => {
-    const storedTheme = localStorage.getItem("dolsyx_theme") as ThemeType;
-    const validThemes: ThemeType[] = ["dolsy-dark", "aqua-light", "aqua-dark", "radiant-blue"];
-    const initialTheme = validThemes.includes(storedTheme) ? storedTheme : "dolsy-dark";
-    
+    if (typeof window === "undefined") return;
+
+    // Load theme
+    const storedTheme = localStorage.getItem("dolsyx_theme") || "midnight_black";
+    const resolvedId = LEGACY_TO_ANDROID_MAP[storedTheme as LegacyThemeType] || storedTheme;
+    setThemeId(resolvedId);
+    applyTheme(resolvedId);
+
+    // Load font size
     const storedFontSize = localStorage.getItem("dolsyx_fontsize") as FontSizeType;
     const validFonts: FontSizeType[] = ["small", "medium", "large"];
     const initialFont = validFonts.includes(storedFontSize) ? storedFontSize : "medium";
-
-    setThemeState(initialTheme);
-    applyTheme(initialTheme);
     setFontSizeState(initialFont);
     applyFontSize(initialFont);
+
+    // Load global wallpaper
+    try {
+      const storedWp = localStorage.getItem("dolsyx_global_wallpaper");
+      if (storedWp) {
+        setGlobalWallpaperState(JSON.parse(storedWp));
+      }
+      const storedChatWp = localStorage.getItem("dolsyx_chat_wallpapers_map");
+      if (storedChatWp) {
+        setChatWallpapers(JSON.parse(storedChatWp));
+      }
+    } catch (_) {}
   }, []);
 
-  const setTheme = (newTheme: ThemeType) => {
-    setThemeState(newTheme);
-    localStorage.setItem("dolsyx_theme", newTheme);
-    applyTheme(newTheme);
+  const setTheme = (newThemeId: ThemeType) => {
+    const resolvedId = LEGACY_TO_ANDROID_MAP[newThemeId as LegacyThemeType] || newThemeId;
+    setThemeId(resolvedId);
+    localStorage.setItem("dolsyx_theme", resolvedId);
+    applyTheme(resolvedId);
   };
 
   const setFontSize = (size: FontSizeType) => {
@@ -74,8 +107,65 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     applyFontSize(size);
   };
 
+  const setGlobalWallpaper = (config: WallpaperConfig) => {
+    setGlobalWallpaperState(config);
+    localStorage.setItem("dolsyx_global_wallpaper", JSON.stringify(config));
+  };
+
+  const getWallpaperForChat = (conversationId: string): WallpaperConfig => {
+    return chatWallpapers[conversationId] || globalWallpaper;
+  };
+
+  const setChatWallpaper = (conversationId: string, config: WallpaperConfig) => {
+    const updated = { ...chatWallpapers, [conversationId]: config };
+    setChatWallpapers(updated);
+    localStorage.setItem("dolsyx_chat_wallpapers_map", JSON.stringify(updated));
+  };
+
+  const removeChatWallpaper = (conversationId: string) => {
+    const updated = { ...chatWallpapers };
+    delete updated[conversationId];
+    setChatWallpapers(updated);
+    localStorage.setItem("dolsyx_chat_wallpapers_map", JSON.stringify(updated));
+  };
+
+  const setWallpaperOpacity = (opacity: number, conversationId?: string) => {
+    if (conversationId) {
+      const current = getWallpaperForChat(conversationId);
+      setChatWallpaper(conversationId, { ...current, opacity });
+    } else {
+      setGlobalWallpaper({ ...globalWallpaper, opacity });
+    }
+  };
+
+  const setWallpaperBlur = (blur: number, conversationId?: string) => {
+    if (conversationId) {
+      const current = getWallpaperForChat(conversationId);
+      setChatWallpaper(conversationId, { ...current, blur });
+    } else {
+      setGlobalWallpaper({ ...globalWallpaper, blur });
+    }
+  };
+
   return (
-    <ThemeContext.Provider value={{ theme, setTheme, fontSize, setFontSize }}>
+    <ThemeContext.Provider
+      value={{
+        theme: themeId,
+        currentTheme,
+        setTheme,
+        fontSize,
+        setFontSize,
+        globalWallpaper,
+        setGlobalWallpaper,
+        getWallpaperForChat,
+        setChatWallpaper,
+        removeChatWallpaper,
+        wallpaperOpacity: globalWallpaper.opacity,
+        setWallpaperOpacity,
+        wallpaperBlur: globalWallpaper.blur,
+        setWallpaperBlur,
+      }}
+    >
       {children}
     </ThemeContext.Provider>
   );

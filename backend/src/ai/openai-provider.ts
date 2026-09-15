@@ -197,7 +197,11 @@ export class OpenAICompatibleProvider {
 
         res.on('end', () => {
           if (!isCancelled) {
-            callbacks.onComplete(accumulatedText);
+            if (accumulatedText.trim().length === 0) {
+              callbacks.onError(new Error('Upstream provider returned empty response stream'));
+            } else {
+              callbacks.onComplete(accumulatedText);
+            }
           }
         });
 

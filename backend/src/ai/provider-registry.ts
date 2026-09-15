@@ -51,14 +51,36 @@ export class AIProviderRegistry {
       };
     }
 
-    // 5. Zero-config live endpoint for development & testing
+    // 5. Pollinations API Key if provided
+    if (process.env.POLLINATIONS_API_KEY) {
+      return {
+        name: 'pollinations',
+        apiKey: process.env.POLLINATIONS_API_KEY,
+        baseURL: 'https://text.pollinations.ai/openai/chat/completions',
+        model: process.env.AI_MODEL || 'openai',
+        temperature: 0.7,
+        maxTokens: 2048,
+      };
+    }
+
+    // 6. Native Built-in Synthesizer (default zero-key mode)
     return {
-      name: 'pollinations',
-      baseURL: 'https://text.pollinations.ai/openai/chat/completions',
-      model: process.env.AI_MODEL || 'openai',
+      name: 'synthesizer',
+      baseURL: 'local://synthesizer',
+      model: 'dolsyx-ai-synthesizer',
       temperature: 0.7,
       maxTokens: 2048,
     };
+  }
+
+  public static hasExternalApiKey(): boolean {
+    return !!(
+      process.env.GROQ_API_KEY ||
+      process.env.OPENAI_API_KEY ||
+      process.env.GEMINI_API_KEY ||
+      process.env.AI_BASE_URL ||
+      process.env.POLLINATIONS_API_KEY
+    );
   }
 
   public static getActiveProvider(): OpenAICompatibleProvider {

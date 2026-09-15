@@ -72,12 +72,29 @@ export class AIService {
 
     let result: { text: string; model: string; tokens: number; toolResults?: any[] | undefined };
 
-    try {
-      const provider = AIProviderRegistry.getActiveProvider();
-      result = await provider.generateCompletion(messages, tools, toolContext);
+    if (!AIProviderRegistry.hasExternalApiKey()) {
+      const synthText = await AISynthesizer.synthesize(sanitized, options.username);
+      result = {
+        text: synthText,
+        model: 'dolsyx-ai-synthesizer',
+        tokens: Math.ceil(synthText.length / 4),
+      };
+    } else {
+      try {
+        const provider = AIProviderRegistry.getActiveProvider();
+        result = await provider.generateCompletion(messages, tools, toolContext);
 
-      if (AISafetyLayer.isBudgetOrQuotaError(result.text)) {
-        console.warn('[AIService] Upstream provider returned quota/budget message. Activating intelligent synthesizer.');
+        if (!result.text || AISafetyLayer.isBudgetOrQuotaError(result.text)) {
+          console.warn('[AIService] Upstream provider returned empty/quota message. Activating intelligent synthesizer.');
+          const synthText = await AISynthesizer.synthesize(sanitized, options.username);
+          result = {
+            text: synthText,
+            model: 'dolsyx-ai-synthesizer',
+            tokens: Math.ceil(synthText.length / 4),
+          };
+        }
+      } catch (err) {
+        console.warn('[AIService] Provider execution failed, activating intelligent synthesizer fallback:', err);
         const synthText = await AISynthesizer.synthesize(sanitized, options.username);
         result = {
           text: synthText,
@@ -85,14 +102,6 @@ export class AIService {
           tokens: Math.ceil(synthText.length / 4),
         };
       }
-    } catch (err) {
-      console.warn('[AIService] Provider execution failed, activating intelligent synthesizer fallback:', err);
-      const synthText = await AISynthesizer.synthesize(sanitized, options.username);
-      result = {
-        text: synthText,
-        model: 'dolsyx-ai-synthesizer',
-        tokens: Math.ceil(synthText.length / 4),
-      };
     }
 
     // Persist messages to database if user is authenticated
@@ -196,6 +205,31 @@ export class AIService {
           username: options.username,
           conversationId: convId,
         };
+
+        if (!AIProviderRegistry.hasExternalApiKey()) {
+          activeCancel = AISynthesizer.stream(
+            sanitized,
+            {
+              onToken: callbacks.onToken,
+              onComplete: async synthText => {
+                if (userId !== 'guest_user' && convId) {
+                  try {
+                    await (prisma as any).aIMessage.createMany({
+                      data: [
+                        { conversationId: convId, sender: 'USER', type: 'USER_TEXT', content: sanitized },
+                        { conversationId: convId, sender: 'AI', type: 'AI_TEXT', content: synthText },
+                      ],
+                    });
+                  } catch (_) {}
+                }
+                callbacks.onComplete(synthText, { conversationId: convId });
+              },
+              onError: callbacks.onError,
+            },
+            options.username
+          );
+          return;
+        }
 
         const provider = AIProviderRegistry.getActiveProvider();
 

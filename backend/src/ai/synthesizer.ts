@@ -14,7 +14,7 @@ export class AISynthesizer {
     const userGreeting = username ? ` **${username}**` : '';
 
     // 1. Greetings & Conversational Identity
-    if (/^(hi|hello|hey|greetings|hola|namaste|good\s*(morning|afternoon|evening))\b/i.test(clean)) {
+    if (/^(h+i+|h+e+y+|h+e+l+l+o+|greetings|hola|namaste|yo|sup|good\s*(morning|afternoon|evening))\b/i.test(clean) || clean.startsWith('hi ') || clean.startsWith('hello ')) {
       return `Hello${userGreeting}! 👋\n\nI am **DOLSYX AI**, your intelligent assistant built directly into the DOLSYX platform. How can I help you today? Feel free to ask me questions, request code, draft messages, or solve math problems!`;
     }
 

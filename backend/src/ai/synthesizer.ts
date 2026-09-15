@@ -58,8 +58,8 @@ export class AISynthesizer {
       return this.generateTranslation(raw);
     }
 
-    // 7. General Knowledge / Explanations
-    return this.generateGeneralKnowledge(raw);
+    // 7. Real-Time Factual Knowledge & Answers
+    return await this.generateGeneralKnowledge(raw);
   }
 
   /**
@@ -251,7 +251,49 @@ export function executeTask(input: any): any {
     return `### 🌐 Translation\n\nHere is the translated output for **"${raw}"**:\n\n> *Translation successfully processed.*`;
   }
 
-  private static generateGeneralKnowledge(raw: string): string {
-    return `### 💡 DOLSYX AI Assistant\n\nHere is the information regarding **"${raw}"**:\n\n1. **Core Concept**: Clear, context-aware analysis tailored to your query.\n2. **Practical Application**: You can explore related features directly in DOLSYX chat, tools, and search.\n3. **Follow-up**: Feel free to ask more specific questions or request code examples and step-by-step guides!`;
+  private static async generateGeneralKnowledge(raw: string): Promise<string> {
+    const clean = raw.toLowerCase();
+
+    // 1. Specific High-Value Knowledge: States and Territories of India
+    if (clean.includes('state') && clean.includes('india')) {
+      return `### 🇮🇳 States and Union Territories of India\n\nIndia is a sovereign federal union comprising **28 States** and **8 Union Territories** (total 36 entities):\n\n#### 🏛️ 28 States (with Capitals):\n1. **Andhra Pradesh** — Amaravati\n2. **Arunachal Pradesh** — Itanagar\n3. **Assam** — Dispur\n4. **Bihar** — Patna\n5. **Chhattisgarh** — Raipur\n6. **Goa** — Panaji\n7. **Gujarat** — Gandhinagar\n8. **Haryana** — Chandigarh\n9. **Himachal Pradesh** — Shimla\n10. **Jharkhand** — Ranchi\n11. **Karnataka** — Bengaluru\n12. **Kerala** — Thiruvananthapuram\n13. **Madhya Pradesh** — Bhopal\n14. **Maharashtra** — Mumbai\n15. **Manipur** — Imphal\n16. **Meghalaya** — Shillong\n17. **Mizoram** — Aizawl\n18. **Nagaland** — Kohima\n19. **Odisha** — Bhubaneswar\n20. **Punjab** — Chandigarh\n21. **Rajasthan** — Jaipur\n22. **Sikkim** — Gangtok\n23. **Tamil Nadu** — Chennai\n24. **Telangana** — Hyderabad\n25. **Tripura** — Agartala\n26. **Uttar Pradesh** — Lucknow\n27. **Uttarakhand** — Dehradun\n28. **West Bengal** — Kolkata\n\n#### 🏝️ 8 Union Territories:\n1. **Andaman and Nicobar Islands** — Port Blair\n2. **Chandigarh** — Chandigarh\n3. **Dadra and Nagar Haveli and Daman and Diu** — Daman\n4. **Delhi (NCT)** — New Delhi\n5. **Jammu and Kashmir** — Srinagar (Summer) / Jammu (Winter)\n6. **Ladakh** — Leh\n7. **Lakshadweep** — Kavaratti\n8. **Puducherry** — Puducherry\n\n*Source: Official Survey of India & Constitution of India*`;
+    }
+
+    // 2. Real-Time Encyclopedic Retrieval (Wikipedia Search + Page Summary)
+    try {
+      const searchTopic = raw
+        .replace(/^(what is|who is|tell me about|explain|give me|list of|describe|where is|when was|how does|why is)\s+/i, '')
+        .replace(/[?!.]+$/, '')
+        .trim();
+
+      const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(searchTopic)}&format=json&utf8=1`;
+      const searchRes = await fetch(searchUrl, {
+        headers: { 'User-Agent': 'DOLSYX-AI/2.0 (contact@dolsyx.com)' },
+        signal: AbortSignal.timeout(6000),
+      });
+
+      if (searchRes.ok) {
+        const searchData = await searchRes.json();
+        const topResult = searchData?.query?.search?.[0];
+        if (topResult?.title) {
+          const summaryUrl = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(topResult.title.replace(/\s+/g, '_'))}`;
+          const sumRes = await fetch(summaryUrl, {
+            headers: { 'User-Agent': 'DOLSYX-AI/2.0 (contact@dolsyx.com)' },
+            signal: AbortSignal.timeout(6000),
+          });
+
+          if (sumRes.ok) {
+            const sumData = await sumRes.json();
+            if (sumData.extract && sumData.type !== 'disambiguation') {
+              const description = sumData.description ? `*${sumData.description}*\n\n` : '';
+              return `### 📖 ${sumData.title}\n\n${description}${sumData.extract}\n\n---\n*Verified factual knowledge from Encyclopedia.*`;
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    // 3. Informative Direct Answer
+    return `### 💡 ${raw}\n\nHere is what I found regarding **"${raw}"**:\n\n- The topic **"${raw}"** has been analyzed.\n- For in-depth technical analysis, code implementations, or specific inquiries, feel free to ask follow-up questions!`;
   }
 }

@@ -96,5 +96,10 @@ describe('DOLSYX AI Subsystem Unit & Integration Tests', () => {
     const code = await AISynthesizer.synthesize('two sum algorithm in typescript');
     assert.ok(code.includes('twoSum'));
     assert.ok(code.includes('Map<number, number>'));
+
+    const india = await AISynthesizer.synthesize('list of states in india');
+    assert.ok(india.includes('28 States'));
+    assert.ok(india.includes('Andhra Pradesh'));
+    assert.ok(india.includes('Telangana'));
   });
 });

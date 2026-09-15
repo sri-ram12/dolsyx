@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_theme.dart';
 import '../services/dolsyx_ai_service.dart';
 import '../services/chat_service.dart';
-import '../models/chat.dart';
 import '../widgets/full_screen_image_view.dart';
 import 'ai_profile_screen.dart';
 import 'chat_room_screen.dart';
@@ -28,8 +28,9 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
   bool _isThinking = false;
   String _userName = 'there';
   String _activePreset = 'Photorealistic';
-
-  final List<String> _presets = ['Photorealistic', 'Cinematic', 'Anime', '3D', 'Cyberpunk', 'Minimalist'];
+  String? _conversationId;
+  http.Client? _activeStreamingClient;
+  String? _currentToolActivity;
 
   final List<String> _quickPrompts = [
     'I want to write a message to a classmate',
@@ -163,7 +164,23 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
     );
   }
 
-  Future<void> _sendPrompt(String promptText, {String? parentImageId}) async {
+  void _stopStreaming() {
+    if (_activeStreamingClient != null) {
+      _activeStreamingClient?.close();
+      _activeStreamingClient = null;
+    }
+    if (mounted) {
+      setState(() {
+        _isThinking = false;
+        _currentToolActivity = null;
+        if (_messages.isNotEmpty && _messages.last['sender'] == 'ai') {
+          _messages.last['isStreaming'] = false;
+        }
+      });
+    }
+  }
+
+  Future<void> _sendPrompt(String promptText) async {
     final prompt = promptText.trim();
     if (prompt.isEmpty || _isThinking) return;
 
@@ -179,40 +196,204 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
         'options': [],
         'imageUrl': null,
       });
+
+      // Add placeholder message for real-time live streaming
+      _messages.add({
+        'sender': 'ai',
+        'text': '',
+        'time': DateTime.now(),
+        'type': 'text',
+        'options': [],
+        'imageUrl': null,
+        'isStreaming': true,
+      });
+
       _isThinking = true;
+      _currentToolActivity = null;
     });
     _scrollToBottom();
 
-    final rawResponse = await _aiService.queryAiEngine(prompt, preset: _activePreset);
+    final aiMsgIndex = _messages.length - 1;
+    final client = http.Client();
+    _activeStreamingClient = client;
 
-    if (mounted) {
-      String replyText = rawResponse;
-      String messageType = 'text';
-      List<dynamic> options = [];
-      String? imageUrl;
+    // Check if this is an image generation request
+    final isImage = RegExp(
+      r'\b(generate|create|draw|make)\s+(an?\s+)?(image|photo|picture|pic|avatar|wallpaper|logo|banner)\b',
+      caseSensitive: false,
+    ).hasMatch(prompt);
 
-      try {
-        if (rawResponse.trim().startsWith('{') && rawResponse.trim().endsWith('}')) {
-          final parsed = jsonDecode(rawResponse);
-          replyText = parsed['text'] ?? parsed['reply'] ?? rawResponse;
-          messageType = parsed['type'] ?? 'text';
-          options = parsed['options'] ?? [];
-          imageUrl = parsed['imageUrl'] ?? (parsed['media'] != null ? parsed['media']['url'] : null);
-        }
-      } catch (_) {}
-
+    if (isImage) {
       setState(() {
-        _isThinking = false;
-        _messages.add({
-          'sender': 'ai',
-          'text': replyText,
-          'time': DateTime.now(),
-          'type': messageType,
-          'options': options,
-          'imageUrl': imageUrl,
-        });
+        _currentToolActivity = 'Generating image via Cloudinary... 🎨';
       });
-      _scrollToBottom();
+
+      final rawResponse = await _aiService.queryAiEngine(
+        prompt,
+        preset: _activePreset,
+        conversationId: _conversationId,
+      );
+
+      if (mounted) {
+        String replyText = rawResponse;
+        String? imageUrl;
+        try {
+          if (rawResponse.trim().startsWith('{') && rawResponse.trim().endsWith('}')) {
+            final parsed = jsonDecode(rawResponse);
+            replyText = parsed['text'] ?? parsed['reply'] ?? rawResponse;
+            imageUrl = parsed['imageUrl'] ?? (parsed['media'] != null ? parsed['media']['url'] : null);
+            if (parsed['conversationId'] != null) {
+              _conversationId = parsed['conversationId'];
+            }
+          }
+        } catch (_) {}
+
+        setState(() {
+          _isThinking = false;
+          _currentToolActivity = null;
+          _messages[aiMsgIndex]['text'] = replyText;
+          _messages[aiMsgIndex]['type'] = imageUrl != null ? 'image_result' : 'text';
+          _messages[aiMsgIndex]['imageUrl'] = imageUrl;
+          _messages[aiMsgIndex]['isStreaming'] = false;
+        });
+        _scrollToBottom();
+      }
+      return;
+    }
+
+    // Live Token-by-Token Real-time Streaming with automatic fallback
+    bool receivedAnyToken = false;
+    try {
+      final stream = _aiService.streamAiResponse(
+        prompt,
+        preset: _activePreset,
+        conversationId: _conversationId,
+        client: client,
+      );
+
+      await for (final event in stream) {
+        if (!mounted) break;
+
+        final eventType = event['type'];
+        if (eventType == 'token') {
+          receivedAnyToken = true;
+          final token = event['token'] as String? ?? '';
+          setState(() {
+            _messages[aiMsgIndex]['text'] = (_messages[aiMsgIndex]['text'] ?? '') + token;
+          });
+          _scrollToBottom();
+        } else if (eventType == 'tool') {
+          setState(() {
+            _currentToolActivity = 'Executing: ${event['tool']}... ⚡';
+          });
+        } else if (eventType == 'complete') {
+          receivedAnyToken = true;
+          if (event['conversationId'] != null) {
+            _conversationId = event['conversationId'];
+          }
+          setState(() {
+            _currentToolActivity = null;
+            _messages[aiMsgIndex]['isStreaming'] = false;
+          });
+        } else if (eventType == 'error') {
+          if (!receivedAnyToken) {
+            // Streaming unavailable or 404 on current host - fallback to standard gateway
+            setState(() {
+              _currentToolActivity = 'Connecting... 💬';
+            });
+            final fallbackResponse = await _aiService.queryAiEngine(
+              prompt,
+              preset: _activePreset,
+              conversationId: _conversationId,
+            );
+            if (mounted) {
+              String replyText = fallbackResponse;
+              String? imageUrl;
+              try {
+                if (fallbackResponse.trim().startsWith('{') && fallbackResponse.trim().endsWith('}')) {
+                  final parsed = jsonDecode(fallbackResponse);
+                  replyText = parsed['text'] ?? parsed['reply'] ?? fallbackResponse;
+                  imageUrl = parsed['imageUrl'] ?? (parsed['media'] != null ? parsed['media']['url'] : null);
+                  if (parsed['conversationId'] != null) {
+                    _conversationId = parsed['conversationId'];
+                  }
+                }
+              } catch (_) {}
+
+              setState(() {
+                _messages[aiMsgIndex]['text'] = replyText;
+                _messages[aiMsgIndex]['type'] = imageUrl != null ? 'image_result' : 'text';
+                _messages[aiMsgIndex]['imageUrl'] = imageUrl;
+                _messages[aiMsgIndex]['isStreaming'] = false;
+                _currentToolActivity = null;
+              });
+              _scrollToBottom();
+            }
+            return;
+          } else {
+            setState(() {
+              _messages[aiMsgIndex]['isStreaming'] = false;
+              _currentToolActivity = null;
+            });
+          }
+        }
+      }
+    } catch (e) {
+      if (mounted && !receivedAnyToken && (_messages[aiMsgIndex]['text'] as String? ?? '').isEmpty) {
+        try {
+          setState(() {
+            _currentToolActivity = 'Connecting... 💬';
+          });
+          final fallbackResponse = await _aiService.queryAiEngine(
+            prompt,
+            preset: _activePreset,
+            conversationId: _conversationId,
+          );
+          if (mounted) {
+            String replyText = fallbackResponse;
+            String? imageUrl;
+            try {
+              if (fallbackResponse.trim().startsWith('{') && fallbackResponse.trim().endsWith('}')) {
+                final parsed = jsonDecode(fallbackResponse);
+                replyText = parsed['text'] ?? parsed['reply'] ?? fallbackResponse;
+                imageUrl = parsed['imageUrl'] ?? (parsed['media'] != null ? parsed['media']['url'] : null);
+                if (parsed['conversationId'] != null) {
+                  _conversationId = parsed['conversationId'];
+                }
+              }
+            } catch (_) {}
+
+            setState(() {
+              _messages[aiMsgIndex]['text'] = replyText;
+              _messages[aiMsgIndex]['type'] = imageUrl != null ? 'image_result' : 'text';
+              _messages[aiMsgIndex]['imageUrl'] = imageUrl;
+              _messages[aiMsgIndex]['isStreaming'] = false;
+              _currentToolActivity = null;
+            });
+            _scrollToBottom();
+            return;
+          }
+        } catch (_) {
+          if (mounted) {
+            setState(() {
+              _messages[aiMsgIndex]['text'] = 'DOLSYX AI encountered a network issue. Please retry.';
+              _messages[aiMsgIndex]['isStreaming'] = false;
+            });
+          }
+        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isThinking = false;
+          _currentToolActivity = null;
+          if (_messages.isNotEmpty && _messages.length > aiMsgIndex) {
+            _messages[aiMsgIndex]['isStreaming'] = false;
+          }
+        });
+        _scrollToBottom();
+      }
+      _activeStreamingClient = null;
     }
   }
 
@@ -282,6 +463,24 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
             ],
           ),
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.add_comment_outlined, color: Color(0xFF8B5CF6)),
+            tooltip: 'New Chat',
+            onPressed: () {
+              setState(() {
+                _conversationId = null;
+                _messages.clear();
+              });
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Started a new AI conversation'),
+                  duration: Duration(seconds: 1),
+                ),
+              );
+            },
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -412,8 +611,8 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
                                   const SizedBox(height: 8),
                                 ],
 
-                                Text(
-                                  msg['text'],
+                                 Text(
+                                  (msg['text'] ?? '') + (msg['isStreaming'] == true ? ' ▊' : ''),
                                   style: TextStyle(color: isUser ? Colors.white : AppTheme.textPrimary, fontSize: 15, height: 1.4),
                                 ),
 
@@ -497,8 +696,20 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
               ),
             ),
 
-          // Thinking Indicator
-          if (_isThinking)
+          // Live Activity / Tool Indicator
+          if (_currentToolActivity != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              color: AppTheme.surfaceColor,
+              child: Row(
+                children: [
+                  const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(color: Color(0xFF8B5CF6), strokeWidth: 2)),
+                  const SizedBox(width: 10),
+                  Text(_currentToolActivity!, style: const TextStyle(color: Color(0xFFC084FC), fontSize: 12, fontWeight: FontWeight.w600)),
+                ],
+              ),
+            )
+          else if (_isThinking)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               color: AppTheme.surfaceColor,
@@ -506,7 +717,7 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
                 children: [
                   SizedBox(width: 14, height: 14, child: CircularProgressIndicator(color: AppTheme.primaryColor, strokeWidth: 2)),
                   const SizedBox(width: 10),
-                  Text('DOLSYX AI is typing...', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontStyle: FontStyle.italic)),
+                  Text('DOLSYX AI is generating...', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontStyle: FontStyle.italic)),
                 ],
               ),
             ),
@@ -525,8 +736,8 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
                     onSubmitted: (val) => _sendPrompt(val),
                     style: TextStyle(color: AppTheme.textPrimary),
                     decoration: InputDecoration(
-                      hintText: 'Message',
-                      hintStyle: TextStyle(color: AppTheme.textSecondary, fontSize: 16),
+                      hintText: _isThinking ? 'Generating live response...' : 'Ask DOLSYX AI anything...',
+                      hintStyle: TextStyle(color: AppTheme.textSecondary, fontSize: 15),
                       filled: false,
                       contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                       border: InputBorder.none,
@@ -535,20 +746,30 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
                 ),
                 Icon(Icons.attach_file, color: AppTheme.textSecondary, size: 22),
                 const SizedBox(width: 12),
-                Icon(Icons.camera_alt_outlined, color: AppTheme.textSecondary, size: 22),
-                const SizedBox(width: 12),
-                CircleAvatar(
-                  backgroundColor: AppTheme.primaryColor,
-                  radius: 22,
-                  child: IconButton(
-                    icon: const Icon(Icons.mic, color: Colors.white, size: 20),
-                    onPressed: () {
-                      if (_messageController.text.trim().isNotEmpty) {
-                        _sendPrompt(_messageController.text);
-                      }
-                    },
+                if (_isThinking)
+                  CircleAvatar(
+                    backgroundColor: Colors.redAccent.withOpacity(0.2),
+                    radius: 22,
+                    child: IconButton(
+                      icon: const Icon(Icons.stop_circle_rounded, color: Colors.redAccent, size: 22),
+                      tooltip: 'Stop generation',
+                      onPressed: _stopStreaming,
+                    ),
+                  )
+                else
+                  CircleAvatar(
+                    backgroundColor: AppTheme.primaryColor,
+                    radius: 22,
+                    child: IconButton(
+                      icon: const Icon(Icons.send_rounded, color: Colors.white, size: 20),
+                      tooltip: 'Send',
+                      onPressed: () {
+                        if (_messageController.text.trim().isNotEmpty) {
+                          _sendPrompt(_messageController.text);
+                        }
+                      },
+                    ),
                   ),
-                ),
               ],
             ),
           ),

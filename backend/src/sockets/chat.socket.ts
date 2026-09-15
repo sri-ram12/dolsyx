@@ -8,6 +8,7 @@ import { prisma } from "../config/db.js";
 import { encryptionService } from "../services/encryption.service.js";
 import { sendPushNotification } from "../config/firebase.config.js";
 import { canViewOnline, canViewLastSeen } from "../utils/privacy.engine.js";
+import { AIService } from "../ai/ai-service.js";
 
 const JWT_SECRET = process.env.JWT_SECRET || "dolsyx_super_secret_key_123456";
 
@@ -301,6 +302,54 @@ export const initChatSocket = (io: Server) => {
 
     // Join personal room to receive real-time direct notifications/messages
     socket.join(userId);
+
+    // ── Real-time AI Assistant Streaming over WebSockets ──────────────────
+    let activeAiCancel: (() => void) | null = null;
+
+    socket.on("ai_stream_request", async (data: { prompt: string; conversationId?: string; preset?: string }) => {
+      if (!data || !data.prompt) {
+        socket.emit("ai_stream_error", { error: "Prompt is required" });
+        return;
+      }
+
+      if (activeAiCancel) {
+        activeAiCancel();
+        activeAiCancel = null;
+      }
+
+      activeAiCancel = AIService.stream(
+        data.prompt,
+        {
+          userId,
+          username,
+          conversationId: data.conversationId,
+          enableTools: true,
+        },
+        {
+          onToken: (token: string) => {
+            socket.emit("ai_stream_token", { token, conversationId: data.conversationId });
+          },
+          onToolCall: (toolName: string, args: any) => {
+            socket.emit("ai_stream_tool", { toolName, args, conversationId: data.conversationId });
+          },
+          onComplete: (fullText: string, metadata?: any) => {
+            socket.emit("ai_stream_complete", { fullText, metadata });
+            activeAiCancel = null;
+          },
+          onError: (err: Error) => {
+            socket.emit("ai_stream_error", { error: err.message });
+            activeAiCancel = null;
+          },
+        }
+      );
+    });
+
+    socket.on("ai_stream_cancel", () => {
+      if (activeAiCancel) {
+        activeAiCancel();
+        activeAiCancel = null;
+      }
+    });
 
     // Auto-deliver pending messages to this connected user
     setImmediate(async () => {

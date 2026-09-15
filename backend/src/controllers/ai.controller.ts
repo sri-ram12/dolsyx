@@ -1,146 +1,113 @@
 import type { Request, Response } from 'express';
 import { prisma } from '../config/db.js';
-import { AIOrchestrator } from '../services/ai_orchestrator.js';
+import { AIService } from '../ai/ai-service.js';
+import { AIMemoryManager } from '../ai/memory-manager.js';
 import { ImagePipelineEngine } from '../services/image_pipeline_engine.js';
+import { AIProviderRegistry } from '../ai/provider-registry.js';
 
 export class AIController {
   /**
-   * Main unified chat handler
+   * Main unified Chat completion endpoint
    */
   public static async handleChat(req: Request, res: Response): Promise<void> {
     try {
-      const { prompt, conversationId, preset, parentImageId } = req.body;
+      const { prompt, conversationId, preset } = req.body;
       const user = (req as any).user;
       const userId = user?.id || 'guest_user';
+      const username = user?.username;
 
       if (!prompt || typeof prompt !== 'string') {
         res.status(400).json({ error: 'Prompt string is required' });
         return;
       }
 
-      // Classify user intent
-      const classification = AIOrchestrator.classifyIntent(prompt);
+      const cleanPrompt = prompt.trim();
 
-      // Handle Calculator tool intent
-      if (classification.intent === 'CALCULATOR') {
-        const mathResult = AIOrchestrator.evaluateMathExpression(prompt);
-        res.json({
-          reply: mathResult,
-          type: 'text',
-          sender: 'DOLSYX AI',
-          createdAt: new Date().toISOString(),
-        });
-        return;
-      }
+      // Check if user is asking for image generation
+      const isImageRequest = /\b(generate|create|draw|make)\s+(an?\s+)?(image|photo|picture|pic|avatar|wallpaper|logo|banner)\b/i.test(cleanPrompt);
+      if (isImageRequest) {
+        const imageRes = await ImagePipelineEngine.generateVerifiedImage(cleanPrompt, preset || 'photorealistic');
+        if (imageRes.success) {
+          let imageRecord: any = null;
+          if (user?.id) {
+            try {
+              let convId = conversationId;
+              if (!convId) {
+                const conv = await (prisma as any).aIConversation.create({
+                  data: { userId: user.id, title: cleanPrompt.slice(0, 30) },
+                });
+                convId = conv.id;
+              }
 
-      // Handle Image Generation & Editing Intent
-      if (classification.intent === 'IMAGE_GENERATION' || classification.intent === 'IMAGE_EDIT') {
-        let parentPrompt: string | undefined = undefined;
-        if (parentImageId) {
-          try {
-            const parentImg = await (prisma as any).aIImage.findUnique({ where: { id: parentImageId } });
-            if (parentImg) parentPrompt = parentImg.prompt;
-          } catch (_) {}
-        }
+              imageRecord = await (prisma as any).aIImage.create({
+                data: {
+                  userId: user.id,
+                  conversationId: convId,
+                  storageKey: imageRes.imageUrl,
+                  imageUrl: imageRes.imageUrl,
+                  prompt: cleanPrompt,
+                  revisedPrompt: imageRes.enhancedPrompt,
+                  preset: preset || 'photorealistic',
+                },
+              });
+            } catch (err) {
+              console.error('[AIController] Error persisting image record:', err);
+            }
+          }
 
-        const imageRes = await ImagePipelineEngine.generateVerifiedImage(prompt, preset || 'photorealistic', parentPrompt);
-
-        if (!imageRes.success) {
           res.json({
-            reply: imageRes.error || 'Failed to generate image. Please try a different prompt.',
-            type: 'text',
-            error: imageRes.error,
+            reply: imageRes.text || 'Here is your generated image ✨',
+            type: 'image_result',
+            imageUrl: imageRes.imageUrl,
+            imagePrompt: cleanPrompt,
+            enhancedPrompt: imageRes.enhancedPrompt,
+            media: {
+              url: imageRes.imageUrl,
+              width: imageRes.width,
+              height: imageRes.height,
+            },
+            imageId: imageRecord?.id || null,
             sender: 'DOLSYX AI',
             createdAt: new Date().toISOString(),
           });
           return;
         }
-
-        // Record metadata in database if user is authenticated
-        let imageRecord: any = null;
-        if (user?.id) {
-          try {
-            let convId = conversationId;
-            if (!convId) {
-              const conv = await (prisma as any).aIConversation.create({
-                data: { userId: user.id, title: prompt.slice(0, 30) },
-              });
-              convId = conv.id;
-            }
-
-            imageRecord = await (prisma as any).aIImage.create({
-              data: {
-                userId: user.id,
-                conversationId: convId,
-                storageKey: imageRes.imageUrl,
-                imageUrl: imageRes.imageUrl,
-                prompt: prompt,
-                revisedPrompt: imageRes.enhancedPrompt,
-                preset: preset || 'photorealistic',
-                parentImageId: parentImageId || null,
-              },
-            });
-          } catch (err) {
-            console.error('[AIController] Error persisting AIImage record:', err);
-          }
-        }
-
-        res.json({
-          reply: imageRes.text,
-          type: 'image_result',
-          imageUrl: imageRes.imageUrl,
-          imagePrompt: prompt,
-          enhancedPrompt: imageRes.enhancedPrompt,
-          media: {
-            url: imageRes.imageUrl,
-            width: imageRes.width,
-            height: imageRes.height,
-          },
-          imageId: imageRecord?.id || null,
-          sender: 'DOLSYX AI',
-          createdAt: new Date().toISOString(),
-        });
-        return;
       }
 
-      // Handle Regular Text Generation
-      let history: any[] = [];
-      if (conversationId) {
-        history = await AIOrchestrator.buildConversationContext(conversationId);
-      }
-
-      const textResult = await AIOrchestrator.generateTextResponse(prompt, history, user?.username);
-
-      // Record text message in DB if user is logged in
-      if (user?.id && conversationId) {
-        try {
-          await (prisma as any).aIMessage.createMany({
-            data: [
-              { conversationId, sender: 'USER', type: 'USER_TEXT', content: prompt },
-              { conversationId, sender: 'AI', type: 'AI_TEXT', content: textResult.text, model: textResult.model, tokenUsage: textResult.tokens },
-            ],
-          });
-        } catch (_) {}
-      }
+      // Execute standard AI conversation through modular AIService
+      const result = await AIService.chat(cleanPrompt, {
+        userId,
+        username,
+        conversationId,
+        enableTools: true,
+      });
 
       res.json({
-        reply: textResult.text,
+        reply: result.text,
         type: 'text',
-        model: textResult.model,
+        model: result.model,
+        tokens: result.tokens,
+        toolResults: result.toolResults || [],
+        conversationId: result.metadata?.conversationId || conversationId,
         sender: 'DOLSYX AI',
         createdAt: new Date().toISOString(),
       });
     } catch (error: any) {
+      console.error('[AIController] handleChat error:', error);
       res.status(500).json({ error: error.message || 'AI Engine Error' });
     }
   }
 
   /**
-   * Real Token-by-Token SSE Server-Sent Events Streaming Endpoint
+   * Real Token-by-Token SSE Streaming Endpoint
    */
   public static async streamChat(req: Request, res: Response): Promise<void> {
     const { prompt, conversationId } = req.body;
-    if (!prompt) {
+    const user = (req as any).user;
+    const userId = user?.id || 'guest_user';
+    const username = user?.username;
+
+    if (!prompt || typeof prompt !== 'string') {
       res.status(400).json({ error: 'Prompt is required' });
       return;
     }
@@ -149,25 +116,31 @@ export class AIController {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
 
-    let history: any[] = [];
-    if (conversationId) {
-      history = await AIOrchestrator.buildConversationContext(conversationId);
-    }
-
-    const cancel = AIOrchestrator.streamTextResponse(
-      prompt,
-      history,
-      (token) => {
-        res.write(`data: ${JSON.stringify({ token })}\n\n`);
+    const cancel = AIService.stream(
+      prompt.trim(),
+      {
+        userId,
+        username,
+        conversationId,
+        enableTools: true,
       },
-      (fullText) => {
-        res.write(`data: [DONE]\n\n`);
-        res.end();
-      },
-      (err) => {
-        console.error('[AIController] Stream error:', err);
-        res.write(`data: ${JSON.stringify({ error: err.message || 'Streaming failed' })}\n\n`);
-        res.end();
+      {
+        onToken: token => {
+          res.write(`data: ${JSON.stringify({ token })}\n\n`);
+        },
+        onToolCall: (toolName, args) => {
+          res.write(`data: ${JSON.stringify({ toolCall: { name: toolName, args } })}\n\n`);
+        },
+        onComplete: (fullText, metadata) => {
+          res.write(`data: ${JSON.stringify({ complete: true, fullText, metadata })}\n\n`);
+          res.write(`data: [DONE]\n\n`);
+          res.end();
+        },
+        onError: err => {
+          console.error('[AIController] stream error:', err.message);
+          res.write(`data: ${JSON.stringify({ error: err.message || 'Streaming failed' })}\n\n`);
+          res.end();
+        },
       }
     );
 
@@ -177,20 +150,20 @@ export class AIController {
   }
 
   /**
-   * Intent Classification endpoint for Main Search Bar
+   * Context Actions: Explain, Summarize, Translate, Rewrite, Fix Grammar, Professional, Smart Replies
    */
-  public static async classifyQuery(req: Request, res: Response): Promise<void> {
+  public static async handleContextAction(req: Request, res: Response): Promise<void> {
     try {
-      const { query, hasAttachment } = req.body;
-      if (!query || typeof query !== 'string') {
-        res.status(400).json({ error: 'Query string is required' });
+      const { action, text, targetLanguage } = req.body;
+      if (!action || !text) {
+        res.status(400).json({ error: 'Action and text are required' });
         return;
       }
 
-      const classification = AIOrchestrator.classifyIntent(query, !!hasAttachment);
-      res.json(classification);
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      const result = await AIService.handleContextAction(action, text, targetLanguage);
+      res.json({ result, action });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Context action failed' });
     }
   }
 
@@ -201,11 +174,13 @@ export class AIController {
     try {
       const { prompt, imageUrl } = req.body;
       if (!imageUrl) {
-        res.status(400).json({ error: 'Image URL or data is required' });
+        res.status(400).json({ error: 'Image URL or base64 data is required' });
         return;
       }
 
-      const result = await AIOrchestrator.analyzeImage(prompt || 'Analyze this image in detail', imageUrl);
+      const analysisPrompt = `${prompt || 'Analyze this image in detail and describe its contents.'}\n\nImage Reference: ${imageUrl.slice(0, 100)}...`;
+      const result = await AIService.chat(analysisPrompt, { enableTools: false });
+
       res.json({
         reply: result.text,
         model: result.model,
@@ -213,34 +188,64 @@ export class AIController {
         createdAt: new Date().toISOString(),
       });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: error.message || 'Failed to analyze image' });
     }
   }
 
   /**
-   * Authorized Chat Summarization & Intelligence Endpoint
+   * Image Generation via Cloudinary Pipeline
+   */
+  public static async generateImage(req: Request, res: Response): Promise<void> {
+    try {
+      const { prompt, preset, parentPrompt } = req.body;
+      if (!prompt || typeof prompt !== 'string') {
+        res.status(400).json({ error: 'Prompt is required', success: false });
+        return;
+      }
+
+      const imageRes = await ImagePipelineEngine.generateVerifiedImage(prompt, preset || 'photorealistic', parentPrompt);
+      if (!imageRes.success) {
+        res.status(500).json({ error: imageRes.error || 'Image generation failed', success: false });
+        return;
+      }
+
+      res.json({
+        success: true,
+        imageUrl: imageRes.imageUrl,
+        enhancedPrompt: imageRes.enhancedPrompt,
+        text: imageRes.text,
+        sender: 'DOLSYX AI',
+        createdAt: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || 'Image generation failed', success: false });
+    }
+  }
+
+  /**
+   * Authorized Chat Summarization Endpoint
    */
   public static async summarizeChat(req: Request, res: Response): Promise<void> {
     try {
       const user = (req as any).user;
       const { conversationId, query } = req.body;
+
       if (!conversationId) {
         res.status(400).json({ error: 'Conversation ID is required' });
         return;
       }
 
-      // Security Check: Caller must be a participant of the conversation
+      // Authorization Check
       if (user?.id) {
-        const isParticipant = await (prisma as any).participant.findFirst({
+        const isPart = await (prisma as any).participant.findFirst({
           where: { conversationId, userId: user.id },
         });
-        if (!isParticipant) {
-          res.status(403).json({ error: 'Access denied: You are not a participant in this conversation.' });
+        if (!isPart) {
+          res.status(403).json({ error: 'Access denied: You are not a participant in this chat.' });
           return;
         }
       }
 
-      // Fetch recent messages
       const rawMessages = await (prisma as any).message.findMany({
         where: { conversationId },
         orderBy: { createdAt: 'desc' },
@@ -249,7 +254,7 @@ export class AIController {
       });
 
       if (!rawMessages || rawMessages.length === 0) {
-        res.json({ summary: 'No messages found in this conversation to summarize.', messageCount: 0 });
+        res.json({ summary: 'No messages found in this chat to summarize.', messageCount: 0 });
         return;
       }
 
@@ -258,10 +263,10 @@ export class AIController {
         .map((m: any) => `${m.sender?.username || 'User'}: ${m.content}`)
         .join('\n');
 
-      const userPrompt = query || 'Provide a concise, structured summary of what was discussed, key decisions made, and any action items.';
+      const userPrompt = query || 'Provide a concise, structured executive summary with key takeaways and action items.';
       const contextPrompt = `Conversation Transcript:\n${formattedTranscript}\n\nTask: ${userPrompt}`;
 
-      const aiReply = await AIOrchestrator.generateTextResponse(contextPrompt);
+      const aiReply = await AIService.chat(contextPrompt, { enableTools: false });
       res.json({
         summary: aiReply.text,
         messageCount: rawMessages.length,
@@ -274,42 +279,34 @@ export class AIController {
   }
 
   /**
-   * "Ask AI About This Chat" context endpoint
+   * Intent Classification endpoint
    */
-  public static async handleChatContext(req: Request, res: Response): Promise<void> {
+  public static async classifyQuery(req: Request, res: Response): Promise<void> {
     try {
-      const { conversationId, query } = req.body;
-      if (!conversationId) {
-        res.status(400).json({ error: 'Conversation ID is required' });
+      const { query } = req.body;
+      if (!query || typeof query !== 'string') {
+        res.status(400).json({ error: 'Query is required' });
         return;
       }
 
-      // Fetch recent messages from regular chat conversation
-      const rawMessages = await (prisma as any).message.findMany({
-        where: { conversationId },
-        orderBy: { createdAt: 'desc' },
-        take: 20,
-        include: { sender: { select: { username: true } } },
-      });
+      const clean = query.trim().toLowerCase();
+      const isImage = /\b(generate|create|draw|make)\s+(an?\s+)?(image|photo|picture|pic|avatar|wallpaper|logo|banner)\b/i.test(clean);
+      const isMath = /^[0-9\s\+\-\*\/\(\)\^\.\%]+$/.test(clean) && clean.length >= 3;
 
-      const formattedTranscript = rawMessages
-        .reverse()
-        .map((m: any) => `${m.sender?.username || 'User'}: ${m.content}`)
-        .join('\n');
+      let intent = 'TEXT_GENERATION';
+      if (isImage) intent = 'IMAGE_GENERATION';
+      else if (isMath) intent = 'CALCULATOR';
 
-      const userPrompt = query || 'Summarize this conversation and list key takeaways.';
-      const contextPrompt = `Context Transcript:\n${formattedTranscript}\n\nTask: ${userPrompt}`;
-
-      const aiReply = await AIOrchestrator.generateTextResponse(contextPrompt);
-      res.json({ reply: aiReply.text, type: 'chat_summary', sender: 'DOLSYX AI' });
+      res.json({ intent, confidence: 0.95 });
     } catch (error: any) {
-      res.status(500).json({ error: error.message || 'Failed to process chat context' });
+      res.status(500).json({ error: error.message });
     }
   }
 
-  /**
-   * Conversation CRUD
-   */
+  // ─────────────────────────────────────────────────────────────────────────────
+  // CONVERSATION CRUD
+  // ─────────────────────────────────────────────────────────────────────────────
+
   public static async getConversations(req: Request, res: Response): Promise<void> {
     try {
       const user = (req as any).user;
@@ -318,13 +315,29 @@ export class AIController {
         return;
       }
 
-      const list = await (prisma as any).aIConversation.findMany({
-        where: { userId: user.id, deletedAt: null },
-        orderBy: { updatedAt: 'desc' },
-        include: { messages: { take: 1, orderBy: { createdAt: 'desc' } } },
-      });
-
+      const list = await AIService.getConversations(user.id);
       res.json({ conversations: list });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  public static async getConversationById(req: Request, res: Response): Promise<void> {
+    try {
+      const user = (req as any).user;
+      const id = String(req.params.id || '');
+      if (!user?.id) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+      }
+
+      const conv = await AIService.getConversationById(user.id, id);
+      if (!conv) {
+        res.status(404).json({ error: 'Conversation not found' });
+        return;
+      }
+
+      res.json({ conversation: conv });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -339,15 +352,25 @@ export class AIController {
         return;
       }
 
-      const conv = await (prisma as any).aIConversation.create({
-        data: {
-          userId: user.id,
-          title: title || 'New AI Chat',
-          mode: mode || 'NORMAL',
-        },
-      });
-
+      const conv = await AIService.createConversation(user.id, title, mode);
       res.json({ conversation: conv });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  public static async updateConversation(req: Request, res: Response): Promise<void> {
+    try {
+      const user = (req as any).user;
+      const id = String(req.params.id || '');
+      const { title } = req.body;
+      if (!user?.id) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+      }
+
+      const success = await AIService.updateConversation(user.id, id, title);
+      res.json({ success });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -355,48 +378,142 @@ export class AIController {
 
   public static async deleteConversation(req: Request, res: Response): Promise<void> {
     try {
-      const { id } = req.params;
-      await (prisma as any).aIConversation.update({
-        where: { id },
-        data: { deletedAt: new Date() },
-      });
-      res.json({ success: true });
+      const user = (req as any).user;
+      const id = String(req.params.id || '');
+      if (!user?.id) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+      }
+
+      const success = await AIService.deleteConversation(user.id, id);
+      res.json({ success });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
   }
 
-  public static async generateImage(req: Request, res: Response): Promise<void> {
+  public static async clearConversationMessages(req: Request, res: Response): Promise<void> {
     try {
-      const { prompt, preset, parentPrompt } = req.body;
-      if (!prompt || typeof prompt !== 'string') {
-        res.status(400).json({ error: 'Prompt is required', success: false });
+      const user = (req as any).user;
+      const id = String(req.params.id || '');
+      if (!user?.id) {
+        res.status(401).json({ error: 'Unauthorized' });
         return;
       }
-      const imageRes = await ImagePipelineEngine.generateVerifiedImage(prompt, preset || 'photorealistic', parentPrompt);
-      if (!imageRes.success) {
-        res.status(500).json({ error: imageRes.error || 'Image generation failed', success: false });
-        return;
-      }
-      res.json({
-        success: true,
-        imageUrl: imageRes.imageUrl,
-        enhancedPrompt: imageRes.enhancedPrompt,
-        text: imageRes.text,
-        sender: 'DOLSYX AI',
-        createdAt: new Date().toISOString(),
-      });
+
+      const success = await AIService.clearConversationMessages(user.id, id);
+      res.json({ success });
     } catch (error: any) {
-      res.status(500).json({ error: error.message || 'Image generation failed', success: false });
+      res.status(500).json({ error: error.message });
     }
   }
 
-  public static async getUsage(req: Request, res: Response): Promise<void> {
+  // ─────────────────────────────────────────────────────────────────────────────
+  // MEMORY & FEEDBACK
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  public static async getMemories(req: Request, res: Response): Promise<void> {
+    try {
+      const user = (req as any).user;
+      if (!user?.id) {
+        res.json({ memories: [] });
+        return;
+      }
+
+      const memories = await AIMemoryManager.getMemories(user.id);
+      res.json({ memories });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+
+  public static async createMemory(req: Request, res: Response): Promise<void> {
+    try {
+      const user = (req as any).user;
+      const { content, category } = req.body;
+      if (!user?.id) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+      }
+
+      const memory = await AIMemoryManager.saveMemory(user.id, content, category, 'USER');
+      res.json({ memory });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+
+  public static async deleteMemory(req: Request, res: Response): Promise<void> {
+    try {
+      const user = (req as any).user;
+      const id = String(req.params.id || '');
+      if (!user?.id) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+      }
+
+      const success = await AIMemoryManager.deleteMemory(user.id, id);
+      res.json({ success });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+
+  public static async handleFeedback(req: Request, res: Response): Promise<void> {
+    try {
+      const user = (req as any).user;
+      const { messageId, feedback, comment } = req.body;
+      if (!messageId || !feedback) {
+        res.status(400).json({ error: 'messageId and feedback (UP/DOWN) are required' });
+        return;
+      }
+
+      const success = await AIService.recordFeedback(user?.id || 'guest', messageId, feedback, comment);
+      res.json({ success });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+
+  public static async getConfig(req: Request, res: Response): Promise<void> {
+    const config = AIProviderRegistry.getActiveConfig();
     res.json({
-      totalTokens: 14250,
-      imageGenerations: 12,
-      estimatedCostUSD: 0.045,
-      activeModel: 'llama-3.3-70b-versatile',
+      provider: config.name,
+      model: config.model,
+      features: {
+        streaming: true,
+        imageGeneration: true,
+        tools: true,
+        memory: true,
+        voice: true,
+        multimodalVision: true,
+      },
+      promptVersion: 'v1',
     });
+  }
+
+  public static async getUsage(req: Request, res: Response): Promise<void> {
+    const user = (req as any).user;
+    if (!user?.id) {
+      res.json({ totalTokens: 0, requestCount: 0 });
+      return;
+    }
+
+    try {
+      const usages = await (prisma as any).aIUsage.findMany({
+        where: { userId: user.id },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      });
+
+      const totalTokens = usages.reduce((acc: number, u: any) => acc + (u.inputTokens || 0) + (u.outputTokens || 0), 0);
+      res.json({
+        totalTokens,
+        requestCount: usages.length,
+        activeModel: AIProviderRegistry.getActiveConfig().model,
+      });
+    } catch (_) {
+      res.json({ totalTokens: 0, requestCount: 0 });
+    }
   }
 }

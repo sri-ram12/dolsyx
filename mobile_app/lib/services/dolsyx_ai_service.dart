@@ -5,12 +5,15 @@ import 'api_service.dart';
 class DolsyxAiService {
   final ApiService _apiService = ApiService();
 
-  Future<String> queryAiEngine(String prompt, {String? preset}) async {
+  /// Primary AI query function - calls real backend AI Gateway
+  Future<String> queryAiEngine(
+    String prompt, {
+    String? preset,
+    String? conversationId,
+  }) async {
     final cleanPrompt = prompt.trim();
-    if (cleanPrompt.isEmpty) return 'Please type a valid prompt.';
-    final clean = cleanPrompt.toLowerCase();
+    if (cleanPrompt.isEmpty) return 'Please enter a prompt.';
 
-    // 1. Try Backend AI API endpoint first (with Cloudinary Image Verification & Factual Search)
     try {
       final token = await _apiService.getToken();
       final response = await http.post(
@@ -21,112 +24,161 @@ class DolsyxAiService {
         },
         body: jsonEncode({
           'prompt': cleanPrompt,
-          'preset': preset,
+          'preset': preset?.toLowerCase(),
+          'conversationId': conversationId,
         }),
-      ).timeout(const Duration(seconds: 25));
+      ).timeout(const Duration(seconds: 35));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+
+        // Handle Image result
+        if (data['type'] == 'image_result' || data['imageUrl'] != null) {
+          return jsonEncode({
+            'type': 'image_result',
+            'text': data['reply'] ?? 'Here is your generated image ✨',
+            'imageUrl': data['imageUrl'] ?? (data['media'] != null ? data['media']['url'] : null),
+            'imagePrompt': data['imagePrompt'] ?? cleanPrompt,
+            'conversationId': data['conversationId'],
+          });
+        }
+
+        // Handle standard text reply
         if (data['reply'] != null && data['reply'].toString().trim().isNotEmpty) {
-          final replyStr = data['reply'].toString().trim();
-          final lower = replyStr.toLowerCase();
-          final isBudgetError = lower.contains('reached its budget') || lower.contains('raise the key budget') || lower.contains('pollinations.ai/edit-key');
-          if (!isBudgetError) {
-            if (data['type'] == 'image_result' || data['imageUrl'] != null) {
-              return jsonEncode({
-                'type': 'image_result',
-                'text': data['reply'],
-                'imageUrl': data['imageUrl'] ?? (data['media'] != null ? data['media']['url'] : null),
-                'imagePrompt': data['imagePrompt'] ?? cleanPrompt,
-              });
-            }
-            return replyStr;
-          }
+          return data['reply'].toString().trim();
+        }
+      } else {
+        try {
+          final err = jsonDecode(response.body);
+          return err['error'] ?? err['message'] ?? 'DOLSYX AI server error (${response.statusCode})';
+        } catch (_) {
+          return 'DOLSYX AI server error (${response.statusCode})';
         }
       }
     } catch (e) {
-      // Backend request timeout/error, fallback below
+      print('DOLSYX AI queryAiEngine error: $e');
+      return 'DOLSYX AI encountered a connection issue. Please check your network and retry.';
     }
 
-    // 2. Client-side fallback for Image Generation Intent if backend was unreachable
-    if (_isImageIntent(clean)) {
-      final imagePrompt = _extractImagePrompt(cleanPrompt);
-      final styleSuffix = preset != null && preset.isNotEmpty ? ', $preset style, ultra detailed, 8k resolution' : '';
-      final fullPrompt = '$imagePrompt$styleSuffix';
-      final imageUrl = 'https://image.pollinations.ai/prompt/${Uri.encodeComponent(fullPrompt)}?width=1024&height=1024&nologo=true&seed=${DateTime.now().millisecondsSinceEpoch}';
-
-      final emoji = clean.contains('car') || clean.contains('porsche') || clean.contains('vehicle') || clean.contains('drive') ? '🚗' : '✨';
-      return jsonEncode({
-        'type': 'image_result',
-        'text': 'Here is your generated image $emoji',
-        'imageUrl': imageUrl,
-        'imagePrompt': fullPrompt,
-      });
-    }
-
-    // 3. Greetings Local Fallback
-    if (RegExp(r'^(hi|hii|hello|hey|greetings|good morning|good afternoon|good evening)\b', caseSensitive: false).hasMatch(clean)) {
-      return "Hii 😊\n\nHow can **DOLSYX AI** help you today?";
-    }
-
-    // 4. Sense Organs & Anatomy
-    if (clean.contains('sense organ') || clean.contains('five senses') || clean.contains('5 sense')) {
-      return "The 5 primary sense organs are:\n\n1. **Eyes** → sense of **sight**\n2. **Ears** → sense of **hearing**\n3. **Nose** → sense of **smell**\n4. **Tongue** → sense of **taste**\n5. **Skin** → sense of **touch**\n\nEach one picks up different info from the world around us and sends it to the brain to process.";
-    }
-
-    // 5. Quick Prompts & Message Templates
-    if (clean.contains('classmate')) {
-      return "Here is a message for your classmate:\n\n\"Hey! Hope you're doing well. Just wanted to check in about our recent class notes and assignment details. Let me know when you're free to catch up!\"";
-    }
-    if (clean.contains('cover letter')) {
-      return "**Cover Letter Draft**:\n\nDear Hiring Manager,\n\nI am excited to express my strong interest in the open position. With a solid background in problem-solving and collaboration, I am confident in my ability to contribute value immediately.\n\nBest regards,\nCandidate";
-    }
-    if (clean.contains('friend')) {
-      return "Here's a message for your friend:\n\n\"Hey! It's been a while. Let's grab coffee or hang out this weekend. Let me know what day works for you!\"";
-    }
-    if (clean.contains('job')) {
-      return "Here are 3 steps to help find a job:\n1. Update your LinkedIn profile and highlight key projects.\n2. Customize your resume for each role.\n3. Reach out to contacts for referrals and networking.";
-    }
-    if (clean.contains('coworker')) {
-      return "Here is a message for your coworker:\n\n\"Hi! Hope your day is going smoothly. Quick update regarding our project task—let me know when you're available for a 2-minute sync.\"";
-    }
-    if (clean.contains('event') || clean.contains('wedding')) {
-      return "Event Planning Checklist:\n1. **Theme & Budget**: Set overall scope.\n2. **Venue**: Book location and date.\n3. **Guest List**: Send out invites early.\n4. **Catering**: Finalize menu.";
-    }
-
-    // 6. Telugu Dictionary & Translation Engine
-    if (clean.contains('telugu')) {
-      return _generateTeluguTranslation(cleanPrompt, clean);
-    }
-
-    // 7. Direct Wikipedia Fact Lookup Fallback
-    final wikiFact = await _fetchWikipediaClientFact(cleanPrompt);
-    if (wikiFact != null && wikiFact.isNotEmpty) {
-      return wikiFact;
-    }
-
-    return "Here is what I found regarding **\"$cleanPrompt\"**:\n\nDOLSYX AI has processed your request successfully.";
+    return 'No response was generated. Please try again.';
   }
 
-  /// Feature #19: Smart AI Reply Suggestions
+  /// Real-time Token-by-Token Live Streaming from Backend
+  Stream<Map<String, dynamic>> streamAiResponse(
+    String prompt, {
+    String? preset,
+    String? conversationId,
+    http.Client? client,
+  }) async* {
+    final cleanPrompt = prompt.trim();
+    if (cleanPrompt.isEmpty) {
+      yield {'type': 'error', 'error': 'Prompt cannot be empty'};
+      return;
+    }
+
+    final activeClient = client ?? http.Client();
+
+    try {
+      final token = await _apiService.getToken();
+      final request = http.Request('POST', Uri.parse('${ApiService.baseUrl}/ai/stream'));
+      request.headers['Content-Type'] = 'application/json';
+      if (token != null) {
+        request.headers['Authorization'] = 'Bearer $token';
+      }
+      request.body = jsonEncode({
+        'prompt': cleanPrompt,
+        'preset': preset?.toLowerCase(),
+        'conversationId': conversationId,
+      });
+
+      final streamedResponse = await activeClient.send(request);
+
+      if (streamedResponse.statusCode != 200) {
+        yield {'type': 'error', 'error': 'Streaming connection failed (HTTP ${streamedResponse.statusCode})'};
+        return;
+      }
+
+      String buffer = '';
+      await for (final chunk in streamedResponse.stream.transform(utf8.decoder)) {
+        buffer += chunk;
+        final lines = buffer.split('\n');
+        buffer = lines.removeLast();
+
+        for (final line in lines) {
+          final trimmed = line.trim();
+          if (trimmed.isEmpty || !trimmed.startsWith('data:')) continue;
+          final dataStr = trimmed.substring(5).trim();
+          if (dataStr == '[DONE]') {
+            yield {'type': 'done'};
+            return;
+          }
+
+          try {
+            final parsed = jsonDecode(dataStr);
+            if (parsed is Map) {
+              if (parsed['token'] != null) {
+                yield {'type': 'token', 'token': parsed['token']};
+              } else if (parsed['toolCall'] != null) {
+                yield {'type': 'tool', 'tool': parsed['toolCall']['name'] ?? 'Tool'};
+              } else if (parsed['complete'] == true) {
+                yield {
+                  'type': 'complete',
+                  'fullText': parsed['fullText'],
+                  'conversationId': parsed['metadata']?['conversationId'],
+                };
+              } else if (parsed['error'] != null) {
+                yield {'type': 'error', 'error': parsed['error']};
+              }
+            }
+          } catch (_) {}
+        }
+      }
+    } catch (e) {
+      yield {'type': 'error', 'error': e.toString()};
+    } finally {
+      if (client == null) {
+        activeClient.close();
+      }
+    }
+  }
+
+  /// Feature: Smart AI Reply Suggestions powered by real backend context action
   Future<List<String>> getSmartReplySuggestions(String lastMessage) async {
-    final clean = lastMessage.toLowerCase().trim();
-    if (clean.contains('how are you')) {
-      return ["I'm good, thanks!", "Doing great!", "How about you?"];
-    }
-    if (clean.contains('where are you') || clean.contains('location')) {
-      return ["On my way!", "At home", "Share live location"];
-    }
-    if (clean.contains('call') || clean.contains('phone')) {
-      return ["Call you in 5 mins", "Can't talk right now", "Sure, calling!"];
-    }
-    if (clean.contains('thanks') || clean.contains('thank you')) {
-      return ["You're welcome!", "Anytime 😊", "No problem!"];
-    }
+    final clean = lastMessage.trim();
+    if (clean.isEmpty) return ["Sounds good!", "Got it 👍", "Let me check"];
+
+    try {
+      final token = await _apiService.getToken();
+      final response = await http.post(
+        Uri.parse('${ApiService.baseUrl}/ai/context-action'),
+        headers: {
+          'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'action': 'generate_reply',
+          'text': clean,
+        }),
+      ).timeout(const Duration(seconds: 6));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final raw = data['result']?.toString() ?? '';
+        final lines = raw
+            .split('\n')
+            .map((l) => l.replaceAll(RegExp(r'^\d+[\.\)]\s*|"'), '').trim())
+            .where((l) => l.isNotEmpty && l.length < 60)
+            .take(3)
+            .toList();
+
+        if (lines.isNotEmpty) return lines;
+      }
+    } catch (_) {}
+
     return ["Sounds good!", "Got it 👍", "Let me check"];
   }
 
-  /// Intent classification
+  /// Feature: Intent classification for search bar
   Future<Map<String, dynamic>> classifyQuery(String query) async {
     try {
       final token = await _apiService.getToken();
@@ -137,18 +189,18 @@ class DolsyxAiService {
           if (token != null) 'Authorization': 'Bearer $token',
         },
         body: jsonEncode({'query': query.trim()}),
-      ).timeout(const Duration(seconds: 4));
+      ).timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
         return jsonDecode(response.body);
       }
     } catch (_) {}
-    return {'intent': 'NORMAL_SEARCH', 'confidence': 0.5};
+    return {'intent': 'TEXT_GENERATION', 'confidence': 0.8};
   }
 
-  /// Feature #20: Chat Summarization Engine
-  Future<String> summarizeChatHistory(List<String> messages, {String? conversationId}) async {
-    if (messages.isEmpty) return "No messages to summarize.";
+  /// Feature: Chat Summarization Engine
+  Future<String> summarizeChatHistory(List<String> messages, {String? conversationId, String? query}) async {
+    if (messages.isEmpty && conversationId == null) return "No messages to summarize.";
 
     if (conversationId != null && conversationId.isNotEmpty) {
       try {
@@ -159,8 +211,11 @@ class DolsyxAiService {
             'Content-Type': 'application/json',
             if (token != null) 'Authorization': 'Bearer $token',
           },
-          body: jsonEncode({'conversationId': conversationId}),
-        ).timeout(const Duration(seconds: 8));
+          body: jsonEncode({
+            'conversationId': conversationId,
+            'query': query,
+          }),
+        ).timeout(const Duration(seconds: 15));
 
         if (response.statusCode == 200) {
           final data = jsonDecode(response.body);
@@ -171,84 +226,86 @@ class DolsyxAiService {
       } catch (_) {}
     }
 
-    final count = messages.length;
-    final snippet = messages.take(5).join('; ');
-    return "Summary of recent $count messages:\n• Main topic: $snippet\n• Status: Synchronized";
+    final snippet = messages.take(15).join('\n');
+    return queryAiEngine('Summarize this conversation clearly:\n\n$snippet');
   }
 
-  bool _isImageIntent(String clean) {
-    const imageKeywords = ['image', 'picture', 'pic', 'photo', 'draw', 'wallpaper', 'generate', 'create pic', 'paint', 'sketch', 'car', 'porsche', 'landscape', 'portrait', 'avatar', 'art'];
-    const nonImageQuestions = ['what is an image', 'image format', 'what is a picture', 'how to take a photo', 'what is a car', 'car mechanism', 'car engine'];
-
-    if (nonImageQuestions.any((q) => clean.contains(q))) {
-      return false;
-    }
-
-    return imageKeywords.any((keyword) => clean.contains(keyword));
-  }
-
-  String _extractImagePrompt(String raw) {
-    String p = raw
-        .replaceAll(RegExp(r'generate an image of', caseSensitive: false), '')
-        .replaceAll(RegExp(r'create an image of', caseSensitive: false), '')
-        .replaceAll(RegExp(r'draw a picture of', caseSensitive: false), '')
-        .replaceAll(RegExp(r'generate image of', caseSensitive: false), '')
-        .replaceAll(RegExp(r'create image of', caseSensitive: false), '')
-        .replaceAll(RegExp(r'generate image', caseSensitive: false), '')
-        .replaceAll(RegExp(r'create image', caseSensitive: false), '')
-        .replaceAll(RegExp(r'generate pic of', caseSensitive: false), '')
-        .replaceAll(RegExp(r'generate photo of', caseSensitive: false), '')
-        .replaceAll(RegExp(r'generate', caseSensitive: false), '')
-        .replaceAll(RegExp(r'image', caseSensitive: false), '')
-        .replaceAll(RegExp(r'picture', caseSensitive: false), '')
-        .replaceAll(RegExp(r'photo', caseSensitive: false), '')
-        .replaceAll(RegExp(r'pic', caseSensitive: false), '')
-        .replaceAll(RegExp(r'draw', caseSensitive: false), '')
-        .trim();
-
-    if (p.isEmpty || p.length < 2 || p.toLowerCase() == 'car' || p.toLowerCase() == 'porsche') {
-      return 'A sleek silver modern Porsche sports car driving on a scenic mountain highway under bright sunny clear sky';
-    }
-    return p;
-  }
-
-  String _generateTeluguTranslation(String rawPrompt, String clean) {
-    if (clean.contains("i don't know") || clean.contains('dont know') || clean.contains('do not know')) {
-      return '**నాకు తెలియదు (Naaku theliyadu)**';
-    }
-    if (clean.contains('love letter') || clean.contains('letter') || clean.contains('poem')) {
-      return 'నా ప్రియమైన బంగారం ❤️,\n\nనువ్వు నా జీవితంలోకి వచ్చిన క్షణం నుంచి ప్రతి రోజు ఒక అందమైన కలలా ఉంది. నీ నవ్వు నా ప్రపంచాన్ని వెలిగిస్తుంది, నీ మాటలు నా మనసుకు ప్రశాంతతను ఇస్తాయి. \n\nనేను నిన్ను ప్రాణంగా ప్రేమిస్తున్నాను. ప్రతి జన్మలోనూ నువ్వే నా తోడుగా ఉండాలని కోరుకుంటున్నాను.\n\nఎల్లప్పుడూ నీ ప్రేమతో 💖';
-    }
-    if (clean.contains('thank you') || clean.contains('thanks')) {
-      return '**ధన్యవాదాలు (Dhanyavaadalu)**';
-    }
-    if (clean.contains('how are you')) {
-      return '**ఎలా ఉన్నారు? (Ela unnaaru?)**';
-    }
-
-    final targetPhrase = rawPrompt.replaceAll(RegExp(r'(in telugu meaning|telugu meaning|meaning in telugu|in telugu|telugu)', caseSensitive: false), '').trim();
-    return '**$targetPhrase**: ${targetPhrase.isNotEmpty ? targetPhrase : "తెలుగు అర్ధం"}';
-  }
-
-  Future<String?> _fetchWikipediaClientFact(String query) async {
+  /// Context actions (explain, translate, rewrite, fix grammar)
+  Future<String> performContextAction(String action, String text, {String? targetLanguage}) async {
     try {
-      final cleanTopic = query.replaceAll(RegExp(r'^(what are|what is|explain|tell me about|who is|where is|how does|definition of|give)\s+', caseSensitive: false), '').trim();
-      if (cleanTopic.isEmpty) return null;
-
-      final formattedTopic = Uri.encodeComponent(cleanTopic.replaceAll(' ', '_'));
-      final url = Uri.parse('https://en.wikipedia.org/api/rest_v1/page/summary/$formattedTopic');
-
-      final response = await http.get(url, headers: {
-        'User-Agent': 'DOLSYX-AI/1.0 (https://dolsyx-app.onrender.com; contact@dolsyx.com)'
-      }).timeout(const Duration(seconds: 4));
+      final token = await _apiService.getToken();
+      final response = await http.post(
+        Uri.parse('${ApiService.baseUrl}/ai/context-action'),
+        headers: {
+          'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'action': action,
+          'text': text,
+          'targetLanguage': targetLanguage,
+        }),
+      ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        if (data['extract'] != null && data['extract'].toString().length > 25 && data['type'] != 'disambiguation') {
-          return data['extract'].toString();
-        }
+        return data['result'] ?? text;
       }
     } catch (_) {}
-    return null;
+    return text;
+  }
+
+  /// Conversation CRUD
+  Future<List<Map<String, dynamic>>> getConversations() async {
+    try {
+      final token = await _apiService.getToken();
+      final response = await http.get(
+        Uri.parse('${ApiService.baseUrl}/ai/conversations'),
+        headers: {
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+      ).timeout(const Duration(seconds: 8));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final list = data['conversations'] as List<dynamic>?;
+        return list?.map((c) => Map<String, dynamic>.from(c)).toList() ?? [];
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  Future<bool> deleteConversation(String conversationId) async {
+    try {
+      final token = await _apiService.getToken();
+      final response = await http.delete(
+        Uri.parse('${ApiService.baseUrl}/ai/conversations/$conversationId'),
+        headers: {
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+      ).timeout(const Duration(seconds: 6));
+
+      return response.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> sendFeedback(String messageId, String feedback, {String? comment}) async {
+    try {
+      final token = await _apiService.getToken();
+      await http.post(
+        Uri.parse('${ApiService.baseUrl}/ai/feedback'),
+        headers: {
+          'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'messageId': messageId,
+          'feedback': feedback,
+          'comment': comment,
+        }),
+      ).timeout(const Duration(seconds: 5));
+    } catch (_) {}
   }
 }

@@ -12,6 +12,7 @@ import { AIContextManager } from './context-manager.js';
 import { AIPromptManager } from './prompt-manager.js';
 import { AIToolRegistry } from './tools/registry.js';
 import { AIProviderRegistry } from './provider-registry.js';
+import { AISynthesizer } from './synthesizer.js';
 
 export interface ChatOptions {
   userId?: string | undefined;
@@ -69,8 +70,30 @@ export class AIService {
       conversationId: convId,
     };
 
-    const provider = AIProviderRegistry.getActiveProvider();
-    const result = await provider.generateCompletion(messages, tools, toolContext);
+    let result: { text: string; model: string; tokens: number; toolResults?: any[] | undefined };
+
+    try {
+      const provider = AIProviderRegistry.getActiveProvider();
+      result = await provider.generateCompletion(messages, tools, toolContext);
+
+      if (AISafetyLayer.isBudgetOrQuotaError(result.text)) {
+        console.warn('[AIService] Upstream provider returned quota/budget message. Activating intelligent synthesizer.');
+        const synthText = await AISynthesizer.synthesize(sanitized, options.username);
+        result = {
+          text: synthText,
+          model: 'dolsyx-ai-synthesizer',
+          tokens: Math.ceil(synthText.length / 4),
+        };
+      }
+    } catch (err) {
+      console.warn('[AIService] Provider execution failed, activating intelligent synthesizer fallback:', err);
+      const synthText = await AISynthesizer.synthesize(sanitized, options.username);
+      result = {
+        text: synthText,
+        model: 'dolsyx-ai-synthesizer',
+        tokens: Math.ceil(synthText.length / 4),
+      };
+    }
 
     // Persist messages to database if user is authenticated
     if (userId !== 'guest_user' && convId) {
@@ -176,12 +199,53 @@ export class AIService {
 
         const provider = AIProviderRegistry.getActiveProvider();
 
+        let hasReceivedToken = false;
+        let isBudgetErrorDetected = false;
+        let streamAccumulator = '';
+
         activeCancel = provider.streamCompletion(
           messages,
           {
-            onToken: callbacks.onToken,
+            onToken: token => {
+              if (isBudgetErrorDetected) return;
+              streamAccumulator += token;
+              if (AISafetyLayer.isBudgetOrQuotaError(streamAccumulator)) {
+                isBudgetErrorDetected = true;
+                if (activeCancel) activeCancel();
+                AISynthesizer.stream(
+                  sanitized,
+                  {
+                    onToken: callbacks.onToken,
+                    onComplete: async synthText => {
+                      if (userId !== 'guest_user' && convId) {
+                        try {
+                          await (prisma as any).aIMessage.createMany({
+                            data: [
+                              { conversationId: convId, sender: 'USER', type: 'USER_TEXT', content: sanitized },
+                              { conversationId: convId, sender: 'AI', type: 'AI_TEXT', content: synthText },
+                            ],
+                          });
+                        } catch (_) {}
+                      }
+                      callbacks.onComplete(synthText, { conversationId: convId });
+                    },
+                    onError: callbacks.onError,
+                  },
+                  options.username
+                );
+                return;
+              }
+              hasReceivedToken = true;
+              callbacks.onToken(token);
+            },
             onToolCall: callbacks.onToolCall,
             onComplete: async fullText => {
+              if (isBudgetErrorDetected) return;
+              if (AISafetyLayer.isBudgetOrQuotaError(fullText)) {
+                const synthText = await AISynthesizer.synthesize(sanitized, options.username);
+                callbacks.onComplete(synthText, { conversationId: convId });
+                return;
+              }
               if (userId !== 'guest_user' && convId) {
                 try {
                   await (prisma as any).aIMessage.createMany({
@@ -194,13 +258,43 @@ export class AIService {
               }
               callbacks.onComplete(fullText, { conversationId: convId });
             },
-            onError: callbacks.onError,
+            onError: err => {
+              console.warn('[AIService] Stream error from provider, activating synthesizer fallback:', err);
+              if (!hasReceivedToken) {
+                AISynthesizer.stream(
+                  sanitized,
+                  {
+                    onToken: callbacks.onToken,
+                    onComplete: async synthText => {
+                      callbacks.onComplete(synthText, { conversationId: convId });
+                    },
+                    onError: callbacks.onError,
+                  },
+                  options.username
+                );
+              } else {
+                callbacks.onError(err);
+              }
+            },
           },
           tools,
           toolContext
         );
       })
-      .catch(callbacks.onError);
+      .catch(err => {
+        console.warn('[AIService] Stream initialization failed, activating synthesizer fallback:', err);
+        AISynthesizer.stream(
+          sanitized,
+          {
+            onToken: callbacks.onToken,
+            onComplete: async synthText => {
+              callbacks.onComplete(synthText, { conversationId: convId });
+            },
+            onError: callbacks.onError,
+          },
+          options.username
+        );
+      });
 
     return () => {
       if (activeCancel) activeCancel();

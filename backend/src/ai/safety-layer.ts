@@ -52,4 +52,23 @@ export class AISafetyLayer {
 
     return clean;
   }
+
+  /**
+   * Checks if an upstream response contains budget, quota, or rate limit messages
+   */
+  public static isBudgetOrQuotaError(text: string | null | undefined): boolean {
+    if (!text || typeof text !== 'string') return false;
+    const lower = text.toLowerCase();
+    return (
+      lower.includes('reached its budget') ||
+      lower.includes('raise the key budget') ||
+      lower.includes('pollinations.ai/edit-key') ||
+      lower.includes('key_budget') ||
+      lower.includes('budget limit') ||
+      lower.includes('rate limit exceeded') ||
+      lower.includes('insufficient_quota') ||
+      lower.includes('credit balance is too low') ||
+      lower.includes('enter.pollinations.ai')
+    );
+  }
 }

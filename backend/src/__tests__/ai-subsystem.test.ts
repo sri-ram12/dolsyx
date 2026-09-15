@@ -73,4 +73,28 @@ describe('DOLSYX AI Subsystem Unit & Integration Tests', () => {
     const provider = AIProviderRegistry.getActiveProvider();
     assert.ok(provider);
   });
+
+  test('6. Safety Layer: Detects quota and budget limit error messages accurately', () => {
+    const error1 = 'The API key used for this request has reached its budget. Please raise the key budget, then try again.';
+    const error2 = 'rate limit exceeded';
+    const normal = 'Here is the code you requested for calculating fibonacci.';
+
+    assert.strictEqual(AISafetyLayer.isBudgetOrQuotaError(error1), true);
+    assert.strictEqual(AISafetyLayer.isBudgetOrQuotaError(error2), true);
+    assert.strictEqual(AISafetyLayer.isBudgetOrQuotaError(normal), false);
+  });
+
+  test('7. Intelligent Synthesizer: Generates rich answers and arithmetic accurately', async () => {
+    const { AISynthesizer } = await import('../ai/synthesizer.js');
+    const greeting = await AISynthesizer.synthesize('hello', 'Sriram');
+    assert.ok(greeting.includes('DOLSYX AI'));
+    assert.ok(greeting.includes('Sriram'));
+
+    const math = await AISynthesizer.synthesize('what is 150 + 250');
+    assert.ok(math.includes('400'));
+
+    const code = await AISynthesizer.synthesize('two sum algorithm in typescript');
+    assert.ok(code.includes('twoSum'));
+    assert.ok(code.includes('Map<number, number>'));
+  });
 });

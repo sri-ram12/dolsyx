@@ -7,4 +7,5 @@ export * from './prompt-manager.js';
 export * from './tools/registry.js';
 export * from './openai-provider.js';
 export * from './provider-registry.js';
+export * from './synthesizer.js';
 export * from './ai-service.js';

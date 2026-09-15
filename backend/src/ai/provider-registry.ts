@@ -3,11 +3,29 @@ import { OpenAICompatibleProvider } from './openai-provider.js';
 
 export class AIProviderRegistry {
   public static getActiveConfig(): AIProviderConfig {
-    // 1. Explicit AI_PROVIDER or Groq API Key
-    if (process.env.GROQ_API_KEY) {
+    const groqKey = (process.env.GROQ_API_KEY || process.env.GROK_API_KEY || process.env.GROQ_KEY || process.env.GROK_KEY || '').trim();
+    const xaiKey = (process.env.XAI_API_KEY || (groqKey.startsWith('xai-') ? groqKey : '')).trim();
+    const geminiKey = (process.env.GEMINI_API_KEY || '').trim();
+    const openaiKey = (process.env.OPENAI_API_KEY || '').trim();
+    const customKey = (process.env.AI_API_KEY || '').trim();
+
+    // 1. xAI Grok (if key starts with xai- or XAI_API_KEY is provided)
+    if (xaiKey) {
+      return {
+        name: 'xai',
+        apiKey: xaiKey,
+        baseURL: 'https://api.x.ai/v1/chat/completions',
+        model: process.env.AI_MODEL || 'grok-2-latest',
+        temperature: 0.7,
+        maxTokens: 2048,
+      };
+    }
+
+    // 2. Groq Cloud (keys start with gsk_ or GROQ_API_KEY/GROK_API_KEY set)
+    if (groqKey) {
       return {
         name: 'groq',
-        apiKey: process.env.GROQ_API_KEY,
+        apiKey: groqKey,
         baseURL: 'https://api.groq.com/openai/v1/chat/completions',
         model: process.env.AI_MODEL || 'llama-3.3-70b-versatile',
         temperature: 0.7,
@@ -15,11 +33,11 @@ export class AIProviderRegistry {
       };
     }
 
-    // 2. OpenAI API Key
-    if (process.env.OPENAI_API_KEY) {
+    // 3. OpenAI API Key
+    if (openaiKey) {
       return {
         name: 'openai',
-        apiKey: process.env.OPENAI_API_KEY,
+        apiKey: openaiKey,
         baseURL: 'https://api.openai.com/v1/chat/completions',
         model: process.env.AI_MODEL || 'gpt-4o-mini',
         temperature: 0.7,
@@ -27,11 +45,11 @@ export class AIProviderRegistry {
       };
     }
 
-    // 3. Gemini API Key (via Google's official OpenAI-compatible endpoint)
-    if (process.env.GEMINI_API_KEY) {
+    // 4. Gemini API Key
+    if (geminiKey) {
       return {
         name: 'gemini',
-        apiKey: process.env.GEMINI_API_KEY,
+        apiKey: geminiKey,
         baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
         model: process.env.AI_MODEL || 'gemini-1.5-flash',
         temperature: 0.7,
@@ -39,25 +57,13 @@ export class AIProviderRegistry {
       };
     }
 
-    // 4. Custom AI_BASE_URL (for Ollama, vLLM, OpenRouter, LocalAI)
+    // 5. Custom AI_BASE_URL (for Ollama, vLLM, OpenRouter, LocalAI)
     if (process.env.AI_BASE_URL) {
       return {
         name: process.env.AI_PROVIDER || 'custom',
-        apiKey: process.env.AI_API_KEY,
+        apiKey: customKey || groqKey || openaiKey,
         baseURL: process.env.AI_BASE_URL,
         model: process.env.AI_MODEL || 'default-model',
-        temperature: 0.7,
-        maxTokens: 2048,
-      };
-    }
-
-    // 5. Pollinations API Key if provided
-    if (process.env.POLLINATIONS_API_KEY) {
-      return {
-        name: 'pollinations',
-        apiKey: process.env.POLLINATIONS_API_KEY,
-        baseURL: 'https://text.pollinations.ai/openai/chat/completions',
-        model: process.env.AI_MODEL || 'openai',
         temperature: 0.7,
         maxTokens: 2048,
       };
@@ -74,13 +80,19 @@ export class AIProviderRegistry {
   }
 
   public static hasExternalApiKey(): boolean {
-    return !!(
+    const rawKey = (
       process.env.GROQ_API_KEY ||
+      process.env.GROK_API_KEY ||
+      process.env.GROQ_KEY ||
+      process.env.GROK_KEY ||
+      process.env.XAI_API_KEY ||
+      process.env.AI_API_KEY ||
       process.env.OPENAI_API_KEY ||
       process.env.GEMINI_API_KEY ||
       process.env.AI_BASE_URL ||
-      process.env.POLLINATIONS_API_KEY
-    );
+      ''
+    ).trim();
+    return rawKey.length > 0;
   }
 
   public static getActiveProvider(): OpenAICompatibleProvider {

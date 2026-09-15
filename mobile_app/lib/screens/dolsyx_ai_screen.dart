@@ -217,9 +217,9 @@ class _DolsyxAiScreenState extends State<DolsyxAiScreen> {
     final client = http.Client();
     _activeStreamingClient = client;
 
-    // Check if this is an image generation request
+    // Check if this is an image generation request (supports typos like genearte)
     final isImage = RegExp(
-      r'\b(generate|create|draw|make)\s+(an?\s+)?(image|photo|picture|pic|avatar|wallpaper|logo|banner)\b',
+      r'(\b(gen\w*|create|draw|make|show\s+me|paint|render)\b.*\b(image|photo|picture|pic|avatar|wallpaper|logo|banner|art|car|drawing)\b)|(\b(image|photo|picture|pic|wallpaper)\s+(of|for)\b)',
       caseSensitive: false,
     ).hasMatch(prompt);
 

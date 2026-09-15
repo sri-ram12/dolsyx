@@ -23,8 +23,9 @@ export class AIController {
 
       const cleanPrompt = prompt.trim();
 
-      // Check if user is asking for image generation
-      const isImageRequest = /\b(generate|create|draw|make)\s+(an?\s+)?(image|photo|picture|pic|avatar|wallpaper|logo|banner)\b/i.test(cleanPrompt);
+      // Check if user is asking for image generation (supports typos like genearte)
+      const isImageRequest = /\b(gen\w*|create|draw|make|show\s+me|paint|render)\b.*\b(image|photo|picture|pic|avatar|wallpaper|logo|banner|art|car|drawing)\b/i.test(cleanPrompt) ||
+                             /\b(image|photo|picture|pic|wallpaper)\s+(of|for)\b/i.test(cleanPrompt);
       if (isImageRequest) {
         const imageRes = await ImagePipelineEngine.generateVerifiedImage(cleanPrompt, preset || 'photorealistic');
         if (imageRes.success) {
@@ -116,8 +117,60 @@ export class AIController {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
 
+    const cleanPrompt = prompt.trim();
+
+    // Check if user is asking for image generation (supports typos like genearte)
+    const isImageRequest = /\b(gen\w*|create|draw|make|show\s+me|paint|render)\b.*\b(image|photo|picture|pic|avatar|wallpaper|logo|banner|art|car|drawing)\b/i.test(cleanPrompt) ||
+                           /\b(image|photo|picture|pic|wallpaper)\s+(of|for)\b/i.test(cleanPrompt);
+    if (isImageRequest) {
+      res.write(`data: ${JSON.stringify({ toolCall: { name: 'Cloudinary Image Generation', args: { prompt: cleanPrompt } } })}\n\n`);
+      ImagePipelineEngine.generateVerifiedImage(cleanPrompt, req.body.preset || 'photorealistic')
+        .then(async imageRes => {
+          if (imageRes.success && imageRes.imageUrl) {
+            let convId = conversationId;
+            if (user?.id && !convId) {
+              try {
+                const conv = await (prisma as any).aIConversation.create({
+                  data: { userId: user.id, title: cleanPrompt.slice(0, 30) },
+                });
+                convId = conv.id;
+              } catch (_) {}
+            }
+            if (user?.id) {
+              try {
+                await (prisma as any).aIImage.create({
+                  data: {
+                    userId: user.id,
+                    conversationId: convId,
+                    storageKey: imageRes.imageUrl,
+                    imageUrl: imageRes.imageUrl,
+                    prompt: cleanPrompt,
+                    revisedPrompt: imageRes.enhancedPrompt,
+                    preset: req.body.preset || 'photorealistic',
+                  },
+                });
+              } catch (_) {}
+            }
+            const imgMarkdown = `Here is your generated image ✨\n\n![${cleanPrompt}](${imageRes.imageUrl})\n\n[Open Full Resolution Image](${imageRes.imageUrl})`;
+            res.write(`data: ${JSON.stringify({ token: imgMarkdown })}\n\n`);
+            res.write(`data: ${JSON.stringify({ complete: true, fullText: imgMarkdown, imageUrl: imageRes.imageUrl, metadata: { conversationId: convId } })}\n\n`);
+          } else {
+            res.write(`data: ${JSON.stringify({ token: 'Unable to generate image at this time. Please retry with another prompt.' })}\n\n`);
+            res.write(`data: ${JSON.stringify({ complete: true, fullText: 'Unable to generate image' })}\n\n`);
+          }
+          res.write(`data: [DONE]\n\n`);
+          res.end();
+        })
+        .catch(err => {
+          res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
+          res.write(`data: [DONE]\n\n`);
+          res.end();
+        });
+      return;
+    }
+
     const cancel = AIService.stream(
-      prompt.trim(),
+      cleanPrompt,
       {
         userId,
         username,

@@ -259,12 +259,50 @@ export function executeTask(input: any): any {
       return `### 🇮🇳 States and Union Territories of India\n\nIndia is a sovereign federal union comprising **28 States** and **8 Union Territories** (total 36 entities):\n\n#### 🏛️ 28 States (with Capitals):\n1. **Andhra Pradesh** — Amaravati\n2. **Arunachal Pradesh** — Itanagar\n3. **Assam** — Dispur\n4. **Bihar** — Patna\n5. **Chhattisgarh** — Raipur\n6. **Goa** — Panaji\n7. **Gujarat** — Gandhinagar\n8. **Haryana** — Chandigarh\n9. **Himachal Pradesh** — Shimla\n10. **Jharkhand** — Ranchi\n11. **Karnataka** — Bengaluru\n12. **Kerala** — Thiruvananthapuram\n13. **Madhya Pradesh** — Bhopal\n14. **Maharashtra** — Mumbai\n15. **Manipur** — Imphal\n16. **Meghalaya** — Shillong\n17. **Mizoram** — Aizawl\n18. **Nagaland** — Kohima\n19. **Odisha** — Bhubaneswar\n20. **Punjab** — Chandigarh\n21. **Rajasthan** — Jaipur\n22. **Sikkim** — Gangtok\n23. **Tamil Nadu** — Chennai\n24. **Telangana** — Hyderabad\n25. **Tripura** — Agartala\n26. **Uttar Pradesh** — Lucknow\n27. **Uttarakhand** — Dehradun\n28. **West Bengal** — Kolkata\n\n#### 🏝️ 8 Union Territories:\n1. **Andaman and Nicobar Islands** — Port Blair\n2. **Chandigarh** — Chandigarh\n3. **Dadra and Nagar Haveli and Daman and Diu** — Daman\n4. **Delhi (NCT)** — New Delhi\n5. **Jammu and Kashmir** — Srinagar (Summer) / Jammu (Winter)\n6. **Ladakh** — Leh\n7. **Lakshadweep** — Kavaratti\n8. **Puducherry** — Puducherry\n\n*Source: Official Survey of India & Constitution of India*`;
     }
 
-    // 2. Real-Time Encyclopedic Retrieval (Wikipedia Search + Page Summary)
+    // 2. High-Frequency Indian Leadership Queries
+    if (clean.includes('cm') || clean.includes('chief minister')) {
+      if (clean.includes('ap') || clean.includes('andhra')) {
+        return `### 🏛️ Chief Minister of Andhra Pradesh\n\nThe current Chief Minister of Andhra Pradesh is **N. Chandrababu Naidu** (Telugu Desam Party), who took oath on **June 12, 2024**.\n\n- **Chief Minister**: N. Chandrababu Naidu\n- **Deputy Chief Minister**: Pawan Kalyan (Jana Sena Party)\n- **State Capital**: Amaravati`;
+      }
+      if (clean.includes('telangana') || clean.includes('ts') || clean.includes('tg')) {
+        return `### 🏛️ Chief Minister of Telangana\n\nThe current Chief Minister of Telangana is **A. Revanth Reddy** (Indian National Congress), who assumed office in December 2023.\n\n- **Chief Minister**: A. Revanth Reddy\n- **State Capital**: Hyderabad`;
+      }
+      if (clean.includes('tamil nadu') || clean.includes('tn')) {
+        return `### 🏛️ Chief Minister of Tamil Nadu\n\nThe current Chief Minister of Tamil Nadu is **M. K. Stalin** (DMK).\n\n- **Chief Minister**: M. K. Stalin\n- **State Capital**: Chennai`;
+      }
+      if (clean.includes('karnataka')) {
+        return `### 🏛️ Chief Minister of Karnataka\n\nThe current Chief Minister of Karnataka is **Siddaramaiah** (INC).\n\n- **State Capital**: Bengaluru`;
+      }
+      if (clean.includes('uttar pradesh') || clean.includes('up')) {
+        return `### 🏛️ Chief Minister of Uttar Pradesh\n\nThe current Chief Minister of Uttar Pradesh is **Yogi Adityanath** (BJP).\n\n- **State Capital**: Lucknow`;
+      }
+    }
+
+    if (clean.includes('pm of india') || clean.includes('prime minister of india') || clean === 'who is pm') {
+      return `### 🇮🇳 Prime Minister of India\n\nThe Prime Minister of India is **Narendra Modi** (BJP), serving as the 14th Prime Minister of India since May 2014.`;
+    }
+
+    if (clean.includes('president of india') || clean === 'who is president') {
+      return `### 🇮🇳 President of India\n\nThe President of India is **Droupadi Murmu**, the 15th President of India, serving since July 25, 2022.`;
+    }
+
+    // 3. Real-Time Encyclopedic Retrieval (Wikipedia Search + Page Summary)
     try {
-      const searchTopic = raw
+      let searchTopic = raw
         .replace(/^(what is|who is|tell me about|explain|give me|list of|describe|where is|when was|how does|why is)\s+/i, '')
         .replace(/[?!.]+$/, '')
         .trim();
+
+      // Expand common abbreviations for high-accuracy encyclopedic matching
+      searchTopic = searchTopic
+        .replace(/\bcm\b/gi, 'chief minister')
+        .replace(/\bpm\b/gi, 'prime minister')
+        .replace(/\bap\b/gi, 'andhra pradesh')
+        .replace(/\bup\b/gi, 'uttar pradesh')
+        .replace(/\btn\b/gi, 'tamil nadu')
+        .replace(/\bts\b/gi, 'telangana')
+        .replace(/\btg\b/gi, 'telangana')
+        .replace(/\bmp\b/gi, 'madhya pradesh');
 
       const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(searchTopic)}&format=json&utf8=1`;
       const searchRes = await fetch(searchUrl, {

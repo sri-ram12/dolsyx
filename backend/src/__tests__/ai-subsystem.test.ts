@@ -101,5 +101,9 @@ describe('DOLSYX AI Subsystem Unit & Integration Tests', () => {
     assert.ok(india.includes('28 States'));
     assert.ok(india.includes('Andhra Pradesh'));
     assert.ok(india.includes('Telangana'));
+
+    const cmAp = await AISynthesizer.synthesize('who is cm of ap');
+    assert.ok(cmAp.includes('Chandrababu Naidu'));
+    assert.ok(cmAp.includes('Andhra Pradesh'));
   });
 });

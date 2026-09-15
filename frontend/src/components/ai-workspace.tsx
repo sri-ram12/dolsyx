@@ -297,8 +297,8 @@ export default function AiWorkspace({ initialPrompt, chats = [], onSelectChat }:
       }
     }
 
-    // Check for Image Generation intent
-    const isImageGen = /\b(generate|create|draw|make)\s+(an?\s+)?(image|photo|picture|pic|avatar|wallpaper|logo|banner)\b/i.test(prompt);
+    // Check for Image Generation intent (supports typos like genearte)
+    const isImageGen = /(\b(gen\w*|create|draw|make|show\s+me|paint|render)\b.*\b(image|photo|picture|pic|avatar|wallpaper|logo|banner|art|car|drawing)\b)|(\b(image|photo|picture|pic|wallpaper)\s+(of|for)\b)/i.test(prompt);
     if (isImageGen) {
       setActiveToolActivity("Generating image via Cloudinary CDN pipeline... 🎨");
       try {

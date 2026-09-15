@@ -27,7 +27,7 @@ export class AIProviderRegistry {
         name: 'groq',
         apiKey: groqKey,
         baseURL: 'https://api.groq.com/openai/v1/chat/completions',
-        model: process.env.AI_MODEL || 'llama-3.3-70b-versatile',
+        model: process.env.AI_MODEL || 'openai/gpt-oss-120b',
         temperature: 0.7,
         maxTokens: 2048,
       };

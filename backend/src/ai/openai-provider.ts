@@ -166,6 +166,17 @@ export class OpenAICompatibleProvider {
         timeout: 45000,
       },
       res => {
+        if (res.statusCode && res.statusCode >= 400) {
+          let errData = '';
+          res.on('data', chunk => (errData += chunk.toString()));
+          res.on('end', () => {
+            if (!isCancelled) {
+              callbacks.onError(new Error(`AI Provider stream returned HTTP ${res.statusCode}: ${errData}`));
+            }
+          });
+          return;
+        }
+
         let buffer = '';
 
         res.on('data', chunk => {

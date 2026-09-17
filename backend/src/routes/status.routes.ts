@@ -18,7 +18,7 @@ const storage = getCloudinaryStorage("dolsyx_status");
 
 const upload = multer({
   storage,
-  limits: { fileSize: 50 * 1024 * 1024 },
+  limits: { fileSize: 200 * 1024 * 1024 }, // 200MB max file size
   fileFilter: (req, file, cb) => {
     if (file.mimetype.startsWith("image/") || file.mimetype.startsWith("video/") || file.mimetype === "application/octet-stream") {
       cb(null, true);

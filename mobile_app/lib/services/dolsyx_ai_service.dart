@@ -275,6 +275,26 @@ class DolsyxAiService {
     return [];
   }
 
+  Future<Map<String, dynamic>?> getConversation(String conversationId) async {
+    try {
+      final token = await _apiService.getToken();
+      final response = await http.get(
+        Uri.parse('${ApiService.baseUrl}/ai/conversations/$conversationId'),
+        headers: {
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+      ).timeout(const Duration(seconds: 8));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['conversation'] is Map) {
+          return Map<String, dynamic>.from(data['conversation']);
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
   Future<bool> deleteConversation(String conversationId) async {
     try {
       final token = await _apiService.getToken();

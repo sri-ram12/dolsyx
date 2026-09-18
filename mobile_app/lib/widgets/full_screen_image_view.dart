@@ -43,53 +43,127 @@ class _FullScreenImageViewState extends State<FullScreenImageView> {
   bool _isVideo = false;
   bool _isVideoInit = false;
   bool _isPlaying = false;
+  bool _videoError = false;
   File? _decryptedFile;
   bool _isDecrypting = false;
 
   @override
   void initState() {
     super.initState();
+    _initMedia();
+  }
+
+  Future<void> _initMedia() async {
     final resolvedUrl = ApiService.getMediaUrl(widget.imageUrl);
     _isVideo = widget.message?.mediaType == 'VIDEO' ||
         resolvedUrl.toLowerCase().endsWith('.mp4') ||
         resolvedUrl.toLowerCase().endsWith('.mov') ||
-        resolvedUrl.toLowerCase().endsWith('.mkv');
+        resolvedUrl.toLowerCase().endsWith('.mkv') ||
+        resolvedUrl.contains('/video/');
 
     if (widget.message?.isE2EEMedia == true && widget.message?.mediaKey != null) {
-      _isDecrypting = true;
-      E2EEMediaCache.getOrDownloadDecryptedMedia(
-        mediaUrl: widget.imageUrl,
-        mediaKey: widget.message!.mediaKey,
-        nonce: widget.message!.nonce,
-      ).then((file) {
+      if (mounted) setState(() => _isDecrypting = true);
+      try {
+        final file = await E2EEMediaCache.getOrDownloadDecryptedMedia(
+          mediaUrl: widget.imageUrl,
+          mediaKey: widget.message!.mediaKey,
+          nonce: widget.message!.nonce,
+          mediaType: widget.message?.mediaType ?? (_isVideo ? 'VIDEO' : 'IMAGE'),
+        );
         if (mounted) {
           setState(() {
             _decryptedFile = file;
             _isDecrypting = false;
           });
           if (file != null && _isVideo) {
-            _videoController = VideoPlayerController.file(file)
-              ..initialize().then((_) {
-                if (mounted) {
-                  setState(() => _isVideoInit = true);
-                  _videoController!.play();
-                  _isPlaying = true;
-                }
-              });
+            await _initVideoFromFile(file);
+          } else if (file == null && _isVideo) {
+            await _initVideoFromUrl(resolvedUrl);
           }
         }
-      });
+      } catch (e) {
+        debugPrint('Error decrypting media: $e');
+        if (mounted) {
+          setState(() => _isDecrypting = false);
+          if (_isVideo) await _initVideoFromUrl(resolvedUrl);
+        }
+      }
     } else if (_isVideo) {
-      _videoController = VideoPlayerController.networkUrl(Uri.parse(resolvedUrl))
-        ..initialize().then((_) {
-          if (mounted) {
-            setState(() {
-              _isVideoInit = true;
-            });
-            _videoController!.play();
-            _isPlaying = true;
-          }
+      await _initVideoFromUrl(resolvedUrl);
+    }
+  }
+
+  Future<void> _initVideoFromFile(File file) async {
+    try {
+      File playableFile = file;
+      final pathLower = file.path.toLowerCase();
+      if (!pathLower.endsWith('.mp4') && 
+          !pathLower.endsWith('.mov') && 
+          !pathLower.endsWith('.mkv') &&
+          !pathLower.endsWith('.webm')) {
+        final mp4File = File('${file.path}.mp4');
+        if (!mp4File.existsSync()) {
+          await file.copy(mp4File.path);
+        }
+        playableFile = mp4File;
+      }
+
+      await _videoController?.dispose();
+      _videoController = VideoPlayerController.file(playableFile);
+      await _videoController!.initialize();
+      if (mounted) {
+        setState(() {
+          _isVideoInit = true;
+          _isPlaying = true;
+          _videoError = false;
         });
+        _videoController!.play();
+      }
+    } catch (e) {
+      debugPrint('Video file playback error: $e');
+      if (mounted) {
+        setState(() {
+          _isVideoInit = false;
+          _videoError = true;
+        });
+      }
+    }
+  }
+
+  Future<void> _initVideoFromUrl(String url) async {
+    try {
+      await _videoController?.dispose();
+      _videoController = VideoPlayerController.networkUrl(Uri.parse(url));
+      await _videoController!.initialize();
+      if (mounted) {
+        setState(() {
+          _isVideoInit = true;
+          _isPlaying = true;
+          _videoError = false;
+        });
+        _videoController!.play();
+      }
+    } catch (e) {
+      debugPrint('Video network playback error: $e, downloading fallback...');
+      try {
+        final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 25));
+        if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
+          final tempDir = await getTemporaryDirectory();
+          final tempVideo = File('${tempDir.path}/stream_cache_${url.hashCode.abs()}.mp4');
+          await tempVideo.writeAsBytes(response.bodyBytes, flush: true);
+          await _initVideoFromFile(tempVideo);
+          return;
+        }
+      } catch (dlErr) {
+        debugPrint('Video fallback download error: $dlErr');
+      }
+
+      if (mounted) {
+        setState(() {
+          _isVideoInit = false;
+          _videoError = true;
+        });
+      }
     }
   }
 
@@ -396,7 +470,33 @@ class _FullScreenImageViewState extends State<FullScreenImageView> {
                       ],
                     ),
                   )
-                : const CircularProgressIndicator(color: Color(0xFF6366F1)))
+                : (_videoError
+                    ? Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.error_outline_rounded, color: Colors.amber, size: 52),
+                          const SizedBox(height: 12),
+                          const Text('Unable to play video', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 16),
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF6366F1),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _videoError = false;
+                                _isVideoInit = false;
+                              });
+                              _initMedia();
+                            },
+                            icon: const Icon(Icons.refresh_rounded, size: 18),
+                            label: const Text('Retry'),
+                          ),
+                        ],
+                      )
+                    : const CircularProgressIndicator(color: Color(0xFF6366F1))))
             : InteractiveViewer(
                 minScale: 1.0,
                 maxScale: 5.0,

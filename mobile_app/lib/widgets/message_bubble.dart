@@ -805,21 +805,25 @@ class MessageBubble extends StatelessWidget {
                                             mediaUrl: message.mediaUrl!,
                                             mediaKey: message.mediaKey,
                                             nonce: message.nonce,
+                                            mediaType: message.mediaType,
                                           ),
                                           builder: (ctx, snap) {
                                             if (snap.connectionState == ConnectionState.done && snap.data != null) {
                                               return Image.file(snap.data!, width: imageSize, fit: BoxFit.cover);
                                             }
+                                            final isDone = snap.connectionState == ConnectionState.done;
                                             return Container(
                                               width: imageSize,
                                               height: imageSize * 0.75,
                                               color: Colors.black26,
                                               child: Center(
-                                                child: _MediaDownloadPill(
-                                                  fileSize: message.fileSize,
-                                                  mediaUrl: message.mediaUrl,
-                                                  isDownloading: true,
-                                                ),
+                                                child: isDone && snap.data == null
+                                                    ? const Icon(Icons.broken_image_rounded, color: Colors.grey, size: 36)
+                                                    : _MediaDownloadPill(
+                                                        fileSize: message.fileSize,
+                                                        mediaUrl: message.mediaUrl,
+                                                        isDownloading: !isDone,
+                                                      ),
                                               ),
                                             );
                                           },

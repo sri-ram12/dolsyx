@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -154,30 +155,57 @@ class ApiService {
   Future<Map<String, dynamic>?> uploadMedia(String filePath) async {
     try {
       final token = await getToken();
-      if (token == null) return null;
-
-      var request = http.MultipartRequest('POST', Uri.parse('$baseUrl/chats/upload'));
-      request.headers['Authorization'] = 'Bearer $token';
-      request.files.add(await http.MultipartFile.fromPath('file', filePath));
-
-      var streamedResponse = await request.send();
-      var response = await http.Response.fromStream(streamedResponse);
-
-      if (response.statusCode != 200 && response.statusCode != 201) {
-        request = http.MultipartRequest('POST', Uri.parse('$baseUrl/uploads'));
-        request.headers['Authorization'] = 'Bearer $token';
-        request.files.add(await http.MultipartFile.fromPath('file', filePath));
-        streamedResponse = await request.send();
-        response = await http.Response.fromStream(streamedResponse);
+      if (token == null) {
+        print('Upload error: JWT token is missing or expired');
+        return null;
       }
 
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        final decoded = jsonDecode(response.body);
-        if (decoded is Map<String, dynamic>) {
-          return decoded;
+      final localFile = File(filePath);
+      if (!await localFile.exists()) {
+        print('Upload error: local file does not exist at $filePath');
+        return null;
+      }
+
+      // 1. Primary: POST to /chats/upload with timeout
+      try {
+        final request = http.MultipartRequest('POST', Uri.parse('$baseUrl/chats/upload'));
+        request.headers['Authorization'] = 'Bearer $token';
+        request.files.add(await http.MultipartFile.fromPath('file', filePath));
+
+        final streamedResponse = await request.send().timeout(const Duration(seconds: 45));
+        final response = await http.Response.fromStream(streamedResponse);
+
+        if (response.statusCode == 200 || response.statusCode == 201) {
+          final decoded = jsonDecode(response.body);
+          if (decoded is Map<String, dynamic>) {
+            return decoded;
+          }
+        } else {
+          print('Chats upload returned HTTP ${response.statusCode}: ${response.body}');
         }
-      } else {
-        print('Upload failed: HTTP ${response.statusCode} - ${response.body}');
+      } catch (e) {
+        print('Chats upload error ($e), attempting fallback to /uploads endpoint...');
+      }
+
+      // 2. Resilient secondary: POST to /uploads
+      try {
+        final fallbackRequest = http.MultipartRequest('POST', Uri.parse('$baseUrl/uploads'));
+        fallbackRequest.headers['Authorization'] = 'Bearer $token';
+        fallbackRequest.files.add(await http.MultipartFile.fromPath('file', filePath));
+
+        final streamedFallback = await fallbackRequest.send().timeout(const Duration(seconds: 45));
+        final fallbackResponse = await http.Response.fromStream(streamedFallback);
+
+        if (fallbackResponse.statusCode == 200 || fallbackResponse.statusCode == 201) {
+          final decoded = jsonDecode(fallbackResponse.body);
+          if (decoded is Map<String, dynamic>) {
+            return decoded;
+          }
+        } else {
+          print('Uploads fallback returned HTTP ${fallbackResponse.statusCode}: ${fallbackResponse.body}');
+        }
+      } catch (e) {
+        print('Uploads fallback error: $e');
       }
     } catch (e) {
       print('Upload error: $e');

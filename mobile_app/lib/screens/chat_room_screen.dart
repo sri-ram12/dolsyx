@@ -207,7 +207,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
         if (response != null && response['fileUrl'] != null && mounted) {
           final serverFileUrl = response['fileUrl'] as String;
-          await E2EEMediaCache.saveDecryptedMedia(serverFileUrl, rawBytes);
+          await E2EEMediaCache.saveDecryptedMedia(serverFileUrl, rawBytes, mediaType: mediaType);
           _pendingMediaUploadQueue.removeWhere((q) => q['tempId'] == tempId);
           setState(() {
             _messages.removeWhere((m) => m.id == tempId);
@@ -2631,7 +2631,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
       if (response != null && response['fileUrl'] != null && mounted) {
         final serverFileUrl = response['fileUrl'] as String;
-        await E2EEMediaCache.saveDecryptedMedia(serverFileUrl, rawBytes);
+        await E2EEMediaCache.saveDecryptedMedia(serverFileUrl, rawBytes, mediaType: mediaType);
         if (fileSize > 0) {
           MediaSizeHelper.cacheSize(serverFileUrl, fileSize);
         }
@@ -2677,9 +2677,49 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         );
       } else {
         queueItem['isUploading'] = false;
+        if (mounted) {
+          final idx = _messages.indexWhere((m) => m.id == tempId);
+          if (idx != -1) {
+            setState(() {
+              _messages[idx] = Message(
+                id: tempId,
+                content: caption,
+                senderId: myUserId,
+                conversationId: widget.conversationId,
+                mediaUrl: file.path,
+                mediaType: mediaType,
+                isViewOnce: isViewOnce,
+                isPending: false,
+                createdAt: _messages[idx].createdAt,
+                fileSize: fileSize > 0 ? fileSize : null,
+                fileName: fileName,
+              );
+            });
+          }
+        }
       }
     } catch (_) {
       queueItem['isUploading'] = false;
+      if (mounted) {
+        final idx = _messages.indexWhere((m) => m.id == tempId);
+        if (idx != -1) {
+          setState(() {
+            _messages[idx] = Message(
+              id: tempId,
+              content: caption,
+              senderId: myUserId,
+              conversationId: widget.conversationId,
+              mediaUrl: file.path,
+              mediaType: mediaType,
+              isViewOnce: isViewOnce,
+              isPending: false,
+              createdAt: _messages[idx].createdAt,
+              fileSize: fileSize > 0 ? fileSize : null,
+              fileName: fileName,
+            );
+          });
+        }
+      }
     }
   }
 

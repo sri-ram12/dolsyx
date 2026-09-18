@@ -1,9 +1,11 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:video_player/video_player.dart';
 import '../models/message.dart';
 import '../theme/app_theme.dart';
 import '../services/api_service.dart';
+import '../utils/e2ee/e2ee_media_cache.dart';
 
 class ViewOnceScreen extends StatefulWidget {
   final Message message;
@@ -24,23 +26,72 @@ class _ViewOnceScreenState extends State<ViewOnceScreen> {
   bool _isPlaying = false;
   bool _isInit = false;
   bool _hasTriggeredViewed = false;
+  File? _decryptedFile;
+  bool _isLoading = true;
+  bool _hasError = false;
 
   @override
   void initState() {
     super.initState();
-    if (widget.message.mediaType == 'VIDEO' && widget.message.mediaUrl != null) {
-      final fullUrl = ApiService.getMediaUrl(widget.message.mediaUrl!);
-      
-      _videoController = VideoPlayerController.networkUrl(Uri.parse(fullUrl))
-        ..initialize().then((_) {
-          if (mounted) {
-            setState(() {
-              _isInit = true;
-            });
-            _videoController!.play();
-            _isPlaying = true;
+    _initMedia();
+  }
+
+  Future<void> _initMedia() async {
+    final rawUrl = widget.message.mediaUrl;
+    if (rawUrl == null || rawUrl.isEmpty) {
+      if (mounted) setState(() => _isLoading = false);
+      return;
+    }
+
+    try {
+      if (widget.message.isE2EEMedia && widget.message.mediaKey != null) {
+        final file = await E2EEMediaCache.getOrDownloadDecryptedMedia(
+          mediaUrl: rawUrl,
+          mediaKey: widget.message.mediaKey,
+          nonce: widget.message.nonce,
+          mediaType: widget.message.mediaType,
+        );
+        if (mounted) {
+          _decryptedFile = file;
+        }
+      }
+
+      if (widget.message.mediaType == 'VIDEO') {
+        if (_decryptedFile != null) {
+          File playableFile = _decryptedFile!;
+          if (!playableFile.path.toLowerCase().endsWith('.mp4')) {
+            final mp4File = File('${playableFile.path}.mp4');
+            if (!mp4File.existsSync()) await playableFile.copy(mp4File.path);
+            playableFile = mp4File;
           }
+          _videoController = VideoPlayerController.file(playableFile);
+        } else {
+          final fullUrl = ApiService.getMediaUrl(rawUrl);
+          _videoController = VideoPlayerController.networkUrl(Uri.parse(fullUrl));
+        }
+
+        await _videoController!.initialize();
+        if (mounted) {
+          setState(() {
+            _isInit = true;
+            _isLoading = false;
+            _isPlaying = true;
+          });
+          _videoController!.play();
+        }
+      } else {
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
+      }
+    } catch (e) {
+      debugPrint('ViewOnce media error: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _hasError = true;
         });
+      }
     }
   }
 
@@ -94,43 +145,56 @@ class _ViewOnceScreenState extends State<ViewOnceScreen> {
           ),
         ),
         body: Center(
-          child: widget.message.mediaType == 'VIDEO'
-              ? (_isInit
-                  ? AspectRatio(
-                      aspectRatio: _videoController!.value.aspectRatio,
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          VideoPlayer(_videoController!),
-                          GestureDetector(
-                            onTap: () {
-                              setState(() {
-                                if (_videoController!.value.isPlaying) {
-                                  _videoController!.pause();
-                                  _isPlaying = false;
-                                } else {
-                                  _videoController!.play();
-                                  _isPlaying = true;
-                                }
-                              });
-                            },
-                            child: Container(
-                              color: Colors.transparent,
-                              child: !_isPlaying
-                                  ? const Icon(Icons.play_circle_fill, size: 64, color: Colors.white70)
-                                  : const SizedBox.expand(),
-                            ),
-                          ),
-                        ],
-                      ),
+          child: _isLoading
+              ? CircularProgressIndicator(color: AppTheme.primaryColor)
+              : _hasError
+                  ? const Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.error_outline, color: Colors.white70, size: 48),
+                        SizedBox(height: 12),
+                        Text('Failed to load media', style: TextStyle(color: Colors.white70)),
+                      ],
                     )
-                  : CircularProgressIndicator(color: AppTheme.primaryColor))
-              : CachedNetworkImage(
-                  imageUrl: mediaUrl,
-                  fit: BoxFit.contain,
-                  placeholder: (context, url) => CircularProgressIndicator(color: AppTheme.primaryColor),
-                  errorWidget: (context, url, error) => const Icon(Icons.error, color: Colors.white),
-                ),
+                  : widget.message.mediaType == 'VIDEO'
+                      ? (_isInit
+                          ? AspectRatio(
+                              aspectRatio: _videoController!.value.aspectRatio,
+                              child: Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  VideoPlayer(_videoController!),
+                                  GestureDetector(
+                                    onTap: () {
+                                      setState(() {
+                                        if (_videoController!.value.isPlaying) {
+                                          _videoController!.pause();
+                                          _isPlaying = false;
+                                        } else {
+                                          _videoController!.play();
+                                          _isPlaying = true;
+                                        }
+                                      });
+                                    },
+                                    child: Container(
+                                      color: Colors.transparent,
+                                      child: !_isPlaying
+                                          ? const Icon(Icons.play_circle_fill, size: 64, color: Colors.white70)
+                                          : const SizedBox.expand(),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : CircularProgressIndicator(color: AppTheme.primaryColor))
+                      : (_decryptedFile != null
+                          ? Image.file(_decryptedFile!, fit: BoxFit.contain)
+                          : CachedNetworkImage(
+                              imageUrl: mediaUrl,
+                              fit: BoxFit.contain,
+                              placeholder: (context, url) => CircularProgressIndicator(color: AppTheme.primaryColor),
+                              errorWidget: (context, url, error) => const Icon(Icons.error, color: Colors.white),
+                            )),
         ),
       ),
     );

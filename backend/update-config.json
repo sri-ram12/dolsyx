@@ -1,0 +1,8 @@
+{
+  "version": "1.0.4",
+  "buildNumber": 4,
+  "releaseNotes": "Automatic real-time OTA update pop-up on launch, WhatsApp-style media download pill with KB/MB indicators on images, videos, audio & documents.",
+  "downloadUrl": "/api/app/download",
+  "fileSizeMb": "117.5 MB",
+  "hasApk": true
+}

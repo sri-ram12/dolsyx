@@ -8,15 +8,50 @@ const __dirname = path.dirname(__filename);
 
 const router = Router();
 
-// Candidate paths for compiled APK
+import multer from "multer";
+
+const apkUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      const dir = path.resolve(process.cwd(), "uploads");
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      cb(null, dir);
+    },
+    filename: (req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase();
+      cb(null, ext === ".apk" ? file.originalname : "app-release.apk");
+    },
+  }),
+  limits: { fileSize: 300 * 1024 * 1024 },
+});
+
+// Candidate paths for compiled APK (prefers split arm64, then universal release/debug)
 const getApkPath = (): string | null => {
   const candidates = [
+    path.resolve(process.cwd(), "uploads/app-arm64-v8a-debug.apk"),
+    path.resolve(process.cwd(), "uploads/app-release.apk"),
+    path.resolve(process.cwd(), "uploads/app-debug.apk"),
+    path.resolve(process.cwd(), "app-arm64-v8a-debug.apk"),
+    path.resolve(process.cwd(), "app-release.apk"),
     path.resolve(process.cwd(), "app-debug.apk"),
+    path.resolve(process.cwd(), "../uploads/app-arm64-v8a-debug.apk"),
+    path.resolve(process.cwd(), "../uploads/app-release.apk"),
+    path.resolve(process.cwd(), "../uploads/app-debug.apk"),
+    path.resolve(process.cwd(), "../app-arm64-v8a-debug.apk"),
+    path.resolve(process.cwd(), "../app-release.apk"),
     path.resolve(process.cwd(), "../app-debug.apk"),
+    path.resolve(process.cwd(), "mobile_app/build/app/outputs/flutter-apk/app-arm64-v8a-debug.apk"),
+    path.resolve(process.cwd(), "mobile_app/build/app/outputs/flutter-apk/app-release.apk"),
     path.resolve(process.cwd(), "mobile_app/build/app/outputs/flutter-apk/app-debug.apk"),
+    path.resolve(process.cwd(), "mobile_app/build/app/outputs/apk/release/app-release.apk"),
+    path.resolve(process.cwd(), "../mobile_app/build/app/outputs/flutter-apk/app-arm64-v8a-debug.apk"),
+    path.resolve(process.cwd(), "../mobile_app/build/app/outputs/flutter-apk/app-release.apk"),
     path.resolve(process.cwd(), "../mobile_app/build/app/outputs/flutter-apk/app-debug.apk"),
+    path.resolve(__dirname, "../../uploads/app-arm64-v8a-debug.apk"),
+    path.resolve(__dirname, "../../uploads/app-release.apk"),
+    path.resolve(__dirname, "../../uploads/app-debug.apk"),
+    path.resolve(__dirname, "../../../app-release.apk"),
     path.resolve(__dirname, "../../../app-debug.apk"),
-    path.resolve(__dirname, "../../app-debug.apk"),
   ];
 
   for (const candidate of candidates) {
@@ -27,32 +62,103 @@ const getApkPath = (): string | null => {
   return null;
 };
 
+interface UpdateConfig {
+  version: string;
+  buildNumber: number;
+  releaseNotes: string;
+  downloadUrl?: string;
+  fileSizeMb?: string;
+  hasApk?: boolean;
+}
+
+const getUpdateConfigFile = (): string => {
+  const localConfig = path.resolve(process.cwd(), "update-config.json");
+  if (fs.existsSync(localConfig)) return localConfig;
+  const parentConfig = path.resolve(process.cwd(), "../update-config.json");
+  if (fs.existsSync(parentConfig)) return parentConfig;
+  return localConfig;
+};
+
+const getUpdateConfig = (): UpdateConfig => {
+  try {
+    const configPath = getUpdateConfigFile();
+    if (fs.existsSync(configPath)) {
+      return JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    }
+  } catch (_) {}
+  return {
+    version: process.env.APP_VERSION || "1.0.4",
+    buildNumber: parseInt(process.env.APP_BUILD_NUMBER || "4", 10),
+    releaseNotes:
+      process.env.APP_RELEASE_NOTES ||
+      "Automatic real-time OTA update pop-up on launch, WhatsApp-style media download pill with KB/MB indicators on images, videos, audio & documents.",
+    downloadUrl: process.env.APK_DOWNLOAD_URL || "/api/app/download",
+    fileSizeMb: "117.5 MB",
+    hasApk: true,
+  };
+};
+
+// ── POST /api/app/upload-apk ──
+router.post("/upload-apk", apkUpload.single("apk"), (req, res) => {
+  const apkPath = getApkPath();
+  res.json({
+    success: true,
+    message: "APK uploaded successfully to server.",
+    path: apkPath,
+    hasApk: apkPath !== null,
+  });
+});
+
+// ── POST /api/app/publish-version ──
+router.post("/publish-version", (req, res) => {
+  try {
+    const { version, buildNumber, releaseNotes, downloadUrl, fileSizeMb, hasApk } = req.body;
+    const current = getUpdateConfig();
+    const updated: UpdateConfig = {
+      version: version || current.version,
+      buildNumber: buildNumber ? Number(buildNumber) : current.buildNumber + 1,
+      releaseNotes: releaseNotes || current.releaseNotes,
+      downloadUrl: downloadUrl || current.downloadUrl,
+      fileSizeMb: fileSizeMb || current.fileSizeMb,
+      hasApk: hasApk !== undefined ? !!hasApk : true,
+    };
+    fs.writeFileSync(getUpdateConfigFile(), JSON.stringify(updated, null, 2), "utf-8");
+    res.json({ success: true, message: "Version published successfully", config: updated });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // ── GET /api/app/version ──
 router.get("/version", (req, res) => {
   try {
+    const config = getUpdateConfig();
     const apkPath = getApkPath();
     let fileSizeBytes = 0;
-    let fileSizeMb = "0";
+    let fileSizeMb = config.fileSizeMb || "117.5 MB";
     let lastModified = new Date().toISOString();
 
-    if (apkPath) {
+    if (apkPath && fs.existsSync(apkPath)) {
       const stat = fs.statSync(apkPath);
       fileSizeBytes = stat.size;
-      fileSizeMb = (stat.size / (1024 * 1024)).toFixed(1);
+      fileSizeMb = `${(stat.size / (1024 * 1024)).toFixed(1)} MB`;
       lastModified = stat.mtime.toISOString();
     }
+
+    const hasApk = apkPath !== null || !!process.env.APK_DOWNLOAD_URL || config.hasApk !== false;
+    const downloadUrl = process.env.APK_DOWNLOAD_URL || config.downloadUrl || "/api/app/download";
 
     // Current build version info
     res.json({
       success: true,
-      version: "1.0.3",
-      buildNumber: 3,
-      releaseNotes: "WhatsApp-style media download pill with KB/MB size badges on images, videos, and documents.",
-      downloadUrl: "/api/app/download",
+      version: config.version || "1.0.4",
+      buildNumber: config.buildNumber || 4,
+      releaseNotes: config.releaseNotes,
+      downloadUrl,
       fileSizeBytes,
-      fileSizeMb: `${fileSizeMb} MB`,
+      fileSizeMb,
       updatedAt: lastModified,
-      hasApk: apkPath !== null,
+      hasApk,
     });
   } catch (error) {
     console.error("[App Update] Failed to get version:", error);
@@ -63,11 +169,17 @@ router.get("/version", (req, res) => {
 // ── GET /api/app/download ──
 router.get("/download", (req, res) => {
   try {
+    const config = getUpdateConfig();
+    const remoteUrl = process.env.APK_DOWNLOAD_URL || (config.downloadUrl?.startsWith("http") ? config.downloadUrl : null);
+    if (remoteUrl) {
+      return res.redirect(remoteUrl);
+    }
+
     const apkPath = getApkPath();
-    if (!apkPath) {
+    if (!apkPath || !fs.existsSync(apkPath)) {
       return res.status(404).json({
         success: false,
-        message: "No compiled APK found on server. Please compile mobile_app first.",
+        message: "No compiled APK found on server. Please upload APK or specify download URL.",
       });
     }
 

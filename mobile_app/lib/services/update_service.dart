@@ -71,6 +71,8 @@ class UpdateService {
     return info['versionCode'] as int;
   }
 
+  static bool _isDialogShowing = false;
+
   Future<UpdateInfo?> checkForUpdate() async {
     try {
       final url = Uri.parse('${ApiService.baseUrl}/app/version');
@@ -78,7 +80,7 @@ class UpdateService {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        if (data['success'] == true && data['hasApk'] == true) {
+        if (data['success'] == true && (data['hasApk'] == true || data['downloadUrl'] != null)) {
           final info = UpdateInfo.fromJson(data);
           final installedBuild = await getInstalledBuildNumber();
           if (info.buildNumber > installedBuild) {
@@ -129,11 +131,15 @@ class UpdateService {
   }
 
   void _showUpdateDialog(BuildContext context, UpdateInfo info) {
+    if (_isDialogShowing) return;
+    _isDialogShowing = true;
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (dialogCtx) => _UpdateDialog(info: info),
-    );
+    ).then((_) {
+      _isDialogShowing = false;
+    });
   }
 }
 

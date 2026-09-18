@@ -315,6 +315,63 @@ class MainActivity : FlutterFragmentActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        // In-App OTA APK Installer Channel
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.dolsyx/app_installer").setMethodCallHandler { call, result ->
+            when (call.method) {
+                "installApk" -> {
+                    val filePath = call.argument<String>("filePath")
+                    if (filePath == null) {
+                        result.error("INVALID_PATH", "APK file path is missing", null)
+                        return@setMethodCallHandler
+                    }
+                    try {
+                        val file = java.io.File(filePath)
+                        if (!file.exists()) {
+                            result.error("FILE_NOT_FOUND", "APK file does not exist at $filePath", null)
+                            return@setMethodCallHandler
+                        }
+                        val uri = androidx.core.content.FileProvider.getUriForFile(
+                            this,
+                            "$packageName.fileprovider",
+                            file
+                        )
+                        val intent = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(uri, "application/vnd.android.package-archive")
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        startActivity(intent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("INSTALL_ERROR", e.message, null)
+                    }
+                }
+                "getAppInfo" -> {
+                    try {
+                        val pInfo = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                            packageManager.getPackageInfo(packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0))
+                        } else {
+                            @Suppress("DEPRECATION")
+                            packageManager.getPackageInfo(packageName, 0)
+                        }
+                        val versionCode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                            pInfo.longVersionCode
+                        } else {
+                            @Suppress("DEPRECATION")
+                            pInfo.versionCode.toLong()
+                        }
+                        result.success(mapOf(
+                            "versionName" to (pInfo.versionName ?: "1.0.0"),
+                            "versionCode" to versionCode
+                        ))
+                    } catch (e: Exception) {
+                        result.error("INFO_ERROR", e.message, null)
+                    }
+                }
+                else -> result.notImplemented()
+            }
+        }
     }
 
     private var activeRingtone: android.media.Ringtone? = null

@@ -15,6 +15,7 @@ import '../widgets/switch_account_modal.dart';
 
 import 'linked_devices_screen.dart';
 import 'secret_lock_settings_screen.dart';
+import '../services/update_service.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -76,6 +77,9 @@ class SettingsScreen extends StatelessWidget {
             }),
             _buildSettingItem(context, Icons.fingerprint, 'App Lock', 'Require biometric or PIN', () {
               Navigator.push(context, MaterialPageRoute(builder: (_) => const AppLockScreen()));
+            }),
+            _buildSettingItem(context, Icons.system_update_rounded, 'App Updates', 'Check for updates and install latest build wire-free', () {
+              UpdateService().promptUpdate(context, manual: true);
             }),
             _buildSettingItem(context, Icons.help_outline, 'Help', 'Help center, contact us, privacy policy & terms', () {
               Navigator.push(context, MaterialPageRoute(builder: (_) => const HelpSettingsScreen()));

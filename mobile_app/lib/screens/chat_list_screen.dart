@@ -36,6 +36,7 @@ import 'secret_lock_settings_screen.dart';
 import 'locked_chats_screen.dart';
 import 'linked_devices_screen.dart';
 import '../utils/e2ee/crypto_service.dart';
+import '../services/update_service.dart';
 
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
@@ -119,6 +120,13 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
           if (_typingStatus[convId] != isTyping) {
             setState(() { _typingStatus[convId] = isTyping; });
           }
+        }
+      });
+
+      // Seamless In-App OTA Update check on launch (non-blocking)
+      Future.delayed(const Duration(seconds: 4), () {
+        if (mounted) {
+          UpdateService().promptUpdate(context, manual: false);
         }
       });
     });

@@ -9,13 +9,26 @@ class ThemeProvider extends ChangeNotifier {
   static const String _fontSizeKey = 'selected_font_size';
   static const String _opacityKey = 'wallpaper_opacity';
   static const String _blurKey = 'wallpaper_blur';
+  static const String _colorIndexKey = 'selected_theme_color_index';
+  static const String _themeModeKey = 'selected_theme_mode_preference';
 
-  ChatThemeModel _currentTheme = ThemeManager.getThemeById('cyber_neon');
+  int _selectedColorIndex = 0; // 0 = WhatsApp Green (Default)
+  String _themeModePreference = 'dark'; // 'dark', 'light', 'system'
+  bool _isDark = true;
+
+  ChatThemeModel _currentTheme = ThemeManager.createThemeFromColor(
+    colorOption: ThemeManager.appThemeColors[0],
+    isDark: true,
+  );
+
   double _currentFontSize = 16.0;
   double _wallpaperOpacity = 1.0;
   double _wallpaperBlur = 0.0;
 
   ChatThemeModel get currentTheme => _currentTheme;
+  int get selectedColorIndex => _selectedColorIndex;
+  String get themeModePreference => _themeModePreference;
+  bool get isDark => _isDark;
   double get currentFontSize => _currentFontSize;
   double get wallpaperOpacity => _wallpaperOpacity;
   double get wallpaperBlur => _wallpaperBlur;
@@ -26,8 +39,25 @@ class ThemeProvider extends ChangeNotifier {
 
   void _loadTheme() async {
     final prefs = await SharedPreferences.getInstance();
-    final themeId = prefs.getString(_themeKey) ?? 'cyber_neon';
-    _currentTheme = ThemeManager.getThemeById(themeId);
+    _selectedColorIndex = prefs.getInt(_colorIndexKey) ?? 0;
+    if (_selectedColorIndex < 0 || _selectedColorIndex >= ThemeManager.appThemeColors.length) {
+      _selectedColorIndex = 0;
+    }
+
+    _themeModePreference = prefs.getString(_themeModeKey) ?? 'dark';
+    _isDark = _themeModePreference != 'light';
+
+    final savedThemeId = prefs.getString(_themeKey);
+    if (savedThemeId != null && !savedThemeId.startsWith('color_') && savedThemeId != 'default_whatsapp') {
+      // User previously selected an explicit named legacy theme
+      _currentTheme = ThemeManager.getThemeById(savedThemeId, isDark: _isDark);
+    } else {
+      _currentTheme = ThemeManager.createThemeFromColor(
+        colorOption: ThemeManager.appThemeColors[_selectedColorIndex],
+        isDark: _isDark,
+      );
+    }
+
     _currentFontSize = prefs.getDouble(_fontSizeKey) ?? 16.0;
     _wallpaperOpacity = prefs.getDouble(_opacityKey) ?? 1.0;
     _wallpaperBlur = prefs.getDouble(_blurKey) ?? 0.0;
@@ -36,8 +66,40 @@ class ThemeProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setColorIndex(int index) async {
+    if (index < 0 || index >= ThemeManager.appThemeColors.length) return;
+    _selectedColorIndex = index;
+    _currentTheme = ThemeManager.createThemeFromColor(
+      colorOption: ThemeManager.appThemeColors[_selectedColorIndex],
+      isDark: _isDark,
+    );
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_colorIndexKey, index);
+    await prefs.setString(_themeKey, _currentTheme.id);
+
+    _applyTheme();
+    notifyListeners();
+  }
+
+  Future<void> setThemeModePreference(String mode) async {
+    _themeModePreference = mode;
+    _isDark = mode != 'light';
+    _currentTheme = ThemeManager.createThemeFromColor(
+      colorOption: ThemeManager.appThemeColors[_selectedColorIndex],
+      isDark: _isDark,
+    );
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_themeModeKey, mode);
+    await prefs.setString(_themeKey, _currentTheme.id);
+
+    _applyTheme();
+    notifyListeners();
+  }
+
   Future<void> setTheme(String themeId) async {
-    _currentTheme = ThemeManager.getThemeById(themeId);
+    _currentTheme = ThemeManager.getThemeById(themeId, isDark: _isDark);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_themeKey, themeId);
     _applyTheme();
@@ -75,7 +137,7 @@ class ThemeProvider extends ChangeNotifier {
     AppTheme.bubbleSender = _currentTheme.bubbleSender;
     AppTheme.bubbleReceiver = _currentTheme.bubbleReceiver;
     
-    // Determine if the background is dark based on luminance to set isDark flag
-    AppTheme.isDark = _currentTheme.backgroundColor.computeLuminance() < 0.5;
+    // Set isDark flag
+    AppTheme.isDark = _isDark;
   }
 }

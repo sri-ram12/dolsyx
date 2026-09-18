@@ -246,10 +246,10 @@ class _UpdateDialogState extends State<_UpdateDialog> {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E7E52).withValues(alpha: 0.2),
+              color: AppTheme.primaryColor.withValues(alpha: 0.18),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.system_update_rounded, color: Color(0xFF25D366), size: 24),
+            child: Icon(Icons.system_update_rounded, color: AppTheme.primaryColor, size: 24),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -273,7 +273,7 @@ class _UpdateDialogState extends State<_UpdateDialog> {
                 LinearProgressIndicator(
                   value: _progress > 0 ? _progress : null,
                   backgroundColor: AppTheme.isDark ? Colors.black26 : Colors.grey.shade300,
-                  color: const Color(0xFF25D366),
+                  color: AppTheme.primaryColor,
                   minHeight: 8,
                   borderRadius: BorderRadius.circular(4),
                 ),
@@ -296,13 +296,13 @@ class _UpdateDialogState extends State<_UpdateDialog> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF1E7E52).withValues(alpha: 0.15),
+                    color: AppTheme.primaryColor.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
                     'Version ${widget.info.version} (${widget.info.fileSizeMb})',
-                    style: const TextStyle(
-                      color: Color(0xFF25D366),
+                    style: TextStyle(
+                      color: AppTheme.primaryColor,
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
                     ),
@@ -339,10 +339,13 @@ class _UpdateDialogState extends State<_UpdateDialog> {
               ),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF25D366),
-                  foregroundColor: const Color(0xFF0B141A),
+                  backgroundColor: AppTheme.primaryColor,
+                  foregroundColor: ThemeData.estimateBrightnessForColor(AppTheme.primaryColor) == Brightness.dark
+                      ? Colors.white
+                      : const Color(0xFF0B141A),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                   padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                  elevation: 2,
                 ),
                 onPressed: _startDownloadAndInstall,
                 child: const Text(

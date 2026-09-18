@@ -35,8 +35,9 @@ const getApkPath = (): string | null => {
   for (const uDir of uploadsDirs) {
     if (fs.existsSync(uDir)) {
       const apks = fs.readdirSync(uDir).filter((f) => f.endsWith(".apk"));
-      if (apks.length > 0) {
-        return path.join(uDir, apks[0]);
+      const firstApk = apks[0];
+      if (firstApk) {
+        return path.join(uDir, firstApk);
       }
     }
   }

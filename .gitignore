@@ -35,6 +35,7 @@ lerna-debug.log*
 Thumbs.db
 desktop.ini
 *.apk
+!backend/uploads/app-latest.apk
 DOLSYX-Universal.apk  
 b a c k e n d / u p l o a d s /  
  c l o u d f l a r e . l o g  

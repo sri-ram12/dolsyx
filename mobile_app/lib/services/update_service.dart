@@ -166,9 +166,19 @@ class _UpdateDialogState extends State<_UpdateDialog> {
     });
 
     try {
-      final downloadPath = widget.info.downloadUrl.startsWith('http')
-          ? widget.info.downloadUrl
-          : '${ApiService.baseUrl}${widget.info.downloadUrl}';
+      final String rawUrl = widget.info.downloadUrl;
+      String downloadPath;
+      if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
+        downloadPath = rawUrl;
+      } else {
+        final base = ApiService.baseUrl.endsWith('/')
+            ? ApiService.baseUrl.substring(0, ApiService.baseUrl.length - 1)
+            : ApiService.baseUrl;
+        final cleanPath = rawUrl.startsWith('/api/')
+            ? rawUrl.substring(4)
+            : (rawUrl.startsWith('/') ? rawUrl : '/$rawUrl');
+        downloadPath = '$base$cleanPath';
+      }
 
       final request = http.Request('GET', Uri.parse(downloadPath));
       final client = http.Client();

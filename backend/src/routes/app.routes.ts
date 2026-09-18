@@ -157,7 +157,16 @@ router.get("/version", (req, res) => {
     }
 
     const hasApk = apkPath !== null || !!process.env.APK_DOWNLOAD_URL || config.hasApk !== false;
-    const downloadUrl = process.env.APK_DOWNLOAD_URL || config.downloadUrl || "/api/app/download";
+    let rawDownloadUrl = process.env.APK_DOWNLOAD_URL || config.downloadUrl || "/api/app/download";
+
+    // Ensure absolute URL so client startsWith('http') is true and never concatenates /api/api
+    let downloadUrl = rawDownloadUrl;
+    if (!downloadUrl.startsWith("http://") && !downloadUrl.startsWith("https://")) {
+      const host = req.get("host") || "dolsyx-app.onrender.com";
+      const proto = req.get("x-forwarded-proto") || req.protocol || "https";
+      const cleanPath = downloadUrl.startsWith("/") ? downloadUrl : `/${downloadUrl}`;
+      downloadUrl = `${proto}://${host}${cleanPath}`;
+    }
 
     // Current build version info
     res.json({

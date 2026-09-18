@@ -130,6 +130,7 @@ app.use("/api/backups", backupRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/devices", deviceRoutes);
 app.use("/api/app", appRoutes);
+app.use("/api/api/app", appRoutes); // Fallback alias for legacy clients with baseUrl concatenation
 // ── Initialize Background Jobs & SDKs ──────────────────────────────────────────
 initFirebase();
 initCronJobs();

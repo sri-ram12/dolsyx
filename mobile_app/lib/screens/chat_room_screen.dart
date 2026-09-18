@@ -41,6 +41,7 @@ import '../utils/e2ee/e2ee_api.dart';
 import '../services/auto_download_service.dart';
 import '../widgets/app_lock_wrapper.dart';
 import '../utils/e2ee/e2ee_media_cache.dart';
+import '../utils/media_size_helper.dart';
 
 class ChatRoomScreen extends StatefulWidget {
   final String conversationId;
@@ -2575,6 +2576,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     final tempId = 'temp_${DateTime.now().millisecondsSinceEpoch}_${file.path.hashCode}';
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final myUserId = (authProvider.user?['id'] ?? authProvider.user?['_id'])?.toString() ?? '';
+    final fileName = file.path.split(Platform.pathSeparator).last;
+    final int fileSize = file.existsSync() ? file.lengthSync() : 0;
+    if (fileSize > 0) {
+      MediaSizeHelper.cacheSize(file.path, fileSize);
+    }
 
     // 🟢 Instantly show the media bubble in chat with WhatsApp-style buffering overlay
     final tempMsg = Message(
@@ -2587,6 +2593,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       isViewOnce: isViewOnce,
       isPending: true,
       createdAt: DateTime.now(),
+      fileSize: fileSize > 0 ? fileSize : null,
+      fileName: fileName,
     );
 
     setState(() {
@@ -2603,6 +2611,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       'isViewOnce': isViewOnce,
       'isHD': isHD,
       'isUploading': true,
+      'fileSize': fileSize,
+      'fileName': fileName,
     };
     _pendingMediaUploadQueue.add(queueItem);
     _startMediaRetryTimer();
@@ -2622,6 +2632,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       if (response != null && response['fileUrl'] != null && mounted) {
         final serverFileUrl = response['fileUrl'] as String;
         await E2EEMediaCache.saveDecryptedMedia(serverFileUrl, rawBytes);
+        if (fileSize > 0) {
+          MediaSizeHelper.cacheSize(serverFileUrl, fileSize);
+        }
         _pendingMediaUploadQueue.removeWhere((q) => q['tempId'] == tempId);
         setState(() {
           final idx = _messages.indexWhere((m) => m.id == tempId);
@@ -2639,6 +2652,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               mediaKey: encResult['mediaKeyB64'],
               nonce: encResult['nonceB64'],
               isE2EEMedia: true,
+              fileSize: fileSize > 0 ? fileSize : null,
+              fileName: fileName,
             );
           }
         });
@@ -2650,6 +2665,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           'mediaType': mediaType,
           'caption': caption,
           'isViewOnce': isViewOnce,
+          'fileSize': fileSize,
+          'fileName': fileName,
         });
         authProvider.socketService.sendMessage(
           widget.conversationId, 

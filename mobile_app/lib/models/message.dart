@@ -1,4 +1,5 @@
 import 'dart:convert';
+import '../utils/media_size_helper.dart';
 
 class Message {
   final String id;
@@ -30,6 +31,10 @@ class Message {
   final String? mediaKey;
   final String? nonce;
   final bool isE2EEMedia;
+  final int? fileSize;
+  final String? fileName;
+
+  String get formattedFileSize => MediaSizeHelper.formatBytes(fileSize);
 
   Message({
     required this.id,
@@ -60,6 +65,8 @@ class Message {
     this.mediaKey,
     this.nonce,
     this.isE2EEMedia = false,
+    this.fileSize,
+    this.fileName,
   });
 
   factory Message.fromJson(Map<String, dynamic> json) {
@@ -74,6 +81,8 @@ class Message {
     String? mediaKey = json['mediaKey'];
     String? nonce = json['nonce'];
     bool isE2EEMedia = json['isE2EEMedia'] ?? false;
+    int? fileSize = (json['fileSize'] as num?)?.toInt() ?? (json['size'] as num?)?.toInt();
+    String? fileName = json['fileName'];
 
     // Smart JSON content parsing for E2EE media, Poll, or Location payloads
     if (contentStr.startsWith('{') && contentStr.endsWith('}')) {
@@ -89,6 +98,8 @@ class Message {
           nonce = decoded['nonce'] ?? nonce;
           isE2EEMedia = true;
           contentStr = decoded['caption'] ?? '';
+          fileSize = (decoded['fileSize'] as num?)?.toInt() ?? (decoded['size'] as num?)?.toInt() ?? fileSize;
+          fileName = decoded['fileName'] ?? fileName;
         } else if (decoded['mediaType'] == 'LOCATION' || decoded['latitude'] != null || json['mediaType'] == 'LOCATION') {
           mediaType = 'LOCATION';
           latitude = (decoded['latitude'] as num?)?.toDouble() ?? 12.9716;
@@ -102,6 +113,10 @@ class Message {
       mediaType = 'POLL';
     } else if (json['mediaType'] == 'LOCATION') {
       mediaType = 'LOCATION';
+    }
+
+    if (fileSize != null && mediaUrl != null) {
+      MediaSizeHelper.cacheSize(mediaUrl, fileSize);
     }
 
     return Message(
@@ -133,6 +148,8 @@ class Message {
       mediaKey: mediaKey,
       nonce: nonce,
       isE2EEMedia: isE2EEMedia,
+      fileSize: fileSize,
+      fileName: fileName,
     );
   }
 
@@ -148,6 +165,8 @@ class Message {
       'isForwarded': isForwarded,
       'mediaUrl': mediaUrl,
       'mediaType': mediaType,
+      'fileSize': fileSize,
+      'fileName': fileName,
       'isViewOnce': isViewOnce,
       'isViewed': isViewed,
       'latitude': latitude,

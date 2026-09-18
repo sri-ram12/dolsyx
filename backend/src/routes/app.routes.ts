@@ -45,9 +45,9 @@ router.get("/version", (req, res) => {
     // Current build version info
     res.json({
       success: true,
-      version: "1.0.2",
-      buildNumber: 2,
-      releaseNotes: "In-app OTA self-updater, 200MB video sharing, performance and reliability updates.",
+      version: "1.0.3",
+      buildNumber: 3,
+      releaseNotes: "WhatsApp-style media download pill with KB/MB size badges on images, videos, and documents.",
       downloadUrl: "/api/app/download",
       fileSizeBytes,
       fileSizeMb: `${fileSizeMb} MB`,

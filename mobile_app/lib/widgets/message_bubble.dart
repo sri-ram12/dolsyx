@@ -20,6 +20,7 @@ import 'full_screen_image_view.dart';
 import 'animated_emoji.dart';
 import '../utils/e2ee/e2ee_media_cache.dart';
 import '../utils/e2ee/crypto_service.dart';
+import '../utils/media_size_helper.dart';
 
 class MessageBubble extends StatelessWidget {
   final Message message;
@@ -814,10 +815,10 @@ class MessageBubble extends StatelessWidget {
                                               height: imageSize * 0.75,
                                               color: Colors.black26,
                                               child: Center(
-                                                child: SizedBox(
-                                                  width: 32,
-                                                  height: 32,
-                                                  child: CircularProgressIndicator(strokeWidth: 2.5, color: AppTheme.primaryColor),
+                                                child: _MediaDownloadPill(
+                                                  fileSize: message.fileSize,
+                                                  mediaUrl: message.mediaUrl,
+                                                  isDownloading: true,
                                                 ),
                                               ),
                                             );
@@ -834,10 +835,10 @@ class MessageBubble extends StatelessWidget {
                                             height: imageSize * 0.75,
                                             color: Colors.black26,
                                             child: Center(
-                                              child: SizedBox(
-                                                width: 32,
-                                                height: 32,
-                                                child: CircularProgressIndicator(strokeWidth: 2.5, color: AppTheme.primaryColor),
+                                              child: _MediaDownloadPill(
+                                                fileSize: message.fileSize,
+                                                mediaUrl: message.mediaUrl,
+                                                isDownloading: true,
                                               ),
                                             ),
                                           ),
@@ -849,29 +850,12 @@ class MessageBubble extends StatelessWidget {
                                           ),
                                         ),
                             ),
-                            // 🟢 WhatsApp In-Bubble Circular Buffering Indicator
+                            // 🟢 WhatsApp In-Bubble Download/Upload Pill
                             if (message.isPending)
-                              Container(
-                                width: 48,
-                                height: 48,
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withOpacity(0.6),
-                                  shape: BoxShape.circle,
-                                ),
-                                child: Stack(
-                                  alignment: Alignment.center,
-                                  children: [
-                                    SizedBox(
-                                      width: 44,
-                                      height: 44,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2.8,
-                                        valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primaryColor),
-                                      ),
-                                    ),
-                                    const Icon(Icons.close_rounded, color: Colors.white, size: 22),
-                                  ],
-                                ),
+                              _MediaDownloadPill(
+                                fileSize: message.fileSize,
+                                mediaUrl: message.mediaUrl,
+                                isDownloading: true,
                               ),
                             if (isOnlyImage)
                               Positioned(
@@ -948,29 +932,12 @@ class MessageBubble extends StatelessWidget {
                                       ),
                                     ),
                                   ),
-                                  // 🟢 WhatsApp In-Bubble Buffering / Play Action
+                                  // 🟢 WhatsApp In-Bubble Download / Buffering / Play Action
                                   if (message.isPending)
-                                    Container(
-                                      width: 48,
-                                      height: 48,
-                                      decoration: BoxDecoration(
-                                        color: Colors.black.withOpacity(0.6),
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: Stack(
-                                        alignment: Alignment.center,
-                                        children: [
-                                          SizedBox(
-                                            width: 44,
-                                            height: 44,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2.8,
-                                              valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primaryColor),
-                                            ),
-                                          ),
-                                          const Icon(Icons.close_rounded, color: Colors.white, size: 22),
-                                        ],
-                                      ),
+                                    _MediaDownloadPill(
+                                      fileSize: message.fileSize,
+                                      mediaUrl: message.mediaUrl,
+                                      isDownloading: true,
                                     )
                                   else
                                     Container(
@@ -983,7 +950,7 @@ class MessageBubble extends StatelessWidget {
                                       ),
                                       child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 32),
                                     ),
-                                  // Bottom Left Video Duration Pill
+                                  // Bottom Left Video Duration & Size Pill
                                   Positioned(
                                     bottom: 6,
                                     left: 8,
@@ -993,14 +960,18 @@ class MessageBubble extends StatelessWidget {
                                         color: Colors.black.withOpacity(0.65),
                                         borderRadius: BorderRadius.circular(8),
                                       ),
-                                      child: const Row(
+                                      child: Row(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
-                                          Icon(Icons.videocam_rounded, color: Colors.white70, size: 12),
-                                          SizedBox(width: 4),
+                                          const Icon(Icons.videocam_rounded, color: Colors.white70, size: 12),
+                                          const SizedBox(width: 4),
                                           Text(
-                                            'VIDEO',
-                                            style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                            (message.formattedFileSize.isNotEmpty
+                                                ? 'VIDEO • ${message.formattedFileSize}'
+                                                : (MediaSizeHelper.getCachedSize(message.mediaUrl) != null
+                                                    ? 'VIDEO • ${MediaSizeHelper.formatBytes(MediaSizeHelper.getCachedSize(message.mediaUrl))}'
+                                                    : 'VIDEO')),
+                                            style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
                                           ),
                                         ],
                                       ),
@@ -1261,10 +1232,15 @@ class MessageBubble extends StatelessWidget {
                   Row(
                     children: [
                       Text(
-                        '$ext Document',
+                        (message.formattedFileSize.isNotEmpty
+                            ? '${message.formattedFileSize} • '
+                            : (MediaSizeHelper.getCachedSize(message.mediaUrl) != null
+                                ? '${MediaSizeHelper.formatBytes(MediaSizeHelper.getCachedSize(message.mediaUrl))} • '
+                                : '')) + '$ext Document',
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.6),
-                          fontSize: 11,
+                          color: Colors.white.withOpacity(0.7),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
                       const SizedBox(width: 4),
@@ -1279,6 +1255,12 @@ class MessageBubble extends StatelessWidget {
                   ),
                 ],
               ),
+            ),
+            const SizedBox(width: 8),
+            _MediaDownloadPill(
+              fileSize: message.fileSize,
+              mediaUrl: message.mediaUrl,
+              isDownloading: message.isPending,
             ),
           ],
         ),
@@ -2121,5 +2103,117 @@ class _AudioPlayWidgetState extends State<AudioPlayWidget> {
     final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
     final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
     return '$m:$s';
+  }
+}
+
+/// WhatsApp-style Media Download Pill matching reference design:
+/// Grey capsule pill with a white down arrow and bold white KB/MB size text.
+class _MediaDownloadPill extends StatefulWidget {
+  final int? fileSize;
+  final String? mediaUrl;
+  final bool isDownloading;
+  final VoidCallback? onTap;
+
+  const _MediaDownloadPill({
+    this.fileSize,
+    this.mediaUrl,
+    this.isDownloading = false,
+    this.onTap,
+  });
+
+  @override
+  State<_MediaDownloadPill> createState() => _MediaDownloadPillState();
+}
+
+class _MediaDownloadPillState extends State<_MediaDownloadPill> {
+  int? _resolvedSize;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolvedSize = widget.fileSize ?? MediaSizeHelper.getCachedSize(widget.mediaUrl);
+    if (_resolvedSize == null && widget.mediaUrl != null) {
+      MediaSizeHelper.resolveFileSize(widget.mediaUrl, onResolved: () {
+        if (mounted) {
+          setState(() {
+            _resolvedSize = MediaSizeHelper.getCachedSize(widget.mediaUrl);
+          });
+        }
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _MediaDownloadPill oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.fileSize != oldWidget.fileSize || widget.mediaUrl != oldWidget.mediaUrl) {
+      _resolvedSize = widget.fileSize ?? MediaSizeHelper.getCachedSize(widget.mediaUrl);
+      if (_resolvedSize == null && widget.mediaUrl != null) {
+        MediaSizeHelper.resolveFileSize(widget.mediaUrl, onResolved: () {
+          if (mounted) {
+            setState(() {
+              _resolvedSize = MediaSizeHelper.getCachedSize(widget.mediaUrl);
+            });
+          }
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final sizeText = MediaSizeHelper.formatBytes(_resolvedSize);
+
+    return GestureDetector(
+      onTap: widget.onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        decoration: BoxDecoration(
+          color: const Color(0xB34A4A4A),
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.3),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            if (widget.isDownloading) ...[
+              const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.2,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                ),
+              ),
+              if (sizeText.isNotEmpty) const SizedBox(width: 7),
+            ] else ...[
+              const Icon(
+                Icons.arrow_downward_rounded,
+                color: Colors.white,
+                size: 18,
+              ),
+              if (sizeText.isNotEmpty) const SizedBox(width: 7),
+            ],
+            if (sizeText.isNotEmpty)
+              Text(
+                sizeText,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.2,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 }

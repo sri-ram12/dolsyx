@@ -78,6 +78,17 @@ function getQuotedParentPreviewText(parent: any) {
   return content || "Message";
 }
 
+function formatMediaBytes(bytes?: number): string {
+  if (!bytes || bytes <= 0) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  if (bytes < 1024 * 1024 * 1024) {
+    const mb = bytes / (1024 * 1024);
+    return mb >= 10 ? `${mb.toFixed(0)} MB` : `${mb.toFixed(1)} MB`;
+  }
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
 interface Message {
   id: string;
   content: string;
@@ -88,6 +99,8 @@ interface Message {
   isDeleted?: boolean;
   mediaUrl?: string | null;
   mediaType?: "TEXT" | "IMAGE" | "VIDEO" | "FILE" | "AUDIO" | "CODE_SNIPPET" | "STICKER" | "CALL_LOG" | "POLL" | "LOCATION" | null;
+  fileSize?: number;
+  fileName?: string;
   sender: {
     id: string;
     username: string;
@@ -2224,13 +2237,19 @@ export default function ChatWindow({
                       <LocationMessage msg={msg} isMe={isMe} />
                     ) : msg.mediaType === "IMAGE" ? (
                       <div className="flex flex-col space-y-1">
-                        <div className="max-w-md rounded-2xl overflow-hidden border border-zinc-800 bg-zinc-900 shadow-md">
+                        <div className="relative max-w-md rounded-2xl overflow-hidden border border-zinc-800 bg-zinc-900 shadow-md">
                           <img
                             src={resolveMediaUrl(msg.mediaUrl) || ""}
                             alt={msg.content || "Image attachment"}
                             className="w-full max-h-96 object-cover cursor-pointer hover:opacity-90 transition-opacity"
                             onClick={() => window.open(resolveMediaUrl(msg.mediaUrl) || "", "_blank")}
                           />
+                          {formatMediaBytes((msg as any).fileSize || (msg as any).size) && (
+                            <div className="absolute bottom-2 left-2 flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/60 backdrop-blur-sm text-[12px] font-bold text-white shadow">
+                              <Download className="h-3.5 w-3.5 text-white" />
+                              <span>{formatMediaBytes((msg as any).fileSize || (msg as any).size)}</span>
+                            </div>
+                          )}
                         </div>
                         {msg.content && msg.content !== msg.id && (
                           <div
@@ -2246,7 +2265,7 @@ export default function ChatWindow({
                       </div>
                     ) : msg.mediaType === "VIDEO" ? (
                       <div className="flex flex-col space-y-1">
-                        <div className="max-w-xs rounded-2xl overflow-hidden border border-zinc-800 bg-black shadow-md">
+                        <div className="relative max-w-xs rounded-2xl overflow-hidden border border-zinc-800 bg-black shadow-md">
                           <video
                             src={resolveMediaUrl(msg.mediaUrl) || ""}
                             controls
@@ -2261,6 +2280,12 @@ export default function ChatWindow({
                             <source src={resolveMediaUrl(msg.mediaUrl) || ""} />
                             Your browser does not support video playback.
                           </video>
+                          {formatMediaBytes((msg as any).fileSize || (msg as any).size) && (
+                            <div className="absolute top-2 right-2 flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/60 backdrop-blur-sm text-[12px] font-bold text-white shadow pointer-events-none">
+                              <Download className="h-3.5 w-3.5 text-white" />
+                              <span>{formatMediaBytes((msg as any).fileSize || (msg as any).size)}</span>
+                            </div>
+                          )}
                         </div>
                         {msg.content && msg.content !== msg.id && (
                           <div
@@ -2290,18 +2315,25 @@ export default function ChatWindow({
                         </div>
                         <div className="min-w-0 flex-1">
                           <p className="text-[14px] font-semibold text-white truncate">
-                            {msg.content || "Attachment"}
+                            {msg.fileName || msg.content || "Attachment"}
                           </p>
-                          <p className="text-[11px] text-zinc-550">File Attachment</p>
+                          <p className="text-[11px] text-zinc-400">
+                            {formatMediaBytes((msg as any).fileSize || (msg as any).size)
+                              ? `${formatMediaBytes((msg as any).fileSize || (msg as any).size)} • Document`
+                              : "File Attachment"}
+                          </p>
                         </div>
                         <a
                           href={resolveMediaUrl(msg.mediaUrl) || ""}
-                          download={msg.content}
+                          download={msg.fileName || msg.content || "download"}
                           target="_blank"
                           rel="noreferrer"
-                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-zinc-800 text-zinc-300 hover:text-white hover:bg-zinc-700 transition-colors text-[12px] font-bold"
                         >
                           <Download className="h-3.5 w-3.5" />
+                          {formatMediaBytes((msg as any).fileSize || (msg as any).size) && (
+                            <span>{formatMediaBytes((msg as any).fileSize || (msg as any).size)}</span>
+                          )}
                         </a>
                       </div>
                     ) : emojiOnly ? (

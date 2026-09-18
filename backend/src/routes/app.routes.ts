@@ -18,40 +18,50 @@ const apkUpload = multer({
       cb(null, dir);
     },
     filename: (req, file, cb) => {
-      const ext = path.extname(file.originalname).toLowerCase();
-      cb(null, ext === ".apk" ? file.originalname : "app-release.apk");
+      cb(null, "app-latest.apk");
     },
   }),
   limits: { fileSize: 300 * 1024 * 1024 },
 });
 
-// Candidate paths for compiled APK (prefers split arm64, then universal release/debug)
+// Candidate paths for compiled APK (prefers uploads directory, then local outputs)
 const getApkPath = (): string | null => {
+  // 1. First, check uploads directory for any uploaded APK
+  const uploadsDirs = [
+    path.resolve(process.cwd(), "uploads"),
+    path.resolve(process.cwd(), "../uploads"),
+    path.resolve(__dirname, "../../uploads"),
+  ];
+  for (const uDir of uploadsDirs) {
+    if (fs.existsSync(uDir)) {
+      const apks = fs.readdirSync(uDir).filter((f) => f.endsWith(".apk"));
+      if (apks.length > 0) {
+        return path.join(uDir, apks[0]);
+      }
+    }
+  }
+
   const candidates = [
+    path.resolve(process.cwd(), "uploads/app-latest.apk"),
     path.resolve(process.cwd(), "uploads/app-arm64-v8a-debug.apk"),
     path.resolve(process.cwd(), "uploads/app-release.apk"),
     path.resolve(process.cwd(), "uploads/app-debug.apk"),
+    path.resolve(process.cwd(), "app-latest.apk"),
     path.resolve(process.cwd(), "app-arm64-v8a-debug.apk"),
     path.resolve(process.cwd(), "app-release.apk"),
     path.resolve(process.cwd(), "app-debug.apk"),
-    path.resolve(process.cwd(), "../uploads/app-arm64-v8a-debug.apk"),
-    path.resolve(process.cwd(), "../uploads/app-release.apk"),
-    path.resolve(process.cwd(), "../uploads/app-debug.apk"),
+    path.resolve(process.cwd(), "../app-latest.apk"),
     path.resolve(process.cwd(), "../app-arm64-v8a-debug.apk"),
     path.resolve(process.cwd(), "../app-release.apk"),
     path.resolve(process.cwd(), "../app-debug.apk"),
     path.resolve(process.cwd(), "mobile_app/build/app/outputs/flutter-apk/app-arm64-v8a-debug.apk"),
+    path.resolve(process.cwd(), "mobile_app/build/app/outputs/flutter-apk/app-armeabi-v7a-debug.apk"),
     path.resolve(process.cwd(), "mobile_app/build/app/outputs/flutter-apk/app-release.apk"),
     path.resolve(process.cwd(), "mobile_app/build/app/outputs/flutter-apk/app-debug.apk"),
     path.resolve(process.cwd(), "mobile_app/build/app/outputs/apk/release/app-release.apk"),
     path.resolve(process.cwd(), "../mobile_app/build/app/outputs/flutter-apk/app-arm64-v8a-debug.apk"),
     path.resolve(process.cwd(), "../mobile_app/build/app/outputs/flutter-apk/app-release.apk"),
     path.resolve(process.cwd(), "../mobile_app/build/app/outputs/flutter-apk/app-debug.apk"),
-    path.resolve(__dirname, "../../uploads/app-arm64-v8a-debug.apk"),
-    path.resolve(__dirname, "../../uploads/app-release.apk"),
-    path.resolve(__dirname, "../../uploads/app-debug.apk"),
-    path.resolve(__dirname, "../../../app-release.apk"),
-    path.resolve(__dirname, "../../../app-debug.apk"),
   ];
 
   for (const candidate of candidates) {

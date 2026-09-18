@@ -36,7 +36,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
           ),
           ListTile(
             leading: Icon(Icons.brightness_medium, color: AppTheme.textSecondary),
-            title: Text('App theme', style: TextStyle(color: AppTheme.textPrimary)),
+            title: Text('Theme Engine', style: TextStyle(color: AppTheme.textPrimary)),
             subtitle: Text(_selectedTheme.name, style: TextStyle(color: AppTheme.textSecondary)),
             onTap: () {
               Navigator.push(
@@ -173,6 +173,22 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildThemeOption(String themeName, ThemeProvider themeProvider, String currentTheme) {
+    return RadioListTile<String>(
+      title: Text(themeName, style: TextStyle(color: AppTheme.textPrimary)),
+      value: themeName,
+      groupValue: currentTheme,
+      activeColor: AppTheme.primaryColor,
+      onChanged: (val) {
+        themeProvider.setTheme(val!);
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$themeName theme selected.')),
+        );
+      },
     );
   }
 }

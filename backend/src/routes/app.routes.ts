@@ -44,8 +44,9 @@ const getApkPath = (): string | null => {
         .filter((f) => f.endsWith(".apk"))
         .map((f) => path.join(uDir, f))
         .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
-      if (apks.length > 0) {
-        return apks[0];
+      const newestApk = apks[0];
+      if (newestApk) {
+        return newestApk;
       }
     }
   }

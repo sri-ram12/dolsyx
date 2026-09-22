@@ -36,12 +36,12 @@ describe("DOLSYX App Auto-Update Backend Tests", () => {
     };
 
     // Find the version route handler from appRoutes
-    const versionRoute = appRoutes.stack.find(
+    const versionRoute: any = appRoutes.stack.find(
       (layer: any) => layer.route && layer.route.path === "/version" && layer.route.methods.get
     );
-    assert.ok(versionRoute, "Route /version exists");
+    assert.ok(versionRoute && versionRoute.route, "Route /version exists");
 
-    await versionRoute.route.stack[0].handle(req, res);
+    await versionRoute.route.stack[0].handle(req, res, () => {});
 
     assert.strictEqual(statusCode, 200);
     assert.strictEqual(headers["cache-control"], "no-store, no-cache, must-revalidate, proxy-revalidate");

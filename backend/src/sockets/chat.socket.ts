@@ -265,11 +265,14 @@ export const initChatSocket = (io: Server) => {
 
     try {
       const decoded = jwt.verify(token, JWT_SECRET) as {
-        id: string;
-        username: string;
+        id?: string;
+        userId?: string;
+        username?: string;
+        name?: string;
+        phone?: string;
       };
-      socket.userId = decoded.id;
-      socket.username = decoded.username;
+      socket.userId = decoded.id || decoded.userId;
+      socket.username = decoded.username || decoded.name || decoded.phone || "User";
       next();
     } catch (err) {
       next(new Error("Authentication error: Invalid token"));

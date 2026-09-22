@@ -26,34 +26,42 @@ const apkUpload = multer({
 
 // Candidate paths for compiled APK (prefers uploads directory, then local outputs)
 const getApkPath = (): string | null => {
-  // 1. First, check uploads directory for any uploaded APK
+  // 1. First, check uploads directory: prefer explicit "app-latest.apk", then newest APK by mtime
   const uploadsDirs = [
     path.resolve(process.cwd(), "uploads"),
     path.resolve(process.cwd(), "../uploads"),
     path.resolve(__dirname, "../../uploads"),
   ];
+
   for (const uDir of uploadsDirs) {
     if (fs.existsSync(uDir)) {
-      const apks = fs.readdirSync(uDir).filter((f) => f.endsWith(".apk"));
-      const firstApk = apks[0];
-      if (firstApk) {
-        return path.join(uDir, firstApk);
+      const explicitLatest = path.join(uDir, "app-latest.apk");
+      if (fs.existsSync(explicitLatest)) {
+        return explicitLatest;
+      }
+      const apks = fs
+        .readdirSync(uDir)
+        .filter((f) => f.endsWith(".apk"))
+        .map((f) => path.join(uDir, f))
+        .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+      if (apks.length > 0) {
+        return apks[0];
       }
     }
   }
 
   const candidates = [
     path.resolve(process.cwd(), "uploads/app-latest.apk"),
-    path.resolve(process.cwd(), "uploads/app-arm64-v8a-debug.apk"),
-    path.resolve(process.cwd(), "uploads/app-release.apk"),
-    path.resolve(process.cwd(), "uploads/app-debug.apk"),
     path.resolve(process.cwd(), "app-latest.apk"),
-    path.resolve(process.cwd(), "app-arm64-v8a-debug.apk"),
-    path.resolve(process.cwd(), "app-release.apk"),
-    path.resolve(process.cwd(), "app-debug.apk"),
     path.resolve(process.cwd(), "../app-latest.apk"),
-    path.resolve(process.cwd(), "../app-arm64-v8a-debug.apk"),
+    path.resolve(process.cwd(), "uploads/app-release.apk"),
+    path.resolve(process.cwd(), "app-release.apk"),
     path.resolve(process.cwd(), "../app-release.apk"),
+    path.resolve(process.cwd(), "uploads/app-arm64-v8a-debug.apk"),
+    path.resolve(process.cwd(), "uploads/app-debug.apk"),
+    path.resolve(process.cwd(), "app-arm64-v8a-debug.apk"),
+    path.resolve(process.cwd(), "app-debug.apk"),
+    path.resolve(process.cwd(), "../app-arm64-v8a-debug.apk"),
     path.resolve(process.cwd(), "../app-debug.apk"),
     path.resolve(process.cwd(), "mobile_app/build/app/outputs/flutter-apk/app-arm64-v8a-debug.apk"),
     path.resolve(process.cwd(), "mobile_app/build/app/outputs/flutter-apk/app-armeabi-v7a-debug.apk"),
@@ -76,6 +84,8 @@ const getApkPath = (): string | null => {
 interface UpdateConfig {
   version: string;
   buildNumber: number;
+  minimumSupportedVersion?: string;
+  minimumSupportedBuild?: number;
   releaseNotes: string;
   downloadUrl?: string;
   fileSizeMb?: string;
@@ -100,6 +110,8 @@ const getUpdateConfig = (): UpdateConfig => {
   return {
     version: process.env.APP_VERSION || "1.0.4",
     buildNumber: parseInt(process.env.APP_BUILD_NUMBER || "4", 10),
+    minimumSupportedVersion: process.env.APP_MIN_SUPPORTED_VERSION || "1.0.0",
+    minimumSupportedBuild: parseInt(process.env.APP_MIN_SUPPORTED_BUILD || "1", 10),
     releaseNotes:
       process.env.APP_RELEASE_NOTES ||
       "Automatic real-time OTA update pop-up on launch, WhatsApp-style media download pill with KB/MB indicators on images, videos, audio & documents.",
@@ -123,11 +135,13 @@ router.post("/upload-apk", apkUpload.single("apk"), (req, res) => {
 // ── POST /api/app/publish-version ──
 router.post("/publish-version", (req, res) => {
   try {
-    const { version, buildNumber, releaseNotes, downloadUrl, fileSizeMb, hasApk } = req.body;
+    const { version, buildNumber, minimumSupportedVersion, minimumSupportedBuild, releaseNotes, downloadUrl, fileSizeMb, hasApk } = req.body;
     const current = getUpdateConfig();
     const updated: UpdateConfig = {
       version: version || current.version,
       buildNumber: buildNumber ? Number(buildNumber) : current.buildNumber + 1,
+      minimumSupportedVersion: minimumSupportedVersion || current.minimumSupportedVersion || "1.0.0",
+      minimumSupportedBuild: minimumSupportedBuild ? Number(minimumSupportedBuild) : (current.minimumSupportedBuild || 1),
       releaseNotes: releaseNotes || current.releaseNotes,
       downloadUrl: downloadUrl || current.downloadUrl,
       fileSizeMb: fileSizeMb || current.fileSizeMb,
@@ -143,6 +157,12 @@ router.post("/publish-version", (req, res) => {
 // ── GET /api/app/version ──
 router.get("/version", (req, res) => {
   try {
+    // Prevent intermediate HTTP caching
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    res.setHeader("Surrogate-Control", "no-store");
+
     const config = getUpdateConfig();
     const apkPath = getApkPath();
     let fileSizeBytes = 0;
@@ -168,11 +188,14 @@ router.get("/version", (req, res) => {
       downloadUrl = `${proto}://${host}${cleanPath}`;
     }
 
-    // Current build version info
+    // Current build version info with full structured metadata
     res.json({
       success: true,
       version: config.version || "1.0.4",
       buildNumber: config.buildNumber || 4,
+      minimumSupportedVersion: config.minimumSupportedVersion || "1.0.0",
+      minimumSupportedBuild: config.minimumSupportedBuild || 1,
+      updateRequired: false,
       releaseNotes: config.releaseNotes,
       downloadUrl,
       fileSizeBytes,
@@ -204,6 +227,9 @@ router.get("/download", (req, res) => {
     }
 
     const filename = "dolsyx-latest.apk";
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
     res.setHeader("Content-Type", "application/vnd.android.package-archive");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     return res.download(apkPath, filename);

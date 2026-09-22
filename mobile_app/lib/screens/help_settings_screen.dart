@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
+import '../services/update_service.dart';
 
 class HelpSettingsScreen extends StatelessWidget {
   const HelpSettingsScreen({super.key});
@@ -65,20 +66,28 @@ class HelpSettingsScreen extends StatelessWidget {
             onTap: () => _launch(context, termsUrl),
           ),
           const Divider(color: Colors.grey, height: 24),
-          ListTile(
-            leading: Icon(Icons.info_outline, color: AppTheme.textSecondary),
-            title: Text('App Info', style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.w600)),
-            subtitle: Text('DOLSYX v1.0.0 (Build 1)', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
-            onTap: () {
-              showAboutDialog(
-                context: context,
-                applicationName: 'DOLSYX',
-                applicationVersion: '1.0.0 (Build 1)',
-                applicationIcon: Image.asset('assets/icon/app_icon.png', width: 48, height: 48, errorBuilder: (_, __, ___) => const Icon(Icons.chat_bubble, size: 48, color: Color(0xFF32CD32))),
-                children: const [
-                  SizedBox(height: 8),
-                  Text('DOLSYX is a secure, end-to-end encrypted messaging, voice, and video communication platform.'),
-                ],
+          FutureBuilder<Map<String, dynamic>>(
+            future: UpdateService().getRunningAppInfo(),
+            builder: (context, snapshot) {
+              final ver = snapshot.data?['versionName'] ?? '1.0.4';
+              final build = snapshot.data?['normalizedBuild'] ?? snapshot.data?['versionCode'] ?? 4;
+              final displayVersion = 'v$ver (Build $build)';
+              return ListTile(
+                leading: Icon(Icons.info_outline, color: AppTheme.textSecondary),
+                title: Text('App Info', style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.w600)),
+                subtitle: Text('DOLSYX $displayVersion', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+                onTap: () {
+                  showAboutDialog(
+                    context: context,
+                    applicationName: 'DOLSYX',
+                    applicationVersion: displayVersion,
+                    applicationIcon: Image.asset('assets/icon/app_icon.png', width: 48, height: 48, errorBuilder: (_, __, ___) => const Icon(Icons.chat_bubble, size: 48, color: Color(0xFF32CD32))),
+                    children: const [
+                      SizedBox(height: 8),
+                      Text('DOLSYX is a secure, end-to-end encrypted messaging, voice, and video communication platform.'),
+                    ],
+                  );
+                },
               );
             },
           ),

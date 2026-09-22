@@ -77,7 +77,10 @@ class E2EEMediaCache {
     try {
       if (mediaUrl.isEmpty) return null;
 
-      // If already a local file path
+      // If already an existing local file path
+      if (File(mediaUrl).existsSync()) {
+        return File(mediaUrl);
+      }
       if (!mediaUrl.startsWith('http') && !mediaUrl.startsWith('/uploads')) {
         final localFile = File(mediaUrl);
         if (await localFile.exists()) return localFile;
@@ -93,7 +96,7 @@ class E2EEMediaCache {
       }
 
       // Also check if previously cached under alternative extensions
-      for (final altExt in ['mp4', 'jpg', 'png', 'bin', 'm4a']) {
+      for (final altExt in ['mp4', 'jpg', 'png', 'bin', 'm4a', 'webm']) {
         final altFile = File('${tempDir.path}/e2ee_dec_$cacheKey.$altExt');
         if (await altFile.exists() && (await altFile.length()) > 0) {
           if (safeExt == 'mp4' && altExt != 'mp4') {
@@ -117,7 +120,7 @@ class E2EEMediaCache {
       final future = () async {
         try {
           final resolvedUrl = ApiService.getMediaUrl(mediaUrl);
-          final response = await http.get(Uri.parse(resolvedUrl)).timeout(const Duration(seconds: 25));
+          final response = await http.get(Uri.parse(resolvedUrl)).timeout(const Duration(seconds: 60));
           if (response.statusCode != 200 || response.bodyBytes.isEmpty) {
             return null;
           }

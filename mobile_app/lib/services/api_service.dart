@@ -12,7 +12,15 @@ class ApiService {
 
   static String getMediaUrl(String? path) {
     if (path == null || path.isEmpty) return '';
-    if (path.startsWith('http://') || path.startsWith('https://')) {
+    if (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('blob:')) {
+      return path;
+    }
+    // Return directly if it is a local file system path or file URI
+    if (path.startsWith('file://') ||
+        path.startsWith('/data/') ||
+        path.startsWith('/storage/') ||
+        (!path.startsWith('/') && !path.startsWith('uploads/') && File(path).existsSync()) ||
+        File(path).existsSync()) {
       return path;
     }
     final serverBase = baseUrl.endsWith('/api')

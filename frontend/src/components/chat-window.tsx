@@ -12,6 +12,7 @@ import { Chat } from "./chat-sidebar";
 import GroupProfileModal from "./group-profile-modal";
 import WallpaperModal from "./wallpaper-modal";
 import { ReactionPopup } from "./reaction-popup";
+import { DecryptedImage, DecryptedVideo } from "./decrypted-media";
 import {
   Send,
   Smile,
@@ -2238,11 +2239,13 @@ export default function ChatWindow({
                     ) : msg.mediaType === "IMAGE" ? (
                       <div className="flex flex-col space-y-1">
                         <div className="relative max-w-md rounded-2xl overflow-hidden border border-zinc-800 bg-zinc-900 shadow-md">
-                          <img
-                            src={resolveMediaUrl(msg.mediaUrl) || ""}
+                          <DecryptedImage
+                            mediaUrl={msg.mediaUrl || ""}
+                            mediaKey={(msg as any).mediaKey}
+                            nonce={(msg as any).nonce}
+                            isE2EEMedia={(msg as any).isE2EEMedia}
                             alt={msg.content || "Image attachment"}
                             className="w-full max-h-96 object-cover cursor-pointer hover:opacity-90 transition-opacity"
-                            onClick={() => window.open(resolveMediaUrl(msg.mediaUrl) || "", "_blank")}
                           />
                           {formatMediaBytes((msg as any).fileSize || (msg as any).size) && (
                             <div className="absolute bottom-2 left-2 flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/60 backdrop-blur-sm text-[12px] font-bold text-white shadow">
@@ -2266,20 +2269,14 @@ export default function ChatWindow({
                     ) : msg.mediaType === "VIDEO" ? (
                       <div className="flex flex-col space-y-1">
                         <div className="relative max-w-xs rounded-2xl overflow-hidden border border-zinc-800 bg-black shadow-md">
-                          <video
-                            src={resolveMediaUrl(msg.mediaUrl) || ""}
-                            controls
-                            preload="metadata"
-                            playsInline
+                          <DecryptedVideo
+                            mediaUrl={msg.mediaUrl || ""}
+                            mediaKey={(msg as any).mediaKey}
+                            nonce={(msg as any).nonce}
+                            isE2EEMedia={(msg as any).isE2EEMedia}
+                            fileName={msg.fileName || "video.mp4"}
                             className="w-full max-h-72 object-contain bg-black rounded-2xl"
-                            style={{ display: "block" }}
-                            onError={(e) => {
-                              console.error("Video error:", e);
-                            }}
-                          >
-                            <source src={resolveMediaUrl(msg.mediaUrl) || ""} />
-                            Your browser does not support video playback.
-                          </video>
+                          />
                           {formatMediaBytes((msg as any).fileSize || (msg as any).size) && (
                             <div className="absolute top-2 right-2 flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/60 backdrop-blur-sm text-[12px] font-bold text-white shadow pointer-events-none">
                               <Download className="h-3.5 w-3.5 text-white" />

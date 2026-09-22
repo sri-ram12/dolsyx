@@ -21,17 +21,27 @@ const FEMALE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200
 const MALE_DATA_URI = `data:image/svg+xml,${MALE_SVG}`;
 const FEMALE_DATA_URI = `data:image/svg+xml,${FEMALE_SVG}`;
 
+import { API_URL } from "@/context/auth-context";
+
 export function resolveMediaUrl(url: string | null | undefined): string {
   if (!url) return "";
+  
+  // Return early if already absolute, blob, or data URI
+  if (url.startsWith("blob:") || url.startsWith("data:")) {
+    return url;
+  }
   
   // Extract path if it contains /uploads/
   const uploadsIndex = url.indexOf("/uploads/");
   if (uploadsIndex !== -1) {
     const relativePath = url.substring(uploadsIndex);
-    if (typeof window !== "undefined") {
-      return `${window.location.origin}${relativePath}`;
-    }
-    return relativePath;
+    const base = API_URL || "https://dolsyx-app.onrender.com";
+    return `${base}${relativePath}`;
+  }
+  
+  if (url.startsWith("/")) {
+    const base = API_URL || "https://dolsyx-app.onrender.com";
+    return `${base}${url}`;
   }
   
   return url;

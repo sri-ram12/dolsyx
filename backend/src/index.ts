@@ -106,6 +106,8 @@ const staticOptions = {
   acceptRanges: true,
   setHeaders: (res: express.Response) => {
     res.setHeader("Cache-Control", "public, max-age=2592000, immutable");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
   },
 };
 

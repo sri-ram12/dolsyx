@@ -54,13 +54,32 @@ class _FullScreenImageViewState extends State<FullScreenImageView> {
   }
 
   Future<void> _initMedia() async {
-    final resolvedUrl = ApiService.getMediaUrl(widget.imageUrl);
-    _isVideo = widget.message?.mediaType == 'VIDEO' ||
-        resolvedUrl.toLowerCase().endsWith('.mp4') ||
-        resolvedUrl.toLowerCase().endsWith('.mov') ||
-        resolvedUrl.toLowerCase().endsWith('.mkv') ||
-        resolvedUrl.contains('/video/');
+    final rawUrl = widget.imageUrl;
 
+    _isVideo = widget.message?.mediaType == 'VIDEO' ||
+        rawUrl.toLowerCase().endsWith('.mp4') ||
+        rawUrl.toLowerCase().endsWith('.mov') ||
+        rawUrl.toLowerCase().endsWith('.mkv') ||
+        rawUrl.toLowerCase().endsWith('.webm') ||
+        rawUrl.contains('/video/');
+
+    // 1. Direct local file playback (e.g. freshly captured camera / gallery video / pending send)
+    final isLocal = (!rawUrl.startsWith('http://') && !rawUrl.startsWith('https://') && !rawUrl.startsWith('/uploads')) &&
+        (File(rawUrl).existsSync() || rawUrl.startsWith('/data/') || rawUrl.startsWith('/storage/'));
+
+    if (isLocal && File(rawUrl).existsSync()) {
+      final file = File(rawUrl);
+      if (_isVideo) {
+        await _initVideoFromFile(file);
+      } else {
+        if (mounted) setState(() => _decryptedFile = file);
+      }
+      return;
+    }
+
+    final resolvedUrl = ApiService.getMediaUrl(rawUrl);
+
+    // 2. Client-side E2EE Decryption
     if (widget.message?.isE2EEMedia == true && widget.message?.mediaKey != null) {
       if (mounted) setState(() => _isDecrypting = true);
       try {
@@ -78,14 +97,23 @@ class _FullScreenImageViewState extends State<FullScreenImageView> {
           if (file != null && _isVideo) {
             await _initVideoFromFile(file);
           } else if (file == null && _isVideo) {
-            await _initVideoFromUrl(resolvedUrl);
+            // Decryption failed or timed out — do not pass raw encrypted ciphertext to player
+            setState(() {
+              _isVideoInit = false;
+              _videoError = true;
+            });
           }
         }
       } catch (e) {
         debugPrint('Error decrypting media: $e');
         if (mounted) {
-          setState(() => _isDecrypting = false);
-          if (_isVideo) await _initVideoFromUrl(resolvedUrl);
+          setState(() {
+            _isDecrypting = false;
+            if (_isVideo) {
+              _isVideoInit = false;
+              _videoError = true;
+            }
+          });
         }
       }
     } else if (_isVideo) {
@@ -111,6 +139,7 @@ class _FullScreenImageViewState extends State<FullScreenImageView> {
       await _videoController?.dispose();
       _videoController = VideoPlayerController.file(playableFile);
       await _videoController!.initialize();
+      await _videoController!.setLooping(true);
       if (mounted) {
         setState(() {
           _isVideoInit = true;
@@ -135,6 +164,7 @@ class _FullScreenImageViewState extends State<FullScreenImageView> {
       await _videoController?.dispose();
       _videoController = VideoPlayerController.networkUrl(Uri.parse(url));
       await _videoController!.initialize();
+      await _videoController!.setLooping(true);
       if (mounted) {
         setState(() {
           _isVideoInit = true;

@@ -353,6 +353,7 @@ class CryptoService {
   }
 
   /// Decrypts raw [encryptedBytes] using [mediaKeyB64] and [nonceB64].
+  /// Supports dual ciphers (AES-GCM Web standard and AES-CBC Mobile HMAC standard).
   Future<Uint8List> decryptFileBytes({
     required Uint8List encryptedBytes,
     required String mediaKeyB64,
@@ -360,17 +361,59 @@ class CryptoService {
   }) async {
     final mediaKeyBytes = base64Decode(mediaKeyB64);
     final nonceBytes = base64Decode(nonceB64);
-
-    // MAC tag is the last 32 bytes (HMAC-SHA256)
-    final macLength = 32;
-    final cipherText = encryptedBytes.sublist(0, encryptedBytes.length - macLength);
-    final macBytes = encryptedBytes.sublist(encryptedBytes.length - macLength);
-
     final secretKey = SecretKey(mediaKeyBytes);
-    final secretBox = SecretBox(cipherText, nonce: nonceBytes, mac: Mac(macBytes));
 
-    final decrypted = await _aesCbc.decrypt(secretBox, secretKey: secretKey);
-    return Uint8List.fromList(decrypted);
+    // 1. Try AES-GCM (Web standard format: 12-byte or 16-byte IV, 16-byte trailing auth tag)
+    if (nonceBytes.length == 12 || nonceBytes.length == 16) {
+      if (encryptedBytes.length > 16) {
+        try {
+          const gcmTagLength = 16;
+          final cipherText = encryptedBytes.sublist(0, encryptedBytes.length - gcmTagLength);
+          final macBytes = encryptedBytes.sublist(encryptedBytes.length - gcmTagLength);
+          final secretBox = SecretBox(cipherText, nonce: nonceBytes, mac: Mac(macBytes));
+          final decrypted = await _aesGcm.decrypt(secretBox, secretKey: secretKey);
+          return Uint8List.fromList(decrypted);
+        } catch (_) {}
+      }
+      try {
+        final secretBox = SecretBox(encryptedBytes, nonce: nonceBytes, mac: Mac.empty);
+        final decrypted = await _aesGcm.decrypt(secretBox, secretKey: secretKey);
+        return Uint8List.fromList(decrypted);
+      } catch (_) {}
+    }
+
+    // 2. Try AES-CBC with 32-byte HMAC-SHA256 MAC tag (Mobile standard format)
+    if (encryptedBytes.length > 32) {
+      try {
+        const macLength = 32;
+        final cipherText = encryptedBytes.sublist(0, encryptedBytes.length - macLength);
+        final macBytes = encryptedBytes.sublist(encryptedBytes.length - macLength);
+        final secretBox = SecretBox(cipherText, nonce: nonceBytes, mac: Mac(macBytes));
+        final decrypted = await _aesCbc.decrypt(secretBox, secretKey: secretKey);
+        return Uint8List.fromList(decrypted);
+      } catch (_) {}
+    }
+
+    // 3. Try AES-CBC without trailing MAC (direct PKCS#7 padded CBC)
+    try {
+      final secretBox = SecretBox(encryptedBytes, nonce: nonceBytes, mac: Mac.empty);
+      final decrypted = await _aesCbc.decrypt(secretBox, secretKey: secretKey);
+      return Uint8List.fromList(decrypted);
+    } catch (_) {}
+
+    // 4. Final attempt: AES-GCM with 16-byte split if not attempted earlier
+    if (encryptedBytes.length > 16) {
+      try {
+        const gcmTagLength = 16;
+        final cipherText = encryptedBytes.sublist(0, encryptedBytes.length - gcmTagLength);
+        final macBytes = encryptedBytes.sublist(encryptedBytes.length - gcmTagLength);
+        final secretBox = SecretBox(cipherText, nonce: nonceBytes, mac: Mac(macBytes));
+        final decrypted = await _aesGcm.decrypt(secretBox, secretKey: secretKey);
+        return Uint8List.fromList(decrypted);
+      } catch (_) {}
+    }
+
+    throw Exception('Failed to decrypt media file with available ciphers');
   }
 
   // ─────────────────────────────────────────────────────────────────────────

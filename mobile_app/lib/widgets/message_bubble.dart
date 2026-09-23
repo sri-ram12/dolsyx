@@ -337,7 +337,8 @@ class MessageBubble extends StatelessWidget {
 
     if (isSystem) {
       final cleanText = message.content.replaceFirst('SYSTEM:', '').trim();
-      return Center(
+      return RepaintBoundary(
+        child: Center(
         child: Container(
           margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 24),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
@@ -362,7 +363,7 @@ class MessageBubble extends StatelessWidget {
             ),
           ),
         ),
-      );
+      ));
     }
 
     final bool isSticker = message.mediaType == 'STICKER';
@@ -1137,7 +1138,7 @@ class MessageBubble extends StatelessWidget {
           ],
         );
 
-    return _wrapSwipeable(context, bubbleContent, forwardButton: forwardButton);
+    return _wrapSwipeable(context, RepaintBoundary(child: bubbleContent), forwardButton: forwardButton);
   }
 
   Widget _buildDocumentCard(BuildContext context, Color textColor, Color secondaryTextColor) {

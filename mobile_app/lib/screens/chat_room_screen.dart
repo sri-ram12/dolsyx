@@ -1419,10 +1419,13 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         final msgData = data['message'] as Map<String, dynamic>;
         final msg = Message.fromJson(msgData);
 
-        // Replace temp optimistic message if content or media matches
+        final incomingTempId = (data['tempId'] ?? msgData['tempId'])?.toString();
+
+        // Replace temp optimistic message if tempId, content, or media matches
         setState(() {
           final tempIndex = _messages.indexWhere((m) {
             if (m.id == msg.id) return true;
+            if (incomingTempId != null && incomingTempId.isNotEmpty && m.id == incomingTempId) return true;
             if (m.id.startsWith('temp')) {
               if (msg.mediaUrl != null && msg.mediaUrl!.isNotEmpty) {
                 final filename = msg.mediaUrl!.split('/').last;
@@ -1468,6 +1471,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         final prefs = await SharedPreferences.getInstance();
         final encoded = jsonEncode(_messages.map((m) => m.toJson()).toList());
         await prefs.setString('cached_messages_${widget.conversationId}', encoded);
+        await prefs.setString('cached_decrypted_${widget.conversationId}', encoded);
       } catch (e) {
         print('Error updating message cache: $e');
       }

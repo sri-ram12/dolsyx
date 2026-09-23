@@ -49,26 +49,23 @@ class EmailService {
       // Use explicit host/port config with family:4 to force IPv4
       // (Render cloud containers may resolve smtp.gmail.com to an IPv6 address that is unreachable)
       const isGmail = host === "smtp.gmail.com";
-      const transportConfig: any = isGmail ? {
-        host: "smtp.gmail.com",
-        port: 465,
-        secure: true,
-        family: 4, // Force IPv4 to prevent ESOCKET IPv6 errors on cloud platforms
-        auth: { user, pass },
-        connectionTimeout: 20000,
-        greetingTimeout: 20000,
-        socketTimeout: 20000,
-        tls: { rejectUnauthorized: false },
-      } : {
+      const smtpPort = parseInt(process.env.SMTP_PORT || (isGmail ? "587" : "587"));
+      const isSecure = smtpPort === 465;
+
+      const transportConfig: any = {
         host: host,
-        port: port,
-        secure: port === 465,   // True for 465, false for other ports
-        family: 4,              // Force IPv4 connections only
+        port: smtpPort,
+        secure: isSecure, // false for port 587 (STARTTLS), true for 465
+        requireTLS: !isSecure,
         auth: { user, pass },
-        connectionTimeout: 20000,
-        greetingTimeout: 20000,
-        socketTimeout: 20000,
+        connectionTimeout: 15000,
+        greetingTimeout: 15000,
+        socketTimeout: 15000,
         tls: { rejectUnauthorized: false },
+        lookup: (hostname: string, options: any, callback: any) => {
+          // Explicitly force IPv4 resolution to prevent ENETUNREACH errors on cloud container platforms like Render
+          dns.lookup(hostname, { family: 4 }, callback);
+        },
       };
       this.transporter = nodemailer.createTransport(transportConfig);
       return this.transporter;

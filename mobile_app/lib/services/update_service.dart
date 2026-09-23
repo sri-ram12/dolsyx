@@ -69,8 +69,8 @@ class UpdateService {
   static const MethodChannel _installerChannel = MethodChannel('com.dolsyx/app_installer');
 
   // Fallback build number if native channel is unavailable
-  static const int currentAppBuild = 4;
-  static const String currentAppVersion = '1.0.4';
+  static const int currentAppBuild = 5;
+  static const String currentAppVersion = '1.0.5';
 
   // In-flight deduplication lock
   Future<UpdateInfo?>? _inFlightCheck;

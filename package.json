@@ -8,6 +8,7 @@
     "build": "cd frontend && npm run build && cd ../backend && npm run build",
     "postbuild": "cd backend && npx prisma generate && npx prisma db push",
     "start": "node backend/dist/index.js",
+    "publish:ota": "node scripts/publish-ota-apk.js",
     "dev:frontend": "cd frontend && npm run dev",
     "dev:backend": "cd backend && npm run dev"
   },

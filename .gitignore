@@ -35,10 +35,7 @@ lerna-debug.log*
 Thumbs.db
 desktop.ini
 *.apk
-!backend/uploads/app-latest.apk
-DOLSYX-Universal.apk  
-b a c k e n d / u p l o a d s /  
- c l o u d f l a r e . l o g  
- c l o u d f l a r e d . e x e  
- f r o n t e n d / . e n v *  
- b a c k e n d / . e n v *
+backend/uploads/*.apk
+DOLSYX-Universal.apk
+cloudflare.log
+cloudflared.exe

@@ -546,6 +546,7 @@ export const initChatSocket = (io: Server) => {
     // Handle real-time messaging with SUB-0.2MS ZERO-LAG DELIVERY
     socket.on("send_message", async (data: {
       id?: string;
+      tempId?: string;
       conversationId: string;
       content: string;
       parentMessageId?: string;
@@ -562,6 +563,7 @@ export const initChatSocket = (io: Server) => {
       try {
         const {
           id: clientMessageId,
+          tempId,
           conversationId,
           content,
           parentMessageId,
@@ -575,6 +577,8 @@ export const initChatSocket = (io: Server) => {
           isLiveLocation,
           liveExpiresAt
         } = data;
+
+        const effectiveTempId = tempId || clientMessageId;
 
         // Allow empty content for media & location messages
         if (!mediaUrl && !latitude && (!content || !content.trim())) return;
@@ -612,7 +616,9 @@ export const initChatSocket = (io: Server) => {
         }
 
         // ⚡️ 0.2MS SUB-MILLISECOND IMMEDIATE BROADCAST (ZERO-KNOWLEDGE OPAQUE CIPHERTEXT)
-        const messageId = clientMessageId || `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+        const messageId = (clientMessageId && !clientMessageId.startsWith("temp"))
+          ? clientMessageId
+          : `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
         const instantMessage: any = {
           id: messageId,
           content: content ? content.trim() : "",
@@ -649,11 +655,12 @@ export const initChatSocket = (io: Server) => {
         io.to(conversationId).emit("new_message", {
           message: instantMessage,
           conversationId,
+          tempId: effectiveTempId,
         });
 
         // Acknowledge back to sender immediately so client status turns to sent
         socket.emit("message_sent", {
-          tempId: clientMessageId,
+          tempId: effectiveTempId,
           messageId,
           conversationId,
         });

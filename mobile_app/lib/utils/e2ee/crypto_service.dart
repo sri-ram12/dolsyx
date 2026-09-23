@@ -557,7 +557,9 @@ class CryptoService {
       'nonce': _bytesToBase64(nonce),
       'tag': _bytesToBase64(secretBox.mac.bytes),
     };
-    return jsonEncode(payload);
+    final payloadJson = jsonEncode(payload);
+    cachePlaintext(payloadJson, plaintext);
+    return payloadJson;
   }
 
   /// Decrypts a conversation room payload with dual AES-GCM & legacy AES-CBC fallback.
@@ -615,6 +617,30 @@ class CryptoService {
     throw Exception('Failed to decrypt conversation payload');
   }
 
+  // In-memory LRU plaintext cache (caps at 1000 items)
+  static final Map<String, String> _plaintextCache = {};
+  static const int _maxCacheSize = 1000;
+
+  /// Synchronously retrieve cached plaintext if already decrypted (0ms UI thread lookup)
+  String? getCachedDecryptedContent(String content) {
+    if (content.isEmpty) return content;
+    final trimmed = content.trim();
+    if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) {
+      return content;
+    }
+    return _plaintextCache[trimmed];
+  }
+
+  /// Store decrypted plaintext in cache
+  void cachePlaintext(String ciphertext, String plaintext) {
+    if (ciphertext.isEmpty || plaintext.isEmpty) return;
+    final trimmed = ciphertext.trim();
+    if (_plaintextCache.length >= _maxCacheSize) {
+      _plaintextCache.remove(_plaintextCache.keys.first);
+    }
+    _plaintextCache[trimmed] = plaintext;
+  }
+
   /// Universal decryptor that inspects [content] and transparently decrypts
   /// Signal Type 1, Signal Type 2, Group E2EE, or returns plaintext as fallback.
   Future<String> decryptIncomingContent({
@@ -628,6 +654,11 @@ class CryptoService {
       return content; // Plaintext or not an encrypted JSON blob
     }
 
+    // Fast-path: Check in-memory cache first (0ms instant return)
+    final cached = _plaintextCache[trimmed];
+    if (cached != null) return cached;
+
+    String result = content;
     try {
       final decoded = jsonDecode(trimmed);
       if (decoded is! Map<String, dynamic>) return content;
@@ -636,15 +667,13 @@ class CryptoService {
       if (decoded['e2ee'] == 'conv_v1' || (decoded['conversationId'] != null && decoded['type'] == null)) {
         final cId = (decoded['conversationId'] ?? conversationId ?? '').toString();
         if (cId.isNotEmpty) {
-          return await decryptConversationPayload(conversationId: cId, payload: decoded);
+          result = await decryptConversationPayload(conversationId: cId, payload: decoded);
         }
-      }
-
-      // Check if it's Signal MessagePayload (type 1 or type 2)
-      if (decoded.containsKey('ciphertext') && decoded.containsKey('nonce') && decoded.containsKey('tag')) {
+      } else if (decoded.containsKey('ciphertext') && decoded.containsKey('nonce') && decoded.containsKey('tag')) {
+        // Check if it's Signal MessagePayload (type 1 or type 2)
         if (decoded.containsKey('type') && (decoded['type'] == 1 || decoded['type'] == 2)) {
           final payload = MessagePayload.fromJson(decoded);
-          return await decryptMessage(senderUserId: senderUserId, payload: payload);
+          result = await decryptMessage(senderUserId: senderUserId, payload: payload);
         }
       }
     } catch (_) {
@@ -653,12 +682,16 @@ class CryptoService {
         try {
           final decoded = jsonDecode(trimmed);
           if (decoded is Map<String, dynamic> && decoded.containsKey('ciphertext')) {
-            return await decryptConversationPayload(conversationId: conversationId, payload: decoded);
+            result = await decryptConversationPayload(conversationId: conversationId, payload: decoded);
           }
         } catch (_) {}
       }
     }
-    return content;
+
+    if (result != content && !result.contains('ciphertext')) {
+      cachePlaintext(trimmed, result);
+    }
+    return result;
   }
 
   String _bytesToBase64(List<int> bytes) => base64Encode(bytes);

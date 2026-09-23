@@ -444,7 +444,21 @@ class SocketService {
     }
   }
 
-  void sendMessage(String conversationId, String content, {String? mediaUrl, String? mediaType, String? parentMessageId, bool isForwarded = false, bool isViewOnce = false, double? latitude, double? longitude, String? locationTitle, bool isLiveLocation = false, String? liveExpiresAt}) async {
+  void sendMessage(
+    String conversationId,
+    String content, {
+    String? mediaUrl,
+    String? mediaType,
+    String? parentMessageId,
+    bool isForwarded = false,
+    bool isViewOnce = false,
+    double? latitude,
+    double? longitude,
+    String? locationTitle,
+    bool isLiveLocation = false,
+    String? liveExpiresAt,
+    String? tempId,
+  }) async {
     print('Sending message. Socket connected: ${socket?.connected}');
     
     // 100% E2EE Zero-Knowledge: Pre-encrypt plaintext client-side before transmission
@@ -455,6 +469,7 @@ class SocketService {
           conversationId: conversationId,
           plaintext: content,
         );
+        _crypto.cachePlaintext(payloadContent, content);
       } catch (e) {
         print('⚠️ Failed to pre-encrypt outgoing content: $e');
       }
@@ -463,6 +478,8 @@ class SocketService {
     final msgData = {
       'conversationId': conversationId,
       'content': payloadContent,
+      if (tempId != null) 'tempId': tempId,
+      if (tempId != null) 'id': tempId,
       if (mediaUrl != null) 'mediaUrl': mediaUrl,
       if (mediaType != null) 'mediaType': mediaType,
       if (parentMessageId != null) 'parentMessageId': parentMessageId,

@@ -51,6 +51,18 @@ class MessageBubble extends StatelessWidget {
   Widget _buildMessageText(String text, Color textColor, double fontSize) {
     final trimmed = text.trim();
     if ((trimmed.startsWith('{') && (trimmed.contains('ciphertext') || trimmed.contains('e2ee'))) || (trimmed.contains(':') && trimmed.split(':').length == 3)) {
+      // 0ms Synchronous Cache Hit: Render directly without FutureBuilder
+      final cached = CryptoService.instance.getCachedDecryptedContent(trimmed);
+      if (cached != null && cached != trimmed) {
+        if (!cached.contains('ciphertext') && !cached.contains('conv_v1')) {
+          return _buildMessageText(cached, textColor, fontSize);
+        }
+        if (cached.contains(':') && cached.split(':').length == 3) {
+          return Text("Encrypted message", style: TextStyle(color: textColor.withOpacity(0.7), fontSize: fontSize, fontStyle: FontStyle.italic));
+        }
+        return Text(cached, style: TextStyle(color: textColor, fontSize: fontSize));
+      }
+
       return FutureBuilder<String>(
         future: CryptoService.instance.decryptIncomingContent(
           content: trimmed,
@@ -60,6 +72,7 @@ class MessageBubble extends StatelessWidget {
         builder: (context, snapshot) {
           final resolvedText = snapshot.data ?? trimmed;
           if (resolvedText != trimmed && !resolvedText.contains('ciphertext') && !resolvedText.contains('conv_v1')) {
+            CryptoService.instance.cachePlaintext(trimmed, resolvedText);
             return _buildMessageText(resolvedText, textColor, fontSize);
           }
           if (resolvedText.contains(':') && resolvedText.split(':').length == 3) {
@@ -1411,25 +1424,27 @@ class MessageBubble extends StatelessWidget {
       }
     }
 
-    return Align(
-      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-      child: onSwipeReply != null
-          ? Dismissible(
-              key: Key('dismiss_${message.id}'),
-              direction: DismissDirection.startToEnd,
-              onDismissed: (_) {},
-              confirmDismiss: (direction) async {
-                onSwipeReply!(message);
-                return false;
-              },
-              background: Container(
-                alignment: Alignment.centerLeft,
-                padding: const EdgeInsets.only(left: 20),
-                child: const Icon(Icons.reply, color: Colors.white, size: 28),
-              ),
-              child: content,
-            )
-          : content,
+    return RepaintBoundary(
+      child: Align(
+        alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+        child: onSwipeReply != null
+            ? Dismissible(
+                key: Key('dismiss_${message.id}'),
+                direction: DismissDirection.startToEnd,
+                onDismissed: (_) {},
+                confirmDismiss: (direction) async {
+                  onSwipeReply!(message);
+                  return false;
+                },
+                background: Container(
+                  alignment: Alignment.centerLeft,
+                  padding: const EdgeInsets.only(left: 20),
+                  child: const Icon(Icons.reply, color: Colors.white, size: 28),
+                ),
+                child: content,
+              )
+            : content,
+      ),
     );
   }
 

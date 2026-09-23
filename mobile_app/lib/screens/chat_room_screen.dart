@@ -1337,9 +1337,12 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
       if (!mounted) return;
       setState(() {
+        final incomingTempId = (data['tempId'] ?? rawMsg['tempId'])?.toString();
+
         // Deduplicate: replace optimistic temp message (text or media)
         final tempIndex = _messages.indexWhere((m) {
           if (m.id == msg.id) return true;
+          if (incomingTempId != null && incomingTempId.isNotEmpty && m.id == incomingTempId) return true;
           if (m.id.startsWith('temp')) {
             // Media message match by URL or filename
             if (msg.mediaUrl != null && msg.mediaUrl!.isNotEmpty) {
@@ -1561,22 +1564,23 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       existingMap[existing.id] = existing;
     }
 
-    for (final m in list) {
+    // Fast concurrent decryption across messages using Future.wait
+    final futures = list.map((m) async {
       // Reuse already decrypted message instance if content is unchanged and not an encrypted payload
       final existing = existingMap[m.id];
       if (existing != null) {
         final existingRaw = existing.content.trim();
         final isCipher = existingRaw.startsWith('{') && (existingRaw.contains('"ciphertext"') || existingRaw.contains('"e2ee"'));
         if (!isCipher && (existing.reactions?.length ?? 0) == (m.reactions?.length ?? 0) && existing.isViewed == m.isViewed) {
-          result.add(existing);
-          continue;
+          return existing;
         }
       }
 
       final raw = m.content.trim();
       if (raw.isNotEmpty && (raw.startsWith('{') || (raw.contains(':') && raw.split(':').length == 3))) {
         try {
-          var decrypted = await crypto.decryptIncomingContent(
+          final cachedPlain = crypto.getCachedDecryptedContent(raw);
+          var decrypted = cachedPlain ?? await crypto.decryptIncomingContent(
             content: raw,
             senderUserId: m.senderId,
             conversationId: widget.conversationId,
@@ -1596,33 +1600,49 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             try {
               final parsed = jsonDecode(decrypted);
               if (parsed is Map && parsed['encryptedMedia'] == true) {
-                result.add(m.copyWith(
+                return m.copyWith(
                   content: parsed['caption']?.toString() ?? '',
                   mediaUrl: parsed['mediaUrl']?.toString() ?? m.mediaUrl,
                   mediaType: parsed['mediaType']?.toString() ?? m.mediaType,
                   mediaKey: parsed['mediaKey']?.toString(),
                   nonce: parsed['nonce']?.toString(),
                   isE2EEMedia: true,
-                ));
-                continue;
+                );
               }
             } catch (_) {}
           }
-          result.add(m.copyWith(content: decrypted));
+          return m.copyWith(content: decrypted);
         } catch (_) {
-          result.add(m);
+          return m;
         }
       } else {
-        result.add(m);
+        return m;
       }
-    }
-    return result;
+    });
+
+    return await Future.wait(futures);
   }
 
-  // Load cached messages from local storage instantly
+  // Load cached messages from local storage instantly (0ms UI render)
   Future<void> _loadCachedMessages() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+
+      // Check pre-decrypted local cache first for sub-1ms instant opening
+      final decryptedCached = prefs.getString('cached_decrypted_${widget.conversationId}');
+      if (decryptedCached != null && mounted) {
+        final List<dynamic> data = jsonDecode(decryptedCached);
+        final cachedList = data.map((json) => Message.fromJson(json)).toList();
+        if (mounted) {
+          setState(() {
+            _messages = cachedList;
+            _isLoading = false;
+          });
+          _scrollToBottom();
+          return;
+        }
+      }
+
       final cached = prefs.getString('cached_messages_${widget.conversationId}');
       if (cached != null && mounted) {
         final List<dynamic> data = jsonDecode(cached);
@@ -1663,6 +1683,12 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         final List<dynamic> data = jsonDecode(response.body);
         final rawList = data.map((json) => Message.fromJson(json)).toList();
         final decryptedList = await _decryptMessageList(rawList);
+
+        // Save pre-decrypted messages for sub-millisecond instant opening next time
+        try {
+          final decryptedJson = jsonEncode(decryptedList.map((m) => m.toJson()).toList());
+          await prefs.setString('cached_decrypted_${widget.conversationId}', decryptedJson);
+        } catch (_) {}
         if (mounted) {
           // Compare against current messages to avoid UI re-render jitter
           bool hasChanges = _messages.length != decryptedList.length;
@@ -2315,8 +2341,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
     // 2. Instant Optimistic UI render (0ms on-screen feedback)
     final authUser = authProvider.user;
+    final tempId = 'temp-${DateTime.now().millisecondsSinceEpoch}';
     final newMsg = Message(
-      id: 'temp-${DateTime.now().millisecondsSinceEpoch}',
+      id: tempId,
       content: text,
       senderId: authUser?['id'] ?? authUser?['_id'] ?? '',
       conversationId: widget.conversationId,
@@ -2340,6 +2367,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       widget.conversationId,
       text,
       parentMessageId: replying?.id,
+      tempId: tempId,
     );
   }
 

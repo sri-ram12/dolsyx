@@ -1106,14 +1106,17 @@ export default function ChatWindow({
           } catch (_) {}
         }
 
+        const incomingTempId = (data as any)?.tempId || (data as any)?.message?.tempId;
+
         setMessages((prev) => {
           if (prev.some(m => m.id === msg.id)) return prev;
           
           if (msg.senderId === user?.id) {
             const tempIndex = prev.findIndex(m => 
-              m.id.startsWith("temp-") && 
+              (incomingTempId && m.id === incomingTempId) ||
+              (m.id.startsWith("temp-") && 
               m.content === msg.content && 
-              m.mediaUrl === msg.mediaUrl
+              m.mediaUrl === msg.mediaUrl)
             );
             if (tempIndex !== -1) {
               const newMessages = [...prev];
@@ -1413,6 +1416,8 @@ export default function ChatWindow({
 
       if (socket) {
         socket.emit("send_message", {
+          tempId,
+          id: tempId,
           conversationId: chat.id,
           content: encryptedContent,
           parentMessageId: replyingToMessage?.id || undefined,

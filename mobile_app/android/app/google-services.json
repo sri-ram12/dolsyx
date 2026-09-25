@@ -22,6 +22,14 @@
           }
         },
         {
+          "client_id": "135176717661-vrcs0vkjuitefe8a4ug8g3fn1ugrrcj5.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.dolsyx.mobile_app",
+            "certificate_hash": "ab7c9a52e83082764eee2628c2ce14cafd3fee04"
+          }
+        },
+        {
           "client_id": "135176717661-ugfua55saob2pfm6er1f8o9bunubhdsp.apps.googleusercontent.com",
           "client_type": 3
         }

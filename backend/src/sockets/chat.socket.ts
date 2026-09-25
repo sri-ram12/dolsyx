@@ -110,6 +110,9 @@ async function flushScheduledMessagesToDisk() {
   }
 }
 
+let redisAdapterActive = false;
+export const isRedisAdapterActive = (): boolean => redisAdapterActive;
+
 export const setupRedisAdapter = async (io: Server) => {
   const redisUrl = process.env.REDIS_URL;
   if (!redisUrl) {
@@ -118,10 +121,14 @@ export const setupRedisAdapter = async (io: Server) => {
   try {
     const pubClient = createClient({ url: redisUrl });
     const subClient = pubClient.duplicate();
+    pubClient.on("error", (err) => console.warn("[Redis Pub] Error:", err?.message || err));
+    subClient.on("error", (err) => console.warn("[Redis Sub] Error:", err?.message || err));
     await Promise.all([pubClient.connect(), subClient.connect()]);
     io.adapter(createAdapter(pubClient, subClient));
+    redisAdapterActive = true;
     console.log("🚀 [Socket.IO] Redis cluster adapter active for multi-node distribution.");
   } catch (err) {
+    redisAdapterActive = false;
     console.warn("⚠️ [Socket.IO] Redis adapter connection failed, defaulting to in-memory mode:", err);
   }
 };

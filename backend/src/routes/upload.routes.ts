@@ -4,8 +4,40 @@ import path from "path";
 import fs from "fs";
 import { authenticateToken } from "../middleware/auth.middleware.js";
 import { uploadRateLimiter } from "../middleware/rateLimit.middleware.js";
+import cloudinary from "../config/cloudinary.config.js";
 
 const router = Router();
+
+// ── GET /sign: Direct pre-signed cloud storage upload ─────────────────────────
+router.get("/sign", authenticateToken, (req: any, res: any) => {
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+  const apiKey = process.env.CLOUDINARY_API_KEY;
+  const apiSecret = process.env.CLOUDINARY_API_SECRET;
+
+  if (!cloudName || !apiKey || !apiSecret) {
+    return res.status(200).json({
+      directUploadAvailable: false,
+      message: "Cloud storage direct upload not configured, use /api/uploads",
+    });
+  }
+
+  const timestamp = Math.round(Date.now() / 1000);
+  const folder = (req.query.folder as string) || "dolsyx_uploads";
+  const signature = cloudinary.utils.api_sign_request(
+    { timestamp, folder },
+    apiSecret
+  );
+
+  return res.status(200).json({
+    directUploadAvailable: true,
+    signature,
+    timestamp,
+    apiKey,
+    cloudName,
+    folder,
+    uploadUrl: `https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`,
+  });
+});
 
 // Configure storage
 const storage = multer.diskStorage({

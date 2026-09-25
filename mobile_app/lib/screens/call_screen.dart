@@ -946,11 +946,17 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
 
       final prefs = await SharedPreferences.getInstance();
       final lowDataMode = prefs.getBool('low_bandwidth_call_mode') ?? false;
+      final isGroupCall = _participants.length > 1;
 
       final dynamic videoConstraints = !canCaptureVideo
           ? false
-          : (lowDataMode
-              ? {'facingMode': 'user', 'width': {'ideal': 640}, 'height': {'ideal': 480}, 'frameRate': {'ideal': 24}}
+          : ((lowDataMode || isGroupCall)
+              ? {
+                  'facingMode': 'user',
+                  'width': {'ideal': (isGroupCall && _participants.length > 5) ? 480 : 640},
+                  'height': {'ideal': (isGroupCall && _participants.length > 5) ? 360 : 480},
+                  'frameRate': {'ideal': isGroupCall ? 20 : 24},
+                }
               : {
                   'facingMode': 'user',
                   'width': {'ideal': 1280},

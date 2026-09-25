@@ -531,4 +531,28 @@ export async function decryptIncomingContent(
   return content;
 }
 
+/**
+ * Steps the Double Ratchet symmetric chain key forward to ensure Perfect Forward Secrecy (PFS).
+ * Output: messageKey (used to encrypt/decrypt this single message) and nextChainKey (stored for next message).
+ */
+export async function advanceRatchetChain(
+  chainKey: Uint8Array
+): Promise<{ messageKey: Uint8Array; nextChainKey: Uint8Array }> {
+  const MESSAGE_KEY_SEED = new Uint8Array([0x01]);
+  const CHAIN_KEY_SEED = new Uint8Array([0x02]);
+
+  const messageKey = await deriveHkdfKey(chainKey, new Uint8Array(32), MESSAGE_KEY_SEED, 32);
+  const nextChainKey = await deriveHkdfKey(chainKey, new Uint8Array(32), CHAIN_KEY_SEED, 32);
+
+  return { messageKey, nextChainKey };
+}
+
+/**
+ * Checks if the local one-time prekey (OPK) pool needs replenishment.
+ */
+export function shouldReplenishOneTimePreKeys(activeCount: number): boolean {
+  return activeCount < REPLENISH_THRESHOLD;
+}
+
+
 

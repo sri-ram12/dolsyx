@@ -2644,7 +2644,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       final picker = ImagePicker();
       final XFile? file = isVideo
           ? await picker.pickVideo(source: ImageSource.camera, maxDuration: const Duration(minutes: 5))
-          : await picker.pickImage(source: ImageSource.camera, imageQuality: 95);
+          : await picker.pickImage(source: ImageSource.camera, imageQuality: 82, maxWidth: 1920, maxHeight: 1080);
 
       if (file != null && mounted) {
         final item = MediaItem(file: File(file.path), type: isVideo ? 'VIDEO' : 'IMAGE');
@@ -2683,9 +2683,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         pickedFiles = await picker.pickMultipleMedia();
       } catch (_) {
         try {
-          pickedFiles = await picker.pickMultiImage();
+          pickedFiles = await picker.pickMultiImage(imageQuality: 82, maxWidth: 1920, maxHeight: 1080);
         } catch (_) {
-          final XFile? single = await picker.pickImage(source: ImageSource.gallery, imageQuality: 95);
+          final XFile? single = await picker.pickImage(source: ImageSource.gallery, imageQuality: 82, maxWidth: 1920, maxHeight: 1080);
           if (single != null) pickedFiles = [single];
         }
       }

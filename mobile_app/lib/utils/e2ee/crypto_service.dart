@@ -740,5 +740,23 @@ class CryptoService {
     }
   }
 
+  /// Steps the Double Ratchet symmetric chain key forward to ensure Perfect Forward Secrecy (PFS).
+  Future<Map<String, List<int>>> advanceRatchetChain(List<int> chainKey) async {
+    final messageKeySecret = await _hkdf.deriveKey(
+      secretKey: SecretKey(chainKey),
+      nonce: [0x01],
+      info: utf8.encode('RATCHET_MSG_KEY_V1'),
+    );
+    final nextChainKeySecret = await _hkdf.deriveKey(
+      secretKey: SecretKey(chainKey),
+      nonce: [0x02],
+      info: utf8.encode('RATCHET_CHAIN_KEY_V1'),
+    );
+    return {
+      'messageKey': await messageKeySecret.extractBytes(),
+      'nextChainKey': await nextChainKeySecret.extractBytes(),
+    };
+  }
+
   String _bytesToBase64(List<int> bytes) => base64Encode(bytes);
 }

@@ -1532,30 +1532,127 @@ export default function ChatWindow({
     }
   };
 
+  const compressImageClientSide = async (
+    file: File,
+    maxWidth = 1920,
+    maxHeight = 1080,
+    quality = 0.82
+  ): Promise<File> => {
+    if (!file.type.startsWith("image/") || file.type.includes("svg") || file.type.includes("gif")) {
+      return file;
+    }
+    if (file.size < 300 * 1024) {
+      return file;
+    }
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          let width = img.width;
+          let height = img.height;
+          if (width > maxWidth || height > maxHeight) {
+            const ratio = Math.min(maxWidth / width, maxHeight / height);
+            width = Math.round(width * ratio);
+            height = Math.round(height * ratio);
+          }
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return resolve(file);
+          ctx.drawImage(img, 0, 0, width, height);
+          canvas.toBlob(
+            (blob) => {
+              if (!blob || blob.size >= file.size) return resolve(file);
+              const compressed = new File([blob], file.name.replace(/\.[^/.]+$/, ".jpg"), {
+                type: "image/jpeg",
+                lastModified: Date.now(),
+              });
+              resolve(compressed);
+            },
+            "image/jpeg",
+            quality
+          );
+        };
+        img.onerror = () => resolve(file);
+        img.src = e.target?.result as string;
+      };
+      reader.onerror = () => resolve(file);
+      reader.readAsDataURL(file);
+    });
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0];
-    if (!selectedFile || !socket || !chat || !token) return;
+    const rawFile = e.target.files?.[0];
+    if (!rawFile || !socket || !chat || !token) return;
 
     setIsUploadingFile(true);
 
-    const formData = new FormData();
-    formData.append("file", selectedFile);
-
     try {
-      const res = await fetch(`${API_URL}/api/chats/upload`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        body: formData,
-      });
+      const selectedFile = await compressImageClientSide(rawFile);
+      let uploadedFileUrl = "";
+      let uploadedFileType = selectedFile.type;
+      let directUploaded = false;
 
-      if (res.ok) {
-        const data = await res.json();
+      // 1. Try direct pre-signed cloud storage upload first (Zero backend RAM/CPU buffering)
+      try {
+        const signRes = await fetch(`${API_URL}/api/chats/upload/sign`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (signRes.ok) {
+          const signData = await signRes.json();
+          if (signData.directUploadAvailable && signData.uploadUrl) {
+            const cloudFormData = new FormData();
+            cloudFormData.append("file", selectedFile);
+            cloudFormData.append("api_key", signData.apiKey);
+            cloudFormData.append("timestamp", String(signData.timestamp));
+            cloudFormData.append("signature", signData.signature);
+            cloudFormData.append("folder", signData.folder);
+
+            const cloudRes = await fetch(signData.uploadUrl, {
+              method: "POST",
+              body: cloudFormData,
+            });
+            if (cloudRes.ok) {
+              const cloudJson = await cloudRes.json();
+              uploadedFileUrl = cloudJson.secure_url || cloudJson.url;
+              uploadedFileType = selectedFile.type;
+              directUploaded = true;
+            }
+          }
+        }
+      } catch (cloudErr) {
+        console.warn("[Upload] Direct cloud upload bypassed, falling back to backend stream:", cloudErr);
+      }
+
+      // 2. Fallback to standard backend upload if direct upload was unavailable or failed
+      if (!directUploaded) {
+        const formData = new FormData();
+        formData.append("file", selectedFile);
+        const res = await fetch(`${API_URL}/api/chats/upload`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          body: formData,
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          uploadedFileUrl = data.fileUrl || data.url;
+          uploadedFileType = data.fileType || selectedFile.type;
+        } else {
+          toast("File upload failed. Please try again.", "error");
+          return;
+        }
+      }
+
+      if (uploadedFileUrl) {
         let mediaType: "IMAGE" | "VIDEO" | "FILE" | "AUDIO" = "FILE";
-        if (data.fileType.startsWith("image/")) mediaType = "IMAGE";
-        else if (data.fileType.startsWith("video/")) mediaType = "VIDEO";
-        else if (data.fileType.startsWith("audio/")) mediaType = "AUDIO";
+        if (uploadedFileType.startsWith("image/")) mediaType = "IMAGE";
+        else if (uploadedFileType.startsWith("video/")) mediaType = "VIDEO";
+        else if (uploadedFileType.startsWith("audio/")) mediaType = "AUDIO";
 
         const tempId = `temp-${Date.now()}`;
         const optimisticMsg: any = {
@@ -1567,7 +1664,7 @@ export default function ChatWindow({
           updatedAt: new Date().toISOString(),
           parentMessageId: null,
           parentMessage: null,
-          mediaUrl: data.fileUrl,
+          mediaUrl: uploadedFileUrl,
           mediaType: mediaType,
           sender: user ? {
             id: user.id,
@@ -1582,7 +1679,7 @@ export default function ChatWindow({
         // Store relative path and broadcast E2EE media envelope
         const mediaPayload = JSON.stringify({
           encryptedMedia: false,
-          mediaUrl: data.fileUrl,
+          mediaUrl: uploadedFileUrl,
           mediaType,
           caption: "",
         });
@@ -1594,11 +1691,9 @@ export default function ChatWindow({
         socket.emit("send_message", {
           conversationId: chat.id,
           content: encryptedContent,
-          mediaUrl: data.fileUrl,
+          mediaUrl: uploadedFileUrl,
           mediaType,
         });
-      } else {
-        toast("File upload failed. Please try again.", "error");
       }
     } catch (err) {
       console.error("Upload error:", err);

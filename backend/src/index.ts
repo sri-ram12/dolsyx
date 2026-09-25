@@ -1,4 +1,6 @@
 import "dotenv/config";
+import cluster from "cluster";
+import os from "os";
 import express from "express";
 import http from "http";
 import dns from "dns";
@@ -25,7 +27,7 @@ import backupRoutes from "./routes/backup.routes.js";
 import aiRoutes from "./routes/ai.routes.js";
 import deviceRoutes from "./routes/device.routes.js";
 import appRoutes from "./routes/app.routes.js";
-import { initChatSocket } from "./sockets/chat.socket.js";
+import { initChatSocket, isRedisAdapterActive } from "./sockets/chat.socket.js";
 import { initCronJobs } from "./utils/cron.jobs.js";
 import { initFirebase } from "./config/firebase.config.js";
 import { prisma } from "./config/db.js";
@@ -135,7 +137,9 @@ app.use("/api/app", appRoutes);
 app.use("/api/api/app", appRoutes); // Fallback alias for legacy clients with baseUrl concatenation
 // ── Initialize Background Jobs & SDKs ──────────────────────────────────────────
 initFirebase();
-initCronJobs();
+if (!process.env.CLUSTER_MODE || cluster.worker?.id === 1) {
+  initCronJobs();
+}
 
 // ── Deep Health & Readiness Checks ──────────────────────────────────────────
 app.get("/health/live", (_req, res) => {
@@ -175,6 +179,13 @@ app.get("/health", async (_req, res) => {
       heapUsedMB: Math.round(mem.heapUsed / 1024 / 1024),
       rssMB: Math.round(mem.rss / 1024 / 1024),
     },
+    cluster: {
+      enabled: process.env.CLUSTER_MODE === "true",
+      isWorker: cluster.isWorker,
+      workerId: cluster.worker?.id ?? null,
+      pid: process.pid,
+    },
+    redisAdapter: isRedisAdapterActive() ? "active" : "in-memory",
     environment: process.env.NODE_ENV || "development",
   };
 
@@ -391,8 +402,21 @@ process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
 // ── Start ─────────────────────────────────────────────────────────────────────
-server.listen(PORT, () => {
-  console.log(
-    `DOLSYX server running on port ${PORT} [${IS_PRODUCTION ? "production monolith" : "dev API only"}]`
-  );
-});
+if (process.env.CLUSTER_MODE === "true" && cluster.isPrimary) {
+  const numCPUs = Math.max(1, os.cpus().length);
+  console.log(`[Cluster] Primary master ${process.pid} is running. Forking ${numCPUs} CPU workers...`);
+  for (let i = 0; i < numCPUs; i++) {
+    cluster.fork();
+  }
+  cluster.on("exit", (worker, code, signal) => {
+    console.warn(`[Cluster] Worker ${worker.process.pid} died (code: ${code}, signal: ${signal}). Spawning replacement worker...`);
+    cluster.fork();
+  });
+} else {
+  server.listen(PORT, () => {
+    const workerInfo = cluster.isWorker ? ` [Worker ${cluster.worker?.id}, PID: ${process.pid}]` : "";
+    console.log(
+      `DOLSYX server running on port ${PORT}${workerInfo} [${IS_PRODUCTION ? "production monolith" : "dev API only"}]`
+    );
+  });
+}

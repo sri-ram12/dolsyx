@@ -198,6 +198,38 @@ export const useWebRTC = ({ onIceCandidate }: UseWebRTCOptions) => {
     }
   }, []);
 
+  const setBitrateConstraints = useCallback(async (participantCount = 2) => {
+    const pc = pcRef.current;
+    if (!pc) return;
+    try {
+      const senders = pc.getSenders();
+      for (const sender of senders) {
+        if (sender.track && sender.track.kind === "video") {
+          const params = sender.getParameters();
+          if (!params.encodings || params.encodings.length === 0) {
+            params.encodings = [{}];
+          }
+          if (participantCount > 6) {
+            // Large group call (scaling to 30-50+): 250 kbps, downscale by 2.0
+            params.encodings[0].maxBitrate = 250_000;
+            params.encodings[0].scaleResolutionDownBy = 2.0;
+          } else if (participantCount > 2) {
+            // Small group call: 500 kbps, downscale by 1.5
+            params.encodings[0].maxBitrate = 500_000;
+            params.encodings[0].scaleResolutionDownBy = 1.5;
+          } else {
+            // 1-on-1 crisp HD: 1.5 Mbps, native resolution
+            params.encodings[0].maxBitrate = 1_500_000;
+            params.encodings[0].scaleResolutionDownBy = 1.0;
+          }
+          await sender.setParameters(params);
+        }
+      }
+    } catch (err) {
+      console.warn("[WebRTC] setBitrateConstraints error:", err);
+    }
+  }, []);
+
   const hangup = useCallback(() => {
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
     localStreamRef.current = null;
@@ -401,5 +433,6 @@ export const useWebRTC = ({ onIceCandidate }: UseWebRTCOptions) => {
     switchCallCamera,
     isScreenSharing,
     toggleScreenShare,
+    setBitrateConstraints,
   };
 };

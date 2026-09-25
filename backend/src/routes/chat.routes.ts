@@ -23,7 +23,7 @@ import {
 import { authenticateToken } from "../middleware/auth.middleware.js";
 
 import fs from "fs";
-import { getCloudinaryStorage } from "../config/cloudinary.config.js";
+import cloudinary, { getCloudinaryStorage } from "../config/cloudinary.config.js";
 
 const cloudinaryStorage = getCloudinaryStorage("dolsyx_chats");
 
@@ -73,6 +73,36 @@ router.delete("/messages/:messageId", deleteMessage as any);
 router.post("/:conversationId/messages/:messageId/pin", pinMessage as any);
 
 // Upload endpoints
+router.get("/upload/sign", (req: any, res: any) => {
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+  const apiKey = process.env.CLOUDINARY_API_KEY;
+  const apiSecret = process.env.CLOUDINARY_API_SECRET;
+
+  if (!cloudName || !apiKey || !apiSecret) {
+    return res.status(200).json({
+      directUploadAvailable: false,
+      message: "Cloud storage direct upload not configured, use /api/chats/upload",
+    });
+  }
+
+  const timestamp = Math.round(Date.now() / 1000);
+  const folder = (req.query.folder as string) || "dolsyx_chats";
+  const signature = cloudinary.utils.api_sign_request(
+    { timestamp, folder },
+    apiSecret
+  );
+
+  return res.status(200).json({
+    directUploadAvailable: true,
+    signature,
+    timestamp,
+    apiKey,
+    cloudName,
+    folder,
+    uploadUrl: `https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`,
+  });
+});
+
 router.post("/upload-chunk", upload.single("file"), uploadChunk as any);
 
 const handleFilesResponse = (req: any, res: any) => {

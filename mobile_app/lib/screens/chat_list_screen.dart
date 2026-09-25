@@ -58,6 +58,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
   final Set<String> _selectedChatIds = {};
   Set<String> _onlineUsers = {};
   Map<String, bool> _typingStatus = {};
+  final Map<String, Timer> _typingAutoClearTimers = {};
   bool _hideLockedChats = false;
   final Map<String, String> _decryptedPreviewCache = {};
 
@@ -115,10 +116,18 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
       });
       _typingSubscription = authProvider.socketService.typingUpdates.stream.listen((data) {
         if (mounted) {
-          final convId = data['conversationId'];
+          final convId = data['conversationId']?.toString();
           final isTyping = data['isTyping'] == true;
-          if (_typingStatus[convId] != isTyping) {
+          if (convId != null) {
             setState(() { _typingStatus[convId] = isTyping; });
+            _typingAutoClearTimers[convId]?.cancel();
+            if (isTyping) {
+              _typingAutoClearTimers[convId] = Timer(const Duration(seconds: 4), () {
+                if (mounted && _typingStatus[convId] == true) {
+                  setState(() { _typingStatus[convId] = false; });
+                }
+              });
+            }
           }
         }
       });
@@ -142,6 +151,10 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    for (final timer in _typingAutoClearTimers.values) {
+      timer.cancel();
+    }
+    _typingAutoClearTimers.clear();
     _messageSubscription?.cancel();
     _profileSubscription?.cancel();
     _onlineSubscription?.cancel();
@@ -173,7 +186,9 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
         } catch (_) {}
 
         final message = event['message'];
-        final senderId = message != null ? (message['senderId'] ?? message['sender']?['id'] ?? message['sender']?['_id'])?.toString() : null;
+        final senderId = message != null
+            ? (message['senderId'] ?? message['sender']?['id'] ?? message['sender']?['_id'] ?? event['senderId'])?.toString()
+            : event['senderId']?.toString();
 
         bool found = false;
         if (mounted) {
@@ -194,7 +209,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
               if (event['type'] == 'read') {
                  _chats[index].unreadCount = 0;
               } else {
-                 if (senderId != null && senderId != currentUserId) {
+                 if (senderId == null || senderId != currentUserId) {
                    _chats[index].unreadCount += 1;
                  }
                    if (message != null) {
@@ -567,23 +582,22 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                           ),
                         ],
                       )
-                    : ListView.builder(
-                        physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
-                        cacheExtent: 1500.0,
-                        addAutomaticKeepAlives: true,
-                        addRepaintBoundaries: true,
-                        itemCount: () {
-                          final activeCount = _chats.where((c) => !c.isArchived && !c.isLocked).length;
-                          final lockedCount = _chats.where((c) => c.isLocked).length;
-                          final showLockedTile = !_hideLockedChats && lockedCount > 0;
-                          return 1 + (showLockedTile ? 1 : 0) + activeCount + (_chats.any((c) => c.isArchived) ? 1 : 0);
-                        }(),
-                        itemBuilder: (context, index) {
+                    : Builder(
+                        builder: (context) {
                           final activeChats = _chats.where((c) => !c.isArchived && !c.isLocked).toList();
                           final lockedCount = _chats.where((c) => c.isLocked).length;
                           final showLockedTile = !_hideLockedChats && lockedCount > 0;
+                          final hasArchived = _chats.any((c) => c.isArchived);
+                          final totalCount = 1 + (showLockedTile ? 1 : 0) + activeChats.length + (hasArchived ? 1 : 0);
 
-                          if (index == 0) {
+                          return ListView.builder(
+                            physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+                            cacheExtent: 1500.0,
+                            addAutomaticKeepAlives: true,
+                            addRepaintBoundaries: true,
+                            itemCount: totalCount,
+                            itemBuilder: (context, index) {
+                              if (index == 0) {
                             return ListTile(
                               onTap: () {
                                 Navigator.push(
@@ -687,6 +701,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                           final chat = activeChats[chatIndex];
                           final isSelected = _selectedChatIds.contains(chat.id);
                           return Container(
+                            key: ValueKey(chat.id),
                             color: isSelected ? AppTheme.primaryColor.withOpacity(0.2) : Colors.transparent,
                             child: ListTile(
                               selected: isSelected,
@@ -837,7 +852,9 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                         ),
                       );
                     },
-                  ),
+                  );
+                },
+              ),
           ),
         ),
       ],
@@ -1174,7 +1191,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                 final lockedIds = (prefs.getStringList('locked_chat_ids') ?? []).toSet();
                 for (String id in idsToProcess) {
                   lockedIds.add(id);
-                  _chatService.updateChatSettings(id, {'isLocked': true}).catchError((_) {});
+                  _chatService.updateChatSettings(id, {'isLocked': true}).catchError((_) => false);
                 }
                 await prefs.setStringList('locked_chat_ids', lockedIds.toList());
                 setState(() => _selectedChatIds.clear());
@@ -1184,7 +1201,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                 final lockedIds = (prefs.getStringList('locked_chat_ids') ?? []).toSet();
                 for (String id in idsToProcess) {
                   lockedIds.remove(id);
-                  _chatService.updateChatSettings(id, {'isLocked': false}).catchError((_) {});
+                  _chatService.updateChatSettings(id, {'isLocked': false}).catchError((_) => false);
                 }
                 await prefs.setStringList('locked_chat_ids', lockedIds.toList());
                 setState(() => _selectedChatIds.clear());

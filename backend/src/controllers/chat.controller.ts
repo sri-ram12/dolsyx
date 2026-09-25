@@ -1,4 +1,5 @@
 import type { Response } from "express";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../config/db.js";
 import type { AuthRequest } from "../middleware/auth.middleware.js";
 import { evaluatePrivacyInMemory, canViewProfilePhoto, canViewAbout, canViewLastSeen, canViewOnline } from "../utils/privacy.engine.js";
@@ -75,25 +76,39 @@ export const getChats = async (req: AuthRequest, res: Response): Promise<void> =
 
     if (conversationIds.length > 0) {
       try {
-        const unreadCounts = await prisma.message.groupBy({
-          by: ["conversationId"],
-          where: {
-            conversationId: { in: conversationIds },
-            senderId: { not: userId },
-            receipts: {
-              none: {
-                userId,
-                status: "READ",
-              },
-            },
-          },
-          _count: { id: true },
-        });
+        const unreadCounts = await prisma.$queryRaw<Array<{ conversationId: string; count: bigint | number }>>`
+          SELECT m."conversationId", COUNT(m.id)::int as count
+          FROM "Message" m
+          LEFT JOIN "MessageReceipt" mr ON mr."messageId" = m.id AND mr."userId" = ${userId}
+          WHERE m."conversationId" IN (${Prisma.join(conversationIds)})
+            AND m."senderId" != ${userId}
+            AND (mr.status IS NULL OR mr.status != 'READ')
+          GROUP BY m."conversationId"
+        `;
 
         for (const item of unreadCounts) {
-          unreadCountMap[item.conversationId] = item._count.id;
+          unreadCountMap[item.conversationId] = Number(item.count) || 0;
         }
-      } catch (_) {}
+      } catch (sqlErr) {
+        // High-speed fallback if raw SQL encounters environment variances
+        try {
+          await Promise.all(conversationIds.map(async (cId) => {
+            const count = await prisma.message.count({
+              where: {
+                conversationId: cId,
+                senderId: { not: userId },
+                receipts: {
+                  none: {
+                    userId,
+                    status: "READ",
+                  },
+                },
+              },
+            });
+            if (count > 0) unreadCountMap[cId] = count;
+          }));
+        } catch (_) {}
+      }
     }
 
     // Batch fetch all blocks involving current user in 1 query for instant in-memory checking

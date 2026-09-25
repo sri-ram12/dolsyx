@@ -65,16 +65,21 @@ class _FullScreenImageViewState extends State<FullScreenImageView> {
 
     // 1. Direct local file playback (e.g. freshly captured camera / gallery video / pending send)
     final isLocal = (!rawUrl.startsWith('http://') && !rawUrl.startsWith('https://') && !rawUrl.startsWith('/uploads')) &&
-        (File(rawUrl).existsSync() || rawUrl.startsWith('/data/') || rawUrl.startsWith('/storage/'));
+        (rawUrl.startsWith('/data/') || rawUrl.startsWith('/storage/') || rawUrl.startsWith('file://'));
 
-    if (isLocal && File(rawUrl).existsSync()) {
-      final file = File(rawUrl);
-      if (_isVideo) {
-        await _initVideoFromFile(file);
-      } else {
-        if (mounted) setState(() => _decryptedFile = file);
-      }
-      return;
+    if (isLocal) {
+      try {
+        final localPath = rawUrl.startsWith('file://') ? rawUrl.replaceFirst('file://', '') : rawUrl;
+        final file = File(localPath);
+        if (file.existsSync()) {
+          if (_isVideo) {
+            await _initVideoFromFile(file);
+          } else {
+            if (mounted) setState(() => _decryptedFile = file);
+          }
+          return;
+        }
+      } catch (_) {}
     }
 
     final resolvedUrl = ApiService.getMediaUrl(rawUrl);

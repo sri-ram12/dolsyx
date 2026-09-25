@@ -66,14 +66,39 @@ class AuthProvider with ChangeNotifier {
         }
       }
 
-      // Try to fetch fresh user data from server
+      // Immediate local cache hydration for sub-millisecond app launch
+      final prefs = await SharedPreferences.getInstance();
+      final cachedUserStr = prefs.getString('cached_user_data');
+      if (cachedUserStr != null) {
+        try {
+          final cachedUser = jsonDecode(cachedUserStr) as Map<String, dynamic>;
+          _isAuthenticated = true;
+          _user = cachedUser;
+          _token = tkn;
+          notifyListeners();
+          _socketService.connect(_user!['id']);
+          _setupSocketListeners();
+
+          // Non-blocking background revalidation
+          _apiService.getUserById(userId).then((userData) async {
+            if (userData != null) {
+              _user = userData;
+              await prefs.setString('cached_user_data', jsonEncode(userData));
+              await _saveAccountToDevice(_user!, _token!);
+              notifyListeners();
+            }
+          }).catchError((_) {});
+          return true;
+        } catch (_) {}
+      }
+
+      // If no local cache yet, fetch fresh user data from server
       final userData = await _apiService.getUserById(userId);
       if (userData != null) {
         _isAuthenticated = true;
         _user = userData;
         _token = tkn;
         // Cache user data for offline use
-        final prefs = await SharedPreferences.getInstance();
         await prefs.setString('cached_user_data', jsonEncode(userData));
         await _saveAccountToDevice(_user!, _token!);
         await _socketService.connect(_user!['id']);
@@ -86,11 +111,10 @@ class AuthProvider with ChangeNotifier {
       final validToken = await _apiService.getToken();
       if (validToken == null) return false;
 
-      // Network failed — try cached user data
-      final prefs = await SharedPreferences.getInstance();
-      final cachedUserStr = prefs.getString('cached_user_data');
-      if (cachedUserStr != null) {
-        final cachedUser = jsonDecode(cachedUserStr) as Map<String, dynamic>;
+      // Fallback: if cached user data was available with a valid token
+      final fallbackUserStr = prefs.getString('cached_user_data');
+      if (fallbackUserStr != null) {
+        final cachedUser = jsonDecode(fallbackUserStr) as Map<String, dynamic>;
         _isAuthenticated = true;
         _user = cachedUser;
         _token = validToken;

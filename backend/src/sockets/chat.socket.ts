@@ -7,7 +7,7 @@ import { createClient } from "redis";
 import { prisma } from "../config/db.js";
 import { encryptionService } from "../services/encryption.service.js";
 import { sendPushNotification } from "../config/firebase.config.js";
-import { canViewOnline, canViewLastSeen } from "../utils/privacy.engine.js";
+import { canViewOnline, canViewLastSeen, evaluatePrivacyInMemory } from "../utils/privacy.engine.js";
 import { AIService } from "../ai/ai-service.js";
 
 const JWT_SECRET = process.env.JWT_SECRET || "dolsyx_super_secret_key_123456";
@@ -18,6 +18,10 @@ const onlineUsers = new Map<string, Set<string>>();
 const activeCallUsers = new Map<string, string>();
 // In-memory cache for conversation participants for <1ms zero-lag delivery
 const convParticipantsCache = new Map<string, { userIds: string[]; isGroup: boolean; name: string; timestamp: number }>();
+
+export const invalidateConvParticipantsCache = (conversationId: string) => {
+  convParticipantsCache.delete(conversationId);
+};
 
 // Map to track blocked pairs for 0ms zero-lag DM delivery without blocking DB roundtrips
 export const blockedPairsCache = new Map<string, { isBlocked: boolean; timestamp: number }>();
@@ -402,49 +406,87 @@ export const initChatSocket = (io: Server) => {
       }
     });
 
-    // Fetch privacy settings and relevant contacts
-    prisma.user.findUnique({ where: { id: userId }, select: { lastSeenPrivacy: true, avatarUrl: true } }).then(async user => {
-      if (user?.avatarUrl) {
-        socket.avatarUrl = user.avatarUrl;
-      }
-      // Find all users who share a conversation with the connected user
-      const relatedParticipants = await prisma.participant.findMany({
-        where: {
-          conversation: {
-            participants: {
-              some: { userId }
-            }
-          },
-          userId: { not: userId }
-        },
-        select: { userId: true },
-        distinct: ['userId']
-      });
-
-      // Filter onlineUsers to only include those relevant contacts
-      const contactIds = new Set(relatedParticipants.map(p => p.userId));
-      const onlineContacts = Array.from(onlineUsers.keys()).filter(id => contactIds.has(id));
-
-      // Provide immediate restricted list of online users to the connected client
-      // Note: A more robust implementation would filter this list by canViewOnline for each contact,
-      // but for performance on connection we leave this as is or filter it.
-      socket.emit("online_users_list", onlineContacts);
-
-      const payload = {
-        userId,
-        status: "online",
-      };
-
-      // Broadcast user online status change ONLY to relevant contacts who have permission
-      for (const p of relatedParticipants) {
-        const canSee = await canViewOnline(p.userId, userId);
-        if (canSee) {
-          io.to(p.userId).emit("user_status_change", payload);
+    // Fetch privacy settings and relevant contacts via parallel batch + sub-millisecond in-memory privacy check
+    (async () => {
+      try {
+        const user = await prisma.user.findUnique({
+          where: { id: userId },
+          select: {
+            avatarUrl: true,
+            lastSeenPrivacy: true,
+            lastSeenPrivacyExceptList: true,
+            onlinePrivacy: true,
+          }
+        });
+        if (!user) return;
+        if (user.avatarUrl) {
+          socket.avatarUrl = user.avatarUrl;
         }
+
+        // Parallel batch fetch: contacts, blocks, and related conversation participants
+        const [relatedParticipants, contacts, blocks] = await Promise.all([
+          prisma.participant.findMany({
+            where: {
+              conversation: {
+                participants: {
+                  some: { userId }
+                }
+              },
+              userId: { not: userId }
+            },
+            select: { userId: true },
+            distinct: ['userId']
+          }),
+          prisma.contact.findMany({
+            where: { userId },
+            select: { contactId: true }
+          }),
+          prisma.userBlock.findMany({
+            where: {
+              OR: [
+                { blockerId: userId },
+                { blockedId: userId }
+              ]
+            },
+            select: { blockerId: true, blockedId: true }
+          })
+        ]);
+
+        const contactSet = new Set(contacts.map(c => c.contactId));
+        const blockedSet = new Set(blocks.map(b => b.blockerId === userId ? b.blockedId : b.blockerId));
+
+        // Filter onlineUsers to only include relevant contacts
+        const contactIds = new Set(relatedParticipants.map(p => p.userId));
+        const onlineContacts = Array.from(onlineUsers.keys()).filter(id => contactIds.has(id));
+
+        // Send restricted list of online contacts to connected client
+        socket.emit("online_users_list", onlineContacts);
+
+        const targetUserPrivacy = {
+          id: userId,
+          lastSeenPrivacy: user.lastSeenPrivacy,
+          lastSeenPrivacyExceptList: user.lastSeenPrivacyExceptList,
+          onlinePrivacy: user.onlinePrivacy,
+        };
+
+        const payload = {
+          userId,
+          status: "online",
+        };
+
+        // Broadcast user online status change ONLY to permitted contacts in sub-millisecond memory execution
+        for (const p of relatedParticipants) {
+          const isBlocked = blockedSet.has(p.userId);
+          const isContactOfTarget = contactSet.has(p.userId);
+          const evalResult = evaluatePrivacyInMemory(p.userId, targetUserPrivacy, isBlocked, isContactOfTarget);
+          if (evalResult.canOnlineStatus) {
+            io.to(p.userId).emit("user_status_change", payload);
+          }
+        }
+      } catch (err) {
+        console.error("Error in connection privacy logic:", err);
       }
-    }).catch(err => {
-      console.error("Error in connection logic:", err);
-    });
+    })();
 
     // Join a conversation room (for targeting typing status broadcasts)
     socket.on("join_conversation", (conversationId: string) => {
@@ -802,11 +844,37 @@ export const initChatSocket = (io: Server) => {
       }
     });
 
-    // Handle voting on polls in real time across all platforms
-    socket.on("vote_poll", async (data: { conversationId: string; messageId: string; optionId: number }) => {
+    // Handle voting on polls in real time across all platforms (100% E2EE Zero-Knowledge)
+    socket.on("vote_poll", async (data: { conversationId: string; messageId: string; optionId: number; encryptedContent?: string }) => {
       try {
-        const { conversationId, messageId, optionId } = data;
-        if (!conversationId || !messageId || optionId === undefined) return;
+        const { conversationId, messageId, optionId, encryptedContent } = data;
+        if (!conversationId || !messageId) return;
+
+        // If client provided 100% E2EE encrypted content, store ciphertext directly without inspecting
+        if (encryptedContent && typeof encryptedContent === "string") {
+          await prisma.message.update({
+            where: { id: messageId },
+            data: { content: encryptedContent },
+          });
+
+          const payload = {
+            conversationId,
+            messageId,
+            content: encryptedContent,
+          };
+
+          io.to(conversationId).emit("poll_updated", payload);
+          const participants = await prisma.participant.findMany({
+            where: { conversationId },
+            select: { userId: true },
+          });
+          participants.forEach((p) => {
+            io.to(p.userId).emit("poll_updated", payload);
+          });
+          return;
+        }
+
+        if (optionId === undefined) return;
 
         const targetMessage = await prisma.message.findUnique({
           where: { id: messageId },
@@ -1506,16 +1574,42 @@ export const initChatSocket = (io: Server) => {
     });
 
     // Handle typing indicator
-    socket.on("typing", (data: { conversationId: string; isTyping: boolean }) => {
+    socket.on("typing", async (data: { conversationId: string; isTyping: boolean }) => {
       const { conversationId, isTyping } = data;
       if (!conversationId) return;
-      // Broadcast user typing state instantly to all other users in conversation room
-      socket.to(conversationId).emit("user_typing", {
+
+      const payload = {
         conversationId,
         userId,
         username,
         isTyping,
-      });
+      };
+
+      // 1. Broadcast to conversation room (for users currently inside the chat room)
+      socket.to(conversationId).emit("user_typing", payload);
+
+      // 2. Broadcast directly to each conversation participant's personal room (for users in ChatListScreen or reconnecting)
+      try {
+        let cached = convParticipantsCache.get(conversationId);
+        if (!cached || Date.now() - cached.timestamp > 300000) {
+          const fetched = await prisma.participant.findMany({
+            where: { conversationId },
+            select: { userId: true },
+          });
+          cached = {
+            userIds: fetched.map((p) => p.userId),
+            isGroup: false,
+            name: "",
+            timestamp: Date.now(),
+          };
+          convParticipantsCache.set(conversationId, cached);
+        }
+        for (const pId of cached.userIds) {
+          if (pId !== userId) {
+            io.to(pId).emit("user_typing", payload);
+          }
+        }
+      } catch (_) {}
     });
 
     // Handle client disconnect
@@ -1558,14 +1652,18 @@ export const initChatSocket = (io: Server) => {
 
           const lastSeenTime = new Date();
 
-          // Update lastSeen in database asynchronously
-          prisma.user.update({
-            where: { id: userId },
-            data: { lastSeen: lastSeenTime },
-            select: { lastSeenPrivacy: true },
-          }).then(async user => {
-            // Broadcast user offline status change with lastSeen timestamp to relevant contacts only
-            const relatedParticipants = await prisma.participant.findMany({
+          // Update lastSeen in database and batch-fetch privacy context in parallel (non-blocking)
+          Promise.all([
+            prisma.user.update({
+              where: { id: userId },
+              data: { lastSeen: lastSeenTime },
+              select: {
+                lastSeenPrivacy: true,
+                lastSeenPrivacyExceptList: true,
+                onlinePrivacy: true,
+              },
+            }),
+            prisma.participant.findMany({
               where: {
                 conversation: {
                   participants: { some: { userId } }
@@ -1574,18 +1672,43 @@ export const initChatSocket = (io: Server) => {
               },
               select: { userId: true },
               distinct: ['userId']
-            });
+            }),
+            prisma.contact.findMany({
+              where: { userId },
+              select: { contactId: true }
+            }),
+            prisma.userBlock.findMany({
+              where: {
+                OR: [
+                  { blockerId: userId },
+                  { blockedId: userId }
+                ]
+              },
+              select: { blockerId: true, blockedId: true }
+            })
+          ]).then(([user, relatedParticipants, contacts, blocks]) => {
+            if (!user) return;
+            const contactSet = new Set(contacts.map(c => c.contactId));
+            const blockedSet = new Set(blocks.map(b => b.blockerId === userId ? b.blockedId : b.blockerId));
+
+            const targetUserPrivacy = {
+              id: userId,
+              lastSeenPrivacy: user.lastSeenPrivacy,
+              lastSeenPrivacyExceptList: user.lastSeenPrivacyExceptList,
+              onlinePrivacy: user.onlinePrivacy,
+            };
 
             for (const p of relatedParticipants) {
-              const canSeeOnline = await canViewOnline(p.userId, userId);
-              const canSeeLastSeen = await canViewLastSeen(p.userId, userId);
+              const isBlocked = blockedSet.has(p.userId);
+              const isContactOfTarget = contactSet.has(p.userId);
+              const evalResult = evaluatePrivacyInMemory(p.userId, targetUserPrivacy, isBlocked, isContactOfTarget);
 
-              if (canSeeOnline || canSeeLastSeen) {
+              if (evalResult.canOnlineStatus || evalResult.canLastSeen) {
                 const payload: any = {
                   userId,
                   status: "offline",
                 };
-                if (canSeeLastSeen) {
+                if (evalResult.canLastSeen) {
                   payload.lastSeen = lastSeenTime;
                 }
                 io.to(p.userId).emit("user_status_change", payload);

@@ -79,6 +79,27 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   bool _isContact = true;
   FocusNode _focusNode = FocusNode();
 
+  // Typed socket listener callback fields to prevent memory leaks in Dart tear-offs
+  void Function(dynamic)? _onMessageReceivedHandler;
+  void Function(dynamic)? _onEncryptedMessageReceivedHandler;
+  void Function(dynamic)? _onTypingChangeHandler;
+  void Function(dynamic)? _onStatusChangeHandler;
+  void Function(dynamic)? _onChatClearedHandler;
+  void Function(dynamic)? _onMessageDeletedHandler;
+  void Function(dynamic)? _onMessageEditedHandler;
+  void Function(dynamic)? _onMessagesReadHandler;
+  void Function(dynamic)? _onMessagesDeliveredHandler;
+  void Function(dynamic)? _onProfileUpdatedHandler;
+  void Function(dynamic)? _onReactionAddedHandler;
+  void Function(dynamic)? _onReactionRemovedHandler;
+  void Function(dynamic)? _onGroupUpdatedHandler;
+  void Function(dynamic)? _onViewOnceOpenedHandler;
+  void Function(dynamic)? _onLiveLocationUpdatedHandler;
+  void Function(dynamic)? _onMessagePinnedHandler;
+  void Function(dynamic)? _onMessageUnpinnedHandler;
+  void Function(dynamic)? _onPollUpdatedHandler;
+  void Function(dynamic)? _onMessageSentHandler;
+
   void _sendStickerOrGifMessage(String mediaUrl, String mediaType) {
     final tempId = 'temp_${DateTime.now().millisecondsSinceEpoch}';
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
@@ -166,6 +187,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   final List<Map<String, dynamic>> _pendingMediaUploadQueue = [];
   Timer? _mediaUploadRetryTimer;
+  Timer? _remoteTypingTimer;
 
   void _startMediaRetryTimer() {
     _mediaUploadRetryTimer?.cancel();
@@ -946,18 +968,29 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     }
   }
 
-  void _handlePollUpdated(dynamic data) {
+  void _handlePollUpdated(dynamic data) async {
     if (!mounted || data == null) return;
     if (data['conversationId'] == widget.conversationId) {
       final msgId = data['messageId']?.toString();
       final newContent = data['content']?.toString();
       if (msgId != null && newContent != null) {
+        String displayContent = newContent;
+        try {
+          if (newContent.contains('conv_v1') || newContent.contains('ciphertext')) {
+            displayContent = await CryptoService.instance.decryptIncomingContent(
+              content: newContent,
+              senderUserId: '',
+              conversationId: widget.conversationId,
+            );
+          }
+        } catch (_) {}
+        if (!mounted) return;
         setState(() {
           final idx = _messages.indexWhere((m) => m.id == msgId);
           if (idx != -1) {
             _messages[idx] = Message(
               id: _messages[idx].id,
-              content: newContent,
+              content: displayContent,
               senderId: _messages[idx].senderId,
               conversationId: _messages[idx].conversationId,
               createdAt: _messages[idx].createdAt,
@@ -1039,35 +1072,56 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     _loadQuickEmojis();
     
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
+
+    // Bind typed callbacks once
+    _onMessageReceivedHandler = _handleIncomingMessage;
+    _onEncryptedMessageReceivedHandler = _handleEncryptedMessage;
+    _onTypingChangeHandler = _handleTypingChange;
+    _onStatusChangeHandler = _handleStatusChange;
+    _onChatClearedHandler = _handleChatCleared;
+    _onMessageDeletedHandler = _handleMessageDeleted;
+    _onMessageEditedHandler = _handleMessageEdited;
+    _onMessagesReadHandler = _handleMessagesRead;
+    _onMessagesDeliveredHandler = _handleMessagesDelivered;
+    _onProfileUpdatedHandler = _handleProfileUpdated;
+    _onReactionAddedHandler = _handleReactionAdded;
+    _onReactionRemovedHandler = _handleReactionRemoved;
+    _onGroupUpdatedHandler = _handleGroupUpdated;
+    _onViewOnceOpenedHandler = _handleViewOnceOpened;
+    _onLiveLocationUpdatedHandler = _handleLiveLocationUpdated;
+    _onMessagePinnedHandler = _handleMessagePinned;
+    _onMessageUnpinnedHandler = _handleMessageUnpinned;
+    _onPollUpdatedHandler = _handlePollUpdated;
+    _onMessageSentHandler = _handleMessageSent;
+
     authProvider.socketService.joinConversation(widget.conversationId);
-    authProvider.socketService.onMessageReceived(_handleIncomingMessage);
-    
-    // Listen for real-time E2EE decrypted messages
-    authProvider.socketService.onEncryptedMessageReceived(_handleEncryptedMessage);
+    authProvider.socketService.onMessageReceived(_onMessageReceivedHandler!);
+    authProvider.socketService.onEncryptedMessageReceived(_onEncryptedMessageReceivedHandler!);
     
     // Clear unread messages count on entry
     authProvider.socketService.socket?.emit('mark_read', {
       'conversationId': widget.conversationId,
     });
 
-    authProvider.socketService.onTypingChange(_handleTypingChange);
-    authProvider.socketService.onStatusChange(_handleStatusChange);
-    authProvider.socketService.onChatCleared(_handleChatCleared);
-    authProvider.socketService.onMessageDeleted(_handleMessageDeleted);
-    authProvider.socketService.onMessageEdited(_handleMessageEdited);
-    authProvider.socketService.onMessagesRead(_handleMessagesRead);
-    authProvider.socketService.onMessagesDelivered(_handleMessagesDelivered);
-    authProvider.socketService.onProfileUpdated(_handleProfileUpdated);
-    authProvider.socketService.onReactionAdded(_handleReactionAdded);
-    authProvider.socketService.onReactionRemoved(_handleReactionRemoved);
+    authProvider.socketService.onTypingChange(_onTypingChangeHandler!);
+    authProvider.socketService.onStatusChange(_onStatusChangeHandler!);
+    authProvider.socketService.onChatCleared(_onChatClearedHandler!);
+    authProvider.socketService.onMessageDeleted(_onMessageDeletedHandler!);
+    authProvider.socketService.onMessageEdited(_onMessageEditedHandler!);
+    authProvider.socketService.onMessagesRead(_onMessagesReadHandler!);
+    authProvider.socketService.onMessagesDelivered(_onMessagesDeliveredHandler!);
+    authProvider.socketService.onProfileUpdated(_onProfileUpdatedHandler!);
+    authProvider.socketService.onReactionAdded(_onReactionAddedHandler!);
+    authProvider.socketService.onReactionRemoved(_onReactionRemovedHandler!);
 
     final socket = authProvider.socketService.socket;
-    socket?.on('group_updated', _handleGroupUpdated);
-    socket?.on('view_once_opened', _handleViewOnceOpened);
-    socket?.on('live_location_updated', _handleLiveLocationUpdated);
-    socket?.on('message_pinned', _handleMessagePinned);
-    socket?.on('message_unpinned', _handleMessageUnpinned);
-    socket?.on('poll_updated', _handlePollUpdated);
+    socket?.on('group_updated', _onGroupUpdatedHandler!);
+    socket?.on('view_once_opened', _onViewOnceOpenedHandler!);
+    socket?.on('live_location_updated', _onLiveLocationUpdatedHandler!);
+    socket?.on('message_pinned', _onMessagePinnedHandler!);
+    socket?.on('message_unpinned', _onMessageUnpinnedHandler!);
+    socket?.on('poll_updated', _onPollUpdatedHandler!);
+    socket?.on('message_sent', _onMessageSentHandler!);
 
     // Scheduled Messages real-time sync
     _loadScheduledMessages();
@@ -1110,23 +1164,32 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     final socket = auth?.socketService.socket;
     socket?.off('scheduled_messages_updated');
     socket?.off('scheduled_message_executed');
+    if (_onGroupUpdatedHandler != null) socket?.off('group_updated', _onGroupUpdatedHandler!);
+    if (_onViewOnceOpenedHandler != null) socket?.off('view_once_opened', _onViewOnceOpenedHandler!);
+    if (_onLiveLocationUpdatedHandler != null) socket?.off('live_location_updated', _onLiveLocationUpdatedHandler!);
+    if (_onMessagePinnedHandler != null) socket?.off('message_pinned', _onMessagePinnedHandler!);
+    if (_onMessageUnpinnedHandler != null) socket?.off('message_unpinned', _onMessageUnpinnedHandler!);
+    if (_onPollUpdatedHandler != null) socket?.off('poll_updated', _onPollUpdatedHandler!);
+    if (_onMessageSentHandler != null) socket?.off('message_sent', _onMessageSentHandler!);
+
     auth?.socketService.leaveConversation(widget.conversationId);
-    auth?.socketService.offMessageReceived(_handleIncomingMessage);
-    auth?.socketService.offEncryptedMessageReceived(_handleEncryptedMessage);
-    auth?.socketService.offTypingChange(_handleTypingChange);
-    auth?.socketService.offStatusChange(_handleStatusChange);
-    auth?.socketService.offChatCleared(_handleChatCleared);
-    auth?.socketService.offMessageDeleted(_handleMessageDeleted);
-    auth?.socketService.offMessageEdited(_handleMessageEdited);
-    auth?.socketService.offMessagesRead(_handleMessagesRead);
-    auth?.socketService.offMessagesDelivered(_handleMessagesDelivered);
-    auth?.socketService.offProfileUpdated(_handleProfileUpdated);
-    auth?.socketService.offReactionAdded(_handleReactionAdded);
-    auth?.socketService.offReactionRemoved(_handleReactionRemoved);
+    if (_onMessageReceivedHandler != null) auth?.socketService.offMessageReceived(_onMessageReceivedHandler!);
+    if (_onEncryptedMessageReceivedHandler != null) auth?.socketService.offEncryptedMessageReceived(_onEncryptedMessageReceivedHandler!);
+    if (_onTypingChangeHandler != null) auth?.socketService.offTypingChange(_onTypingChangeHandler!);
+    if (_onStatusChangeHandler != null) auth?.socketService.offStatusChange(_onStatusChangeHandler!);
+    if (_onChatClearedHandler != null) auth?.socketService.offChatCleared(_onChatClearedHandler!);
+    if (_onMessageDeletedHandler != null) auth?.socketService.offMessageDeleted(_onMessageDeletedHandler!);
+    if (_onMessageEditedHandler != null) auth?.socketService.offMessageEdited(_onMessageEditedHandler!);
+    if (_onMessagesReadHandler != null) auth?.socketService.offMessagesRead(_onMessagesReadHandler!);
+    if (_onMessagesDeliveredHandler != null) auth?.socketService.offMessagesDelivered(_onMessagesDeliveredHandler!);
+    if (_onProfileUpdatedHandler != null) auth?.socketService.offProfileUpdated(_onProfileUpdatedHandler!);
+    if (_onReactionAddedHandler != null) auth?.socketService.offReactionAdded(_onReactionAddedHandler!);
+    if (_onReactionRemovedHandler != null) auth?.socketService.offReactionRemoved(_onReactionRemovedHandler!);
     _messageController.removeListener(_onTextChanged);
     _messageController.dispose();
     _scrollController.dispose();
     _typingTimer?.cancel();
+    _remoteTypingTimer?.cancel();
     _recordingTimer?.cancel();
     _mediaUploadRetryTimer?.cancel();
     _cacheDebounceTimer?.cancel();
@@ -1170,13 +1233,27 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   void _handleTypingChange(dynamic data) {
-    if (mounted && data['conversationId'] == widget.conversationId) {
+    if (mounted && data != null && data['conversationId']?.toString() == widget.conversationId) {
       final typingUserId = data['userId']?.toString();
+      final myUserId = Provider.of<AuthProvider>(context, listen: false).user?['id']?.toString() ??
+          Provider.of<AuthProvider>(context, listen: false).user?['_id']?.toString();
+      if (typingUserId != null && typingUserId == myUserId) return;
       final myRemoteId = widget.remoteUserId?.toString();
-      if (myRemoteId == null || typingUserId == myRemoteId) {
+      if (myRemoteId == null || typingUserId == myRemoteId || (typingUserId != null && typingUserId != myUserId)) {
+        final isTyping = data['isTyping'] == true;
         setState(() {
-          _isRemoteUserTyping = data['isTyping'] == true;
+          _isRemoteUserTyping = isTyping;
         });
+        _remoteTypingTimer?.cancel();
+        if (isTyping) {
+          _remoteTypingTimer = Timer(const Duration(seconds: 4), () {
+            if (mounted && _isRemoteUserTyping) {
+              setState(() {
+                _isRemoteUserTyping = false;
+              });
+            }
+          });
+        }
       }
     }
   }
@@ -1294,6 +1371,49 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         }
       });
       _updateMessageCache();
+    }
+  }
+
+  void _handleMessageSent(dynamic data) {
+    if (!mounted || data == null) return;
+    if (data['conversationId']?.toString() == widget.conversationId) {
+      final tempId = data['tempId']?.toString();
+      final messageId = data['messageId']?.toString();
+      if (tempId != null && messageId != null) {
+        setState(() {
+          final index = _messages.indexWhere((m) => m.id == tempId || m.id == messageId);
+          if (index != -1) {
+            final old = _messages[index];
+            _messages[index] = Message(
+              id: messageId,
+              content: old.content,
+              senderId: old.senderId,
+              conversationId: old.conversationId,
+              parentMessageId: old.parentMessageId,
+              isEdited: old.isEdited,
+              isDeleted: old.isDeleted,
+              isForwarded: old.isForwarded,
+              mediaUrl: old.mediaUrl,
+              mediaType: old.mediaType,
+              isViewOnce: old.isViewOnce,
+              isViewed: old.isViewed,
+              latitude: old.latitude,
+              longitude: old.longitude,
+              locationTitle: old.locationTitle,
+              isLiveLocation: old.isLiveLocation,
+              liveExpiresAt: old.liveExpiresAt,
+              isLiveEnded: old.isLiveEnded,
+              receipts: old.receipts,
+              reactions: old.reactions,
+              createdAt: old.createdAt,
+              parentMessage: old.parentMessage,
+              sender: old.sender,
+              isPending: false,
+              isPinned: old.isPinned,
+            );
+          }
+        });
+      }
     }
   }
 
@@ -4339,6 +4459,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                     ? AppTheme.primaryColor.withAlpha(50) 
                                     : (_highlightedMessageId == message.id ? AppTheme.primaryColor.withAlpha(90) : Colors.transparent),
                                 child: MessageBubble(
+                                  key: ValueKey(message.id),
                                   message: message, 
                                   isMe: isMe,
                                   isGroup: widget.remoteUser == null && widget.remoteUserId == null,

@@ -1,6 +1,7 @@
 import type { Response } from "express";
 import { prisma } from "../config/db.js";
 import type { AuthRequest } from "../middleware/auth.middleware.js";
+import { invalidateConvParticipantsCache } from "../sockets/chat.socket.js";
 
 // Create a new group conversation
 export const createGroup = async (req: AuthRequest, res: Response): Promise<void> => {
@@ -57,6 +58,9 @@ export const createGroup = async (req: AuthRequest, res: Response): Promise<void
       updatedAt: group.updatedAt,
       participants: group.participants,
     };
+
+    // Invalidate participants cache
+    invalidateConvParticipantsCache(group.id);
 
     // Emit live socket event to all group members
     const io = req.app.get("io");
@@ -191,6 +195,8 @@ export const addMember = async (req: AuthRequest, res: Response): Promise<void> 
       },
     });
 
+    invalidateConvParticipantsCache(conversationId);
+
     // Create system message and broadcast
     try {
       const [operatorUser, targetUser] = await Promise.all([
@@ -271,6 +277,8 @@ export const removeMember = async (req: AuthRequest, res: Response): Promise<voi
         ],
       },
     });
+
+    invalidateConvParticipantsCache(conversationId);
 
     // Create system message and broadcast
     try {

@@ -68,6 +68,9 @@ model User {
   aiImages         AIImage[]
   aiMemories       AIMemory[]
   aiUsages         AIUsage[]
+
+  @@index([isOnline])
+  @@index([lastSeen])
 }
 
 model Status {
@@ -175,6 +178,8 @@ model Conversation {
   participants    Participant[]
   tasks           Task[]
   pinnedMessages  PinnedMessage[]
+
+  @@index([updatedAt])
 }
 
 model Participant {
@@ -235,7 +240,9 @@ model Message {
   pinnedMessages  PinnedMessage[]
 
   @@index([conversationId, createdAt])
+  @@index([conversationId, senderId])
   @@index([senderId])
+  @@index([parentMessageId])
   @@index([mediaType])
 }
 

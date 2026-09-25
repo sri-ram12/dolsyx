@@ -42,6 +42,7 @@ class SocketService {
   final Set<String> _recentMessageIds = {};
 
   String? _currentUserId;
+  String? _activeConversationId;
 
   Future<void> connect(String userId) async {
     _currentUserId = userId;
@@ -60,18 +61,25 @@ class SocketService {
       'transports': ['websocket'],
       'autoConnect': true,
       'reconnection': true,
-      'reconnectionAttempts': 20,
+      'reconnectionAttempts': 999999,
       'reconnectionDelay': 1000,
+      'reconnectionDelayMax': 5000,
       'auth': {'token': token},
     });
 
     socket?.connect();
 
-    socket?.onConnect((_) {
-      print('✅ Socket Connected');
+    void onConnectedHandler(_) {
+      print('✅ Socket Connected/Reconnected');
       socket?.emit('register', userId);
+      if (_activeConversationId != null && _activeConversationId!.isNotEmpty) {
+        socket?.emit('join_conversation', _activeConversationId);
+      }
       _processOfflineQueue();
-    });
+    }
+
+    socket?.onConnect(onConnectedHandler);
+    socket?.onReconnect(onConnectedHandler);
 
     socket?.on('new_message', (data) async {
       if (data == null || data is! Map) return;
@@ -293,12 +301,16 @@ class SocketService {
   }
 
   void joinConversation(String conversationId) {
+    _activeConversationId = conversationId;
     if (socket != null && socket!.connected) {
       socket!.emit('join_conversation', conversationId);
     }
   }
 
   void leaveConversation(String conversationId) {
+    if (_activeConversationId == conversationId) {
+      _activeConversationId = null;
+    }
     if (socket != null && socket!.connected) {
       socket!.emit('leave_conversation', conversationId);
     }

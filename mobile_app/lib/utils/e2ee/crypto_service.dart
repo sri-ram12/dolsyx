@@ -694,5 +694,51 @@ class CryptoService {
     return result;
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Status / Story E2EE Encryption & Decryption
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// Encrypts text for a status update using standard AES-256-GCM.
+  Future<Map<String, dynamic>> encryptStatusText(String text) async {
+    final statusKey = _generateNonce(32);
+    final nonce = _generateNonce(12);
+    final secretBox = await _aesGcm.encrypt(
+      utf8.encode(text),
+      secretKey: SecretKey(statusKey),
+      nonce: nonce,
+    );
+    return {
+      'e2ee': true,
+      'isTextStatus': true,
+      'ciphertext': _bytesToBase64(secretBox.cipherText),
+      'nonce': _bytesToBase64(nonce),
+      'tag': _bytesToBase64(secretBox.mac.bytes),
+      'statusKey': _bytesToBase64(statusKey),
+    };
+  }
+
+  /// Decrypts text for an E2EE status update.
+  Future<String> decryptStatusText(String payloadJson) async {
+    try {
+      if (!payloadJson.startsWith('{') || !payloadJson.contains('ciphertext')) {
+        return payloadJson;
+      }
+      final data = jsonDecode(payloadJson);
+      if (data is! Map<String, dynamic>) return payloadJson;
+      if (data['isTextStatus'] != true && data['e2ee'] != true) return payloadJson;
+
+      final ciphertextBytes = base64Decode(data['ciphertext']);
+      final nonceBytes = base64Decode(data['nonce']);
+      final tagBytes = base64Decode(data['tag']);
+      final keyBytes = base64Decode(data['statusKey']);
+
+      final secretBox = SecretBox(ciphertextBytes, nonce: nonceBytes, mac: Mac(tagBytes));
+      final decrypted = await _aesGcm.decrypt(secretBox, secretKey: SecretKey(keyBytes));
+      return utf8.decode(decrypted);
+    } catch (_) {
+      return payloadJson;
+    }
+  }
+
   String _bytesToBase64(List<int> bytes) => base64Encode(bytes);
 }

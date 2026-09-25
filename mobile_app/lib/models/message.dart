@@ -96,7 +96,7 @@ class Message {
           isViewOnce = decoded['isViewOnce'] ?? isViewOnce;
           mediaKey = decoded['mediaKey'] ?? mediaKey;
           nonce = decoded['nonce'] ?? nonce;
-          isE2EEMedia = true;
+          isE2EEMedia = (mediaKey != null && nonce != null) || (json['isE2EEMedia'] == true);
           contentStr = decoded['caption'] ?? '';
           fileSize = (decoded['fileSize'] as num?)?.toInt() ?? (decoded['size'] as num?)?.toInt() ?? fileSize;
           fileName = decoded['fileName'] ?? fileName;

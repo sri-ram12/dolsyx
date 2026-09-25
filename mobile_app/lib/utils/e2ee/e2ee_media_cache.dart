@@ -77,13 +77,17 @@ class E2EEMediaCache {
     try {
       if (mediaUrl.isEmpty) return null;
 
-      // If already an existing local file path
-      if (File(mediaUrl).existsSync()) {
-        return File(mediaUrl);
-      }
-      if (!mediaUrl.startsWith('http') && !mediaUrl.startsWith('/uploads')) {
-        final localFile = File(mediaUrl);
-        if (await localFile.exists()) return localFile;
+      // If already an existing local file path (never instantiate File on remote URLs)
+      if (!mediaUrl.startsWith('http://') &&
+          !mediaUrl.startsWith('https://') &&
+          !mediaUrl.startsWith('blob:') &&
+          !mediaUrl.startsWith('/uploads/')) {
+        try {
+          final localFile = File(mediaUrl);
+          if (localFile.existsSync()) {
+            return localFile;
+          }
+        } catch (_) {}
       }
 
       final tempDir = await getTemporaryDirectory();

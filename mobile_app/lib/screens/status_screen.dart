@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -11,6 +13,7 @@ import '../services/socket_service.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
 import '../utils/e2ee/crypto_service.dart';
+import '../utils/e2ee/e2ee_media_cache.dart';
 import 'package:path_provider/path_provider.dart';
 import 'status_view_screen.dart';
 import 'status_privacy_screen.dart';
@@ -86,13 +89,36 @@ class _StatusScreenState extends State<StatusScreen> {
 
         setState(() => _isLoading = true);
         
-        final uploadResponse = await _statusService.uploadStatusMedia(mediaPath);
+        // 100% E2EE Media Pre-encryption
+        final file = File(mediaPath);
+        final rawBytes = await file.readAsBytes();
+        final encResult = await CryptoService.instance.encryptFileBytes(rawBytes);
+        final tempDir = await getTemporaryDirectory();
+        final encFile = File('${tempDir.path}/${DateTime.now().millisecondsSinceEpoch}_status.enc');
+        await encFile.writeAsBytes(encResult['encryptedBytes'] as Uint8List);
+
+        final uploadResponse = await _statusService.uploadStatusMedia(encFile.path);
+        encFile.delete().catchError((_) => encFile);
         
         if (uploadResponse != null && uploadResponse['fileUrl'] != null) {
+          final serverFileUrl = uploadResponse['fileUrl'] as String;
+          // Cache decrypted media locally for 0ms instant playback for creator
+          await E2EEMediaCache.saveDecryptedMedia(serverFileUrl, rawBytes, mediaType: type);
+
+          final payload = jsonEncode({
+            'e2ee': true,
+            'encryptedMedia': true,
+            'mediaUrl': serverFileUrl,
+            'mediaKey': encResult['mediaKeyB64'],
+            'nonce': encResult['nonceB64'],
+            'mediaType': type,
+            'caption': '',
+          });
+
           final success = await _statusService.createStatus(
-            uploadResponse['fileUrl'], 
+            serverFileUrl, 
             type, 
-            ''
+            payload
           );
           if (success) {
             _fetchStatuses();
@@ -221,10 +247,14 @@ class _StatusScreenState extends State<StatusScreen> {
                         if (text.isNotEmpty) {
                           Navigator.pop(context);
                           setState(() => _isLoading = true);
+                          // 100% E2EE Text Status Encryption
+                          final encResult = await CryptoService.instance.encryptStatusText(text);
+                          final payload = jsonEncode(encResult);
+
                           final success = await _statusService.createStatus(
                             '',
                             'TEXT',
-                            text,
+                            payload,
                             bgColor: selectedBgColor,
                           );
                           if (success) {

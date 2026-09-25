@@ -661,7 +661,10 @@ class MessageBubble extends StatelessWidget {
                     Builder(builder: (ctx) {
                       Map<String, dynamic> pollData = {};
                       try {
-                        pollData = jsonDecode(message.content);
+                        String rawContent = message.content;
+                        final cached = CryptoService.instance.getCachedDecryptedContent(rawContent);
+                        if (cached != null) rawContent = cached;
+                        pollData = jsonDecode(rawContent);
                       } catch (_) {}
                       final question = pollData['question'] ?? 'Poll';
                       final List<dynamic> options = (pollData['options'] as List<dynamic>?) ?? [];
@@ -695,20 +698,36 @@ class MessageBubble extends StatelessWidget {
                                   final currentPct = totalVotes > 0 ? (currentVotes.length / totalVotes) : 0.0;
 
                                   return GestureDetector(
-                                    onTap: () {
+                                    onTap: () async {
                                       setPollState(() {
                                         if (userVoted) {
                                           currentVotes.remove(myUserId);
                                         } else {
+                                          if (pollData['allowMultiple'] != true) {
+                                            for (var o in options) {
+                                              ((o['votes'] as List<dynamic>?) ?? []).remove(myUserId);
+                                            }
+                                          }
                                           currentVotes.add(myUserId);
                                         }
                                         opt['votes'] = currentVotes;
                                       });
                                       if (authProvider.socketService.socket?.connected == true) {
+                                        final updatedJson = jsonEncode(pollData);
+                                        String? encryptedContent;
+                                        try {
+                                          encryptedContent = await CryptoService.instance.encryptConversationPayload(
+                                            conversationId: message.conversationId,
+                                            plaintext: updatedJson,
+                                          );
+                                          CryptoService.instance.cachePlaintext(encryptedContent, updatedJson);
+                                        } catch (_) {}
+
                                         authProvider.socketService.socket!.emit('vote_poll', {
                                           'conversationId': message.conversationId,
                                           'messageId': message.id,
                                           'optionId': opt['id'],
+                                          if (encryptedContent != null) 'encryptedContent': encryptedContent,
                                         });
                                       }
                                     },
@@ -807,7 +826,9 @@ class MessageBubble extends StatelessWidget {
                                 bottomRight: (isMe && isOnlyImage) ? const Radius.circular(4) : null,
                                 bottomLeft: (!isMe && isOnlyImage) ? const Radius.circular(4) : null,
                               ),
-                              child: message.mediaUrl != null && !message.mediaUrl!.startsWith('http') && File(message.mediaUrl!).existsSync()
+                              child: (message.mediaUrl != null &&
+                                      (message.mediaUrl!.startsWith('/data/') || message.mediaUrl!.startsWith('/storage/') || message.mediaUrl!.startsWith('file://')) &&
+                                      File(message.mediaUrl!.replaceFirst('file://', '')).existsSync())
                                   ? Image.file(
                                       File(message.mediaUrl!),
                                       width: imageSize,
@@ -826,6 +847,15 @@ class MessageBubble extends StatelessWidget {
                                               return Image.file(snap.data!, width: imageSize, fit: BoxFit.cover);
                                             }
                                             final isDone = snap.connectionState == ConnectionState.done;
+                                            if (isDone && snap.data == null && message.mediaUrl != null && !message.mediaUrl!.endsWith('.enc')) {
+                                              return CachedNetworkImage(
+                                                imageUrl: ApiService.getMediaUrl(message.mediaUrl),
+                                                width: imageSize,
+                                                fit: BoxFit.cover,
+                                                memCacheWidth: 600,
+                                                memCacheHeight: 600,
+                                              );
+                                            }
                                             return Container(
                                               width: imageSize,
                                               height: imageSize * 0.75,
@@ -2044,7 +2074,7 @@ class _AudioPlayWidgetState extends State<AudioPlayWidget> {
           } else {
             source = UrlSource(ApiService.getMediaUrl(widget.url));
           }
-        } else if (!widget.url.startsWith('http') && File(widget.url).existsSync()) {
+        } else if (!widget.url.startsWith('http') && !widget.url.startsWith('/uploads') && (widget.url.startsWith('/data/') || widget.url.startsWith('/storage/') || widget.url.startsWith('file://')) && File(widget.url.replaceFirst('file://', '')).existsSync()) {
           source = DeviceFileSource(widget.url);
         } else {
           final fullUrl = ApiService.getMediaUrl(widget.url);

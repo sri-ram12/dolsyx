@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 
 class AppTheme {
-  static bool isDark = true;
+  static bool isDark = false;
 
-  static Color primaryColor = const Color(0xFF32CD32); // Lime Green
-  static Color backgroundColor = const Color(0xFF0F172A);
-  static Color surfaceColor = const Color(0xFF1E293B);
-  static Color textPrimary = Colors.white;
-  static Color textSecondary = const Color(0xFFCBD5E1); // Crisp, high-contrast secondary text
-  static Color bubbleSender = const Color(0xFF32CD32);
-  static Color bubbleReceiver = const Color(0xFF1E293B);
+  static Color primaryColor = const Color(0xFF607D8B); // Slate Gray
+  static Color backgroundColor = const Color(0xFFECEFF1);
+  static Color surfaceColor = const Color(0xFFFFFFFF);
+  static Color textPrimary = const Color(0xFF263238);
+  static Color textSecondary = const Color(0xFF455A64);
+  static Color bubbleSender = const Color(0xFFCFD8DC);
+  static Color bubbleReceiver = const Color(0xFFFFFFFF);
 
   static ThemeData get themeData {
     return ThemeData(

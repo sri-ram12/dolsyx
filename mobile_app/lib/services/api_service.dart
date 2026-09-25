@@ -18,10 +18,13 @@ class ApiService {
     // Return directly if it is a local file system path or file URI
     if (path.startsWith('file://') ||
         path.startsWith('/data/') ||
-        path.startsWith('/storage/') ||
-        (!path.startsWith('/') && !path.startsWith('uploads/') && File(path).existsSync()) ||
-        File(path).existsSync()) {
+        path.startsWith('/storage/')) {
       return path;
+    }
+    if (!path.startsWith('/') && !path.startsWith('uploads/')) {
+      try {
+        if (File(path).existsSync()) return path;
+      } catch (_) {}
     }
     final serverBase = baseUrl.endsWith('/api')
         ? baseUrl.substring(0, baseUrl.length - 4)

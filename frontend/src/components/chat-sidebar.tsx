@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useAuth, API_URL, User } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
 import { useToast } from "@/context/toast-context";
@@ -224,20 +224,25 @@ export default function ChatSidebar({
     setter(list);
   };
 
-  // Search users API query
+  // Search users API query with AbortController to prevent race conditions
   useEffect(() => {
+    if (searchQuery.trim().length < 2) {
+      setSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
+
+    const controller = new AbortController();
     const delayDebounceFn = setTimeout(async () => {
-      if (searchQuery.trim().length < 2) {
-        setSearchResults([]);
-        setIsSearching(false);
-        return;
-      }
       setIsSearching(true);
       setSearchError("");
       try {
         const res = await fetch(
           `${API_URL}/api/chats/search?query=${encodeURIComponent(searchQuery)}`,
-          { headers: { Authorization: `Bearer ${token}` } }
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            signal: controller.signal,
+          }
         );
         if (res.ok) {
           const data = await res.json();
@@ -245,15 +250,20 @@ export default function ChatSidebar({
         } else {
           setSearchError("Failed to fetch users");
         }
-      } catch (err) {
-        console.error(err);
-        setSearchError("Network error");
+      } catch (err: any) {
+        if (err.name !== "AbortError") {
+          console.error(err);
+          setSearchError("Network error");
+        }
       } finally {
         setIsSearching(false);
       }
-    }, 400);
+    }, 350);
 
-    return () => clearTimeout(delayDebounceFn);
+    return () => {
+      clearTimeout(delayDebounceFn);
+      controller.abort();
+    };
   }, [searchQuery, token]);
 
   const handleStartChat = async (targetUser: User) => {
@@ -517,36 +527,43 @@ export default function ChatSidebar({
 
   // Sort & Filter chats: hide locked chats unless the search query matches the secret key
   // OR the global secret key has been entered in Settings.
-  const sortedChats = [...chats]
-    .filter(chat => {
-      // Filter by active category pill
-      if (activeFilterPill === "unread" && (unreadCounts[chat.id] || 0) <= 0) return false;
-      if (activeFilterPill === "favorites" && !favoriteChats.includes(chat.id)) return false;
-      if (activeFilterPill === "groups" && !chat.isGroup) return false;
+  const sortedChats = useMemo(() => {
+    const archivedSet = new Set(archivedChats);
+    const pinnedSet = new Set(pinnedChats);
+    const favSet = new Set(favoriteChats);
+    const lowerQuery = searchQuery.trim().toLowerCase();
 
-      const lock = lockedChats[chat.id];
-      if (lock) {
-        if (lock.secretKey) {
-          if (searchQuery.trim().toLowerCase() === lock.secretKey.toLowerCase()) return true;
-          if (globalUnlockedKey === lock.secretKey) return true;
+    return [...chats]
+      .filter((chat) => {
+        // Filter by active category pill
+        if (activeFilterPill === "unread" && (unreadCounts[chat.id] || 0) <= 0) return false;
+        if (activeFilterPill === "favorites" && !favSet.has(chat.id)) return false;
+        if (activeFilterPill === "groups" && !chat.isGroup) return false;
+
+        const lock = lockedChats[chat.id];
+        if (lock) {
+          if (lock.secretKey) {
+            if (lowerQuery === lock.secretKey.toLowerCase()) return true;
+            if (globalUnlockedKey === lock.secretKey) return true;
+          }
+          return false;
         }
-        return false;
-      }
-      return true;
-    })
-    .sort((a, b) => {
-      const aArchived = archivedChats.includes(a.id) ? 1 : 0;
-      const bArchived = archivedChats.includes(b.id) ? 1 : 0;
-      if (aArchived !== bArchived) return aArchived - bArchived;
+        return true;
+      })
+      .sort((a, b) => {
+        const aArchived = archivedSet.has(a.id) ? 1 : 0;
+        const bArchived = archivedSet.has(b.id) ? 1 : 0;
+        if (aArchived !== bArchived) return aArchived - bArchived;
 
-      const aPinned = pinnedChats.includes(a.id) ? 1 : 0;
-      const bPinned = pinnedChats.includes(b.id) ? 1 : 0;
-      if (aPinned !== bPinned) return bPinned - aPinned;
-      
-      const aTime = a.lastMessage ? new Date(a.lastMessage.createdAt).getTime() : 0;
-      const bTime = b.lastMessage ? new Date(b.lastMessage.createdAt).getTime() : 0;
-      return bTime - aTime;
-    });
+        const aPinned = pinnedSet.has(a.id) ? 1 : 0;
+        const bPinned = pinnedSet.has(b.id) ? 1 : 0;
+        if (aPinned !== bPinned) return bPinned - aPinned;
+
+        const aTime = a.lastMessage ? new Date(a.lastMessage.createdAt).getTime() : 0;
+        const bTime = b.lastMessage ? new Date(b.lastMessage.createdAt).getTime() : 0;
+        return bTime - aTime;
+      });
+  }, [chats, activeFilterPill, unreadCounts, favoriteChats, lockedChats, searchQuery, globalUnlockedKey, archivedChats, pinnedChats]);
 
   if (showSettings) {
     return (

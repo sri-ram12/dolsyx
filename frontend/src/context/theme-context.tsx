@@ -43,8 +43,8 @@ const LEGACY_TO_ANDROID_MAP: Record<LegacyThemeType, string> = {
 };
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [themeId, setThemeId] = useState<string>("midnight_black");
-  const [currentTheme, setCurrentTheme] = useState<ChatTheme>(getThemeById("midnight_black"));
+  const [themeId, setThemeId] = useState<string>("slate_gray");
+  const [currentTheme, setCurrentTheme] = useState<ChatTheme>(getThemeById("slate_gray"));
   const [fontSize, setFontSizeState] = useState<FontSizeType>("medium");
 
   const [globalWallpaper, setGlobalWallpaperState] = useState<WallpaperConfig>(DEFAULT_WALLPAPER);
@@ -69,7 +69,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (typeof window === "undefined") return;
 
     // Load theme
-    const storedTheme = localStorage.getItem("dolsyx_theme") || "midnight_black";
+    const storedTheme = localStorage.getItem("dolsyx_theme") || "slate_gray";
     const resolvedId = LEGACY_TO_ANDROID_MAP[storedTheme as LegacyThemeType] || storedTheme;
     setThemeId(resolvedId);
     applyTheme(resolvedId);

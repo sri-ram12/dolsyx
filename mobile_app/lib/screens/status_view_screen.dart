@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
@@ -11,6 +13,8 @@ import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
 import '../services/api_service.dart';
 import '../services/chat_service.dart';
+import '../utils/e2ee/e2ee_media_cache.dart';
+import '../utils/e2ee/crypto_service.dart';
 
 class StatusViewScreen extends StatefulWidget {
   final List<UserStatusGroup> groups;
@@ -34,6 +38,9 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
   bool _showSeenBy = false;
   bool _isReplying = false;
   final TextEditingController _replyController = TextEditingController();
+
+  File? _decryptedImageFile;
+  String _currentDisplayCaption = '';
 
   late String _currentUserId;
   late int _currentGroupIndex;
@@ -65,6 +72,7 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
     _progress = 0.0;
     _isPaused = false;
     _isLoading = true;
+    _decryptedImageFile = null;
 
     if (index >= currentGroup.statuses.length) {
       if (_currentGroupIndex < widget.groups.length - 1) {
@@ -83,6 +91,19 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
     }
 
     final status = currentGroup.statuses[index];
+    _currentDisplayCaption = status.caption;
+
+    // Inspect if status.caption holds an E2EE envelope
+    Map<String, dynamic>? e2eePayload;
+    if (status.caption.startsWith('{') && status.caption.endsWith('}')) {
+      try {
+        final decoded = jsonDecode(status.caption);
+        if (decoded is Map<String, dynamic> && (decoded['encryptedMedia'] == true || decoded['e2ee'] == true)) {
+          e2eePayload = decoded;
+          _currentDisplayCaption = decoded['caption']?.toString() ?? '';
+        }
+      } catch (_) {}
+    }
     
     // View it!
     if (status.userId != _currentUserId && !status.isViewed) {
@@ -90,29 +111,119 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
     }
 
     if (status.mediaType == 'VIDEO') {
-      final url = ApiService.getMediaUrl(status.mediaUrl);
-      _videoController = VideoPlayerController.networkUrl(Uri.parse(url))
-        ..initialize().then((_) {
-          if (mounted) {
-            setState(() {
-              _isLoading = false;
-              _videoController!.setLooping(false);
-              _videoController!.play();
-            });
-            _startVideoTimer();
+      if (e2eePayload != null && e2eePayload['encryptedMedia'] == true) {
+        final mediaKey = e2eePayload['mediaKey']?.toString() ?? '';
+        final nonce = e2eePayload['nonce']?.toString() ?? '';
+        E2EEMediaCache.getOrDownloadDecryptedMedia(
+          mediaUrl: status.mediaUrl,
+          mediaKey: mediaKey,
+          nonce: nonce,
+          mediaType: 'VIDEO',
+        ).then((file) {
+          if (!mounted) return;
+          if (file != null) {
+            _videoController = VideoPlayerController.file(file)
+              ..initialize().then((_) {
+                if (mounted) {
+                  setState(() {
+                    _isLoading = false;
+                    _videoController!.setLooping(false);
+                    _videoController!.play();
+                  });
+                  _startVideoTimer();
+                }
+              }).catchError((error) {
+                debugPrint('E2EE Status video error: $error');
+                if (mounted) {
+                  setState(() => _isLoading = false);
+                  _startImageTimer();
+                }
+              });
+          } else {
+            final url = ApiService.getMediaUrl(status.mediaUrl);
+            _videoController = VideoPlayerController.networkUrl(Uri.parse(url))
+              ..initialize().then((_) {
+                if (mounted) {
+                  setState(() {
+                    _isLoading = false;
+                    _videoController!.setLooping(false);
+                    _videoController!.play();
+                  });
+                  _startVideoTimer();
+                }
+              }).catchError((_) {
+                if (mounted) {
+                  setState(() => _isLoading = false);
+                  _startImageTimer();
+                }
+              });
           }
-        }).catchError((error) {
-          debugPrint('Status video load error: $error');
+        });
+      } else {
+        final url = ApiService.getMediaUrl(status.mediaUrl);
+        _videoController = VideoPlayerController.networkUrl(Uri.parse(url))
+          ..initialize().then((_) {
+            if (mounted) {
+              setState(() {
+                _isLoading = false;
+                _videoController!.setLooping(false);
+                _videoController!.play();
+              });
+              _startVideoTimer();
+            }
+          }).catchError((error) {
+            debugPrint('Status video load error: $error');
+            if (mounted) {
+              setState(() => _isLoading = false);
+              _startImageTimer();
+            }
+          });
+      }
+    } else if (status.mediaType == 'TEXT') {
+      if (e2eePayload != null && e2eePayload['isTextStatus'] == true) {
+        CryptoService.instance.decryptStatusText(status.caption).then((decrypted) {
+          if (!mounted) return;
+          setState(() {
+            _currentDisplayCaption = decrypted;
+            _isLoading = false;
+          });
+          _startImageTimer();
+        }).catchError((_) {
           if (mounted) {
             setState(() => _isLoading = false);
             _startImageTimer();
           }
         });
-    } else if (status.mediaType == 'TEXT') {
-      setState(() => _isLoading = false);
-      _startImageTimer();
+      } else {
+        setState(() => _isLoading = false);
+        _startImageTimer();
+      }
     } else {
-      // Image - handled by CachedNetworkImage builder callbacks
+      // IMAGE
+      if (e2eePayload != null && e2eePayload['encryptedMedia'] == true) {
+        final mediaKey = e2eePayload['mediaKey']?.toString() ?? '';
+        final nonce = e2eePayload['nonce']?.toString() ?? '';
+        E2EEMediaCache.getOrDownloadDecryptedMedia(
+          mediaUrl: status.mediaUrl,
+          mediaKey: mediaKey,
+          nonce: nonce,
+          mediaType: 'IMAGE',
+        ).then((file) {
+          if (!mounted) return;
+          setState(() {
+            _decryptedImageFile = file;
+            _isLoading = false;
+          });
+          _startImageTimer();
+        }).catchError((_) {
+          if (mounted) {
+            setState(() => _isLoading = false);
+            _startImageTimer();
+          }
+        });
+      } else {
+        // Handled by CachedNetworkImage builder callbacks
+      }
     }
   }
 
@@ -259,7 +370,7 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
     if (recipientId == null || recipientId.isEmpty) return;
 
     final replyText = content.trim();
-    final captionText = status.caption ?? '';
+    final captionText = _currentDisplayCaption;
     final statusSnippet = captionText.isNotEmpty 
         ? captionText 
         : (status.mediaType == 'IMAGE' ? '📷 Photo' : (status.mediaType == 'VIDEO' ? '🎥 Video' : 'Status'));
@@ -412,29 +523,31 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
             children: [
               // Media Layer
               if (status.mediaType == 'IMAGE')
-                CachedNetworkImage(
-                  imageUrl: ApiService.getMediaUrl(status.mediaUrl),
-                  fit: BoxFit.contain,
-                  progressIndicatorBuilder: (context, url, dp) {
-                    if (!_isLoading) WidgetsBinding.instance.addPostFrameCallback((_) { if(mounted) setState(() => _isLoading = true); });
-                    return Center(child: CircularProgressIndicator(color: AppTheme.primaryColor, value: dp.progress));
-                  },
-                  imageBuilder: (context, ip) {
-                    if (_isLoading) {
-                      WidgetsBinding.instance.addPostFrameCallback((_) { 
-                        if(mounted) {
-                          setState(() => _isLoading = false);
-                          _startImageTimer();
-                        }
-                      });
-                    }
-                    return Image(image: ip, fit: BoxFit.contain);
-                  },
-                  errorWidget: (context, url, error) {
-                    if (_isLoading) WidgetsBinding.instance.addPostFrameCallback((_) { if(mounted) setState(() => _isLoading = false); });
-                    return Center(child: Icon(Icons.error, color: Colors.white, size: 50));
-                  },
-                )
+                _decryptedImageFile != null
+                    ? Image.file(_decryptedImageFile!, fit: BoxFit.contain)
+                    : CachedNetworkImage(
+                        imageUrl: ApiService.getMediaUrl(status.mediaUrl),
+                        fit: BoxFit.contain,
+                        progressIndicatorBuilder: (context, url, dp) {
+                          if (!_isLoading) WidgetsBinding.instance.addPostFrameCallback((_) { if(mounted) setState(() => _isLoading = true); });
+                          return Center(child: CircularProgressIndicator(color: AppTheme.primaryColor, value: dp.progress));
+                        },
+                        imageBuilder: (context, ip) {
+                          if (_isLoading) {
+                            WidgetsBinding.instance.addPostFrameCallback((_) { 
+                              if(mounted) {
+                                setState(() => _isLoading = false);
+                                _startImageTimer();
+                              }
+                            });
+                          }
+                          return Image(image: ip, fit: BoxFit.contain);
+                        },
+                        errorWidget: (context, url, error) {
+                          if (_isLoading) WidgetsBinding.instance.addPostFrameCallback((_) { if(mounted) setState(() => _isLoading = false); });
+                          return const Center(child: Icon(Icons.error, color: Colors.white, size: 50));
+                        },
+                      )
               else if (status.mediaType == 'VIDEO' && _videoController != null && _videoController!.value.isInitialized)
                 Center(
                   child: AspectRatio(
@@ -447,7 +560,7 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
                   color: Colors.primaries[status.userId.hashCode % Colors.primaries.length].shade800,
                   alignment: Alignment.center,
                   padding: const EdgeInsets.all(20),
-                  child: Text(status.caption, style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+                  child: Text(_currentDisplayCaption, style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
                 ),
 
               if (status.mediaType == 'VIDEO' && _isLoading)
@@ -511,13 +624,13 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
                 ),
 
               // Caption Layer
-              if (status.mediaType != 'TEXT' && status.caption.isNotEmpty && !_isReplying && !_showSeenBy)
+              if (status.mediaType != 'TEXT' && _currentDisplayCaption.isNotEmpty && !_isReplying && !_showSeenBy)
                 Positioned(
                   bottom: 80, left: 20, right: 20,
                   child: Container(
                     padding: const EdgeInsets.all(12),
                     color: Colors.black54,
-                    child: Text(status.caption, style: TextStyle(color: Colors.white, fontSize: 18), textAlign: TextAlign.center),
+                    child: Text(_currentDisplayCaption, style: const TextStyle(color: Colors.white, fontSize: 18), textAlign: TextAlign.center),
                   ),
                 ),
 

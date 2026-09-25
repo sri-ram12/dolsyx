@@ -353,7 +353,7 @@ function PollMessage({ msg, isMe, socket, user }: { msg: Message; isMe: boolean;
   const myUserId = user?.id || "user";
   const totalVotes = options.reduce((sum, opt) => sum + (opt.votes?.length || 0), 0);
 
-  const handleVote = (optionId: number) => {
+  const handleVote = async (optionId: number) => {
     const opt = options.find((o) => o.id === optionId);
     if (!opt) return;
     if (!opt.votes) opt.votes = [];
@@ -362,14 +362,28 @@ function PollMessage({ msg, isMe, socket, user }: { msg: Message; isMe: boolean;
     if (userVoted) {
       opt.votes = opt.votes.filter((id: string) => id !== myUserId);
     } else {
+      if (!pollData.allowMultiple) {
+        options.forEach((o) => {
+          if (o.votes) o.votes = o.votes.filter((id: string) => id !== myUserId);
+        });
+      }
       opt.votes.push(myUserId);
     }
 
     if (socket && socket.connected) {
+      let encryptedContent: string | undefined;
+      try {
+        encryptedContent = await encryptConversationPayload(
+          msg.conversationId,
+          JSON.stringify(pollData)
+        );
+      } catch (_) {}
+
       socket.emit("vote_poll", {
         conversationId: msg.conversationId,
         messageId: msg.id,
         optionId: optionId,
+        ...(encryptedContent ? { encryptedContent } : {}),
       });
     }
   };
@@ -652,6 +666,7 @@ export default function ChatWindow({
   // Emoji Picker State
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const emojiPickerRef = useRef<HTMLDivElement>(null);
+  const emojiContainerRef = useRef<HTMLDivElement>(null);
   const [activeReactionMessageId, setActiveReactionMessageId] = useState<string | null>(null);
 
   // Message Actions state
@@ -963,10 +978,14 @@ export default function ChatWindow({
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isRecipientTyping]);
 
-  // Close emoji picker when clicking outside
+  // Close emoji picker when clicking outside (check both trigger button and picker container)
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (emojiPickerRef.current && !emojiPickerRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (
+        emojiPickerRef.current && !emojiPickerRef.current.contains(target) &&
+        emojiContainerRef.current && !emojiContainerRef.current.contains(target)
+      ) {
         setShowEmojiPicker(false);
       }
     };
@@ -1239,16 +1258,35 @@ export default function ChatWindow({
       }
     };
 
-    const handlePollUpdated = (data: { conversationId: string; messageId: string; content: string }) => {
+    const handlePollUpdated = async (data: { conversationId: string; messageId: string; content: string }) => {
       if (data.conversationId === chat.id) {
+        let displayContent = data.content;
+        try {
+          if (data.content.includes("conv_v1") || data.content.includes("ciphertext")) {
+            displayContent = await decryptIncomingContent(data.content, "", data.conversationId);
+          }
+        } catch (_) {}
         setMessages((prev) =>
-          prev.map((msg) => (msg.id === data.messageId ? { ...msg, content: data.content } : msg))
+          prev.map((msg) => (msg.id === data.messageId ? { ...msg, content: displayContent } : msg))
+        );
+      }
+    };
+
+    const handleMessageSent = (data: { tempId?: string; messageId?: string; conversationId?: string }) => {
+      if (data && data.conversationId === chat.id && data.tempId && data.messageId) {
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === data.tempId
+              ? { ...msg, id: data.messageId!, isPending: false }
+              : msg
+          )
         );
       }
     };
 
     socket.on("receive_encrypted_message", handleEncryptedMessage);
     socket.on("new_message", handleNewMessage);
+    socket.on("message_sent", handleMessageSent);
     socket.on("messages_read", handleMessagesRead);
     socket.on("user_typing", handleUserTyping);
     socket.on("message_edited", handleMessageEdited);
@@ -1262,6 +1300,7 @@ export default function ChatWindow({
     return () => {
       socket.off("receive_encrypted_message", handleEncryptedMessage);
       socket.off("new_message", handleNewMessage);
+      socket.off("message_sent", handleMessageSent);
       socket.off("messages_read", handleMessagesRead);
       socket.off("user_typing", handleUserTyping);
       socket.off("message_edited", handleMessageEdited);
@@ -1540,10 +1579,21 @@ export default function ChatWindow({
         
         setMessages(prev => [...prev, optimisticMsg]);
 
-        // Store relative path instead of absolute URL
+        // Store relative path and broadcast E2EE media envelope
+        const mediaPayload = JSON.stringify({
+          encryptedMedia: false,
+          mediaUrl: data.fileUrl,
+          mediaType,
+          caption: "",
+        });
+        let encryptedContent = mediaPayload;
+        try {
+          encryptedContent = await encryptConversationPayload(chat.id, mediaPayload);
+        } catch (_) {}
+
         socket.emit("send_message", {
           conversationId: chat.id,
-          content: "",
+          content: encryptedContent,
           mediaUrl: data.fileUrl,
           mediaType,
         });
@@ -1575,10 +1625,21 @@ export default function ChatWindow({
 
       if (res.ok) {
         const data = await res.json();
-        // Store relative path instead of absolute URL
+        // Store relative path and broadcast E2EE media envelope
+        const mediaPayload = JSON.stringify({
+          encryptedMedia: false,
+          mediaUrl: data.fileUrl,
+          mediaType: fileType,
+          caption: "",
+        });
+        let encryptedContent = mediaPayload;
+        try {
+          encryptedContent = await encryptConversationPayload(chat.id, mediaPayload);
+        } catch (_) {}
+
         socket.emit("send_message", {
           conversationId: chat.id,
-          content: "",
+          content: encryptedContent,
           mediaUrl: data.fileUrl,
           mediaType: fileType,
         });
@@ -1719,7 +1780,13 @@ export default function ChatWindow({
   };
 
   const onEmojiClick = (emojiData: EmojiClickData) => {
-    setInputValue((prev) => prev + emojiData.emoji);
+    if (emojiData && emojiData.emoji) {
+      setInputValue((prev) => prev + emojiData.emoji);
+      // Focus input field so user can type text alongside emojis or press Enter
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 10);
+    }
   };
 
   const formatMessageTime = (dateString: string) => {
@@ -2783,7 +2850,10 @@ export default function ChatWindow({
 
             {/* Docked Emoji Picker beneath input bar */}
             {showEmojiPicker && (
-              <div className="w-full bg-[var(--theme-bg-chat-input)] border-t border-[var(--theme-border-color)]/20 animate-fade-in flex justify-center pb-2">
+              <div 
+                ref={emojiContainerRef}
+                className="w-full bg-[var(--theme-bg-chat-input)] border-t border-[var(--theme-border-color)]/20 animate-fade-in flex justify-center pb-2"
+              >
                 <EmojiPicker
                   onEmojiClick={(emojiData) => {
                     onEmojiClick(emojiData);

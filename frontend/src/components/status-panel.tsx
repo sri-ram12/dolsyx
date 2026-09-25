@@ -6,6 +6,7 @@ import { useTheme } from "@/context/theme-context";
 import { useToast } from "@/context/toast-context";
 import { useSocket } from "@/hooks/use-socket";
 import { getDefaultAvatar, getAvatarUrl, resolveMediaUrl } from "@/utils/avatar";
+import { encryptFileBytes, decryptFileBytes } from "@/utils/e2ee/cryptoService";
 import {
   X,
   Plus,
@@ -57,6 +58,121 @@ const TEXT_BG_COLORS = [
   "linear-gradient(135deg, #fccb90 0%, #d57eeb 100%)",
   "linear-gradient(135deg, #fd7043 0%, #ffa726 100%)",
 ];
+
+function StatusMediaRenderer({
+  status,
+  onVideoEnd,
+}: {
+  status: StatusItem;
+  onVideoEnd: () => void;
+}) {
+  const [decryptedSrc, setDecryptedSrc] = useState<string | null>(null);
+  const [displayText, setDisplayText] = useState<string>(status.caption || "");
+
+  useEffect(() => {
+    let active = true;
+    let objectUrl: string | null = null;
+
+    async function processStatus() {
+      let isE2EE = false;
+      let payload: any = null;
+      if (status.caption && status.caption.startsWith("{") && status.caption.endsWith("}")) {
+        try {
+          payload = JSON.parse(status.caption);
+          if (payload && (payload.e2ee || payload.encryptedMedia)) {
+            isE2EE = true;
+          }
+        } catch (_) {}
+      }
+
+      if (isE2EE && payload) {
+        if (payload.caption !== undefined) {
+          setDisplayText(payload.caption);
+        } else if (payload.text !== undefined) {
+          setDisplayText(payload.text);
+        }
+
+        if (payload.encryptedMedia && status.mediaUrl && payload.mediaKey && payload.nonce) {
+          try {
+            const rawUrl = resolveMediaUrl(status.mediaUrl);
+            const res = await fetch(rawUrl);
+            const encBuf = await res.arrayBuffer();
+            const decBuf = await decryptFileBytes(encBuf, payload.mediaKey, payload.nonce);
+            const blob = new Blob([decBuf], {
+              type: status.mediaType === "VIDEO" ? "video/mp4" : "image/jpeg",
+            });
+            objectUrl = URL.createObjectURL(blob);
+            if (active) setDecryptedSrc(objectUrl);
+          } catch (err) {
+            console.error("Failed to decrypt status media:", err);
+          }
+        }
+      } else {
+        setDisplayText(status.caption || "");
+      }
+    }
+
+    processStatus();
+
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [status.id, status.mediaUrl, status.caption, status.mediaType]);
+
+  const mediaSource = decryptedSrc || (status.mediaUrl ? resolveMediaUrl(status.mediaUrl) : null);
+
+  if (status.mediaType === "IMAGE" && mediaSource) {
+    return <img src={mediaSource} alt="Status" className="max-w-full max-h-full object-contain" />;
+  }
+
+  if (status.mediaType === "VIDEO" && mediaSource) {
+    return (
+      <video
+        key={mediaSource}
+        src={mediaSource}
+        autoPlay
+        playsInline
+        muted={false}
+        controls={false}
+        className="max-w-full max-h-full object-contain"
+        onEnded={onVideoEnd}
+      />
+    );
+  }
+
+  return (
+    <div
+      className="w-full h-full flex items-center justify-center px-8 text-center"
+      style={{ background: status.bgColor || "linear-gradient(135deg, #667eea 0%, #764ba2 100%)" }}
+    >
+      <p className="text-white text-2xl font-bold leading-snug drop-shadow-lg">
+        {displayText}
+      </p>
+    </div>
+  );
+}
+
+function StatusCaptionOverlay({ caption }: { caption: string | null }) {
+  if (!caption) return null;
+  let text = caption;
+  if (caption.startsWith("{") && caption.endsWith("}")) {
+    try {
+      const parsed = JSON.parse(caption);
+      if (parsed.caption !== undefined) text = parsed.caption;
+      else if (parsed.text !== undefined) text = parsed.text;
+    } catch (_) {}
+  }
+  if (!text.trim()) return null;
+
+  return (
+    <div className="absolute bottom-16 left-0 right-0 px-6 text-center">
+      <p className="text-white text-base font-semibold drop-shadow-lg bg-black/30 rounded-xl px-4 py-2 inline-block">
+        {text}
+      </p>
+    </div>
+  );
+}
 
 export default function StatusPanel({ onClose, onNewStatus }: StatusPanelProps) {
   const { user, token } = useAuth();
@@ -316,11 +432,18 @@ export default function StatusPanel({ onClose, onNewStatus }: StatusPanelProps) 
     try {
       let mediaUrl: string | null = null;
       let mediaType = createType;
+      let captionPayload = captionText.trim();
 
       if (mediaFile) {
         setIsUploading(true);
+        // Pre-encrypt client-side for 100% E2EE media upload
+        const rawBuffer = await mediaFile.arrayBuffer();
+        const { encryptedBuffer, mediaKeyB64, nonceB64 } = await encryptFileBytes(rawBuffer);
+        const encBlob = new Blob([encryptedBuffer], { type: "application/octet-stream" });
+        const encFile = new File([encBlob], `${Date.now()}_status.enc`, { type: "application/octet-stream" });
+
         const fd = new FormData();
-        fd.append("file", mediaFile);
+        fd.append("file", encFile);
         const uploadRes = await fetch(`${API_URL}/api/status/upload`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}` },
@@ -328,15 +451,30 @@ export default function StatusPanel({ onClose, onNewStatus }: StatusPanelProps) 
         });
         if (!uploadRes.ok) throw new Error("Upload failed");
         const uploadData = await uploadRes.json();
-        // Store relative path instead of absolute URL
         mediaUrl = uploadData.fileUrl;
-        mediaType = uploadData.fileType.startsWith("video/") ? "VIDEO" : "IMAGE";
+        mediaType = mediaFile.type.startsWith("video/") ? "VIDEO" : "IMAGE";
         setIsUploading(false);
+
+        captionPayload = JSON.stringify({
+          e2ee: true,
+          encryptedMedia: true,
+          mediaUrl,
+          mediaKey: mediaKeyB64,
+          nonce: nonceB64,
+          mediaType,
+          caption: captionText.trim(),
+        });
+      } else if (createType === "TEXT") {
+        captionPayload = JSON.stringify({
+          e2ee: true,
+          isTextStatus: true,
+          text: captionText.trim(),
+        });
       }
 
       const body: any = { mediaType };
       if (mediaUrl) body.mediaUrl = mediaUrl;
-      if (captionText.trim()) body.caption = captionText.trim();
+      if (captionPayload) body.caption = captionPayload;
       if (createType === "TEXT") {
         body.bgColor = TEXT_BG_COLORS[selectedBgIndex];
       }
@@ -450,42 +588,12 @@ export default function StatusPanel({ onClose, onNewStatus }: StatusPanelProps) 
 
           {/* Media Content */}
           <div className="w-full h-full flex items-center justify-center">
-            {currentStatus.mediaType === "IMAGE" && currentStatus.mediaUrl ? (
-              <img
-                src={resolveMediaUrl(currentStatus.mediaUrl)}
-                alt="Status"
-                className="max-w-full max-h-full object-contain"
-              />
-            ) : currentStatus.mediaType === "VIDEO" && currentStatus.mediaUrl ? (
-              <video
-                key={currentStatus.id}
-                src={resolveMediaUrl(currentStatus.mediaUrl)}
-                autoPlay
-                playsInline
-                muted={false}
-                controls={false}
-                className="max-w-full max-h-full object-contain"
-                onEnded={goNextStory}
-              />
-            ) : (
-              <div
-                className="w-full h-full flex items-center justify-center px-8 text-center"
-                style={{ background: currentStatus.bgColor || "linear-gradient(135deg, #667eea 0%, #764ba2 100%)" }}
-              >
-                <p className="text-white text-2xl font-bold leading-snug drop-shadow-lg">
-                  {currentStatus.caption}
-                </p>
-              </div>
-            )}
+            <StatusMediaRenderer status={currentStatus} onVideoEnd={goNextStory} />
           </div>
 
           {/* Caption overlay for media statuses */}
-          {currentStatus.mediaType !== "TEXT" && currentStatus.caption && (
-            <div className="absolute bottom-16 left-0 right-0 px-6 text-center">
-              <p className="text-white text-base font-semibold drop-shadow-lg bg-black/30 rounded-xl px-4 py-2 inline-block">
-                {currentStatus.caption}
-              </p>
-            </div>
+          {currentStatus.mediaType !== "TEXT" && (
+            <StatusCaptionOverlay caption={currentStatus.caption} />
           )}
 
           {/* Views count for own status */}

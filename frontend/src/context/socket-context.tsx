@@ -29,7 +29,13 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       return;
     }
 
-    const newSocket = io(API_URL, {
+    const targetUrl = typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
+      ? (process.env.NEXT_PUBLIC_SOCKET_URL && !process.env.NEXT_PUBLIC_SOCKET_URL.includes("onrender.com")
+          ? process.env.NEXT_PUBLIC_SOCKET_URL.replace(/\/+$/, "")
+          : `http://${window.location.hostname}:4000`)
+      : (process.env.NEXT_PUBLIC_SOCKET_URL?.replace(/\/+$/, "") || API_URL);
+
+    const newSocket = io(targetUrl, {
       auth: { token },
       autoConnect: true,
       reconnectionAttempts: 10,
@@ -48,8 +54,20 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
 
     newSocket.on("connect_error", (err) => {
-      console.error("Socket connection error:", err.message);
+      console.warn("[Socket] Connection attempt status:", err.message);
       setIsConnected(false);
+
+      // If server rejects token as expired or invalid, log out stale session to stop retry storm
+      if (
+        err.message &&
+        (err.message.includes("Authentication error") ||
+         err.message.includes("jwt expired") ||
+         err.message.includes("Invalid token") ||
+         err.message.includes("Token missing"))
+      ) {
+        console.warn("[Socket] Stale token rejected by server, resetting session...");
+        logout();
+      }
     });
 
     // Handle real-time device revocation from mobile

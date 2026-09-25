@@ -10,7 +10,7 @@ class ThemeProvider extends ChangeNotifier {
   static const String _opacityKey = 'wallpaper_opacity';
   static const String _blurKey = 'wallpaper_blur';
 
-  ChatThemeModel _currentTheme = ThemeManager.getThemeById('cyber_neon');
+  ChatThemeModel _currentTheme = ThemeManager.getThemeById('slate_gray');
   double _currentFontSize = 16.0;
   double _wallpaperOpacity = 1.0;
   double _wallpaperBlur = 0.0;
@@ -26,7 +26,7 @@ class ThemeProvider extends ChangeNotifier {
 
   void _loadTheme() async {
     final prefs = await SharedPreferences.getInstance();
-    final themeId = prefs.getString(_themeKey) ?? 'cyber_neon';
+    final themeId = prefs.getString(_themeKey) ?? 'slate_gray';
     _currentTheme = ThemeManager.getThemeById(themeId);
     _currentFontSize = prefs.getDouble(_fontSizeKey) ?? 16.0;
     _wallpaperOpacity = prefs.getDouble(_opacityKey) ?? 1.0;

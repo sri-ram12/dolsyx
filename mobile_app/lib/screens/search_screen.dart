@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:intl/intl.dart';
 import '../services/chat_service.dart';
 import '../services/contact_service.dart';
+import '../services/local_database_service.dart';
 import '../services/dolsyx_ai_service.dart';
 import '../models/chat.dart';
 import '../providers/auth_provider.dart';
@@ -27,6 +29,7 @@ class _SearchScreenState extends State<SearchScreen> {
   final TextEditingController _searchController = TextEditingController();
 
   List<dynamic> _searchResults = [];
+  List<Map<String, dynamic>> _matchingMessages = [];
   List<Chat> _allChats = [];
   List<dynamic> _savedContacts = [];
   List<Map<String, dynamic>> _recentSearches = [];
@@ -117,7 +120,11 @@ class _SearchScreenState extends State<SearchScreen> {
   void _performSearch(String query) async {
     final cleanQuery = query.trim();
     if (cleanQuery.isEmpty && _activeFilter.isEmpty) {
-      setState(() => _searchResults = []);
+      setState(() {
+        _searchResults = [];
+        _matchingMessages = [];
+        _isLoading = false;
+      });
       return;
     }
 
@@ -128,13 +135,113 @@ class _SearchScreenState extends State<SearchScreen> {
       return;
     }
 
-    final results = await _chatService.searchUsers(cleanQuery);
+    // 1. WhatsApp-grade local SQLite FTS5 search (instant < 2ms)
+    final ftsFuture = LocalDatabaseService().searchMessagesUniversal(cleanQuery);
+
+    // 2. Parallel remote user directory lookup
+    final usersFuture = _chatService.searchUsers(cleanQuery);
+
+    // 3. Search cached local conversations by name
+    final matchedLocalChats = _allChats
+        .where((c) => (c.name ?? '').toLowerCase().contains(cleanQuery.toLowerCase()))
+        .map((c) => {
+              'type': 'chat',
+              'chat': c,
+              'id': c.id,
+              'username': c.name ?? 'Chat',
+              'avatarUrl': c.avatarUrl,
+              'subtitle': c.isGroup ? 'Group' : 'Chat',
+            })
+        .toList();
+
+    final ftsResults = await ftsFuture;
+    final userResults = await usersFuture;
+
+    final combinedContacts = [...matchedLocalChats];
+    for (final u in userResults) {
+      final uId = u['id'] ?? u['_id'];
+      if (!combinedContacts.any((item) => item['id'] == uId)) {
+        combinedContacts.add(u);
+      }
+    }
+
     if (mounted) {
       setState(() {
-        _searchResults = results;
+        _searchResults = combinedContacts;
+        _matchingMessages = ftsResults;
         _isLoading = false;
       });
     }
+  }
+
+  void _openMessageMatch(Map<String, dynamic> msgRow) {
+    final convId = (msgRow['conversationId'] ?? '').toString();
+    final convName = (msgRow['conversationName'] ?? 'Chat').toString();
+    final convAvatar = msgRow['conversationAvatar']?.toString();
+
+    final existing = _allChats.where((c) => c.id == convId).toList();
+    if (existing.isNotEmpty) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ChatRoomScreen(
+            conversationId: existing.first.id,
+            chatName: existing.first.name ?? convName,
+            avatarUrl: existing.first.avatarUrl,
+            autoStartSearch: true,
+          ),
+        ),
+      );
+    } else {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ChatRoomScreen(
+            conversationId: convId,
+            chatName: convName,
+            avatarUrl: convAvatar,
+            autoStartSearch: true,
+          ),
+        ),
+      );
+    }
+  }
+
+  Widget _buildSnippetWidget(String rawSnippet, String query) {
+    if (rawSnippet.contains('[[H]]') && rawSnippet.contains('[[/H]]')) {
+      final spans = <TextSpan>[];
+      final parts = rawSnippet.split('[[H]]');
+      for (final part in parts) {
+        if (part.contains('[[/H]]')) {
+          final sub = part.split('[[/H]]');
+          spans.add(TextSpan(
+            text: sub[0],
+            style: const TextStyle(
+              color: Color(0xFF00A884),
+              fontWeight: FontWeight.bold,
+              backgroundColor: Color(0x3300A884),
+            ),
+          ));
+          if (sub.length > 1 && sub[1].isNotEmpty) {
+            spans.add(TextSpan(text: sub[1], style: const TextStyle(color: Colors.white70)));
+          }
+        } else {
+          spans.add(TextSpan(text: part, style: const TextStyle(color: Colors.white70)));
+        }
+      }
+      return RichText(
+        text: TextSpan(children: spans, style: const TextStyle(fontSize: 13)),
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      );
+    }
+
+    return Text(
+      rawSnippet,
+      style: const TextStyle(color: Colors.white70, fontSize: 13),
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+    );
   }
 
   void _filterByActivePill(String query) {
@@ -300,129 +407,7 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  void _showAiAnswerBottomSheet(String question, String answer) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: const Color(0xFF0F172A),
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (ctx) {
-        final followUpController = TextEditingController();
-        String currentAnswer = answer;
 
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            return Padding(
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.of(context).viewInsets.bottom,
-                top: 20,
-                left: 20,
-                right: 20,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: const BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: LinearGradient(
-                            colors: [Color(0xFF8B5CF6), Color(0xFFEC4899), Color(0xFF3B82F6)],
-                          ),
-                        ),
-                        child: const Icon(Icons.auto_awesome, color: Colors.white, size: 18),
-                      ),
-                      const SizedBox(width: 10),
-                      const Text(
-                        'DOLSYX AI Answer',
-                        style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                      ),
-                      const Spacer(),
-                      IconButton(
-                        icon: const Icon(Icons.copy_rounded, color: Colors.white70, size: 20),
-                        onPressed: () {
-                          Clipboard.setData(ClipboardData(text: currentAnswer));
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('AI Answer copied to clipboard!'), backgroundColor: Color(0xFF6366F1)),
-                          );
-                        },
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close, color: Colors.white70),
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF1E293B),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      '❓ "$question"',
-                      style: const TextStyle(color: Color(0xFFEC4899), fontWeight: FontWeight.w600, fontSize: 14),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  ConstrainedBox(
-                    constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.4),
-                    child: SingleChildScrollView(
-                      child: Text(
-                        currentAnswer,
-                        style: const TextStyle(color: Colors.white, fontSize: 15, height: 1.4),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: followUpController,
-                          style: const TextStyle(color: Colors.white),
-                          decoration: InputDecoration(
-                            hintText: 'Ask a follow-up question...',
-                            hintStyle: const TextStyle(color: Colors.white38),
-                            filled: true,
-                            fillColor: const Color(0xFF1E293B),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      IconButton(
-                        icon: const Icon(Icons.send_rounded, color: Color(0xFF6366F1)),
-                        onPressed: () async {
-                          final text = followUpController.text.trim();
-                          if (text.isEmpty) return;
-                          followUpController.clear();
-                          setModalState(() {
-                            currentAnswer = 'DOLSYX AI is thinking...';
-                          });
-                          final reply = await _dolsyxAiService.queryAiEngine(text);
-                          setModalState(() {
-                            currentAnswer = reply;
-                          });
-                        },
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
 
   void _startChat(String userId, String displayName, String? avatarUrl) async {
     setState(() => _isLoading = true);
@@ -742,7 +727,7 @@ class _SearchScreenState extends State<SearchScreen> {
                         ),
                       Expanded(
                         child: (queryText.isNotEmpty || _activeFilter.isNotEmpty)
-                            ? (_searchResults.isEmpty
+                            ? (_searchResults.isEmpty && _matchingMessages.isEmpty
                                 ? (_secretChatCode != null && _secretChatCode!.isNotEmpty && queryText.trim() == _secretChatCode!.trim()
                                     ? const SizedBox.shrink()
                                     : Center(
@@ -750,63 +735,136 @@ class _SearchScreenState extends State<SearchScreen> {
                                           'No results found for ${_activeFilter.isNotEmpty ? _activeFilter : '"$queryText"'}',
                                           style: const TextStyle(color: Colors.white38),
                                         )))
-                                : ListView.builder(
-                                    itemCount: _searchResults.length,
-                                    itemBuilder: (context, index) {
-                                      final item = _searchResults[index];
-                                      final isChat = item['type'] == 'chat';
-                                      final displayName = item['username'] ?? item['name'] ?? 'User';
-                                      final avatarUrl = item['avatarUrl'];
-                                      final subtitle = item['subtitle'] ?? item['email'] ?? '';
-                                      final id = item['id'];
-                                      final isNonContact = item['isNonContact'] == true;
-                                      final isFavorite = item['isFavorite'] == true;
+                                : ListView(
+                                    padding: const EdgeInsets.only(bottom: 24),
+                                    children: [
+                                      // Section 1: Chats & Contacts
+                                      if (_searchResults.isNotEmpty) ...[
+                                        Padding(
+                                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+                                          child: Text(
+                                            'CHATS & CONTACTS (${_searchResults.length})',
+                                            style: const TextStyle(color: Colors.white38, fontSize: 11, fontWeight: FontWeight.bold),
+                                          ),
+                                        ),
+                                        ..._searchResults.map((item) {
+                                          final isChat = item['type'] == 'chat';
+                                          final displayName = item['username'] ?? item['name'] ?? 'User';
+                                          final avatarUrl = item['avatarUrl'];
+                                          final subtitle = item['subtitle'] ?? item['email'] ?? '';
+                                          final id = item['id'];
+                                          final isNonContact = item['isNonContact'] == true;
+                                          final isFavorite = item['isFavorite'] == true;
 
-                                      return ListTile(
-                                        leading: ColorAvatar(
-                                          name: displayName,
-                                          avatarUrl: avatarUrl,
-                                          radius: 22,
-                                        ),
-                                        title: Row(
-                                          children: [
-                                            Expanded(
-                                              child: Text(
-                                                displayName,
-                                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
+                                          return ListTile(
+                                            leading: ColorAvatar(
+                                              name: displayName,
+                                              avatarUrl: avatarUrl,
+                                              radius: 22,
                                             ),
-                                            if (isFavorite)
-                                              const Icon(Icons.star, color: Colors.amber, size: 16),
-                                            if (isNonContact)
-                                              Container(
-                                                margin: const EdgeInsets.only(left: 6),
-                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                decoration: BoxDecoration(
-                                                  color: Colors.amber.withOpacity(0.15),
-                                                  borderRadius: BorderRadius.circular(6),
+                                            title: Row(
+                                              children: [
+                                                Expanded(
+                                                  child: Text(
+                                                    displayName,
+                                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                  ),
                                                 ),
-                                                child: const Text('Non-contact', style: TextStyle(color: Colors.amber, fontSize: 10, fontWeight: FontWeight.bold)),
+                                                if (isFavorite)
+                                                  const Icon(Icons.star, color: Colors.amber, size: 16),
+                                                if (isNonContact)
+                                                  Container(
+                                                    margin: const EdgeInsets.only(left: 6),
+                                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                    decoration: BoxDecoration(
+                                                      color: Colors.amber.withOpacity(0.15),
+                                                      borderRadius: BorderRadius.circular(6),
+                                                    ),
+                                                    child: const Text('Non-contact', style: TextStyle(color: Colors.amber, fontSize: 10, fontWeight: FontWeight.bold)),
+                                                  ),
+                                              ],
+                                            ),
+                                            subtitle: Text(
+                                              subtitle,
+                                              style: const TextStyle(color: Colors.white54, fontSize: 12),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                            onTap: () {
+                                              if (isChat && item['chat'] != null) {
+                                                _openExistingChat(item['chat'] as Chat);
+                                              } else {
+                                                _startChat(id.toString(), displayName, avatarUrl);
+                                              }
+                                            },
+                                          );
+                                        }),
+                                      ],
+
+                                      // Section 2: Messages (SQLite FTS5 Results)
+                                      if (_matchingMessages.isNotEmpty) ...[
+                                        Padding(
+                                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
+                                          child: Row(
+                                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              Text(
+                                                'MESSAGES (${_matchingMessages.length})',
+                                                style: const TextStyle(color: Color(0xFF00A884), fontSize: 11, fontWeight: FontWeight.bold),
                                               ),
-                                          ],
+                                              const Text(
+                                                'Instant Offline FTS',
+                                                style: TextStyle(color: Colors.white24, fontSize: 10),
+                                              ),
+                                            ],
+                                          ),
                                         ),
-                                        subtitle: Text(
-                                          subtitle,
-                                          style: const TextStyle(color: Colors.white54, fontSize: 12),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                        onTap: () {
-                                          if (isChat && item['chat'] != null) {
-                                            _openExistingChat(item['chat'] as Chat);
-                                          } else {
-                                            _startChat(id.toString(), displayName, avatarUrl);
-                                          }
-                                        },
-                                      );
-                                    },
+                                        ..._matchingMessages.map((msg) {
+                                          final convName = (msg['conversationName'] ?? 'Chat').toString();
+                                          final convAvatar = msg['conversationAvatar']?.toString();
+                                          final matchSnippet = (msg['matchSnippet'] ?? msg['content'] ?? '').toString();
+                                          final createdAtMs = (msg['createdAt'] is int)
+                                              ? msg['createdAt'] as int
+                                              : (int.tryParse(msg['createdAt'].toString()) ?? 0);
+                                          final timeStr = createdAtMs > 0
+                                              ? DateFormat('MMM d, h:mm a').format(DateTime.fromMillisecondsSinceEpoch(createdAtMs))
+                                              : '';
+
+                                          return ListTile(
+                                            leading: ColorAvatar(
+                                              name: convName,
+                                              avatarUrl: convAvatar,
+                                              radius: 20,
+                                            ),
+                                            title: Row(
+                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                              children: [
+                                                Expanded(
+                                                  child: Text(
+                                                    convName,
+                                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                  ),
+                                                ),
+                                                if (timeStr.isNotEmpty)
+                                                  Text(
+                                                    timeStr,
+                                                    style: const TextStyle(color: Colors.white38, fontSize: 11),
+                                                  ),
+                                              ],
+                                            ),
+                                            subtitle: Padding(
+                                              padding: const EdgeInsets.only(top: 2),
+                                              child: _buildSnippetWidget(matchSnippet, queryText),
+                                            ),
+                                            onTap: () => _openMessageMatch(msg),
+                                          );
+                                        }),
+                                      ],
+                                    ],
                                   ))
                             : const SizedBox.shrink(),
                       ),

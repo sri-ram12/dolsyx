@@ -1,10 +1,13 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/chat.dart';
 import '../models/message.dart';
+import '../utils/e2ee/e2ee_media_cache.dart';
 
 /// WhatsApp-grade Local SQLite Database Service (msgstore.db style)
 /// Provides sub-millisecond local reads, Write-Ahead Logging (WAL), and persistent disk storage.
@@ -994,5 +997,372 @@ class LocalDatabaseService {
       debugPrint('[LocalDB] Message migration error for $conversationId: $e');
     }
     return [];
+  }
+
+  // =========================================================================
+  // WHATSAPP STORAGE & DATA MANAGEMENT ENGINE (PHASE 8)
+  // =========================================================================
+
+  /// Calculates real physical disk breakdown for DOLSYX database, media files, and cache
+  Future<Map<String, dynamic>> getStorageBreakdown() async {
+    final db = await database;
+    int databaseBytes = 0;
+    int mediaBytes = 0;
+    int photosBytes = 0;
+    int videosBytes = 0;
+    int audioBytes = 0;
+    int docsBytes = 0;
+    int photosCount = 0;
+    int videosCount = 0;
+    int audioCount = 0;
+    int docsCount = 0;
+    int largeFilesCount = 0;
+    int largeFilesBytes = 0;
+    int cacheBytes = 0;
+
+    try {
+      // 1. Calculate physical SQLite database file sizes
+      final dbPath = await getDatabasesPath();
+      for (final suffix in ['', '-wal', '-shm', '-journal']) {
+        final f = File(p.join(dbPath, 'dolsyx_msgstore.db$suffix'));
+        if (f.existsSync()) {
+          databaseBytes += f.lengthSync();
+        }
+      }
+    } catch (e) {
+      debugPrint('[StorageEngine] Error calculating DB size: $e');
+    }
+
+    try {
+      // 2. Calculate temporary cache size
+      final tempDir = await getTemporaryDirectory();
+      if (tempDir.existsSync()) {
+        final list = tempDir.listSync(recursive: true, followLinks: false);
+        for (final entity in list) {
+          if (entity is File) {
+            try {
+              cacheBytes += entity.lengthSync();
+            } catch (_) {}
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[StorageEngine] Error calculating cache size: $e');
+    }
+
+    try {
+      // 3. Aggregate categorized media from local_messages
+      final rows = await db.rawQuery('''
+        SELECT 
+          id, media_type, file_size, file_path, media_url
+        FROM local_messages
+        WHERE media_url IS NOT NULL OR file_path IS NOT NULL
+      ''');
+
+      const fiveMb = 5 * 1024 * 1024;
+      for (final r in rows) {
+        final type = (r['media_type'] as String? ?? '').toUpperCase();
+        int size = (r['file_size'] as int?) ?? 0;
+        final filePath = r['file_path'] as String?;
+
+        if (size <= 0 && filePath != null && filePath.isNotEmpty) {
+          try {
+            final f = File(filePath);
+            if (f.existsSync()) {
+              size = f.lengthSync();
+            }
+          } catch (_) {}
+        }
+
+        mediaBytes += size;
+
+        if (type == 'IMAGE') {
+          photosBytes += size;
+          photosCount++;
+        } else if (type == 'VIDEO') {
+          videosBytes += size;
+          videosCount++;
+        } else if (type == 'AUDIO' || type == 'VOICE') {
+          audioBytes += size;
+          audioCount++;
+        } else if (type == 'DOCUMENT') {
+          docsBytes += size;
+          docsCount++;
+        }
+
+        if (size >= fiveMb) {
+          largeFilesCount++;
+          largeFilesBytes += size;
+        }
+      }
+    } catch (e) {
+      debugPrint('[StorageEngine] Error querying media stats: $e');
+    }
+
+    final totalAppBytes = databaseBytes + mediaBytes + cacheBytes;
+
+    return {
+      'databaseBytes': databaseBytes,
+      'mediaBytes': mediaBytes,
+      'cacheBytes': cacheBytes,
+      'photosBytes': photosBytes,
+      'photosCount': photosCount,
+      'videosBytes': videosBytes,
+      'videosCount': videosCount,
+      'audioBytes': audioBytes,
+      'audioCount': audioCount,
+      'docsBytes': docsBytes,
+      'docsCount': docsCount,
+      'largeFilesCount': largeFilesCount,
+      'largeFilesBytes': largeFilesBytes,
+      'totalAppBytes': totalAppBytes,
+    };
+  }
+
+  /// Retrieves media items larger than [minSizeBytes] (default: 5MB) across all chats
+  Future<List<Map<String, dynamic>>> getLargeMediaItems({int minSizeBytes = 5242880}) async {
+    final db = await database;
+    try {
+      final rows = await db.rawQuery('''
+        SELECT 
+          m.id, m.conversation_id, m.media_url, m.media_type, m.file_path, m.file_size, 
+          m.file_name, m.thumbnail, m.created_at,
+          c.name as conversation_name, c.avatarUrl as conversation_avatar
+        FROM local_messages m
+        LEFT JOIN local_conversations c ON m.conversation_id = c.id
+        WHERE (m.media_url IS NOT NULL OR m.file_path IS NOT NULL)
+          AND (m.file_size >= ? OR m.file_size IS NULL)
+        ORDER BY COALESCE(m.file_size, 0) DESC, m.created_at DESC
+        LIMIT 150
+      ''', [minSizeBytes]);
+
+      final results = <Map<String, dynamic>>[];
+      for (final r in rows) {
+        int size = (r['file_size'] as int?) ?? 0;
+        final filePath = r['file_path'] as String?;
+        if (size <= 0 && filePath != null && filePath.isNotEmpty) {
+          try {
+            final f = File(filePath);
+            if (f.existsSync()) {
+              size = f.lengthSync();
+            }
+          } catch (_) {}
+        }
+
+        if (size >= minSizeBytes) {
+          final item = Map<String, dynamic>.from(r);
+          item['computedSize'] = size;
+          results.add(item);
+        }
+      }
+      return results;
+    } catch (e) {
+      debugPrint('[StorageEngine] Error fetching large items: $e');
+      return [];
+    }
+  }
+
+  /// Retrieves list of chats sorted by physical storage consumed
+  Future<List<Map<String, dynamic>>> getChatsStorageBreakdown() async {
+    final db = await database;
+    try {
+      final rows = await db.rawQuery('''
+        SELECT 
+          c.id, c.name, c.avatarUrl, c.isGroup,
+          COUNT(m.id) as total_messages,
+          COUNT(CASE WHEN m.media_url IS NOT NULL OR m.file_path IS NOT NULL THEN 1 END) as media_count,
+          SUM(COALESCE(m.file_size, 0)) as total_bytes,
+          SUM(CASE WHEN UPPER(m.media_type) = 'IMAGE' THEN COALESCE(m.file_size, 0) ELSE 0 END) as photos_bytes,
+          COUNT(CASE WHEN UPPER(m.media_type) = 'IMAGE' THEN 1 END) as photos_count,
+          SUM(CASE WHEN UPPER(m.media_type) = 'VIDEO' THEN COALESCE(m.file_size, 0) ELSE 0 END) as videos_bytes,
+          COUNT(CASE WHEN UPPER(m.media_type) = 'VIDEO' THEN 1 END) as videos_count,
+          SUM(CASE WHEN UPPER(m.media_type) IN ('AUDIO', 'VOICE') THEN COALESCE(m.file_size, 0) ELSE 0 END) as audio_bytes,
+          COUNT(CASE WHEN UPPER(m.media_type) IN ('AUDIO', 'VOICE') THEN 1 END) as audio_count,
+          SUM(CASE WHEN UPPER(m.media_type) = 'DOCUMENT' THEN COALESCE(m.file_size, 0) ELSE 0 END) as docs_bytes,
+          COUNT(CASE WHEN UPPER(m.media_type) = 'DOCUMENT' THEN 1 END) as docs_count
+        FROM local_conversations c
+        LEFT JOIN local_messages m ON c.id = m.conversation_id
+        GROUP BY c.id
+        ORDER BY total_bytes DESC, c.updatedAt DESC
+      ''');
+
+      return rows.map((r) => Map<String, dynamic>.from(r)).toList();
+    } catch (e) {
+      debugPrint('[StorageEngine] Error fetching chats storage breakdown: $e');
+      return [];
+    }
+  }
+
+  /// Returns categorized media messages for a specific conversation
+  Future<Map<String, dynamic>> getChatDetailedStorage(String conversationId) async {
+    final db = await database;
+    try {
+      final rows = await db.rawQuery('''
+        SELECT 
+          id, conversation_id, media_url, media_type, file_path, file_size, 
+          file_name, thumbnail, created_at, content
+        FROM local_messages
+        WHERE conversation_id = ? AND (media_url IS NOT NULL OR file_path IS NOT NULL)
+        ORDER BY COALESCE(file_size, 0) DESC, created_at DESC
+      ''', [conversationId]);
+
+      final photos = <Map<String, dynamic>>[];
+      final videos = <Map<String, dynamic>>[];
+      final audios = <Map<String, dynamic>>[];
+      final docs = <Map<String, dynamic>>[];
+
+      int totalBytes = 0;
+
+      for (final r in rows) {
+        final item = Map<String, dynamic>.from(r);
+        int size = (r['file_size'] as int?) ?? 0;
+        final filePath = r['file_path'] as String?;
+        if (size <= 0 && filePath != null && filePath.isNotEmpty) {
+          try {
+            final f = File(filePath);
+            if (f.existsSync()) {
+              size = f.lengthSync();
+            }
+          } catch (_) {}
+        }
+        item['computedSize'] = size;
+        totalBytes += size;
+
+        final type = (r['media_type'] as String? ?? '').toUpperCase();
+        if (type == 'IMAGE') {
+          photos.add(item);
+        } else if (type == 'VIDEO') {
+          videos.add(item);
+        } else if (type == 'AUDIO' || type == 'VOICE') {
+          audios.add(item);
+        } else if (type == 'DOCUMENT') {
+          docs.add(item);
+        }
+      }
+
+      return {
+        'totalBytes': totalBytes,
+        'totalCount': rows.length,
+        'photos': photos,
+        'videos': videos,
+        'audios': audios,
+        'docs': docs,
+      };
+    } catch (e) {
+      debugPrint('[StorageEngine] Error fetching chat detailed storage: $e');
+      return {
+        'totalBytes': 0,
+        'totalCount': 0,
+        'photos': [],
+        'videos': [],
+        'audios': [],
+        'docs': [],
+      };
+    }
+  }
+
+  /// Purges selected media files from disk and frees database pages
+  Future<int> deleteMediaItems(List<String> messageIds, {bool deleteFullMessage = false}) async {
+    if (messageIds.isEmpty) return 0;
+    final db = await database;
+    int freedBytes = 0;
+
+    try {
+      // Find files to unlink
+      final placeholders = List.filled(messageIds.length, '?').join(',');
+      final rows = await db.rawQuery(
+        'SELECT id, file_path, media_url, file_size FROM local_messages WHERE id IN ($placeholders)',
+        messageIds,
+      );
+
+      for (final r in rows) {
+        final filePath = r['file_path'] as String?;
+        final mediaUrl = r['media_url'] as String?;
+        int size = (r['file_size'] as int?) ?? 0;
+
+        if (filePath != null && filePath.isNotEmpty) {
+          try {
+            final f = File(filePath);
+            if (f.existsSync()) {
+              final len = f.lengthSync();
+              f.deleteSync();
+              freedBytes += (len > 0) ? len : size;
+            }
+          } catch (_) {}
+        }
+
+        // Also check if cached in temp
+        if (mediaUrl != null && mediaUrl.isNotEmpty) {
+          try {
+            final tempDir = await getTemporaryDirectory();
+            final hash = mediaUrl.hashCode.abs().toString();
+            final files = tempDir.listSync();
+            for (final entity in files) {
+              if (entity is File && entity.path.contains(hash)) {
+                try {
+                  final len = entity.lengthSync();
+                  entity.deleteSync();
+                  freedBytes += len;
+                } catch (_) {}
+              }
+            }
+          } catch (_) {}
+        }
+      }
+
+      if (deleteFullMessage) {
+        await db.rawDelete('DELETE FROM local_messages WHERE id IN ($placeholders)', messageIds);
+        try {
+          await db.rawDelete('DELETE FROM messages_fts WHERE message_id IN ($placeholders)', messageIds);
+        } catch (_) {}
+      } else {
+        // Clear file_path and free media reference
+        await db.rawUpdate(
+          'UPDATE local_messages SET file_path = NULL, file_size = 0 WHERE id IN ($placeholders)',
+          messageIds,
+        );
+      }
+
+      // Reclaim fragmented SQLite storage pages
+      await reclaimStorageVacuum();
+    } catch (e) {
+      debugPrint('[StorageEngine] Error deleting media items: $e');
+    }
+
+    return freedBytes;
+  }
+
+  /// Clears temporary media caches and runs defragmentation
+  Future<int> clearStorageCache() async {
+    int freedBytes = await E2EEMediaCache.clear();
+    try {
+      final tempDir = await getTemporaryDirectory();
+      if (tempDir.existsSync()) {
+        final list = tempDir.listSync(recursive: true, followLinks: false);
+        for (final entity in list) {
+          if (entity is File) {
+            try {
+              final len = entity.lengthSync();
+              entity.deleteSync();
+              freedBytes += len;
+            } catch (_) {}
+          }
+        }
+      }
+    } catch (_) {}
+
+    await reclaimStorageVacuum();
+    return freedBytes;
+  }
+
+  /// Defragments SQLite B-Trees and releases file pages back to OS
+  Future<void> reclaimStorageVacuum() async {
+    try {
+      final db = await database;
+      await db.execute('VACUUM;');
+      debugPrint('[StorageEngine] SQLite database vacuumed successfully.');
+    } catch (e) {
+      debugPrint('[StorageEngine] Vacuum error: $e');
+    }
   }
 }

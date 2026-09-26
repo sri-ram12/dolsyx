@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_theme.dart';
+import '../services/local_database_service.dart';
+import 'manage_storage_screen.dart';
 
 class StorageSettingsScreen extends StatefulWidget {
   const StorageSettingsScreen({super.key});
@@ -10,6 +12,7 @@ class StorageSettingsScreen extends StatefulWidget {
 }
 
 class _StorageSettingsScreenState extends State<StorageSettingsScreen> {
+  final LocalDatabaseService _localDb = LocalDatabaseService();
   bool _autoDownloadPhotosWifi = true;
   bool _autoDownloadVideosWifi = true;
   bool _autoDownloadDocsWifi = true;
@@ -17,6 +20,7 @@ class _StorageSettingsScreenState extends State<StorageSettingsScreen> {
   String _compressionLevel = 'Standard Compression';
   bool _dataSaverMode = false;
   bool _isLoading = true;
+  Map<String, dynamic> _stats = {};
 
   @override
   void initState() {
@@ -26,8 +30,10 @@ class _StorageSettingsScreenState extends State<StorageSettingsScreen> {
 
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
+    final stats = await _localDb.getStorageBreakdown();
     if (mounted) {
       setState(() {
+        _stats = stats;
         _autoDownloadPhotosWifi = prefs.getBool('auto_download_photos_wifi') ?? true;
         _autoDownloadVideosWifi = prefs.getBool('auto_download_videos_wifi') ?? true;
         _autoDownloadDocsWifi = prefs.getBool('auto_download_docs_wifi') ?? true;
@@ -37,6 +43,14 @@ class _StorageSettingsScreenState extends State<StorageSettingsScreen> {
         _isLoading = false;
       });
     }
+  }
+
+  String _formatBytes(int bytes) {
+    if (bytes <= 0) return '0 B';
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    if (bytes < 1024 * 1024 * 1024) return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
   }
 
   Future<void> _saveSetting(String key, dynamic value) async {
@@ -58,14 +72,18 @@ class _StorageSettingsScreenState extends State<StorageSettingsScreen> {
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           ElevatedButton(
-            onPressed: () {
+            onPressed: () async {
               Navigator.pop(ctx);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('✅ Cleared temporary cache!'),
-                  backgroundColor: Color(0xFF00A884),
-                ),
-              );
+              final freed = await _localDb.clearStorageCache();
+              await _loadSettings();
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('✅ Cleared temporary cache! Freed ${_formatBytes(freed)}'),
+                    backgroundColor: const Color(0xFF00A884),
+                  ),
+                );
+              }
             },
             style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryColor),
             child: const Text('Clear Cache'),
@@ -88,6 +106,11 @@ class _StorageSettingsScreenState extends State<StorageSettingsScreen> {
       );
     }
 
+    final totalAppBytes = (_stats['totalAppBytes'] as int?) ?? 0;
+    final photosBytes = (_stats['photosBytes'] as int?) ?? 0;
+    final videosBytes = (_stats['videosBytes'] as int?) ?? 0;
+    final docsBytes = (_stats['docsBytes'] as int?) ?? 0;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Storage and Data'),
@@ -97,6 +120,22 @@ class _StorageSettingsScreenState extends State<StorageSettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // WhatsApp Standard: Manage Storage Tile
+          ListTile(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            tileColor: AppTheme.surfaceColor,
+            leading: const Icon(Icons.folder_outlined, color: Color(0xFF00A884), size: 28),
+            title: Text('Manage storage', style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold, fontSize: 16)),
+            subtitle: Text(_formatBytes(totalAppBytes), style: TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
+            trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white54),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ManageStorageScreen()),
+              ).then((_) => _loadSettings());
+            },
+          ),
+          const SizedBox(height: 16),
           Card(
             color: AppTheme.surfaceColor,
             child: Padding(
@@ -108,18 +147,22 @@ class _StorageSettingsScreenState extends State<StorageSettingsScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text('Storage Used', style: TextStyle(color: AppTheme.textPrimary, fontSize: 16, fontWeight: FontWeight.bold)),
-                      Text('248.4 MB', style: TextStyle(color: AppTheme.primaryColor, fontWeight: FontWeight.bold)),
+                      Text(_formatBytes(totalAppBytes), style: TextStyle(color: AppTheme.primaryColor, fontWeight: FontWeight.bold)),
                     ],
                   ),
                   const SizedBox(height: 12),
-                  LinearProgressIndicator(value: 0.35, backgroundColor: Colors.black26, color: AppTheme.primaryColor),
+                  LinearProgressIndicator(
+                    value: totalAppBytes > 0 ? (totalAppBytes / (500 * 1024 * 1024)).clamp(0.05, 1.0) : 0.05,
+                    backgroundColor: Colors.black26,
+                    color: AppTheme.primaryColor,
+                  ),
                   const SizedBox(height: 12),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('Photos: 120 MB', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
-                      Text('Videos: 84 MB', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
-                      Text('Docs: 44.4 MB', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+                      Text('Photos: ${_formatBytes(photosBytes)}', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+                      Text('Videos: ${_formatBytes(videosBytes)}', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+                      Text('Docs: ${_formatBytes(docsBytes)}', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
                     ],
                   ),
                   const SizedBox(height: 16),

@@ -202,5 +202,28 @@ class E2EEMediaCache {
       return null;
     }
   }
+
+  /// Clears in-memory references and deletes cached temporary decrypted files
+  static Future<int> clear() async {
+    _memoryCache.clear();
+    _inFlight.clear();
+    int freedBytes = 0;
+    try {
+      final tempDir = await getTemporaryDirectory();
+      if (tempDir.existsSync()) {
+        final list = tempDir.listSync();
+        for (final entity in list) {
+          if (entity is File && (entity.path.contains('e2ee_dec_') || entity.path.contains('thumb_') || entity.path.contains('blur_'))) {
+            try {
+              final len = entity.lengthSync();
+              entity.deleteSync();
+              freedBytes += len;
+            } catch (_) {}
+          }
+        }
+      }
+    } catch (_) {}
+    return freedBytes;
+  }
 }
 

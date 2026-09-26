@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
 import 'theme_settings_screen.dart';
 import 'wallpaper_settings_screen.dart';
+import 'chat_backup_screen.dart';
 
 class ChatSettingsScreen extends StatefulWidget {
   const ChatSettingsScreen({super.key});
@@ -120,8 +121,14 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
           ListTile(
             leading: Icon(Icons.backup, color: AppTheme.textSecondary),
             title: Text('Chat backup & restore', style: TextStyle(color: AppTheme.textPrimary)),
-            subtitle: Text('Export & restore encrypted .dolsyx backups', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
-            onTap: _showBackupDialog,
+            subtitle: Text('End-to-end encrypted backup (Cloud & Local)', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+            trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white54),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ChatBackupScreen()),
+              );
+            },
           ),
         ],
       ),

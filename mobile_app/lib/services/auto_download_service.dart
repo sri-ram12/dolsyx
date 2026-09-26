@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/message.dart';
 import 'api_service.dart';
+import '../utils/e2ee/e2ee_media_cache.dart';
 
 class AutoDownloadService {
   static final Set<String> _processedMessageIds = {};
@@ -58,53 +59,58 @@ class AutoDownloadService {
 
       if (!shouldDownload) return;
 
-      final resolvedUrl = ApiService.getMediaUrl(message.mediaUrl!);
-      final response = await http.get(Uri.parse(resolvedUrl)).timeout(const Duration(seconds: 8));
-      if (response.statusCode != 200) return;
+      // WhatsApp-grade pre-caching & decryption pipeline
+      File? mediaFile;
+      if (message.isE2EEMedia && message.mediaKey != null && message.nonce != null) {
+        mediaFile = await E2EEMediaCache.getOrDownloadDecryptedMedia(
+          mediaUrl: message.mediaUrl!,
+          mediaKey: message.mediaKey,
+          nonce: message.nonce,
+          mediaType: message.mediaType,
+        );
+      } else {
+        final resolvedUrl = ApiService.getMediaUrl(message.mediaUrl!);
+        final response = await http.get(Uri.parse(resolvedUrl)).timeout(const Duration(seconds: 15));
+        if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
+          mediaFile = await E2EEMediaCache.saveDecryptedMedia(
+            message.mediaUrl!,
+            response.bodyBytes,
+            mediaType: message.mediaType,
+          );
+        }
+      }
 
-      final tempDir = await getTemporaryDirectory();
-      final ext = resolvedUrl.split('?').first.split('.').last.toLowerCase();
+      if (mediaFile == null || !mediaFile.existsSync()) return;
 
       if (mediaType == 'IMAGE') {
-        final safeExt = ['jpg', 'jpeg', 'png', 'webp'].contains(ext) ? ext : 'jpg';
-        final file = File('${tempDir.path}/DOLSYX_${message.id}_${DateTime.now().millisecondsSinceEpoch}.$safeExt');
-        await file.writeAsBytes(response.bodyBytes);
-
         bool hasAccess = await Gal.hasAccess();
         if (!hasAccess) {
           hasAccess = await Gal.requestAccess();
         }
         if (hasAccess) {
-          await Gal.putImage(file.path, album: 'DOLSYX');
+          await Gal.putImage(mediaFile.path, album: 'DOLSYX');
           _persistedSavedMediaKeys!.add(message.id);
           _persistedSavedMediaKeys!.add(mediaKey);
           await prefs.setStringList('saved_gallery_media_keys', _persistedSavedMediaKeys!.toList());
-          debugPrint('✅ Auto-downloaded image to Gallery: ${file.path}');
+          debugPrint('✅ Auto-downloaded decrypted image to Gallery: ${mediaFile.path}');
         }
       } else if (mediaType == 'VIDEO') {
-        final safeExt = ['mp4', 'mov', 'mkv', 'webm', '3gp'].contains(ext) ? ext : 'mp4';
-        final file = File('${tempDir.path}/DOLSYX_${message.id}_${DateTime.now().millisecondsSinceEpoch}.$safeExt');
-        await file.writeAsBytes(response.bodyBytes);
-
         bool hasAccess = await Gal.hasAccess();
         if (!hasAccess) {
           hasAccess = await Gal.requestAccess();
         }
         if (hasAccess) {
-          await Gal.putVideo(file.path, album: 'DOLSYX');
+          await Gal.putVideo(mediaFile.path, album: 'DOLSYX');
           _persistedSavedMediaKeys!.add(message.id);
           _persistedSavedMediaKeys!.add(mediaKey);
           await prefs.setStringList('saved_gallery_media_keys', _persistedSavedMediaKeys!.toList());
-          debugPrint('✅ Auto-downloaded video to Gallery: ${file.path}');
+          debugPrint('✅ Auto-downloaded decrypted video to Gallery: ${mediaFile.path}');
         }
       } else if (mediaType == 'DOCUMENT' || mediaType == 'AUDIO') {
-        final docsDir = await getApplicationDocumentsDirectory();
-        final file = File('${docsDir.path}/DOLSYX_${message.id}.$ext');
-        await file.writeAsBytes(response.bodyBytes);
         _persistedSavedMediaKeys!.add(message.id);
         _persistedSavedMediaKeys!.add(mediaKey);
         await prefs.setStringList('saved_gallery_media_keys', _persistedSavedMediaKeys!.toList());
-        debugPrint('✅ Auto-downloaded document: ${file.path}');
+        debugPrint('✅ Auto-downloaded document: ${mediaFile.path}');
       }
     } catch (e) {
       debugPrint('AutoDownloadService error: $e');

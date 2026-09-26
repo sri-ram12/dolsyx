@@ -33,6 +33,7 @@ class Message {
   final bool isE2EEMedia;
   final int? fileSize;
   final String? fileName;
+  final String? thumbnail;
 
   String get formattedFileSize => MediaSizeHelper.formatBytes(fileSize);
 
@@ -67,6 +68,7 @@ class Message {
     this.isE2EEMedia = false,
     this.fileSize,
     this.fileName,
+    this.thumbnail,
   });
 
   factory Message.fromJson(Map<String, dynamic> json) {
@@ -83,6 +85,7 @@ class Message {
     bool isE2EEMedia = json['isE2EEMedia'] ?? false;
     int? fileSize = (json['fileSize'] as num?)?.toInt() ?? (json['size'] as num?)?.toInt();
     String? fileName = json['fileName'];
+    String? thumbnail = json['thumbnail'];
 
     // Smart JSON content parsing for E2EE media, Poll, or Location payloads
     if (contentStr.startsWith('{') && contentStr.endsWith('}')) {
@@ -100,6 +103,7 @@ class Message {
           contentStr = decoded['caption'] ?? '';
           fileSize = (decoded['fileSize'] as num?)?.toInt() ?? (decoded['size'] as num?)?.toInt() ?? fileSize;
           fileName = decoded['fileName'] ?? fileName;
+          thumbnail = decoded['thumbnail'] ?? thumbnail;
         } else if (decoded['mediaType'] == 'LOCATION' || decoded['latitude'] != null || json['mediaType'] == 'LOCATION') {
           mediaType = 'LOCATION';
           latitude = (decoded['latitude'] as num?)?.toDouble() ?? 12.9716;
@@ -150,6 +154,7 @@ class Message {
       isE2EEMedia: isE2EEMedia,
       fileSize: fileSize,
       fileName: fileName,
+      thumbnail: thumbnail,
     );
   }
 
@@ -185,6 +190,7 @@ class Message {
       'mediaKey': mediaKey,
       'nonce': nonce,
       'isE2EEMedia': isE2EEMedia,
+      'thumbnail': thumbnail,
     };
   }
 
@@ -217,6 +223,7 @@ class Message {
     String? mediaKey,
     String? nonce,
     bool? isE2EEMedia,
+    String? thumbnail,
   }) {
     return Message(
       id: id ?? this.id,
@@ -247,6 +254,7 @@ class Message {
       mediaKey: mediaKey ?? this.mediaKey,
       nonce: nonce ?? this.nonce,
       isE2EEMedia: isE2EEMedia ?? this.isE2EEMedia,
+      thumbnail: thumbnail ?? this.thumbnail,
     );
   }
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' as ui;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'dart:async';
@@ -856,11 +857,47 @@ class MessageBubble extends StatelessWidget {
                                                 memCacheHeight: 600,
                                               );
                                             }
-                                            return Container(
-                                              width: imageSize,
-                                              height: imageSize * 0.75,
-                                              color: Colors.black26,
-                                              child: Center(
+                                            Widget placeholderContent;
+                                            if (message.thumbnail != null && message.thumbnail!.isNotEmpty) {
+                                              try {
+                                                final thumbBytes = base64Decode(message.thumbnail!);
+                                                placeholderContent = Stack(
+                                                  fit: StackFit.expand,
+                                                  children: [
+                                                    ImageFiltered(
+                                                      imageFilter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                                                      child: Image.memory(
+                                                        thumbBytes,
+                                                        width: imageSize,
+                                                        height: imageSize * 0.75,
+                                                        fit: BoxFit.cover,
+                                                      ),
+                                                    ),
+                                                    Container(color: Colors.black26),
+                                                    Center(
+                                                      child: isDone && snap.data == null
+                                                          ? const Icon(Icons.broken_image_rounded, color: Colors.grey, size: 36)
+                                                          : _MediaDownloadPill(
+                                                              fileSize: message.fileSize,
+                                                              mediaUrl: message.mediaUrl,
+                                                              isDownloading: !isDone,
+                                                            ),
+                                                    ),
+                                                  ],
+                                                );
+                                              } catch (_) {
+                                                placeholderContent = Center(
+                                                  child: isDone && snap.data == null
+                                                      ? const Icon(Icons.broken_image_rounded, color: Colors.grey, size: 36)
+                                                      : _MediaDownloadPill(
+                                                          fileSize: message.fileSize,
+                                                          mediaUrl: message.mediaUrl,
+                                                          isDownloading: !isDone,
+                                                        ),
+                                                );
+                                              }
+                                            } else {
+                                              placeholderContent = Center(
                                                 child: isDone && snap.data == null
                                                     ? const Icon(Icons.broken_image_rounded, color: Colors.grey, size: 36)
                                                     : _MediaDownloadPill(
@@ -868,7 +905,14 @@ class MessageBubble extends StatelessWidget {
                                                         mediaUrl: message.mediaUrl,
                                                         isDownloading: !isDone,
                                                       ),
-                                              ),
+                                              );
+                                            }
+
+                                            return Container(
+                                              width: imageSize,
+                                              height: imageSize * 0.75,
+                                              color: Colors.black26,
+                                              child: placeholderContent,
                                             );
                                           },
                                         )

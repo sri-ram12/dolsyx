@@ -8,6 +8,7 @@ import 'crypto_service.dart';
 /// Manages client-side decryption and disk caching for E2EE media blobs.
 class E2EEMediaCache {
   static final Map<String, Future<File?>> _inFlight = {};
+  static final Map<String, File> _memoryCache = {};
 
   /// Detects the correct container extension to prevent ExoPlayer format failures on Android.
   static String detectSafeExtension({
@@ -92,10 +93,22 @@ class E2EEMediaCache {
 
       final tempDir = await getTemporaryDirectory();
       final cacheKey = mediaUrl.hashCode.abs().toString();
+
+      // 1. Instant 0.001ms L1 In-Memory Cache Check
+      if (_memoryCache.containsKey(cacheKey)) {
+        final memFile = _memoryCache[cacheKey]!;
+        if (memFile.existsSync()) {
+          return memFile;
+        } else {
+          _memoryCache.remove(cacheKey);
+        }
+      }
+
       final safeExt = detectSafeExtension(mediaUrl: mediaUrl, mediaType: mediaType);
       final cachedFile = File('${tempDir.path}/e2ee_dec_$cacheKey.$safeExt');
 
       if (await cachedFile.exists() && (await cachedFile.length()) > 0) {
+        _memoryCache[cacheKey] = cachedFile;
         return cachedFile;
       }
 
@@ -106,8 +119,10 @@ class E2EEMediaCache {
           if (safeExt == 'mp4' && altExt != 'mp4') {
             // Re-alias to .mp4 so ExoPlayer can open it without error
             await altFile.copy(cachedFile.path);
+            _memoryCache[cacheKey] = cachedFile;
             return cachedFile;
           }
+          _memoryCache[cacheKey] = altFile;
           return altFile;
         }
       }
@@ -146,6 +161,7 @@ class E2EEMediaCache {
               : File('${tempDir.path}/e2ee_dec_$cacheKey.$verifiedExt');
 
           await targetFile.writeAsBytes(decryptedBytes, flush: true);
+          _memoryCache[cacheKey] = targetFile;
           return targetFile;
         } catch (e) {
           debugPrint('⚠️ Failed to download/decrypt E2EE media: $e');
@@ -180,6 +196,7 @@ class E2EEMediaCache {
       );
       final cachedFile = File('${tempDir.path}/e2ee_dec_$cacheKey.$safeExt');
       await cachedFile.writeAsBytes(bytes, flush: true);
+      _memoryCache[cacheKey] = cachedFile;
       return cachedFile;
     } catch (e) {
       debugPrint('E2EEMediaCache save error: $e');

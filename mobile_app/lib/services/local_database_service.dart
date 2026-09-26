@@ -91,6 +91,7 @@ class LocalDatabaseService {
             receiptsJson TEXT,
             reactionsJson TEXT,
             createdAt INTEGER NOT NULL,
+            thumbnail TEXT,
             rawJson TEXT
           )
         ''');
@@ -98,6 +99,11 @@ class LocalDatabaseService {
         // Indexes for sub-millisecond pagination and lookup
         await db.execute('CREATE INDEX IF NOT EXISTS idx_msg_conv_created ON local_messages (conversationId, createdAt DESC);');
         await db.execute('CREATE INDEX IF NOT EXISTS idx_msg_pending ON local_messages (isPending);');
+
+        // Safe automatic schema evolution
+        try {
+          await db.execute('ALTER TABLE local_messages ADD COLUMN thumbnail TEXT;');
+        } catch (_) {}
 
         // 3. Call Logs Table
         await db.execute('''
@@ -718,6 +724,7 @@ class LocalDatabaseService {
       'receiptsJson': msg.receipts != null ? jsonEncode(msg.receipts) : null,
       'reactionsJson': msg.reactions != null ? jsonEncode(msg.reactions) : null,
       'createdAt': msg.createdAt.millisecondsSinceEpoch,
+      'thumbnail': msg.thumbnail,
       'rawJson': jsonEncode(msg.toJson()),
     };
   }
@@ -789,6 +796,7 @@ class LocalDatabaseService {
       isE2EEMedia: (r['isE2EEMedia'] as int?) == 1,
       fileSize: (r['fileSize'] as int?),
       fileName: r['fileName'] as String?,
+      thumbnail: r['thumbnail'] as String?,
     );
   }
 

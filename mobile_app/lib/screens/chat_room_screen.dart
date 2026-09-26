@@ -43,6 +43,7 @@ import '../utils/e2ee/e2ee_api.dart';
 import '../services/auto_download_service.dart';
 import '../widgets/app_lock_wrapper.dart';
 import '../utils/e2ee/e2ee_media_cache.dart';
+import '../utils/media_thumbnail_helper.dart';
 import '../utils/media_size_helper.dart';
 
 class ChatRoomScreen extends StatefulWidget {
@@ -2856,6 +2857,16 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       MediaSizeHelper.cacheSize(file.path, fileSize);
     }
 
+    // 🟢 Generate WhatsApp-style micro-thumbnail for instant blur placeholder
+    String? microThumbnail;
+    Uint8List? rawBytes;
+    try {
+      rawBytes = await file.readAsBytes();
+      if (mediaType == 'IMAGE') {
+        microThumbnail = await MediaThumbnailHelper.generateMicroThumbnail(rawBytes);
+      }
+    } catch (_) {}
+
     // 🟢 Instantly show the media bubble in chat with WhatsApp-style buffering overlay
     final tempMsg = Message(
       id: tempId,
@@ -2869,6 +2880,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       createdAt: DateTime.now(),
       fileSize: fileSize > 0 ? fileSize : null,
       fileName: fileName,
+      thumbnail: microThumbnail,
     );
 
     setState(() {
@@ -2899,8 +2911,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     try {
       final apiService = ApiService();
       // 100% Client-Side E2EE Pre-Encryption
-      final rawBytes = await file.readAsBytes();
-      final encResult = await CryptoService.instance.encryptFileBytes(rawBytes);
+      final bytesToEncrypt = rawBytes ?? await file.readAsBytes();
+      final encResult = await CryptoService.instance.encryptFileBytes(bytesToEncrypt);
       final tempDir = await getTemporaryDirectory();
       final encFile = File('${tempDir.path}/${DateTime.now().millisecondsSinceEpoch}_send.enc');
       await encFile.writeAsBytes(encResult['encryptedBytes'] as Uint8List);
@@ -2910,7 +2922,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
       if (response != null && response['fileUrl'] != null && mounted) {
         final serverFileUrl = response['fileUrl'] as String;
-        await E2EEMediaCache.saveDecryptedMedia(serverFileUrl, rawBytes, mediaType: mediaType);
+        await E2EEMediaCache.saveDecryptedMedia(serverFileUrl, bytesToEncrypt, mediaType: mediaType);
         if (fileSize > 0) {
           MediaSizeHelper.cacheSize(serverFileUrl, fileSize);
         }
@@ -2933,6 +2945,12 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               isE2EEMedia: true,
               fileSize: fileSize > 0 ? fileSize : null,
               fileName: fileName,
+              thumbnail: microThumbnail,
+            );
+            LocalDatabaseService().saveSingleMessage(_messages[idx]);
+            LocalDatabaseService().updateConversationLastMessage(
+              widget.conversationId,
+              _messages[idx].toJson(),
             );
           }
         });
@@ -2946,6 +2964,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           'isViewOnce': isViewOnce,
           'fileSize': fileSize,
           'fileName': fileName,
+          if (microThumbnail != null) 'thumbnail': microThumbnail,
         });
         authProvider.socketService.sendMessage(
           widget.conversationId, 

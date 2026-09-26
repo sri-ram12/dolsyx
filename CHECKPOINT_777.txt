@@ -1,0 +1,29 @@
+======================================================
+DOLSYX CHECKPOINT CODE: 777
+DATE: 2026-09-26
+COMMIT: 5d62dc3
+TAG: checkpoint-777
+STATUS: 100% WORKING STABLE RELEASE (PRE-MIGRATION BACKUP)
+======================================================
+
+This checkpoint captures the 100% working baseline of DOLSYX before 
+the WhatsApp-grade Local-First SQLite architecture optimization.
+
+Verified Core Features Preserved:
+1. Linked Devices / QR Login (WhatsApp-Web Style, 120s TTL, Socket + Polling sync, 30d JWT)
+2. End-to-End Encryption (E2EE) with Signal Double Ratchet & X3DH / AES-GCM-256
+3. WebRTC Audio & Video Calling (P2P Mesh, ICE, Ringing Overlay)
+4. Full-Screen Ringing & FCM Push Notifications (Native Intent ANSWER/DECLINE)
+5. WhatsApp-Style Location Cards with OpenStreetMap previews & GPS coordinate exchange
+6. Real-Time Cross-Platform Poll Voting Sync
+7. Top 3-Dots Message Action Menu (Copy, Autofill, Pin, Edit, Delete for Everyone/Me, Star)
+8. Direct Photo & Video Gallery Saver (gal package)
+9. Call Logs & Talk Duration Tracking in SQLite / PostgreSQL
+10. View-Once Media Self-Destruct & Multi-File Picker
+
+Rollback Instruction:
+To roll back to this exact safe state at any time, run:
+  git checkout checkpoint-777
+or
+  git reset --hard checkpoint-777
+======================================================

@@ -302,6 +302,21 @@ class LocalDatabaseService {
     }
   }
 
+  /// Sets or clears biometric lock flag for a conversation (Phase 14)
+  Future<void> setChatLocked(String conversationId, bool isLocked) async {
+    try {
+      final db = await database;
+      await db.update(
+        'local_conversations',
+        {'isLocked': isLocked ? 1 : 0},
+        where: 'id = ?',
+        whereArgs: [conversationId],
+      );
+    } catch (e) {
+      debugPrint('[LocalDB] Error setting chat locked: $e');
+    }
+  }
+
   /// Deletes a conversation from SQLite
   Future<void> deleteConversation(String conversationId) async {
     try {

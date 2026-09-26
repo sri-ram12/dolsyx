@@ -38,6 +38,7 @@ import 'linked_devices_screen.dart';
 import '../utils/e2ee/crypto_service.dart';
 import '../utils/e2ee/background_crypto_worker.dart';
 import '../services/update_service.dart';
+import '../services/local_database_service.dart';
 
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
@@ -687,7 +688,21 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                                 style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
                               ),
                               trailing: const Icon(Icons.chevron_right, color: Colors.white38),
-                              onTap: () {
+                              onTap: () async {
+                                final localAuth = LocalAuthentication();
+                                try {
+                                  final isSupported = await localAuth.isDeviceSupported() || await localAuth.canCheckBiometrics;
+                                  if (isSupported) {
+                                    final didAuth = await localAuth.authenticate(
+                                      localizedReason: 'Please authenticate to open Locked Chats',
+                                    );
+                                    if (!didAuth) return;
+                                  }
+                                } catch (e) {
+                                  debugPrint('[Biometrics] Error: $e');
+                                }
+
+                                if (!context.mounted) return;
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
@@ -1212,6 +1227,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                 final lockedIds = (prefs.getStringList('locked_chat_ids') ?? []).toSet();
                 for (String id in idsToProcess) {
                   lockedIds.add(id);
+                  LocalDatabaseService().setChatLocked(id, true);
                   _chatService.updateChatSettings(id, {'isLocked': true}).catchError((_) => false);
                 }
                 await prefs.setStringList('locked_chat_ids', lockedIds.toList());
@@ -1222,6 +1238,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                 final lockedIds = (prefs.getStringList('locked_chat_ids') ?? []).toSet();
                 for (String id in idsToProcess) {
                   lockedIds.remove(id);
+                  LocalDatabaseService().setChatLocked(id, false);
                   _chatService.updateChatSettings(id, {'isLocked': false}).catchError((_) => false);
                 }
                 await prefs.setStringList('locked_chat_ids', lockedIds.toList());

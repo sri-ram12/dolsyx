@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:local_auth/local_auth.dart';
 import '../models/chat.dart';
 import '../services/chat_service.dart';
+import '../services/local_database_service.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/color_avatar.dart';
@@ -11,6 +13,13 @@ import 'chat_room_screen.dart';
 import 'secret_lock_settings_screen.dart';
 import '../utils/e2ee/crypto_service.dart';
 
+/// WhatsApp-grade Biometric Chat Lock & Hidden Vault (Phase 14)
+///
+/// Features:
+/// 1. Biometric (Face ID / Fingerprint / Device PIN) hardware authentication via local_auth.
+/// 2. Instant auto-lock when app is minimized, backgrounded, or switched.
+/// 3. Direct synchronization with SQLite local_conversations (isLocked column).
+/// 4. Secret code concealment and hidden vault privacy protection.
 class LockedChatsScreen extends StatefulWidget {
   final List<Chat>? initialLockedChats;
   final VoidCallback? onRefresh;
@@ -27,17 +36,78 @@ class LockedChatsScreen extends StatefulWidget {
   State<LockedChatsScreen> createState() => _LockedChatsScreenState();
 }
 
-class _LockedChatsScreenState extends State<LockedChatsScreen> {
+class _LockedChatsScreenState extends State<LockedChatsScreen> with WidgetsBindingObserver {
   final ChatService _chatService = ChatService();
+  final LocalAuthentication _localAuth = LocalAuthentication();
   late List<Chat> _lockedChats;
   bool _isLoading = false;
+  bool _isAuthenticated = false;
+  bool _isAuthenticating = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _lockedChats = List.from(widget.initialLockedChats ?? []);
-    if (_lockedChats.isEmpty) {
-      _fetchLockedChats();
+    _authenticateAndLoad();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // WhatsApp auto-relock behavior: immediately re-lock vault when app is backgrounded
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      if (mounted && _isAuthenticated) {
+        setState(() => _isAuthenticated = false);
+      }
+    }
+  }
+
+  Future<void> _authenticateAndLoad() async {
+    if (_isAuthenticating) return;
+    _isAuthenticating = true;
+
+    try {
+      final isSupported = await _localAuth.isDeviceSupported() || await _localAuth.canCheckBiometrics;
+      if (!isSupported) {
+        // Fallback if device has no biometric hardware/lock
+        if (mounted) {
+          setState(() {
+            _isAuthenticated = true;
+            _isAuthenticating = false;
+          });
+          _fetchLockedChats();
+        }
+        return;
+      }
+
+      final didAuth = await _localAuth.authenticate(
+        localizedReason: 'Please authenticate to access Locked Chats',
+      );
+
+      if (mounted) {
+        setState(() {
+          _isAuthenticated = didAuth;
+          _isAuthenticating = false;
+        });
+
+        if (didAuth) {
+          _fetchLockedChats();
+        }
+      }
+    } catch (e) {
+      debugPrint('[LockedChats] Biometric authentication error: $e');
+      if (mounted) {
+        setState(() {
+          _isAuthenticated = false;
+          _isAuthenticating = false;
+        });
+      }
     }
   }
 
@@ -45,7 +115,7 @@ class _LockedChatsScreenState extends State<LockedChatsScreen> {
     setState(() => _isLoading = true);
     final prefs = await SharedPreferences.getInstance();
     final lockedIds = (prefs.getStringList('locked_chat_ids') ?? []).toSet();
-    
+
     var allChats = await _chatService.getCachedChats();
     if (allChats.isEmpty) {
       try {
@@ -81,7 +151,8 @@ class _LockedChatsScreenState extends State<LockedChatsScreen> {
   String _getChatName(Chat chat) {
     if (chat.isGroup && chat.name != null) return chat.name!;
     if (chat.participants != null && chat.participants!.isNotEmpty) {
-      final currentUserId = Provider.of<AuthProvider>(context, listen: false).user?['id'] ?? Provider.of<AuthProvider>(context, listen: false).user?['_id'];
+      final currentUserId = Provider.of<AuthProvider>(context, listen: false).user?['id'] ??
+          Provider.of<AuthProvider>(context, listen: false).user?['_id'];
       final other = chat.participants!.firstWhere(
         (p) => p['user'] != null && (p['user']['id'] != currentUserId && p['user']['_id'] != currentUserId),
         orElse: () => null,
@@ -99,11 +170,16 @@ class _LockedChatsScreenState extends State<LockedChatsScreen> {
       chat.isLocked = false;
       _lockedChats.removeWhere((c) => c.id == chatId);
     });
+
     final prefs = await SharedPreferences.getInstance();
     final lockedIds = (prefs.getStringList('locked_chat_ids') ?? []).toSet();
     lockedIds.remove(chatId);
     await prefs.setStringList('locked_chat_ids', lockedIds.toList());
+
+    // Synchronize both SQLite WAL and Backend
+    await LocalDatabaseService().setChatLocked(chatId, false);
     _chatService.updateChatSettings(chatId, {'isLocked': false}).catchError((_) => false);
+
     widget.onChatsUpdated?.call();
     widget.onRefresh?.call();
     if (mounted) {
@@ -152,7 +228,8 @@ class _LockedChatsScreenState extends State<LockedChatsScreen> {
           ),
           ListTile(
             leading: const Icon(Icons.lock_open, color: Color(0xFF00A884)),
-            title: const Text('Unlock & Remove from Locked Chats', style: TextStyle(color: Color(0xFF00A884), fontWeight: FontWeight.bold)),
+            title: const Text('Unlock & Remove from Locked Chats',
+                style: TextStyle(color: Color(0xFF00A884), fontWeight: FontWeight.bold)),
             onTap: () {
               Navigator.pop(ctx);
               _unlockChat(chat);
@@ -200,6 +277,51 @@ class _LockedChatsScreenState extends State<LockedChatsScreen> {
     return Text(raw, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white60, fontSize: 13));
   }
 
+  Widget _buildLockedChallengeView() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0xFF00A884).withValues(alpha: 0.15),
+                border: Border.all(color: const Color(0xFF00A884).withValues(alpha: 0.3), width: 1.5),
+              ),
+              child: const Icon(Icons.lock_rounded, size: 72, color: Color(0xFF00A884)),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'Locked chats',
+              style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Use your fingerprint, face, or device PIN to view your locked chats vault.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 14, height: 1.4),
+            ),
+            const SizedBox(height: 28),
+            ElevatedButton.icon(
+              onPressed: _authenticateAndLoad,
+              icon: const Icon(Icons.fingerprint_rounded, size: 22),
+              label: const Text('Unlock Vault', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF00A884),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -207,96 +329,99 @@ class _LockedChatsScreenState extends State<LockedChatsScreen> {
         title: const Text('Locked chats', style: TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: AppTheme.surfaceColor,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.settings),
-            tooltip: 'Lock settings',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const SecretLockSettingsScreen()),
-              ).then((_) => _fetchLockedChats());
-            },
-          ),
+          if (_isAuthenticated)
+            IconButton(
+              icon: const Icon(Icons.settings),
+              tooltip: 'Lock settings',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const SecretLockSettingsScreen()),
+                ).then((_) => _fetchLockedChats());
+              },
+            ),
         ],
       ),
       backgroundColor: AppTheme.backgroundColor,
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Color(0xFF00A884)))
-          : _lockedChats.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: const Color(0xFF00A884).withOpacity(0.12),
-                        ),
-                        child: const Icon(Icons.lock_rounded, size: 64, color: Color(0xFF00A884)),
-                      ),
-                      const SizedBox(height: 20),
-                      const Text(
-                        'No locked chats',
-                        style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 8),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 40),
-                        child: Text(
-                          'Chats you lock will appear here. You can lock any chat from its chat options menu.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
-                        ),
-                      ),
-                    ],
-                  ),
-                )
-              : ListView.separated(
-                  physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  itemCount: _lockedChats.length,
-                  separatorBuilder: (_, __) => const Divider(color: Colors.white10, height: 1),
-                  itemBuilder: (context, index) {
-                    final chat = _lockedChats[index];
-                    final name = _getChatName(chat);
-
-                    return ListTile(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                      leading: chat.avatarUrl != null
-                          ? CircleAvatar(
-                              radius: 24,
-                              backgroundColor: AppTheme.surfaceColor,
-                              backgroundImage: CachedNetworkImageProvider(
-                                chat.avatarUrl!.startsWith('http')
-                                    ? chat.avatarUrl!
-                                    : 'https://dolsyx-app.onrender.com${chat.avatarUrl!}',
-                              ),
-                            )
-                          : ColorAvatar(name: name, radius: 24),
-                      title: Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-                      subtitle: _buildSubtitle(chat),
-                      trailing: TextButton.icon(
-                        icon: const Icon(Icons.lock_open, color: Color(0xFF00A884), size: 18),
-                        label: const Text('Unlock', style: TextStyle(color: Color(0xFF00A884), fontSize: 12, fontWeight: FontWeight.bold)),
-                        onPressed: () => _unlockChat(chat),
-                      ),
-                      onLongPress: () => _showLockedChatOptions(chat),
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => ChatRoomScreen(
-                              conversationId: chat.id,
-                              chatName: name,
-                              avatarUrl: chat.avatarUrl,
+      body: !_isAuthenticated
+          ? _buildLockedChallengeView()
+          : _isLoading
+              ? const Center(child: CircularProgressIndicator(color: Color(0xFF00A884)))
+              : _lockedChats.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(20),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: const Color(0xFF00A884).withValues(alpha: 0.12),
+                            ),
+                            child: const Icon(Icons.lock_rounded, size: 64, color: Color(0xFF00A884)),
+                          ),
+                          const SizedBox(height: 20),
+                          const Text(
+                            'No locked chats',
+                            style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 8),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 40),
+                            child: Text(
+                              'Chats you lock will appear here. You can lock any chat from its chat options menu.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
                             ),
                           ),
-                        ).then((_) => _fetchLockedChats());
+                        ],
+                      ),
+                    )
+                  : ListView.separated(
+                      physics: const BouncingScrollPhysics(),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      itemCount: _lockedChats.length,
+                      separatorBuilder: (context, index) => const Divider(color: Colors.white10, height: 1),
+                      itemBuilder: (context, index) {
+                        final chat = _lockedChats[index];
+                        final name = _getChatName(chat);
+
+                        return ListTile(
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                          leading: chat.avatarUrl != null
+                              ? CircleAvatar(
+                                  radius: 24,
+                                  backgroundColor: AppTheme.surfaceColor,
+                                  backgroundImage: CachedNetworkImageProvider(
+                                    chat.avatarUrl!.startsWith('http')
+                                        ? chat.avatarUrl!
+                                        : 'https://dolsyx-app.onrender.com${chat.avatarUrl!}',
+                                  ),
+                                )
+                              : ColorAvatar(name: name, radius: 24),
+                          title: Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                          subtitle: _buildSubtitle(chat),
+                          trailing: TextButton.icon(
+                            icon: const Icon(Icons.lock_open, color: Color(0xFF00A884), size: 18),
+                            label: const Text('Unlock', style: TextStyle(color: Color(0xFF00A884), fontSize: 12, fontWeight: FontWeight.bold)),
+                            onPressed: () => _unlockChat(chat),
+                          ),
+                          onLongPress: () => _showLockedChatOptions(chat),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => ChatRoomScreen(
+                                  conversationId: chat.id,
+                                  chatName: name,
+                                  avatarUrl: chat.avatarUrl,
+                                ),
+                              ),
+                            ).then((_) => _fetchLockedChats());
+                          },
+                        );
                       },
-                    );
-                  },
-                ),
+                    ),
     );
   }
 }

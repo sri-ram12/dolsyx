@@ -15,7 +15,7 @@ import '../widgets/full_screen_image_view.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../screens/call_screen.dart';
 import '../screens/chat_room_screen.dart';
-import '../models/chat.dart';
+import '../services/local_database_service.dart';
 
 class OtherUserProfileScreen extends StatefulWidget {
   final Map<String, dynamic> user;
@@ -752,7 +752,8 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
       if (newLockedState) {
         lockedIds.add(convId);
         await prefs.setStringList('locked_chat_ids', lockedIds.toList());
-        ChatService().updateChatSettings(convId, {'isLocked': true}).catchError((_) {});
+        LocalDatabaseService().setChatLocked(convId, true);
+        ChatService().updateChatSettings(convId, {'isLocked': true}).catchError((_) => false);
         if (mounted) {
           setState(() => _isChatLocked = true);
           ScaffoldMessenger.of(context).showSnackBar(
@@ -762,7 +763,8 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
       } else {
         lockedIds.remove(convId);
         await prefs.setStringList('locked_chat_ids', lockedIds.toList());
-        ChatService().updateChatSettings(convId, {'isLocked': false}).catchError((_) {});
+        LocalDatabaseService().setChatLocked(convId, false);
+        ChatService().updateChatSettings(convId, {'isLocked': false}).catchError((_) => false);
         if (mounted) {
           setState(() => _isChatLocked = false);
           ScaffoldMessenger.of(context).showSnackBar(

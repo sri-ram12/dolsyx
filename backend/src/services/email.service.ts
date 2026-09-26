@@ -40,30 +40,31 @@ class EmailService {
     }
 
     const host = process.env.SMTP_HOST || "smtp.gmail.com";
-    const port = parseInt(process.env.SMTP_PORT || "465");
     const user = process.env.SMTP_USER || "chandusonti70@gmail.com";
     const pass = process.env.SMTP_PASS;
 
     if (pass) {
       console.log(`[EmailService] Initializing SMTP transporter with host=${host}, user=${user}`);
-      // Use explicit host/port config with family:4 to force IPv4
-      // (Render cloud containers may resolve smtp.gmail.com to an IPv6 address that is unreachable)
+      // Render's cloud containers:
+      //   - Block outbound TCP on port 587 (STARTTLS) for SMTP
+      //   - Resolve smtp.gmail.com to an IPv6 address (ENETUNREACH)
+      // Fix: always use port 465 (SSL/TLS) + force IPv4 DNS resolution
       const isGmail = host === "smtp.gmail.com";
-      const smtpPort = parseInt(process.env.SMTP_PORT || (isGmail ? "587" : "587"));
+      const smtpPort = parseInt(process.env.SMTP_PORT || (isGmail ? "465" : "465"));
       const isSecure = smtpPort === 465;
 
       const transportConfig: any = {
         host: host,
         port: smtpPort,
-        secure: isSecure, // false for port 587 (STARTTLS), true for 465
+        secure: isSecure,        // true for 465 (SSL), false for 587 (STARTTLS)
         requireTLS: !isSecure,
         auth: { user, pass },
-        connectionTimeout: 15000,
-        greetingTimeout: 15000,
-        socketTimeout: 15000,
+        connectionTimeout: 20000,
+        greetingTimeout: 20000,
+        socketTimeout: 20000,
         tls: { rejectUnauthorized: false },
+        // Force IPv4 DNS resolution — prevents ENETUNREACH on cloud containers
         lookup: (hostname: string, options: any, callback: any) => {
-          // Explicitly force IPv4 resolution to prevent ENETUNREACH errors on cloud container platforms like Render
           dns.lookup(hostname, { family: 4 }, callback);
         },
       };

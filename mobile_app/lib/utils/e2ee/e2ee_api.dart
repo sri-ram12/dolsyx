@@ -1,12 +1,11 @@
 import 'dart:convert';
-import 'package:http/http.dart' as http;
 import '../../services/api_service.dart';
 
 class E2EEApi {
   static String get _baseUrl => ApiService.baseUrl;
 
   static Future<void> uploadKeys(Map<String, dynamic> payload, String token) async {
-    final response = await http.post(
+    final response = await ApiService.client.post(
       Uri.parse('$_baseUrl/keys/upload'),
       headers: {
         'Content-Type': 'application/json',
@@ -21,7 +20,7 @@ class E2EEApi {
   }
 
   static Future<Map<String, dynamic>> fetchKeys(String email, String token) async {
-    final response = await http.get(
+    final response = await ApiService.client.get(
       Uri.parse('$_baseUrl/keys/fetch/$email'),
       headers: {
         'Authorization': 'Bearer $token',
@@ -36,7 +35,7 @@ class E2EEApi {
   }
 
   static Future<void> sendEncryptedMessage(Map<String, dynamic> payload, String token) async {
-    final response = await http.post(
+    final response = await ApiService.client.post(
       Uri.parse('$_baseUrl/messages/send'),
       headers: {
         'Content-Type': 'application/json',

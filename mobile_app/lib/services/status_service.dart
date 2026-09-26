@@ -11,7 +11,7 @@ class StatusService {
     try {
       final token = await _apiService.getToken();
       if (token != null) {
-        final response = await http.get(
+        final response = await ApiService.client.get(
           Uri.parse('${ApiService.baseUrl}/status'),
           headers: {
             'Authorization': 'Bearer $token',
@@ -54,7 +54,7 @@ class StatusService {
       request.headers['Authorization'] = 'Bearer $token';
       request.files.add(await http.MultipartFile.fromPath('file', filePath));
 
-      final streamedResponse = await request.send();
+      final streamedResponse = await ApiService.client.send(request);
       final response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200 || response.statusCode == 201) {
@@ -71,7 +71,7 @@ class StatusService {
   Future<bool> createStatus(String mediaUrl, String mediaType, String content, {String? bgColor}) async {
     try {
       final token = await _apiService.getToken();
-      final response = await http.post(
+      final response = await ApiService.client.post(
         Uri.parse('${ApiService.baseUrl}/status'),
         headers: {
           'Content-Type': 'application/json',
@@ -96,7 +96,7 @@ class StatusService {
   Future<void> viewStatus(String statusId) async {
     try {
       final token = await _apiService.getToken();
-      await http.post(
+      await ApiService.client.post(
         Uri.parse('${ApiService.baseUrl}/status/$statusId/view'),
         headers: {
           'Authorization': 'Bearer $token',
@@ -110,7 +110,7 @@ class StatusService {
   Future<bool> muteStatus(String contactId) async {
     try {
       final token = await _apiService.getToken();
-      final response = await http.post(
+      final response = await ApiService.client.post(
         Uri.parse('${ApiService.baseUrl}/status/mute'),
         headers: {
           'Content-Type': 'application/json',
@@ -128,7 +128,7 @@ class StatusService {
   Future<bool> unmuteStatus(String contactId) async {
     try {
       final token = await _apiService.getToken();
-      final response = await http.post(
+      final response = await ApiService.client.post(
         Uri.parse('${ApiService.baseUrl}/status/unmute'),
         headers: {
           'Content-Type': 'application/json',
@@ -146,7 +146,7 @@ class StatusService {
   Future<bool> deleteStatus(String statusId) async {
     try {
       final token = await _apiService.getToken();
-      final response = await http.delete(
+      final response = await ApiService.client.delete(
         Uri.parse('${ApiService.baseUrl}/status/$statusId'),
         headers: {
           'Authorization': 'Bearer $token',

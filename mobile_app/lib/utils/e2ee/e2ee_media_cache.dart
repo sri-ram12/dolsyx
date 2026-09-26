@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import '../../services/api_service.dart';
 import 'crypto_service.dart';
@@ -139,7 +138,7 @@ class E2EEMediaCache {
       final future = () async {
         try {
           final resolvedUrl = ApiService.getMediaUrl(mediaUrl);
-          final response = await http.get(Uri.parse(resolvedUrl)).timeout(const Duration(seconds: 60));
+          final response = await ApiService.client.get(Uri.parse(resolvedUrl)).timeout(const Duration(seconds: 60));
           if (response.statusCode != 200 || response.bodyBytes.isEmpty) {
             return null;
           }

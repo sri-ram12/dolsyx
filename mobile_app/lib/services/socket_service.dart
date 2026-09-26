@@ -5,7 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
 import 'sound_service.dart';
 import '../main.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart' hide Message;
 import '../utils/e2ee/crypto_service.dart';
 import '../utils/e2ee/e2ee_api.dart';
 import 'local_database_service.dart';
@@ -46,6 +46,19 @@ class SocketService {
   String? _currentUserId;
   String? _activeConversationId;
 
+  Future<void> reconnectIfDisconnected() async {
+    if (socket == null || !socket!.connected) {
+      final token = await ApiService().getToken();
+      if (token == null) return;
+      if (socket != null) {
+        socket?.io.options?['auth'] = {'token': token};
+        socket!.connect();
+      } else if (_currentUserId != null) {
+        await connect(_currentUserId!);
+      }
+    }
+  }
+
   Future<void> connect(String userId) async {
     _currentUserId = userId;
     final token = await ApiService().getToken();
@@ -66,6 +79,8 @@ class SocketService {
       'reconnectionAttempts': 999999,
       'reconnectionDelay': 1000,
       'reconnectionDelayMax': 5000,
+      'randomizationFactor': 0.5,
+      'timeout': 10000,
       'auth': {'token': token},
     });
 

@@ -8,7 +8,7 @@ class ProductivityService {
   Future<List<dynamic>> getNotes() async {
     try {
       final token = await _apiService.getToken();
-      final response = await http.get(
+      final response = await ApiService.client.get(
         Uri.parse('${ApiService.baseUrl}/productivity/notes'),
         headers: {'Authorization': 'Bearer $token'},
       );
@@ -22,7 +22,7 @@ class ProductivityService {
   Future<bool> createNote(String title, String content, String color) async {
     try {
       final token = await _apiService.getToken();
-      final response = await http.post(
+      final response = await ApiService.client.post(
         Uri.parse('${ApiService.baseUrl}/productivity/notes'),
         headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
         body: jsonEncode({'title': title, 'content': content, 'color': color}),
@@ -37,7 +37,7 @@ class ProductivityService {
   Future<List<dynamic>> getTasks() async {
     try {
       final token = await _apiService.getToken();
-      final response = await http.get(
+      final response = await ApiService.client.get(
         Uri.parse('${ApiService.baseUrl}/productivity/tasks'),
         headers: {'Authorization': 'Bearer $token'},
       );
@@ -51,7 +51,7 @@ class ProductivityService {
   Future<bool> createTask(String title, String description, DateTime? dueDate) async {
     try {
       final token = await _apiService.getToken();
-      final response = await http.post(
+      final response = await ApiService.client.post(
         Uri.parse('${ApiService.baseUrl}/productivity/tasks'),
         headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
         body: jsonEncode({
@@ -70,7 +70,7 @@ class ProductivityService {
   Future<bool> updateTaskStatus(String taskId, String status) async {
     try {
       final token = await _apiService.getToken();
-      final response = await http.put(
+      final response = await ApiService.client.put(
         Uri.parse('${ApiService.baseUrl}/productivity/tasks/$taskId'),
         headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
         body: jsonEncode({'status': status}),

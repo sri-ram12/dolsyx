@@ -8,7 +8,7 @@ class GroupService {
   Future<Map<String, dynamic>?> createGroup(String name, String? description, String? avatarUrl, List<String> memberIds) async {
     try {
       final token = await _apiService.getToken();
-      final response = await http.post(
+      final response = await ApiService.client.post(
         Uri.parse('${ApiService.baseUrl}/groups'),
         headers: {
           'Content-Type': 'application/json',
@@ -36,7 +36,7 @@ class GroupService {
   Future<bool> updateGroup(String conversationId, String name, String? description, String? avatarUrl) async {
     try {
       final token = await _apiService.getToken();
-      final response = await http.put(
+      final response = await ApiService.client.put(
         Uri.parse('${ApiService.baseUrl}/groups/$conversationId'),
         headers: {
           'Content-Type': 'application/json',
@@ -59,7 +59,7 @@ class GroupService {
   Future<bool> addMember(String conversationId, String userId) async {
     try {
       final token = await _apiService.getToken();
-      final response = await http.post(
+      final response = await ApiService.client.post(
         Uri.parse('${ApiService.baseUrl}/groups/$conversationId/members'),
         headers: {
           'Content-Type': 'application/json',
@@ -80,7 +80,7 @@ class GroupService {
   Future<bool> removeMember(String conversationId, String targetUserId) async {
     try {
       final token = await _apiService.getToken();
-      final response = await http.delete(
+      final response = await ApiService.client.delete(
         Uri.parse('${ApiService.baseUrl}/groups/$conversationId/members/$targetUserId'),
         headers: {
           'Authorization': 'Bearer $token',
@@ -97,7 +97,7 @@ class GroupService {
   Future<bool> disbandGroup(String conversationId) async {
     try {
       final token = await _apiService.getToken();
-      final response = await http.delete(
+      final response = await ApiService.client.delete(
         Uri.parse('${ApiService.baseUrl}/groups/$conversationId'),
         headers: {
           'Authorization': 'Bearer $token',
@@ -114,7 +114,7 @@ class GroupService {
   Future<bool> changeMemberRole(String conversationId, String targetUserId, String role) async {
     try {
       final token = await _apiService.getToken();
-      final response = await http.put(
+      final response = await ApiService.client.put(
         Uri.parse('${ApiService.baseUrl}/groups/$conversationId/role'),
         headers: {
           'Content-Type': 'application/json',

@@ -37,6 +37,25 @@ class ApiService {
     'Authorization': 'Bearer $token',
   };
 
+  // Persistent singleton HTTP client with HTTP Keep-Alive connection reuse
+  static final http.Client _client = http.Client();
+  static http.Client get client => _client;
+
+  static Future<http.Response> get(Uri url, {Map<String, String>? headers}) =>
+      _client.get(url, headers: headers);
+
+  static Future<http.Response> post(Uri url, {Map<String, String>? headers, Object? body, Encoding? encoding}) =>
+      _client.post(url, headers: headers, body: body, encoding: encoding);
+
+  static Future<http.Response> put(Uri url, {Map<String, String>? headers, Object? body, Encoding? encoding}) =>
+      _client.put(url, headers: headers, body: body, encoding: encoding);
+
+  static Future<http.Response> delete(Uri url, {Map<String, String>? headers, Object? body, Encoding? encoding}) =>
+      _client.delete(url, headers: headers, body: body, encoding: encoding);
+
+  static Future<http.StreamedResponse> send(http.BaseRequest request) =>
+      _client.send(request);
+
   Future<String?> _getFcmToken() async {
     try {
       if (Firebase.apps.isNotEmpty) {
@@ -51,7 +70,7 @@ class ApiService {
   Future<Map<String, dynamic>> login(String email, String password) async {
     try {
       final fcmToken = await _getFcmToken();
-      final response = await http.post(
+      final response = await _client.post(
         Uri.parse('$baseUrl/auth/login-without-otp'), // Changed to support passwordless OTP accounts
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'email': email, 'fcmToken': fcmToken}), // Only send email + token
@@ -83,7 +102,7 @@ class ApiService {
   }) async {
     try {
       final fcmToken = await _getFcmToken();
-      final response = await http.post(
+      final response = await _client.post(
         Uri.parse('$baseUrl/auth/google/verify-token'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
@@ -126,7 +145,7 @@ class ApiService {
   Future<Map<String, dynamic>> register(String email, String username, String password) async {
     try {
       final fcmToken = await _getFcmToken();
-      final response = await http.post(
+      final response = await _client.post(
         Uri.parse('$baseUrl/auth/register'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
@@ -183,7 +202,7 @@ class ApiService {
         request.headers['Authorization'] = 'Bearer $token';
         request.files.add(await http.MultipartFile.fromPath('file', filePath));
 
-        final streamedResponse = await request.send().timeout(const Duration(seconds: 45));
+        final streamedResponse = await _client.send(request).timeout(const Duration(seconds: 45));
         final response = await http.Response.fromStream(streamedResponse);
 
         if (response.statusCode == 200 || response.statusCode == 201) {
@@ -204,7 +223,7 @@ class ApiService {
         fallbackRequest.headers['Authorization'] = 'Bearer $token';
         fallbackRequest.files.add(await http.MultipartFile.fromPath('file', filePath));
 
-        final streamedFallback = await fallbackRequest.send().timeout(const Duration(seconds: 45));
+        final streamedFallback = await _client.send(fallbackRequest).timeout(const Duration(seconds: 45));
         final fallbackResponse = await http.Response.fromStream(streamedFallback);
 
         if (fallbackResponse.statusCode == 200 || fallbackResponse.statusCode == 201) {
@@ -229,7 +248,7 @@ class ApiService {
       final token = customToken ?? await getToken();
       if (token == null) return null;
 
-      final response = await http.get(
+      final response = await _client.get(
         Uri.parse('$baseUrl/auth/me'),
         headers: {'Authorization': 'Bearer $token'},
       );
@@ -256,7 +275,7 @@ class ApiService {
       if (username != null) body['username'] = username;
       if (avatarUrl != null) body['avatarUrl'] = avatarUrl;
 
-      final response = await http.put(
+      final response = await _client.put(
         Uri.parse('$baseUrl/auth/profile'),
         headers: {
           'Content-Type': 'application/json',
@@ -280,7 +299,7 @@ class ApiService {
       final token = await getToken();
       if (token == null) return null;
 
-      final response = await http.get(
+      final response = await _client.get(
         Uri.parse('$baseUrl/auth/users/$userId'),
         headers: {'Authorization': 'Bearer $token'},
       );
@@ -302,7 +321,7 @@ class ApiService {
       final token = await getToken();
       if (token == null) return [];
 
-      final response = await http.get(
+      final response = await _client.get(
         Uri.parse('$baseUrl/auth/blocks'),
         headers: {'Authorization': 'Bearer $token'},
       );
@@ -321,7 +340,7 @@ class ApiService {
       final token = await getToken();
       if (token == null) return false;
 
-      final response = await http.post(
+      final response = await _client.post(
         Uri.parse('$baseUrl/auth/block/$targetUserId'),
         headers: {'Authorization': 'Bearer $token'},
       );
@@ -337,7 +356,7 @@ class ApiService {
       final token = await getToken();
       if (token == null) return [];
 
-      final response = await http.get(
+      final response = await _client.get(
         Uri.parse('$baseUrl/groups/$conversationId/past-participants'),
         headers: {'Authorization': 'Bearer $token'},
       ).timeout(const Duration(seconds: 15));
@@ -356,7 +375,7 @@ class ApiService {
       final token = await getToken();
       if (token == null) return false;
 
-      final response = await http.delete(
+      final response = await _client.delete(
         Uri.parse('$baseUrl/auth/block/$targetUserId'),
         headers: {'Authorization': 'Bearer $token'},
       );
@@ -422,7 +441,7 @@ class ApiService {
         final isLocal = targetUrl.contains('192.168.') || targetUrl.contains('10.0.2.2') || targetUrl.contains('localhost');
         final timeoutSec = isLocal ? 2 : 7;
         final endpoint = targetUrl.endsWith('/api') ? '$targetUrl/devices/pair/scan' : '$targetUrl/api/devices/pair/scan';
-        final response = await http
+        final response = await _client
             .post(
               Uri.parse(endpoint),
               headers: authHeaders(token),
@@ -460,7 +479,7 @@ class ApiService {
         final isLocal = targetUrl.contains('192.168.') || targetUrl.contains('10.0.2.2') || targetUrl.contains('localhost');
         final timeoutSec = isLocal ? 3 : 8;
         final endpoint = targetUrl.endsWith('/api') ? '$targetUrl/devices/pair/approve' : '$targetUrl/api/devices/pair/approve';
-        final response = await http
+        final response = await _client
             .post(
               Uri.parse(endpoint),
               headers: authHeaders(token),
@@ -495,7 +514,7 @@ class ApiService {
         final isLocal = targetUrl.contains('192.168.') || targetUrl.contains('10.0.2.2') || targetUrl.contains('localhost');
         final timeoutSec = isLocal ? 2 : 5;
         final endpoint = targetUrl.endsWith('/api') ? '$targetUrl/devices/pair/reject' : '$targetUrl/api/devices/pair/reject';
-        final response = await http
+        final response = await _client
             .post(
               Uri.parse(endpoint),
               headers: authHeaders(token),
@@ -521,7 +540,7 @@ class ApiService {
         final isLocal = targetUrl.contains('192.168.') || targetUrl.contains('10.0.2.2') || targetUrl.contains('localhost');
         final timeoutSec = isLocal ? 2 : 6;
         final endpoint = targetUrl.endsWith('/api') ? '$targetUrl/devices' : '$targetUrl/api/devices';
-        final response = await http
+        final response = await _client
             .get(
               Uri.parse(endpoint),
               headers: authHeaders(token),
@@ -547,7 +566,7 @@ class ApiService {
         final isLocal = targetUrl.contains('192.168.') || targetUrl.contains('10.0.2.2') || targetUrl.contains('localhost');
         final timeoutSec = isLocal ? 2 : 6;
         final endpoint = targetUrl.endsWith('/api') ? '$targetUrl/devices/$sessionId' : '$targetUrl/api/devices/$sessionId';
-        final response = await http
+        final response = await _client
             .delete(
               Uri.parse(endpoint),
               headers: authHeaders(token),
@@ -570,7 +589,7 @@ class ApiService {
         final isLocal = targetUrl.contains('192.168.') || targetUrl.contains('10.0.2.2') || targetUrl.contains('localhost');
         final timeoutSec = isLocal ? 2 : 6;
         final endpoint = targetUrl.endsWith('/api') ? '$targetUrl/devices/logout-all' : '$targetUrl/api/devices/logout-all';
-        final response = await http
+        final response = await _client
             .post(
               Uri.parse(endpoint),
               headers: authHeaders(token),
@@ -593,7 +612,7 @@ class ApiService {
   // Mandatory Google Play Policy: Permanently delete account and user data
   Future<bool> deleteAccount(String token) async {
     try {
-      final response = await http.delete(
+      final response = await _client.delete(
         Uri.parse('$baseUrl/auth/account'),
         headers: authHeaders(token),
       );

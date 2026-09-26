@@ -7,7 +7,7 @@ class ContactService {
 
   // Search for a user by email or username
   static Future<Map<String, dynamic>?> searchUser(String token, String query) async {
-    final res = await http.get(
+    final res = await ApiService.client.get(
       Uri.parse('$_base/search?query=${Uri.encodeQueryComponent(query)}'),
       headers: ApiService.authHeaders(token),
     );
@@ -17,7 +17,7 @@ class ContactService {
 
   // Add contact by email or username
   static Future<Map<String, dynamic>?> addContact(String token, String query, {String? savedName}) async {
-    final res = await http.post(
+    final res = await ApiService.client.post(
       Uri.parse(_base),
       headers: ApiService.authHeaders(token),
       body: jsonEncode({'query': query, 'savedName': savedName}),
@@ -29,7 +29,7 @@ class ContactService {
 
   // Add contact by userId (called from chat room)
   static Future<Map<String, dynamic>?> addContactById(String token, String contactUserId, {String? savedName}) async {
-    final res = await http.post(
+    final res = await ApiService.client.post(
       Uri.parse('$_base/by-id'),
       headers: ApiService.authHeaders(token),
       body: jsonEncode({'contactUserId': contactUserId, 'savedName': savedName}),
@@ -42,7 +42,7 @@ class ContactService {
   // Get all contacts
   static Future<List<dynamic>> getContacts(String token) async {
     try {
-      final res = await http.get(
+      final res = await ApiService.client.get(
         Uri.parse(_base),
         headers: ApiService.authHeaders(token),
       );
@@ -54,7 +54,7 @@ class ContactService {
   // Check if a userId is already in contacts
   static Future<bool> isContact(String token, String targetUserId) async {
     try {
-      final res = await http.get(
+      final res = await ApiService.client.get(
         Uri.parse('$_base/check/$targetUserId'),
         headers: ApiService.authHeaders(token),
       );
@@ -69,7 +69,7 @@ class ContactService {
   // Update contact (rename / toggle favorite)
   static Future<bool> updateContact(String token, String contactId, {String? savedName, bool? isFavorite}) async {
     try {
-      final res = await http.put(
+      final res = await ApiService.client.put(
         Uri.parse('$_base/$contactId'),
         headers: ApiService.authHeaders(token),
         body: jsonEncode({
@@ -90,14 +90,14 @@ class ContactService {
 
     try {
       // 1. Direct attempt
-      final res = await http.delete(
+      final res = await ApiService.client.delete(
         Uri.parse('$_base/$cleanId'),
         headers: ApiService.authHeaders(token),
       );
       if (res.statusCode == 200) return true;
 
       // 2. Check if cleanId is a targetUserId and get the Contact record ID
-      final checkRes = await http.get(
+      final checkRes = await ApiService.client.get(
         Uri.parse('$_base/check/$cleanId'),
         headers: ApiService.authHeaders(token),
       );
@@ -106,7 +106,7 @@ class ContactService {
         if (data['isContact'] == true && data['contact'] != null) {
           final recordId = data['contact']['id']?.toString();
           if (recordId != null && recordId.isNotEmpty && recordId != cleanId) {
-            final deleteRes = await http.delete(
+            final deleteRes = await ApiService.client.delete(
               Uri.parse('$_base/$recordId'),
               headers: ApiService.authHeaders(token),
             );
@@ -128,7 +128,7 @@ class ContactService {
             (email.isNotEmpty && email.toLowerCase() == cleanId.toLowerCase()) ||
             (username.isNotEmpty && username.toLowerCase() == cleanId.toLowerCase())) {
           if (recordId != null && recordId.isNotEmpty) {
-            final deleteRes = await http.delete(
+            final deleteRes = await ApiService.client.delete(
               Uri.parse('$_base/$recordId'),
               headers: ApiService.authHeaders(token),
             );

@@ -17,6 +17,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/services.dart';
 import 'screens/share_target_screen.dart';
 import 'services/api_service.dart';
+import 'services/socket_service.dart';
 import 'package:http/http.dart' as http;
 import 'package:permission_handler/permission_handler.dart';
 
@@ -199,6 +200,12 @@ class _DolsyxAppState extends State<DolsyxApp> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Keep ongoing calls running in background / PiP mode even if app task is detached
+    if (state == AppLifecycleState.resumed) {
+      final socketService = SocketService();
+      if (!socketService.isConnected) {
+        socketService.reconnectIfDisconnected();
+      }
+    }
   }
 
   Future<void> _requestEssentialPermissions() async {

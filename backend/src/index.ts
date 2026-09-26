@@ -38,6 +38,12 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const server = http.createServer(app);
 
+// Cloud Reverse Proxy Keep-Alive Tuning (Render / AWS ALB / Cloudflare / Nginx)
+// keepAliveTimeout (65s) > proxy timeout (60s) to prevent race condition ECONNRESET / 502s
+// headersTimeout (66s) > keepAliveTimeout
+server.keepAliveTimeout = 65000;
+server.headersTimeout = 66000;
+
 const PORT = process.env.PORT || 4000;
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 

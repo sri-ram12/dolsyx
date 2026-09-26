@@ -16,7 +16,7 @@ class ChatService {
       };
       final uri = Uri.parse('${ApiService.baseUrl}/chats/$conversationId/messages')
           .replace(queryParameters: queryParams);
-      final response = await http.get(
+      final response = await ApiService.client.get(
         uri,
         headers: {
           'Content-Type': 'application/json',
@@ -41,7 +41,7 @@ class ChatService {
   }) async {
     try {
       final token = await ApiService().getToken();
-      final response = await http.post(
+      final response = await ApiService.client.post(
         Uri.parse('${ApiService.baseUrl}/chats/$conversationId/messages'),
         headers: {
           'Content-Type': 'application/json',
@@ -65,7 +65,7 @@ class ChatService {
       final token = await ApiService().getToken();
       if (token == null) return await getCachedChats();
 
-      final response = await http.get(
+      final response = await ApiService.client.get(
         Uri.parse('${ApiService.baseUrl}/chats'),
         headers: {
           'Content-Type': 'application/json',
@@ -127,7 +127,7 @@ class ChatService {
       final token = await ApiService().getToken();
       if (token == null) return false;
 
-      final response = await http.delete(
+      final response = await ApiService.client.delete(
         Uri.parse('${ApiService.baseUrl}/chats/messages/$messageId?forEveryone=$forEveryone'),
         headers: {
           'Authorization': 'Bearer $token',
@@ -146,7 +146,7 @@ class ChatService {
       final token = await ApiService().getToken();
       if (token == null) return false;
 
-      final response = await http.delete(
+      final response = await ApiService.client.delete(
         Uri.parse('${ApiService.baseUrl}/chats/calls/clear'),
         headers: {
           'Authorization': 'Bearer $token',
@@ -165,7 +165,7 @@ class ChatService {
       final token = await ApiService().getToken();
       if (token == null) return false;
 
-      final response = await http.delete(
+      final response = await ApiService.client.delete(
         Uri.parse('${ApiService.baseUrl}/chats/calls/$callId'),
         headers: {
           'Authorization': 'Bearer $token',
@@ -193,7 +193,7 @@ class ChatService {
       // Falls back gracefully if the /bulk route isn't deployed yet.
       bool allOk = true;
       for (final id in callIds) {
-        final response = await http.delete(
+        final response = await ApiService.client.delete(
           Uri.parse('${ApiService.baseUrl}/chats/calls/$id'),
           headers: {
             'Authorization': 'Bearer $token',
@@ -215,7 +215,7 @@ class ChatService {
     try {
       final token = await ApiService().getToken();
       if (token == null) return false;
-      final response = await http.put(
+      final response = await ApiService.client.put(
         Uri.parse('${ApiService.baseUrl}/chats/messages/$messageId'),
         headers: {
           'Content-Type': 'application/json',
@@ -236,7 +236,7 @@ class ChatService {
       final token = await ApiService().getToken();
       if (token == null) return false;
 
-      final response = await http.post(
+      final response = await ApiService.client.post(
         Uri.parse('${ApiService.baseUrl}/chats/messages/$messageId/star'),
         headers: {
           'Authorization': 'Bearer $token',
@@ -254,7 +254,7 @@ class ChatService {
       final token = await ApiService().getToken();
       if (token == null) return false;
 
-      final response = await http.post(
+      final response = await ApiService.client.post(
         Uri.parse('${ApiService.baseUrl}/chats/$conversationId/messages/$messageId/pin'),
         headers: {
           'Authorization': 'Bearer $token',
@@ -272,7 +272,7 @@ class ChatService {
       final token = await ApiService().getToken();
       if (token == null) return null;
 
-      final response = await http.get(
+      final response = await ApiService.client.get(
         Uri.parse('${ApiService.baseUrl}/chats/$conversationId/pinned'),
         headers: {'Authorization': 'Bearer $token'},
       );
@@ -293,7 +293,7 @@ class ChatService {
       final token = await ApiService().getToken();
       if (token == null) return [];
 
-      final response = await http.get(
+      final response = await ApiService.client.get(
         Uri.parse('${ApiService.baseUrl}/chats/search?query=$query'),
         headers: {
           'Content-Type': 'application/json',
@@ -316,7 +316,7 @@ class ChatService {
       final token = await ApiService().getToken();
       if (token == null) return null;
 
-      final response = await http.post(
+      final response = await ApiService.client.post(
         Uri.parse('${ApiService.baseUrl}/chats/direct'),
         headers: {
           'Content-Type': 'application/json',
@@ -340,7 +340,7 @@ class ChatService {
       final token = await ApiService().getToken();
       if (token == null) return false;
 
-      final response = await http.post(
+      final response = await ApiService.client.post(
         Uri.parse('${ApiService.baseUrl}/chats/$conversationId/archive'),
         headers: {
           'Content-Type': 'application/json',
@@ -360,7 +360,7 @@ class ChatService {
       final token = await ApiService().getToken();
       if (token == null) return false;
 
-      final response = await http.delete(
+      final response = await ApiService.client.delete(
         Uri.parse('${ApiService.baseUrl}/chats/$conversationId'),
         headers: {'Authorization': 'Bearer $token'},
       );
@@ -376,7 +376,7 @@ class ChatService {
       final token = await ApiService().getToken();
       if (token == null) return false;
 
-      final response = await http.delete(
+      final response = await ApiService.client.delete(
         Uri.parse('${ApiService.baseUrl}/chats/$conversationId/messages'),
         headers: {'Authorization': 'Bearer $token'},
       );
@@ -392,7 +392,7 @@ class ChatService {
       final token = await ApiService().getToken();
       if (token == null) return false;
 
-      final response = await http.patch(
+      final response = await ApiService.client.patch(
         Uri.parse('${ApiService.baseUrl}/chats/$conversationId/participant'),
         headers: {
           'Content-Type': 'application/json',
@@ -414,7 +414,7 @@ class ChatService {
       final token = await ApiService().getToken();
       if (token == null) return await getCachedCallLogs();
 
-      final response = await http.get(
+      final response = await ApiService.client.get(
         Uri.parse('${ApiService.baseUrl}/chats/calls'),
         headers: {
           'Content-Type': 'application/json',

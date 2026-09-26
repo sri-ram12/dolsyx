@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'security_service.dart';
 
 class ApiService {
   // DOLSYX Production Render Backend (works on all devices, Wi-Fi, and 4G/5G)
@@ -35,6 +36,8 @@ class ApiService {
   static Map<String, String> authHeaders(String token) => {
     'Content-Type': 'application/json',
     'Authorization': 'Bearer $token',
+    'X-DOLSYX-Client-Version': SecurityService.clientVersion,
+    'X-DOLSYX-Platform': SecurityService.platformName,
   };
 
   // Persistent singleton HTTP client with HTTP Keep-Alive connection reuse

@@ -651,32 +651,51 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
                 Positioned(
                   bottom: MediaQuery.of(context).viewInsets.bottom,
                   left: 0, right: 0,
-                  child: Container(
-                    padding: const EdgeInsets.all(8),
-                    color: AppTheme.surfaceColor,
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _replyController,
-                            autofocus: true,
-                            style: TextStyle(color: AppTheme.textPrimary),
-                            decoration: InputDecoration(
-                              hintText: 'Reply to $username...',
-                              hintStyle: TextStyle(color: AppTheme.textSecondary),
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none),
-                              filled: true,
-                              fillColor: AppTheme.backgroundColor,
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                            ),
-                          ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Phase 25: Status Emoji Reactions Bar
+                      Container(
+                        height: 60,
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        child: ListView(
+                          scrollDirection: Axis.horizontal,
+                          children: ['😍', '😂', '😮', '😢', '🙏', '👏', '🎉', '💯']
+                              .map((emoji) => IconButton(
+                                    icon: Text(emoji, style: const TextStyle(fontSize: 28)),
+                                    onPressed: () => _sendReply(emoji),
+                                  ))
+                              .toList(),
                         ),
-                        IconButton(
-                          icon: Icon(Icons.send, color: AppTheme.primaryColor),
-                          onPressed: () => _sendReply(_replyController.text),
-                        )
-                      ],
-                    ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        color: AppTheme.surfaceColor,
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: _replyController,
+                                autofocus: true,
+                                style: TextStyle(color: AppTheme.textPrimary),
+                                decoration: InputDecoration(
+                                  hintText: 'Reply to $username...',
+                                  hintStyle: TextStyle(color: AppTheme.textSecondary),
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none),
+                                  filled: true,
+                                  fillColor: AppTheme.backgroundColor,
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              icon: Icon(Icons.send, color: AppTheme.primaryColor),
+                              onPressed: () => _sendReply(_replyController.text),
+                            )
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ),
             ],

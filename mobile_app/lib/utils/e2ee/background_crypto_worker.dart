@@ -193,17 +193,18 @@ Future<List<Map<String, dynamic>>> _decryptMessageListWorker(Map<String, dynamic
     if (content.trim().startsWith('{')) {
       var decrypted = await _decryptIsolateContent(content, conversationId);
 
-      // Handle nested E2EE media payloads
+      // Handle nested E2EE / standard media payloads
       if (decrypted.trim().startsWith('{')) {
         try {
           final parsed = jsonDecode(decrypted);
-          if (parsed is Map && parsed['encryptedMedia'] == true) {
+          if (parsed is Map && (parsed['encryptedMedia'] == true || parsed['mediaUrl'] != null)) {
+            final isE2EE = parsed['encryptedMedia'] == true || (parsed['mediaKey'] != null && parsed['nonce'] != null);
             map['content'] = parsed['caption']?.toString() ?? '';
             map['mediaUrl'] = parsed['mediaUrl']?.toString() ?? map['mediaUrl'];
             map['mediaType'] = parsed['mediaType']?.toString() ?? map['mediaType'];
             map['mediaKey'] = parsed['mediaKey']?.toString();
             map['nonce'] = parsed['nonce']?.toString();
-            map['isE2EEMedia'] = true;
+            map['isE2EEMedia'] = isE2EE;
           } else {
             map['content'] = decrypted;
           }
@@ -232,13 +233,14 @@ Future<Map<String, dynamic>> _decryptSingleMessageWorker(Map<String, dynamic> ar
     if (decrypted.trim().startsWith('{')) {
       try {
         final parsed = jsonDecode(decrypted);
-        if (parsed is Map && parsed['encryptedMedia'] == true) {
+        if (parsed is Map && (parsed['encryptedMedia'] == true || parsed['mediaUrl'] != null)) {
+          final isE2EE = parsed['encryptedMedia'] == true || (parsed['mediaKey'] != null && parsed['nonce'] != null);
           map['content'] = parsed['caption']?.toString() ?? '';
           map['mediaUrl'] = parsed['mediaUrl']?.toString() ?? map['mediaUrl'];
           map['mediaType'] = parsed['mediaType']?.toString() ?? map['mediaType'];
           map['mediaKey'] = parsed['mediaKey']?.toString();
           map['nonce'] = parsed['nonce']?.toString();
-          map['isE2EEMedia'] = true;
+          map['isE2EEMedia'] = isE2EE;
         } else {
           map['content'] = decrypted;
         }

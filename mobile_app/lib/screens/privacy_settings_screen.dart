@@ -123,6 +123,28 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
     }
   }
 
+  bool get _isGhostMode => _lastSeenPrivacy == 'NOBODY' && _onlinePrivacy == 'NOBODY' && !_readReceipts;
+
+  Future<void> _toggleGhostMode(bool enable) async {
+    final Map<String, dynamic> updates = enable
+        ? {
+            'lastSeenPrivacy': 'NOBODY',
+            'onlinePrivacy': 'NOBODY',
+            'readReceipts': false,
+          }
+        : {
+            'lastSeenPrivacy': 'EVERYONE',
+            'onlinePrivacy': 'EVERYONE',
+            'readReceipts': true,
+          };
+    setState(() {
+      _lastSeenPrivacy = updates['lastSeenPrivacy'];
+      _onlinePrivacy = updates['onlinePrivacy'];
+      _readReceipts = updates['readReceipts'];
+    });
+    await _updatePrivacy(updates);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -136,6 +158,106 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
       backgroundColor: AppTheme.backgroundColor,
       body: ListView(
         children: [
+          // == GHOST MODE (ULTIMATE PRIVACY) ==
+          Container(
+            margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: _isGhostMode
+                    ? [const Color(0xFF1E3A2F), const Color(0xFF14241E)]
+                    : [AppTheme.surfaceColor, AppTheme.surfaceColor.withOpacity(0.8)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: _isGhostMode ? AppTheme.primaryColor : Colors.white10,
+                width: 1.5,
+              ),
+              boxShadow: [
+                if (_isGhostMode)
+                  BoxShadow(
+                    color: AppTheme.primaryColor.withOpacity(0.2),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: _isGhostMode
+                        ? AppTheme.primaryColor.withOpacity(0.2)
+                        : Colors.white.withOpacity(0.05),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    _isGhostMode ? Icons.visibility_off : Icons.visibility_off_outlined,
+                    color: _isGhostMode ? AppTheme.primaryColor : AppTheme.textSecondary,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            'Ghost Mode',
+                            style: TextStyle(
+                              color: AppTheme.textPrimary,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
+                          if (_isGhostMode) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: AppTheme.primaryColor.withOpacity(0.25),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                'ACTIVE',
+                                style: TextStyle(
+                                  color: AppTheme.primaryColor,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.8,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        _isGhostMode
+                            ? 'Invisible: Offline presence and no read receipts'
+                            : 'Hide online presence, last seen, and read receipts',
+                        style: TextStyle(
+                          color: AppTheme.textSecondary,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Switch(
+                  value: _isGhostMode,
+                  activeColor: AppTheme.primaryColor,
+                  onChanged: _isSaving ? null : (val) => _toggleGhostMode(val),
+                ),
+              ],
+            ),
+          ),
+
           // == WHO CAN SEE MY INFO ==
           _sectionHeader('Who can see my personal info'),
 

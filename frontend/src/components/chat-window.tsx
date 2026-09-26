@@ -899,11 +899,11 @@ export default function ChatWindow({
             if (msg.content && msg.content.startsWith("{")) {
               try {
                 const plaintext = await decryptIncomingContent(msg.content, msg.senderId, chat.id, user?.id);
-                // Check if decrypted message is an encrypted media descriptor
+                // Check if decrypted message is a media descriptor (E2EE or standard)
                 if (plaintext.startsWith("{") && plaintext.endsWith("}")) {
                   try {
                     const parsedMedia = JSON.parse(plaintext);
-                    if (parsedMedia.encryptedMedia) {
+                    if (parsedMedia.encryptedMedia === true || parsedMedia.mediaUrl) {
                       return {
                         ...msg,
                         content: parsedMedia.caption || "",
@@ -911,7 +911,7 @@ export default function ChatWindow({
                         mediaType: parsedMedia.mediaType || msg.mediaType,
                         mediaKey: parsedMedia.mediaKey,
                         nonce: parsedMedia.nonce,
-                        isE2EEMedia: true,
+                        isE2EEMedia: parsedMedia.encryptedMedia === true || !!(parsedMedia.mediaKey && parsedMedia.nonce),
                       };
                     }
                   } catch (_) {}
@@ -1103,7 +1103,7 @@ export default function ChatWindow({
             if (plaintext.startsWith("{") && plaintext.endsWith("}")) {
               try {
                 const parsedMedia = JSON.parse(plaintext);
-                if (parsedMedia.encryptedMedia) {
+                if (parsedMedia.encryptedMedia === true || parsedMedia.mediaUrl) {
                   msg = {
                     ...msg,
                     content: parsedMedia.caption || "",
@@ -1111,7 +1111,7 @@ export default function ChatWindow({
                     mediaType: parsedMedia.mediaType || msg.mediaType,
                     mediaKey: parsedMedia.mediaKey,
                     nonce: parsedMedia.nonce,
-                    isE2EEMedia: true,
+                    isE2EEMedia: parsedMedia.encryptedMedia === true || !!(parsedMedia.mediaKey && parsedMedia.nonce),
                   } as any;
                 } else {
                   msg = { ...msg, content: plaintext };

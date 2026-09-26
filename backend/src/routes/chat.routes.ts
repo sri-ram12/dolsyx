@@ -20,6 +20,13 @@ import {
   editMessage,
   uploadChunk,
 } from "../controllers/chat.controller.js";
+import {
+  createBroadcastList,
+  getBroadcastLists,
+  sendBroadcastMessage,
+  updateBroadcastRecipients,
+  deleteBroadcastList,
+} from "../controllers/broadcast.controller.js";
 import { authenticateToken } from "../middleware/auth.middleware.js";
 
 import fs from "fs";
@@ -65,6 +72,13 @@ router.post("/direct", createOrGetDirectChat as any);
 router.delete("/:conversationId", deleteConversation as any);
 router.delete("/:conversationId/messages", clearChatMessages as any);
 router.patch("/:conversationId/participant", updateParticipantSettings as any);
+
+// ── Phase 18: Broadcast List routes ─────────────────────────────────────────
+router.get("/broadcasts", getBroadcastLists as any);
+router.post("/broadcasts", createBroadcastList as any);
+router.post("/broadcasts/:broadcastId/send", sendBroadcastMessage as any);
+router.patch("/broadcasts/:broadcastId/recipients", updateBroadcastRecipients as any);
+router.delete("/broadcasts/:broadcastId", deleteBroadcastList as any);
 
 // Message management routes
 router.put("/messages/:messageId", editMessage as any);

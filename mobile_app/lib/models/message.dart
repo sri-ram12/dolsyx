@@ -10,6 +10,8 @@ class Message {
   final bool isEdited;
   final bool isDeleted;
   final bool isForwarded;
+  final int forwardCount; // Phase 26
+  final DateTime? expiresAt; // Phase 22
   final String? mediaUrl;
   final String? mediaType;
   final bool isViewOnce;
@@ -46,6 +48,8 @@ class Message {
     this.isEdited = false,
     this.isDeleted = false,
     this.isForwarded = false,
+    this.forwardCount = 0,
+    this.expiresAt,
     this.mediaUrl,
     this.mediaType,
     this.isViewOnce = false,
@@ -132,6 +136,8 @@ class Message {
       isEdited: json['isEdited'] ?? false,
       isDeleted: json['isDeleted'] ?? false,
       isForwarded: json['isForwarded'] ?? false,
+      forwardCount: (json['forwardCount'] as num?)?.toInt() ?? 0,
+      expiresAt: json['expiresAt'] != null ? DateTime.tryParse(json['expiresAt']) : null,
       mediaUrl: mediaUrl,
       mediaType: mediaType,
       isViewOnce: isViewOnce,
@@ -168,6 +174,8 @@ class Message {
       'isEdited': isEdited,
       'isDeleted': isDeleted,
       'isForwarded': isForwarded,
+      'forwardCount': forwardCount,
+      'expiresAt': expiresAt?.toIso8601String(),
       'mediaUrl': mediaUrl,
       'mediaType': mediaType,
       'fileSize': fileSize,

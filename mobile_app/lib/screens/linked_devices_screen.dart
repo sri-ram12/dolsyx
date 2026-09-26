@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
@@ -18,11 +19,48 @@ class LinkedDevicesScreen extends StatefulWidget {
 class _LinkedDevicesScreenState extends State<LinkedDevicesScreen> {
   List<Map<String, dynamic>> _devices = [];
   bool _isLoading = true;
+  StreamSubscription? _deviceRevokedSub;
+  StreamSubscription? _pairingConsumedSub;
 
   @override
   void initState() {
     super.initState();
     _loadLinkedDevices();
+
+    final socketService = Provider.of<AuthProvider>(context, listen: false).socketService;
+
+    // Phase 17: Live device revocation — remove from list without reload
+    _deviceRevokedSub = socketService.onDeviceRevoked.listen((data) {
+      if (!mounted) return;
+      final sessionId = data['sessionId']?.toString();
+      final allOther = data['allOtherDevices'] == true;
+      setState(() {
+        if (allOther) {
+          _devices.removeWhere((d) => d['isCurrent'] != true);
+        } else if (sessionId != null) {
+          _devices.removeWhere((d) => d['id']?.toString() == sessionId);
+        }
+      });
+    });
+
+    // Phase 17: Pairing consumed — device successfully linked via QR
+    _pairingConsumedSub = socketService.onPairingConsumed.listen((data) {
+      if (!mounted) return;
+      final deviceName = data['deviceName']?.toString() ?? 'A new device';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('$deviceName is now linked to your account!'),
+        backgroundColor: const Color(0xFF00A884),
+        duration: const Duration(seconds: 3),
+      ));
+      _loadLinkedDevices(); // Refresh list to show new device
+    });
+  }
+
+  @override
+  void dispose() {
+    _deviceRevokedSub?.cancel();
+    _pairingConsumedSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadLinkedDevices() async {

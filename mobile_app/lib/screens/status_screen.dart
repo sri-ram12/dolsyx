@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -10,6 +11,7 @@ import '../models/status.dart';
 import '../services/status_service.dart';
 import '../services/api_service.dart';
 import '../services/socket_service.dart';
+import '../services/chat_service.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
 import '../utils/e2ee/crypto_service.dart';
@@ -32,15 +34,77 @@ class _StatusScreenState extends State<StatusScreen> {
   bool _isLoading = true;
   StreamSubscription? _statusSubscription;
   bool _showMuted = false;
+  bool _isPaused_emoji = false;
+  // Emoji reactions shortcut bar
+  static const List<String> _quickEmoji = ['❤️', '😂', '😮', '😢', '🙏', '👍'];
 
   @override
   void initState() {
     super.initState();
     _fetchStatuses();
-    
+
     final socketService = Provider.of<AuthProvider>(context, listen: false).socketService;
     _statusSubscription = socketService.onStatusStream.listen((event) {
-      if (mounted) _fetchStatuses();
+      if (!mounted) return;
+      final type = event['type'] as String?;
+      final data = event['data'];
+      switch (type) {
+        case 'new_status':
+          _handleNewStatus(data);
+          break;
+        case 'status_viewed':
+          _handleStatusViewed(data);
+          break;
+        case 'status_deleted':
+          _handleStatusDeleted(data);
+          break;
+        default:
+          _fetchStatuses();
+      }
+    });
+  }
+
+  // ─── Granular in-memory socket handlers ────────────────────────────────────
+
+  void _handleNewStatus(dynamic data) {
+    // A contact posted a new status — refresh fully to get proper ordering
+    _fetchStatuses();
+  }
+
+  void _handleStatusViewed(dynamic data) {
+    if (data == null || data is! Map) return;
+    final statusId = data['statusId']?.toString();
+    final viewerId = data['viewerId']?.toString();
+    if (statusId == null || viewerId == null) return;
+
+    setState(() {
+      _groups = _groups.map((group) {
+        final updatedStatuses = group.statuses.map((s) {
+          if (s.id != statusId) return s;
+          final currentViews = List<dynamic>.from(s.views ?? []);
+          final alreadyRecorded = currentViews.any((v) => v['viewerId'] == viewerId);
+          if (!alreadyRecorded) {
+            currentViews.add({'viewerId': viewerId, 'viewedAt': DateTime.now().toIso8601String(), 'viewer': {'id': viewerId, 'username': '...', 'avatarUrl': null, 'readReceipts': true}});
+          }
+          return s.copyWith(views: currentViews);
+        }).toList();
+        return group.copyWith(statuses: updatedStatuses);
+      }).toList();
+    });
+  }
+
+  void _handleStatusDeleted(dynamic data) {
+    if (data == null || data is! Map) return;
+    final statusId = data['statusId']?.toString();
+    if (statusId == null) return;
+
+    setState(() {
+      _groups = _groups.map((group) {
+        final updatedStatuses = group.statuses.where((s) => s.id != statusId).toList();
+        if (updatedStatuses.isEmpty) return null;
+        final stillHasUnread = updatedStatuses.any((s) => !s.isViewed && s.userId != (Provider.of<AuthProvider>(context, listen: false).user?['id'] ?? ''));
+        return group.copyWith(statuses: updatedStatuses, hasUnread: stillHasUnread);
+      }).whereType<UserStatusGroup>().toList();
     });
   }
 
@@ -575,33 +639,104 @@ class _StatusScreenState extends State<StatusScreen> {
     final latest = group.statuses.last;
     final user = group.user;
     final avatarUrl = user['avatarUrl'];
-    
-    // Status rings: green for unread, grey for read. If muted, always grey.
-    final borderColor = group.isMuted ? Colors.grey : (group.hasUnread ? AppTheme.primaryColor : Colors.grey);
+
+    // Elapsed fraction for countdown arc ring (oldest status drives the ring)
+    final oldest = group.statuses.first;
+    final arcFraction = oldest.timeElapsedFraction;
+    final ringColor = group.isMuted
+        ? Colors.grey
+        : (group.hasUnread ? AppTheme.primaryColor : Colors.grey.shade600);
 
     return ListTile(
-      leading: Container(
-        padding: const EdgeInsets.all(2),
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: borderColor, width: 2),
-        ),
-        child: CircleAvatar(
-          radius: 24,
-          backgroundColor: AppTheme.surfaceColor,
-          backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
-              ? CachedNetworkImageProvider(ApiService.getMediaUrl(avatarUrl))
-              : null,
-          child: (avatarUrl == null || avatarUrl.isEmpty)
-              ? Icon(Icons.person, color: AppTheme.textSecondary)
-              : null,
+      leading: SizedBox(
+        width: 56,
+        height: 56,
+        child: CustomPaint(
+          painter: _StatusArcPainter(
+            elapsed: arcFraction,
+            color: ringColor,
+            hasUnread: group.hasUnread && !group.isMuted,
+          ),
+          child: Center(
+            child: CircleAvatar(
+              radius: 22,
+              backgroundColor: AppTheme.surfaceColor,
+              backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
+                  ? CachedNetworkImageProvider(ApiService.getMediaUrl(avatarUrl))
+                  : null,
+              child: (avatarUrl == null || avatarUrl.isEmpty)
+                  ? Icon(Icons.person, color: AppTheme.textSecondary)
+                  : null,
+            ),
+          ),
         ),
       ),
-      title: Text(user['username'] ?? 'User', style: TextStyle(color: group.isMuted ? AppTheme.textSecondary : AppTheme.textPrimary, fontWeight: FontWeight.bold)),
-      subtitle: Text(_formatTime(latest.createdAt), style: TextStyle(color: AppTheme.textSecondary)),
+      title: Text(
+        user['username'] ?? 'User',
+        style: TextStyle(
+          color: group.isMuted ? AppTheme.textSecondary : AppTheme.textPrimary,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      subtitle: Row(
+        children: [
+          Text(_formatTime(latest.createdAt), style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+          const SizedBox(width: 6),
+          Text('· ${oldest.timeRemainingLabel}', style: TextStyle(color: AppTheme.textSecondary.withValues(alpha: 0.6), fontSize: 11)),
+        ],
+      ),
+      trailing: IconButton(
+        icon: Icon(Icons.emoji_emotions_outlined, color: AppTheme.textSecondary, size: 20),
+        tooltip: 'React',
+        onPressed: () => _showEmojiReactBar(group),
+      ),
       onTap: () => _viewStatus(group),
       onLongPress: () => _toggleMute(group),
     );
+  }
+
+  void _showEmojiReactBar(UserStatusGroup group) {
+    setState(() => _isPaused_emoji = true);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        height: 90,
+        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: AppTheme.surfaceColor,
+          borderRadius: BorderRadius.circular(30),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: _quickEmoji.map((emoji) {
+            return GestureDetector(
+              onTap: () async {
+                Navigator.pop(ctx);
+                setState(() => _isPaused_emoji = false);
+                final contactId = (group.user['id'] ?? group.user['_id'])?.toString();
+                if (contactId == null) return;
+                final chat = await ChatService().createDirectChat(contactId);
+                if (chat != null && mounted) {
+                  final latestStatusId = group.statuses.last.id;
+                  final socket = Provider.of<AuthProvider>(context, listen: false).socketService.socket;
+                  socket?.emit('send_message', {
+                    'conversationId': chat.id,
+                    'content': emoji,
+                    'replyToStatusId': latestStatusId,
+                  });
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text('$emoji sent as reaction!'),
+                    duration: const Duration(seconds: 1),
+                  ));
+                }
+              },
+              child: Text(emoji, style: const TextStyle(fontSize: 32)),
+            );
+          }).toList(),
+        ),
+      ),
+    ).whenComplete(() => setState(() => _isPaused_emoji = false));
   }
 
   String _formatTime(DateTime time) {
@@ -615,4 +750,49 @@ class _StatusScreenState extends State<StatusScreen> {
       return 'Yesterday';
     }
   }
+}
+
+/// Countdown arc ring painter for status list tiles.
+/// Draws a full-circle grey track and a coloured arc showing time elapsed (clockwise).
+/// When [hasUnread] is true the arc glows with extra strokeWidth.
+class _StatusArcPainter extends CustomPainter {
+  final double elapsed;   // 0.0 – 1.0
+  final Color color;
+  final bool hasUnread;
+
+  const _StatusArcPainter({
+    required this.elapsed,
+    required this.color,
+    required this.hasUnread,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final cy = size.height / 2;
+    final radius = (size.width / 2) - 2;
+    final rect = Rect.fromCircle(center: Offset(cx, cy), radius: radius);
+    const startAngle = -math.pi / 2; // 12 o’clock
+
+    // Track (grey)
+    final trackPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = hasUnread ? 2.5 : 2.0
+      ..color = Colors.grey.shade700;
+    canvas.drawArc(rect, 0, math.pi * 2, false, trackPaint);
+
+    // Elapsed arc (coloured)
+    final elapsedPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = hasUnread ? 3.0 : 2.0
+      ..strokeCap = StrokeCap.round
+      ..color = color;
+    canvas.drawArc(rect, startAngle, math.pi * 2 * elapsed, false, elapsedPaint);
+  }
+
+  @override
+  bool shouldRepaint(_StatusArcPainter oldDelegate) =>
+      oldDelegate.elapsed != elapsed ||
+      oldDelegate.color != color ||
+      oldDelegate.hasUnread != hasUnread;
 }

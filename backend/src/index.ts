@@ -98,15 +98,23 @@ const corsOriginFn = (
 
 import compression from "compression";
 import cookieParser from "cookie-parser";
+import {
+  securityHeadersMiddleware,
+  antiSpoofingMiddleware,
+  requestIntegrityMiddleware,
+} from "./middleware/security.middleware.js";
 
 // ── Middleware ───────────────────────────────────────────────────────────────
 // Trust proxy headers (for tunnels like serveo/ngrok where X-Forwarded-Proto is https)
 app.set("trust proxy", 1);
+app.use(securityHeadersMiddleware);
+app.use(antiSpoofingMiddleware);
 app.use(compression());
 app.use(cookieParser());
 app.use(cors({ origin: corsOriginFn, credentials: true }));
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+app.use(requestIntegrityMiddleware);
 
 const staticOptions = {
   maxAge: "30d",
@@ -143,9 +151,7 @@ app.use("/api/app", appRoutes);
 app.use("/api/api/app", appRoutes); // Fallback alias for legacy clients with baseUrl concatenation
 // ── Initialize Background Jobs & SDKs ──────────────────────────────────────────
 initFirebase();
-if (!process.env.CLUSTER_MODE || cluster.worker?.id === 1) {
-  initCronJobs();
-}
+// Note: initCronJobs is called after io is initialized (see below).
 
 // ── Deep Health & Readiness Checks ──────────────────────────────────────────
 app.get("/health/live", (_req, res) => {
@@ -215,6 +221,10 @@ const io = new Server(server, {
 });
 app.set("io", io);
 initChatSocket(io);
+// ── Cron Jobs (initialized after io is ready for status_deleted broadcasts) ────
+if (!process.env.CLUSTER_MODE || cluster.worker?.id === 1) {
+  initCronJobs(io);
+}
 
 // ── Serve Next.js Frontend (Monolith & Dev Proxy) ────────────────────────────
 const NEXT_PORT = IS_PRODUCTION ? 3001 : 3000;

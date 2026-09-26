@@ -39,6 +39,13 @@ class SocketService {
   final _statusStreamController = StreamController<dynamic>.broadcast();
   Stream<dynamic> get onStatusStream => _statusStreamController.stream;
 
+  // Phase 17: Multi-device events
+  final _deviceRevokedController = StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get onDeviceRevoked => _deviceRevokedController.stream;
+
+  final _pairingConsumedController = StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get onPairingConsumed => _pairingConsumedController.stream;
+
   final Set<String> onlineUserIds = {};
   final StreamController<Set<String>> onlineUsersStream = StreamController<Set<String>>.broadcast();
   final StreamController<Map<String, dynamic>> typingUpdates = StreamController<Map<String, dynamic>>.broadcast();
@@ -141,17 +148,17 @@ class SocketService {
               );
               message['content'] = decrypted;
 
-              // Check if decrypted content is an encrypted media descriptor
+              // Check if decrypted content is a media descriptor (E2EE or standard)
               try {
                 if (decrypted.startsWith('{') && decrypted.endsWith('}')) {
                   final decodedMedia = jsonDecode(decrypted);
-                  if (decodedMedia is Map<String, dynamic> && decodedMedia['encryptedMedia'] == true) {
+                  if (decodedMedia is Map<String, dynamic> && (decodedMedia['encryptedMedia'] == true || decodedMedia['mediaUrl'] != null)) {
                     message['content'] = decodedMedia['caption'] ?? '';
-                    message['mediaUrl'] = decodedMedia['mediaUrl'];
-                    message['mediaType'] = decodedMedia['mediaType'];
+                    message['mediaUrl'] = decodedMedia['mediaUrl'] ?? message['mediaUrl'];
+                    message['mediaType'] = decodedMedia['mediaType'] ?? message['mediaType'];
                     message['mediaKey'] = decodedMedia['mediaKey'];
                     message['nonce'] = decodedMedia['nonce'];
-                    message['isE2EEMedia'] = true;
+                    message['isE2EEMedia'] = decodedMedia['encryptedMedia'] == true || (decodedMedia['mediaKey'] != null && decodedMedia['nonce'] != null);
                   }
                 }
               } catch (_) {}
@@ -257,13 +264,13 @@ class SocketService {
 
         try {
           final decodedJson = jsonDecode(plaintext);
-          if (decodedJson is Map<String, dynamic> && decodedJson['encryptedMedia'] == true) {
-            updatedMsg['content'] = '';
-            updatedMsg['mediaUrl'] = decodedJson['mediaUrl'];
-            updatedMsg['mediaType'] = decodedJson['mediaType'];
+          if (decodedJson is Map<String, dynamic> && (decodedJson['encryptedMedia'] == true || decodedJson['mediaUrl'] != null)) {
+            updatedMsg['content'] = decodedJson['caption'] ?? '';
+            updatedMsg['mediaUrl'] = decodedJson['mediaUrl'] ?? updatedMsg['mediaUrl'];
+            updatedMsg['mediaType'] = decodedJson['mediaType'] ?? updatedMsg['mediaType'];
             updatedMsg['mediaKey'] = decodedJson['mediaKey'];
             updatedMsg['nonce'] = decodedJson['nonce'];
-            updatedMsg['isE2EEMedia'] = true;
+            updatedMsg['isE2EEMedia'] = decodedJson['encryptedMedia'] == true || (decodedJson['mediaKey'] != null && decodedJson['nonce'] != null);
           }
         } catch (_) {}
 
@@ -302,6 +309,19 @@ class SocketService {
     socket?.on('new_status', (data) => _statusStreamController.add({'type': 'new_status', 'data': data}));
     socket?.on('status_viewed', (data) => _statusStreamController.add({'type': 'status_viewed', 'data': data}));
     socket?.on('status_deleted', (data) => _statusStreamController.add({'type': 'status_deleted', 'data': data}));
+
+    // Phase 17: Multi-device companion events
+    socket?.on('DEVICE_REVOKED', (data) {
+      if (data is Map) {
+        _deviceRevokedController.add(Map<String, dynamic>.from(data));
+      }
+    });
+
+    socket?.on('PAIRING_CONSUMED', (data) {
+      if (data is Map) {
+        _pairingConsumedController.add(Map<String, dynamic>.from(data));
+      }
+    });
 
     socket?.on('profile_updated', (data) {
       if (data['user'] != null) {
@@ -554,6 +574,7 @@ class SocketService {
     bool isLiveLocation = false,
     String? liveExpiresAt,
     String? tempId,
+    int forwardCount = 0, // Phase 26
   }) async {
     print('Sending message. Socket connected: ${socket?.connected}');
     
@@ -580,6 +601,7 @@ class SocketService {
       if (mediaType != null) 'mediaType': mediaType,
       if (parentMessageId != null) 'parentMessageId': parentMessageId,
       if (isForwarded) 'isForwarded': true,
+      if (isForwarded) 'forwardCount': forwardCount, // Phase 26
       if (isViewOnce) 'isViewOnce': true,
       if (latitude != null) 'latitude': latitude,
       if (longitude != null) 'longitude': longitude,

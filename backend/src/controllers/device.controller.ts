@@ -249,6 +249,17 @@ export const consumePairing = async (req: Request, res: Response): Promise<void>
     res.cookie("dolsyx_session", token, cookieOptions);
     res.cookie("dolsyx_refresh", refreshToken, cookieOptions);
 
+    // Broadcast PAIRING_CONSUMED to the phone so it knows the laptop is now live
+    const io = (req as any).app.get("io");
+    if (io && result.userId) {
+      io.to(result.userId).emit("PAIRING_CONSUMED", {
+        pairingId,
+        sessionId: session.id,
+        deviceName,
+        consumedAt: new Date().toISOString(),
+      });
+    }
+
     res.json({
       success: true,
       message: "Laptop authenticated successfully",

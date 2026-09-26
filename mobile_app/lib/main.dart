@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'theme/app_theme.dart';
 import 'screens/login_screen.dart';
@@ -23,6 +24,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 
 import 'services/push_to_sync_service.dart';
+import 'services/security_service.dart';
 
 // Background FCM handler (Phase 13: Push-to-Sync & Background Message Sync Engine)
 @pragma('vm:entry-point')
@@ -62,6 +64,13 @@ void main() async {
   } catch (e) {
     // Firebase initialization skipped (missing config)
   }
+
+  // Anti-Tamper & Security Attestation (Phase 20)
+  unawaited(SecurityService().checkDeviceIntegrity().then((report) {
+    if (kDebugMode) {
+      debugPrint('[SecurityEngine] Attestation: $report');
+    }
+  }));
 
   runApp(
     MultiProvider(

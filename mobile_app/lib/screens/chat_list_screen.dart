@@ -39,6 +39,7 @@ import '../utils/e2ee/crypto_service.dart';
 import '../utils/e2ee/background_crypto_worker.dart';
 import '../services/update_service.dart';
 import '../services/local_database_service.dart';
+import 'broadcast_lists_screen.dart';
 
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
@@ -1399,12 +1400,18 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                   if (res == true) {
                     _fetchChats();
                   }
+                } else if (value == 'broadcast_lists') {
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const BroadcastListsScreen()));
                 }
               },
               itemBuilder: (context) => [
                 const PopupMenuItem(
                   value: 'new_group',
                   child: Text('New Group'),
+                ),
+                const PopupMenuItem(
+                  value: 'broadcast_lists',
+                  child: Text('Broadcast Lists'),
                 ),
                 const PopupMenuItem(
                   value: 'linked_devices',

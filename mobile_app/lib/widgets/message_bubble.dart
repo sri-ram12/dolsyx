@@ -53,6 +53,18 @@ class MessageBubble extends StatelessWidget {
 
   Widget _buildMessageText(String text, Color textColor, double fontSize) {
     final trimmed = text.trim();
+    if (trimmed.startsWith('{') && trimmed.endsWith('}') && (trimmed.contains('"mediaUrl"') || trimmed.contains('"encryptedMedia"'))) {
+      try {
+        final decoded = jsonDecode(trimmed);
+        if (decoded is Map && (decoded['encryptedMedia'] == true || decoded['mediaUrl'] != null)) {
+          final caption = decoded['caption']?.toString() ?? '';
+          if (caption.isNotEmpty) {
+            return _buildMessageText(caption, textColor, fontSize);
+          }
+          return const SizedBox.shrink();
+        }
+      } catch (_) {}
+    }
     if ((trimmed.startsWith('{') && (trimmed.contains('ciphertext') || trimmed.contains('e2ee'))) || (trimmed.contains(':') && trimmed.split(':').length == 3)) {
       // 0ms Synchronous Cache Hit: Render directly without FutureBuilder
       final cached = CryptoService.instance.getCachedDecryptedContent(trimmed);
@@ -234,8 +246,31 @@ class MessageBubble extends StatelessWidget {
     return 18.0;
   }
 
+  static Message resolveMediaPayload(Message m) {
+    if ((m.mediaUrl == null || m.mediaUrl!.isEmpty) &&
+        m.content.trim().startsWith('{') &&
+        m.content.trim().endsWith('}')) {
+      try {
+        final decoded = jsonDecode(m.content.trim());
+        if (decoded is Map && (decoded['encryptedMedia'] == true || decoded['mediaUrl'] != null)) {
+          final isE2EE = decoded['encryptedMedia'] == true || (decoded['mediaKey'] != null && decoded['nonce'] != null);
+          return m.copyWith(
+            content: decoded['caption']?.toString() ?? '',
+            mediaUrl: decoded['mediaUrl']?.toString(),
+            mediaType: decoded['mediaType']?.toString() ?? 'IMAGE',
+            mediaKey: decoded['mediaKey']?.toString(),
+            nonce: decoded['nonce']?.toString(),
+            isE2EEMedia: isE2EE,
+          );
+        }
+      } catch (_) {}
+    }
+    return m;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final message = resolveMediaPayload(this.message);
     final bool isSystem = message.mediaType == 'SYSTEM' ||
         message.senderId == 'system' ||
         message.content.startsWith('SYSTEM:') ||

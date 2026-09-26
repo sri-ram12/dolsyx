@@ -58,6 +58,7 @@ model User {
   savedBy          Contact[]         @relation("SavedByContacts")
   starredMessages  StarredMessage[]
   messageReactions MessageReaction[]
+  scheduledMessages ScheduledMessage[]  // Phase 24
   
   // E2EE Relations
   devices          Device[]          @relation("UserDevices")
@@ -163,21 +164,23 @@ model Session {
 }
 
 model Conversation {
-  id           String        @id @default(uuid())
-  name         String?
-  isGroup      Boolean       @default(false)
-  avatarUrl    String?
-  description  String?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  pinnedMessageId String?
+  id                String        @id @default(uuid())
+  name              String?
+  isGroup           Boolean       @default(false)
+  avatarUrl         String?
+  description       String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  pinnedMessageId   String?
+  // Phase 22: Per-conversation disappearing timer (OFF | 24H | 7D | 90D)
+  disappearingTimer String        @default("OFF")
 
-  
   // Relations
-  messages        Message[]
-  participants    Participant[]
-  tasks           Task[]
-  pinnedMessages  PinnedMessage[]
+  messages          Message[]
+  participants      Participant[]
+  tasks             Task[]
+  pinnedMessages    PinnedMessage[]
+  scheduledMessages ScheduledMessage[]
 
   @@index([updatedAt])
 }
@@ -215,6 +218,7 @@ model Message {
   mediaUrl        String?
   mediaType       String?          @default("TEXT") // TEXT, IMAGE, VIDEO, FILE, CODE_SNIPPET, LOCATION
   isForwarded     Boolean          @default(false)
+  forwardCount    Int              @default(0)       // Phase 26: forward hop count
   isViewOnce      Boolean          @default(false)
   isViewed        Boolean          @default(false)
   viewedAt        DateTime?
@@ -226,7 +230,9 @@ model Message {
   isLiveEnded     Boolean          @default(false)
   createdAt       DateTime         @default(now())
   repliedStatusId String?          // For replying to statuses
-  
+  // Phase 22: Auto-expiry time set from conversation disappearingTimer on message write
+  expiresAt       DateTime?
+
   // Relations
   sender          User             @relation(fields: [senderId], references: [id], onDelete: Cascade)
   conversation    Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
@@ -244,6 +250,7 @@ model Message {
   @@index([senderId])
   @@index([parentMessageId])
   @@index([mediaType])
+  @@index([expiresAt])           // Phase 22: fast expiry cron query
 }
 
 model PinnedMessage {
@@ -258,6 +265,24 @@ model PinnedMessage {
   message        Message      @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
   @@unique([conversationId, messageId])
+}
+
+// Phase 24: Scheduled Messages — send at a future DateTime
+model ScheduledMessage {
+  id             String        @id @default(uuid())
+  conversationId String
+  senderId       String
+  content        String
+  mediaUrl       String?
+  mediaType      String?       @default("TEXT")
+  scheduledAt    DateTime      // UTC time to deliver
+  status         String        @default("PENDING")  // PENDING | SENT | CANCELLED
+  createdAt      DateTime      @default(now())
+
+  conversation   Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User          @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([scheduledAt, status])
 }
 
 model MessageReaction {

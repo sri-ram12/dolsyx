@@ -28,6 +28,7 @@ import '../models/chat.dart';
 import '../theme/app_theme.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/sticker_gif_picker.dart';
+import 'package:share_plus/share_plus.dart';
 import 'other_user_profile_screen.dart';
 import '../widgets/color_avatar.dart';
 import '../widgets/full_screen_image_view.dart';
@@ -623,51 +624,69 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     );
   }
 
+  // Phase 22: Maps UI label → backend timer key
+  static const _timerKeyMap = {
+    'Off': 'OFF',
+    '24 Hours': '24H',
+    '7 Days': '7D',
+    '90 Days': '90D',
+  };
+
   void _showDisappearingDialog() {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Disappearing Messages'),
+        backgroundColor: const Color(0xFF1E293B),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Text(
+          'Disappearing Messages',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              title: const Text('Off'),
-              onTap: () {
-                Navigator.pop(ctx);
-                setState(() => _disappearingTimer = 'Off');
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Disappearing messages turned Off')));
-              },
-            ),
-            ListTile(
-              title: const Text('24 Hours'),
-              onTap: () {
-                Navigator.pop(ctx);
-                setState(() => _disappearingTimer = '24 Hours');
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Messages will self-destruct after 24 Hours')));
-              },
-            ),
-            ListTile(
-              title: const Text('7 Days'),
-              onTap: () {
-                Navigator.pop(ctx);
-                setState(() => _disappearingTimer = '7 Days');
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Messages will self-destruct after 7 Days')));
-              },
-            ),
-            ListTile(
-              title: const Text('90 Days'),
-              onTap: () {
-                Navigator.pop(ctx);
-                setState(() => _disappearingTimer = '90 Days');
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Messages will self-destruct after 90 Days')));
-              },
-            ),
-          ],
+          children: _timerKeyMap.keys.map((label) {
+            final isSelected = _disappearingTimer == label;
+            return Container(
+              margin: const EdgeInsets.symmetric(vertical: 2),
+              decoration: BoxDecoration(
+                color: isSelected ? const Color(0xFF25D366).withValues(alpha: 0.15) : Colors.transparent,
+                borderRadius: BorderRadius.circular(10),
+                border: isSelected ? Border.all(color: const Color(0xFF25D366), width: 1.2) : null,
+              ),
+              child: ListTile(
+                leading: isSelected
+                    ? const Icon(Icons.check_circle, color: Color(0xFF25D366), size: 20)
+                    : const Icon(Icons.radio_button_unchecked, color: Colors.white38, size: 20),
+                title: Text(label, style: TextStyle(
+                  color: isSelected ? const Color(0xFF25D366) : Colors.white,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                )),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  final backendKey = _timerKeyMap[label] ?? 'OFF';
+                  setState(() => _disappearingTimer = label);
+                  // Phase 22: Emit to backend — enforced server-side
+                  final socket = Provider.of<AuthProvider>(context, listen: false).socketService.socket;
+                  socket?.emit('set_disappearing_timer', {
+                    'conversationId': widget.conversationId,
+                    'timer': backendKey,
+                  });
+                  final msg = label == 'Off'
+                      ? 'Disappearing messages turned Off'
+                      : 'Messages will self-destruct after $label';
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text(msg),
+                    backgroundColor: const Color(0xFF1E293B),
+                  ));
+                },
+              ),
+            );
+          }).toList(),
         ),
       ),
     );
   }
+
 
   void _showEncryptionInfoDialog() {
     showModalBottomSheet(
@@ -883,8 +902,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       final file = File('${tempDir.path}/DOLSYX_${widget.chatName.replaceAll(' ', '_')}_ChatBackup.txt');
       await file.writeAsString(buffer.toString());
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Chat backup exported: ${file.path}')),
+        await Share.shareXFiles(
+          [XFile(file.path)],
+          text: 'DOLSYX Chat Transcript for ${widget.chatName}',
+          subject: 'DOLSYX Chat Backup - ${widget.chatName}',
         );
       }
     } catch (e) {
@@ -1109,6 +1130,21 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     authProvider.socketService.onMessageReceived(_onMessageReceivedHandler!);
     authProvider.socketService.onEncryptedMessageReceived(_onEncryptedMessageReceivedHandler!);
     
+    // Phase 23: Fetch Draft
+    authProvider.socketService.socket?.emitWithAck('get_draft', {
+      'conversationId': widget.conversationId,
+    }, ack: (response) {
+      if (mounted && response != null && response is Map && response['draft'] != null) {
+        final draft = response['draft'].toString();
+        if (draft.isNotEmpty) {
+          setState(() {
+            _messageController.text = draft;
+            _messageController.selection = TextSelection.fromPosition(TextPosition(offset: draft.length));
+          });
+        }
+      }
+    });
+
     // Clear unread messages count on entry
     authProvider.socketService.socket?.emit('mark_read', {
       'conversationId': widget.conversationId,
@@ -1133,6 +1169,31 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     socket?.on('message_unpinned', _onMessageUnpinnedHandler!);
     socket?.on('poll_updated', _onPollUpdatedHandler!);
     socket?.on('message_sent', _onMessageSentHandler!);
+
+    // Phase 22: Listen for server-side disappearing message expiry
+    socket?.on('messages_expired', (data) {
+      if (!mounted || data == null) return;
+      if (data['conversationId'] != widget.conversationId) return;
+      final expiredIds = List<String>.from((data['messageIds'] as List?)?.map((e) => e.toString()) ?? []);
+      if (expiredIds.isEmpty) return;
+      setState(() {
+        _messages.removeWhere((m) => expiredIds.contains(m.id));
+      });
+      // Purge from local SQLite cache
+      for (final id in expiredIds) {
+        LocalDatabaseService().deleteMessage(id);
+      }
+    });
+
+    // Phase 22: Sync disappearing timer when another device or participant changes it
+    socket?.on('disappearing_timer_updated', (data) {
+      if (!mounted || data == null) return;
+      if (data['conversationId'] != widget.conversationId) return;
+      final backendTimer = data['timer']?.toString() ?? 'OFF';
+      final labelMap = {'OFF': 'Off', '24H': '24 Hours', '7D': '7 Days', '90D': '90 Days'};
+      final label = labelMap[backendTimer] ?? 'Off';
+      if (mounted) setState(() => _disappearingTimer = label);
+    });
 
     // Scheduled Messages real-time sync
     _loadScheduledMessages();
@@ -1181,6 +1242,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     final socket = auth?.socketService.socket;
     socket?.off('scheduled_messages_updated');
     socket?.off('scheduled_message_executed');
+    socket?.off('messages_expired');
+    socket?.off('disappearing_timer_updated');
     if (_onGroupUpdatedHandler != null) socket?.off('group_updated', _onGroupUpdatedHandler!);
     if (_onViewOnceOpenedHandler != null) socket?.off('view_once_opened', _onViewOnceOpenedHandler!);
     if (_onLiveLocationUpdatedHandler != null) socket?.off('live_location_updated', _onLiveLocationUpdatedHandler!);
@@ -1202,6 +1265,13 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     if (_onProfileUpdatedHandler != null) auth?.socketService.offProfileUpdated(_onProfileUpdatedHandler!);
     if (_onReactionAddedHandler != null) auth?.socketService.offReactionAdded(_onReactionAddedHandler!);
     if (_onReactionRemovedHandler != null) auth?.socketService.offReactionRemoved(_onReactionRemovedHandler!);
+    // Phase 23: Save draft to backend on exit
+    final draftText = _messageController.text.trim();
+    final draftSocket = auth?.socketService.socket;
+    draftSocket?.emit('save_draft', {
+      'conversationId': widget.conversationId,
+      'text': draftText,
+    });
     _messageController.removeListener(_onTextChanged);
     _messageController.dispose();
     _scrollController.dispose();
@@ -1836,14 +1906,15 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           if (decrypted.startsWith('{') && decrypted.endsWith('}')) {
             try {
               final parsed = jsonDecode(decrypted);
-              if (parsed is Map && parsed['encryptedMedia'] == true) {
+              if (parsed is Map && (parsed['encryptedMedia'] == true || parsed['mediaUrl'] != null)) {
+                final isE2EE = parsed['encryptedMedia'] == true || (parsed['mediaKey'] != null && parsed['nonce'] != null);
                 return m.copyWith(
                   content: parsed['caption']?.toString() ?? '',
                   mediaUrl: parsed['mediaUrl']?.toString() ?? m.mediaUrl,
                   mediaType: parsed['mediaType']?.toString() ?? m.mediaType,
                   mediaKey: parsed['mediaKey']?.toString(),
                   nonce: parsed['nonce']?.toString(),
-                  isE2EEMedia: true,
+                  isE2EEMedia: isE2EE,
                 );
               }
             } catch (_) {}

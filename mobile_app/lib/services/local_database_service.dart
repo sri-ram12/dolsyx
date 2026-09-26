@@ -82,6 +82,8 @@ class LocalDatabaseService {
             isEdited INTEGER DEFAULT 0,
             isDeleted INTEGER DEFAULT 0,
             isForwarded INTEGER DEFAULT 0,
+            forwardCount INTEGER DEFAULT 0,
+            expiresAt INTEGER DEFAULT 0,
             parentMessageId TEXT,
             parentMessageJson TEXT,
             senderJson TEXT,
@@ -106,6 +108,12 @@ class LocalDatabaseService {
         // Safe automatic schema evolution
         try {
           await db.execute('ALTER TABLE local_messages ADD COLUMN thumbnail TEXT;');
+        } catch (_) {}
+        try {
+          await db.execute('ALTER TABLE local_messages ADD COLUMN forwardCount INTEGER DEFAULT 0;');
+        } catch (_) {}
+        try {
+          await db.execute('ALTER TABLE local_messages ADD COLUMN expiresAt INTEGER DEFAULT 0;');
         } catch (_) {}
 
         // 3. Call Logs Table
@@ -948,6 +956,8 @@ class LocalDatabaseService {
       'isEdited': msg.isEdited ? 1 : 0,
       'isDeleted': msg.isDeleted ? 1 : 0,
       'isForwarded': msg.isForwarded ? 1 : 0,
+      'forwardCount': msg.forwardCount,
+      'expiresAt': msg.expiresAt?.millisecondsSinceEpoch ?? 0,
       'parentMessageId': msg.parentMessageId,
       'parentMessageJson': msg.parentMessage != null ? jsonEncode(msg.parentMessage) : null,
       'senderJson': msg.sender != null ? jsonEncode(msg.sender) : null,
@@ -999,19 +1009,48 @@ class LocalDatabaseService {
       liveExpiresAt = DateTime.fromMillisecondsSinceEpoch(r['liveExpiresAt'] as int);
     }
 
+    DateTime? expiresAt;
+    if (r['expiresAt'] != null && (r['expiresAt'] as int) > 0) {
+      expiresAt = DateTime.fromMillisecondsSinceEpoch(r['expiresAt'] as int);
+    }
+
     final createdAtMs = (r['createdAt'] as int?) ?? DateTime.now().millisecondsSinceEpoch;
+
+    String content = (r['content'] as String?) ?? '';
+    String? mediaUrl = r['mediaUrl'] as String?;
+    String? mediaType = r['mediaType'] as String?;
+    String? mediaKey = r['mediaKey'] as String?;
+    String? nonce = r['nonce'] as String?;
+    bool isE2EEMedia = (r['isE2EEMedia'] as int?) == 1;
+
+    // Auto-unpack media JSON stored in content (e.g. from web or raw socket envelopes)
+    if (content.trim().startsWith('{') && content.trim().endsWith('}')) {
+      try {
+        final decoded = jsonDecode(content.trim());
+        if (decoded is Map && (decoded['encryptedMedia'] == true || decoded['mediaUrl'] != null)) {
+          content = decoded['caption']?.toString() ?? '';
+          mediaUrl = decoded['mediaUrl']?.toString() ?? mediaUrl;
+          mediaType = decoded['mediaType']?.toString() ?? mediaType;
+          mediaKey = decoded['mediaKey']?.toString() ?? mediaKey;
+          nonce = decoded['nonce']?.toString() ?? nonce;
+          isE2EEMedia = decoded['encryptedMedia'] == true || (mediaKey != null && nonce != null) || isE2EEMedia;
+        }
+      } catch (_) {}
+    }
 
     return Message(
       id: r['id'] as String,
-      content: (r['content'] as String?) ?? '',
+      content: content,
       senderId: (r['senderId'] as String?) ?? '',
       conversationId: (r['conversationId'] as String?) ?? '',
       parentMessageId: r['parentMessageId'] as String?,
       isEdited: (r['isEdited'] as int?) == 1,
       isDeleted: (r['isDeleted'] as int?) == 1,
       isForwarded: (r['isForwarded'] as int?) == 1,
-      mediaUrl: r['mediaUrl'] as String?,
-      mediaType: r['mediaType'] as String?,
+      forwardCount: (r['forwardCount'] as int?) ?? 0,
+      expiresAt: expiresAt,
+      mediaUrl: mediaUrl,
+      mediaType: mediaType,
       isViewOnce: (r['isViewOnce'] as int?) == 1,
       isViewed: (r['isViewed'] as int?) == 1,
       latitude: (r['latitude'] as num?)?.toDouble(),
@@ -1027,9 +1066,9 @@ class LocalDatabaseService {
       sender: sender,
       isPending: (r['isPending'] as int?) == 1,
       isPinned: (r['isPinned'] as int?) == 1,
-      mediaKey: r['mediaKey'] as String?,
-      nonce: r['nonce'] as String?,
-      isE2EEMedia: (r['isE2EEMedia'] as int?) == 1,
+      mediaKey: mediaKey,
+      nonce: nonce,
+      isE2EEMedia: isE2EEMedia,
       fileSize: (r['fileSize'] as int?),
       fileName: r['fileName'] as String?,
       thumbnail: r['thumbnail'] as String?,

@@ -119,6 +119,13 @@ class _ForwardMessageScreenState extends State<ForwardMessageScreen> {
                           if (isSelected) {
                             _selectedConversationIds.remove(chat.id);
                           } else {
+                            // Phase 26: WhatsApp 5 chat forward limit
+                            if (_selectedConversationIds.length >= 5) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('You can only share with up to 5 chats')),
+                              );
+                              return;
+                            }
                             _selectedConversationIds.add(chat.id);
                           }
                         });

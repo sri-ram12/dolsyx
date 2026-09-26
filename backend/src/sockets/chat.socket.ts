@@ -9,6 +9,7 @@ import { encryptionService } from "../services/encryption.service.js";
 import { sendPushNotification } from "../config/firebase.config.js";
 import { canViewOnline, canViewLastSeen, evaluatePrivacyInMemory } from "../utils/privacy.engine.js";
 import { AIService } from "../ai/ai-service.js";
+import { timerToExpiresAt } from "../utils/cron.jobs.js"; // Phase 22
 
 const JWT_SECRET = process.env.JWT_SECRET || "dolsyx_super_secret_key_123456";
 
@@ -18,10 +19,35 @@ const onlineUsers = new Map<string, Set<string>>();
 const activeCallUsers = new Map<string, string>();
 // In-memory cache for conversation participants for <1ms zero-lag delivery
 const convParticipantsCache = new Map<string, { userIds: string[]; isGroup: boolean; name: string; timestamp: number }>();
+// Phase 23: Per-user per-conversation draft store keyed by `userId:conversationId`
+const draftStore = new Map<string, string>();
+
 
 export const invalidateConvParticipantsCache = (conversationId: string) => {
   convParticipantsCache.delete(conversationId);
+  // Also invalidate disappearing timer cache
+  disappearingTimerCache.delete(conversationId);
 };
+
+// Phase 22: Per-conversation disappearing timer cache (TTL: 5 minutes)
+const disappearingTimerCache = new Map<string, { timer: string; timestamp: number }>();
+
+async function getConvDisappearingTimer(conversationId: string): Promise<string> {
+  const now = Date.now();
+  const cached = disappearingTimerCache.get(conversationId);
+  if (cached && (now - cached.timestamp < 300000)) return cached.timer;
+  try {
+    const conv = await prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { disappearingTimer: true },
+    });
+    const timer = conv?.disappearingTimer || 'OFF';
+    disappearingTimerCache.set(conversationId, { timer, timestamp: now });
+    return timer;
+  } catch {
+    return 'OFF';
+  }
+}
 
 // Map to track blocked pairs for 0ms zero-lag DM delivery without blocking DB roundtrips
 export const blockedPairsCache = new Map<string, { isBlocked: boolean; timestamp: number }>();
@@ -466,8 +492,37 @@ export const initChatSocket = (io: Server) => {
         const contactIds = new Set(relatedParticipants.map(p => p.userId));
         const onlineContacts = Array.from(onlineUsers.keys()).filter(id => contactIds.has(id));
 
+        // Filter out contacts who have Ghost Mode (onlinePrivacy NOBODY) or whose privacy restricts this user
+        let permittedOnlineContacts: string[] = [];
+        if (onlineContacts.length > 0) {
+          const candidateUsers = await prisma.user.findMany({
+            where: { id: { in: onlineContacts } },
+            select: {
+              id: true,
+              onlinePrivacy: true,
+              lastSeenPrivacy: true,
+              lastSeenPrivacyExceptList: true,
+            },
+          });
+
+          permittedOnlineContacts = candidateUsers
+            .filter((cand) => {
+              const isBlocked = blockedSet.has(cand.id);
+              const isContact = contactSet.has(cand.id);
+              const candPrivacy = {
+                id: cand.id,
+                lastSeenPrivacy: cand.lastSeenPrivacy,
+                lastSeenPrivacyExceptList: cand.lastSeenPrivacyExceptList,
+                onlinePrivacy: cand.onlinePrivacy,
+              };
+              const evalResult = evaluatePrivacyInMemory(userId, candPrivacy, isBlocked, isContact);
+              return evalResult.canOnlineStatus;
+            })
+            .map((c) => c.id);
+        }
+
         // Send restricted list of online contacts to connected client
-        socket.emit("online_users_list", onlineContacts);
+        socket.emit("online_users_list", permittedOnlineContacts);
 
         const targetUserPrivacy = {
           id: userId,
@@ -481,13 +536,15 @@ export const initChatSocket = (io: Server) => {
           status: "online",
         };
 
-        // Broadcast user online status change ONLY to permitted contacts in sub-millisecond memory execution
-        for (const p of relatedParticipants) {
-          const isBlocked = blockedSet.has(p.userId);
-          const isContactOfTarget = contactSet.has(p.userId);
-          const evalResult = evaluatePrivacyInMemory(p.userId, targetUserPrivacy, isBlocked, isContactOfTarget);
-          if (evalResult.canOnlineStatus) {
-            io.to(p.userId).emit("user_status_change", payload);
+        // Broadcast user online status change ONLY to permitted contacts if user is NOT in Ghost Mode (onlinePrivacy !== NOBODY)
+        if (user.onlinePrivacy !== "NOBODY") {
+          for (const p of relatedParticipants) {
+            const isBlocked = blockedSet.has(p.userId);
+            const isContactOfTarget = contactSet.has(p.userId);
+            const evalResult = evaluatePrivacyInMemory(p.userId, targetUserPrivacy, isBlocked, isContactOfTarget);
+            if (evalResult.canOnlineStatus) {
+              io.to(p.userId).emit("user_status_change", payload);
+            }
           }
         }
       } catch (err) {
@@ -760,12 +817,16 @@ export const initChatSocket = (io: Server) => {
                 mediaUrl: mediaUrl || null,
                 mediaType: (mediaType as any) || (latitude ? "LOCATION" : "TEXT"),
                 isForwarded: isForwarded || false,
+                // Phase 26: cap forward hop count at 5 (WhatsApp limit)
+                forwardCount: isForwarded ? Math.min(((data as any).forwardCount ?? 0) + 1, 5) : 0,
                 isViewOnce: isViewOnce || false,
                 latitude: latitude ?? null,
                 longitude: longitude ?? null,
                 locationTitle: locationTitle || null,
                 isLiveLocation: isLiveLocation || false,
                 liveExpiresAt: liveExpiresAt ? new Date(liveExpiresAt) : null,
+                // Phase 22: set expiresAt from conversation disappearing timer
+                expiresAt: timerToExpiresAt(await getConvDisappearingTimer(conversationId)),
               },
             });
 
@@ -811,12 +872,106 @@ export const initChatSocket = (io: Server) => {
                     senderId: userId,
                     senderName: username,
                     content: dbMessage.content,
-                    iv: dbMessage.iv || "",
+                    iv: (dbMessage as any).iv || "",
                     mediaType: dbMessage.mediaType || "TEXT",
                     mediaUrl: dbMessage.mediaUrl || "",
                     createdAt: dbMessage.createdAt.toISOString(),
                   });
                 }
+              }
+            }
+
+            // WhatsApp Meta AI In-Chat Mentions (@ai / @dolsyx)
+            const cleanContent = content ? content.trim() : "";
+            const isAiMention = /(^|\s)@(ai|dolsyx)\b/i.test(cleanContent);
+            if (isAiMention) {
+              const prompt = cleanContent.replace(/@(ai|dolsyx)/gi, "").trim();
+              if (prompt.length > 0) {
+                // Show AI typing indicator in conversation room
+                io.to(conversationId).emit("typing_start", {
+                  conversationId,
+                  userId: "dolsyx_ai_bot",
+                  username: "DOLSYX AI",
+                });
+
+                // Generate AI response asynchronously without blocking socket pipeline
+                setImmediate(async () => {
+                  try {
+                    const aiResult = await AIService.chat(prompt, {
+                      userId,
+                      username,
+                      conversationId,
+                      enableTools: true,
+                    });
+
+                    // Stop typing indicator
+                    io.to(conversationId).emit("typing_stop", {
+                      conversationId,
+                      userId: "dolsyx_ai_bot",
+                    });
+
+                    const replyText = aiResult?.text?.trim();
+                    if (replyText) {
+                      let aiBotUser = await prisma.user.findFirst({
+                        where: { username: "DOLSYX AI" },
+                        select: { id: true, username: true, avatarUrl: true },
+                      });
+
+                      if (!aiBotUser) {
+                        aiBotUser = await prisma.user.create({
+                          data: {
+                            username: "DOLSYX AI",
+                            email: "ai@dolsyx.internal",
+                            phoneNumber: "+00000000000",
+                            avatarUrl: "https://dolsyx-app.onrender.com/assets/icon/app_icon.png",
+                            bio: "DOLSYX Meta AI Assistant",
+                          },
+                          select: { id: true, username: true, avatarUrl: true },
+                        });
+                      }
+
+                      // Persist AI response
+                      const aiDbMsg = await prisma.message.create({
+                        data: {
+                          content: replyText,
+                          conversationId,
+                          senderId: aiBotUser.id,
+                          mediaType: "TEXT",
+                        },
+                        include: {
+                          sender: {
+                            select: {
+                              id: true,
+                              username: true,
+                              avatarUrl: true,
+                            },
+                          },
+                          parentMessage: true,
+                          receipts: true,
+                        },
+                      });
+
+                      // Broadcast AI response to conversation room and participants
+                      io.to(conversationId).emit("new_message", {
+                        message: aiDbMsg,
+                        conversationId,
+                      });
+
+                      participantUserIds.forEach((pId) => {
+                        io.to(pId).emit("new_message", {
+                          message: aiDbMsg,
+                          conversationId,
+                        });
+                      });
+                    }
+                  } catch (aiErr) {
+                    console.error("[In-Chat AI] Error in AI mention reply:", aiErr);
+                    io.to(conversationId).emit("typing_stop", {
+                      conversationId,
+                      userId: "dolsyx_ai_bot",
+                    });
+                  }
+                });
               }
             }
           } catch (bgErr) {
@@ -870,6 +1025,137 @@ export const initChatSocket = (io: Server) => {
         });
       } catch (error) {
         console.error("Socket remove_reaction error:", error);
+      }
+    });
+
+    // ─── Phase 22: Set Disappearing Timer ────────────────────────────────────────
+    // Emitted by client when user changes disappearing timer in chat settings.
+    socket.on("set_disappearing_timer", async (data: {
+      conversationId: string;
+      timer: string; // OFF | 24H | 7D | 90D
+    }) => {
+      try {
+        const { conversationId, timer } = data;
+        if (!conversationId || !["OFF", "24H", "7D", "90D"].includes(timer)) return;
+
+        // Verify sender is participant
+        const participant = await prisma.participant.findUnique({
+          where: { userId_conversationId: { userId, conversationId } },
+        });
+        if (!participant) return;
+
+        await prisma.conversation.update({
+          where: { id: conversationId },
+          data: { disappearingTimer: timer },
+        });
+
+        // Invalidate in-memory caches
+        disappearingTimerCache.delete(conversationId);
+
+        // Broadcast the updated timer to all conversation members
+        io.to(conversationId).emit("disappearing_timer_updated", {
+          conversationId,
+          timer,
+          updatedByUserId: userId,
+          updatedByUsername: username,
+        });
+      } catch (error) {
+        console.error("Socket set_disappearing_timer error:", error);
+      }
+    });
+
+    // ─── Phase 23: Draft Message Save / Get ──────────────────────────────────────
+    // Lightweight in-memory draft store keyed by `userId:conversationId`.
+    // Survives socket disconnects within the same server process.
+    // On multi-instance setups the client always sends its latest draft on focus.
+    socket.on("save_draft", (data: { conversationId: string; text: string }) => {
+      try {
+        if (!data.conversationId) return;
+        const key = `${userId}:${data.conversationId}`;
+        if (data.text && data.text.trim().length > 0) {
+          draftStore.set(key, data.text);
+        } else {
+          draftStore.delete(key);
+        }
+      } catch (error) {
+        console.error("Socket save_draft error:", error);
+      }
+    });
+
+    socket.on("get_draft", (data: { conversationId: string }, callback?: (res: any) => void) => {
+      try {
+        if (!data.conversationId || typeof callback !== "function") return;
+        const key = `${userId}:${data.conversationId}`;
+        callback({ draft: draftStore.get(key) || "" });
+      } catch (error) {
+        console.error("Socket get_draft error:", error);
+      }
+    });
+
+    // ─── Phase 24: Schedule Message ───────────────────────────────────────────────
+    socket.on("schedule_message", async (data: {
+      conversationId: string;
+      content: string;
+      mediaUrl?: string;
+      mediaType?: string;
+      scheduledAt: string; // ISO UTC string
+    }, callback?: (res: any) => void) => {
+      try {
+        const { conversationId, content, mediaUrl, mediaType, scheduledAt } = data;
+        if (!conversationId || !content || !scheduledAt) {
+          if (callback) callback({ success: false, error: "Missing required fields" });
+          return;
+        }
+
+        const scheduledDate = new Date(scheduledAt);
+        if (isNaN(scheduledDate.getTime()) || scheduledDate <= new Date()) {
+          if (callback) callback({ success: false, error: "scheduledAt must be a future date" });
+          return;
+        }
+
+        const scheduled = await prisma.scheduledMessage.create({
+          data: {
+            conversationId,
+            senderId: userId,
+            content,
+            mediaUrl: mediaUrl || null,
+            mediaType: (mediaType as any) || "TEXT",
+            scheduledAt: scheduledDate,
+          },
+        });
+
+        if (callback) callback({ success: true, scheduledMessageId: scheduled.id, scheduledAt: scheduled.scheduledAt.toISOString() });
+
+        // Notify sender's device about the new scheduled message (for display in scheduled list)
+        socket.emit("scheduled_message_created", {
+          id: scheduled.id,
+          conversationId,
+          content,
+          scheduledAt: scheduled.scheduledAt.toISOString(),
+          status: "PENDING",
+        });
+      } catch (error) {
+        console.error("Socket schedule_message error:", error);
+        if (callback) callback({ success: false, error: "Internal error" });
+      }
+    });
+
+    socket.on("cancel_scheduled_message", async (data: {
+      scheduledMessageId: string;
+    }, callback?: (res: any) => void) => {
+      try {
+        const { scheduledMessageId } = data;
+        if (!scheduledMessageId) { if (callback) callback({ success: false }); return; }
+
+        const updated = await prisma.scheduledMessage.updateMany({
+          where: { id: scheduledMessageId, senderId: userId, status: "PENDING" },
+          data: { status: "CANCELLED" },
+        });
+
+        if (callback) callback({ success: updated.count > 0 });
+      } catch (error) {
+        console.error("Socket cancel_scheduled_message error:", error);
+        if (callback) callback({ success: false });
       }
     });
 

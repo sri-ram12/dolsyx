@@ -1,5 +1,5 @@
 import 'dart:io';
-import '../lib/services/update/version_comparator.dart';
+import 'package:mobile_app/services/update/version_comparator.dart';
 
 void assertTrue(bool condition, String message) {
   if (!condition) {

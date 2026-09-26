@@ -22,6 +22,8 @@ import 'animated_emoji.dart';
 import '../utils/e2ee/e2ee_media_cache.dart';
 import '../utils/e2ee/crypto_service.dart';
 import '../utils/media_size_helper.dart';
+import '../services/link_preview_service.dart';
+import '../models/link_preview_data.dart';
 
 class MessageBubble extends StatelessWidget {
   final Message message;
@@ -221,100 +223,7 @@ class MessageBubble extends StatelessWidget {
   }
 
   Widget _buildLinkPreviewCard(String url) {
-    Uri? uri = Uri.tryParse(url);
-    final host = uri?.host.replaceAll('www.', '') ?? 'Link';
-
-    IconData icon = Icons.language;
-    String badgeTitle = 'Web Link';
-    Color badgeColor = const Color(0xFF3B82F6);
-
-    if (host.contains('facebook.com') || host.contains('fb.watch') || host.contains('fb.me') || host.contains('fb.com')) {
-      icon = Icons.facebook;
-      badgeTitle = 'Facebook Link';
-      badgeColor = const Color(0xFF1877F2);
-    } else if (host.contains('youtube.com') || host.contains('youtu.be')) {
-      icon = Icons.play_circle_fill_rounded;
-      badgeTitle = 'YouTube Video';
-      badgeColor = Colors.redAccent;
-    } else if (host.contains('instagram.com')) {
-      icon = Icons.camera_alt_rounded;
-      badgeTitle = 'Instagram Link';
-      badgeColor = const Color(0xFFE4405F);
-    } else if (host.contains('maps.google.com') || host.contains('goo.gl')) {
-      icon = Icons.map_rounded;
-      badgeTitle = 'Google Maps Location';
-      badgeColor = Colors.green;
-    } else if (host.contains('zoom.us') || host.contains('teams.microsoft.com') || host.contains('meet.google.com')) {
-      icon = Icons.video_call_rounded;
-      badgeTitle = 'Meeting Link';
-      badgeColor = Colors.deepPurpleAccent;
-    } else if (url.endsWith('.pdf') || url.contains('drive.google.com') || url.contains('dropbox.com')) {
-      icon = Icons.picture_as_pdf_rounded;
-      badgeTitle = 'Document / File';
-      badgeColor = Colors.orangeAccent;
-    }
-
-    return GestureDetector(
-      onTap: () async {
-        final targetUri = uri ?? Uri.tryParse(url);
-        if (targetUri != null) {
-          try {
-            await launchUrl(targetUri, mode: LaunchMode.externalApplication);
-          } catch (_) {
-            try {
-              await launchUrl(targetUri, mode: LaunchMode.platformDefault);
-            } catch (_) {}
-          }
-        }
-      },
-      child: Container(
-        margin: const EdgeInsets.only(top: 4, bottom: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: const Color(0xFF1E293B),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: badgeColor.withOpacity(0.4)),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: badgeColor.withOpacity(0.2),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, color: badgeColor, size: 20),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    badgeTitle,
-                    style: TextStyle(color: badgeColor, fontSize: 11, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    host.toUpperCase(),
-                    style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  Text(
-                    url,
-                    style: const TextStyle(color: Colors.white54, fontSize: 11),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-            const Icon(Icons.open_in_new_rounded, color: Colors.white70, size: 18),
-          ],
-        ),
-      ),
-    );
+    return _RichLinkPreviewCard(url: url);
   }
 
   double _getEmojiFontSize(String text) {
@@ -2467,3 +2376,146 @@ class _MediaDownloadPillState extends State<_MediaDownloadPill> {
     );
   }
 }
+
+/// WhatsApp-grade OpenGraph Rich Link Preview Card (Phase 10)
+class _RichLinkPreviewCard extends StatefulWidget {
+  final String url;
+  const _RichLinkPreviewCard({required this.url});
+
+  @override
+  State<_RichLinkPreviewCard> createState() => _RichLinkPreviewCardState();
+}
+
+class _RichLinkPreviewCardState extends State<_RichLinkPreviewCard> {
+  LinkPreviewData? _previewData;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPreview();
+  }
+
+  @override
+  void didUpdateWidget(covariant _RichLinkPreviewCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.url != widget.url) {
+      _loadPreview();
+    }
+  }
+
+  Future<void> _loadPreview() async {
+    final data = await LinkPreviewService().fetchPreview(widget.url);
+    if (mounted) {
+      setState(() => _previewData = data);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final uri = Uri.tryParse(widget.url);
+    final host = _previewData?.domain.isNotEmpty == true
+        ? _previewData!.domain
+        : (uri?.host.replaceAll('www.', '') ?? 'Link');
+    final title = _previewData?.title ?? host;
+    final description = _previewData?.description;
+    final imageUrl = _previewData?.imageUrl;
+
+    return GestureDetector(
+      onTap: () async {
+        final targetUri = uri ?? Uri.tryParse(widget.url);
+        if (targetUri != null) {
+          try {
+            await launchUrl(targetUri, mode: LaunchMode.externalApplication);
+          } catch (_) {
+            try {
+              await launchUrl(targetUri, mode: LaunchMode.platformDefault);
+            } catch (_) {}
+          }
+        }
+      },
+      child: Container(
+        margin: const EdgeInsets.only(top: 4, bottom: 4),
+        constraints: const BoxConstraints(maxWidth: 320),
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E293B),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFF00A884).withValues(alpha: 0.35)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (imageUrl != null && imageUrl.isNotEmpty)
+              CachedNetworkImage(
+                imageUrl: imageUrl,
+                height: 130,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                placeholder: (_, __) => Container(
+                  height: 90,
+                  color: Colors.black26,
+                  child: const Center(
+                    child: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF00A884)),
+                    ),
+                  ),
+                ),
+                errorWidget: (_, __, ___) => const SizedBox.shrink(),
+              ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(7),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF00A884).withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.language_rounded, color: Color(0xFF00A884), size: 18),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          host.toUpperCase(),
+                          style: const TextStyle(color: Color(0xFF00A884), fontSize: 10, fontWeight: FontWeight.bold),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          title,
+                          style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (description != null && description.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            description,
+                            style: const TextStyle(color: Colors.white60, fontSize: 11),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.open_in_new_rounded, color: Colors.white54, size: 16),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+

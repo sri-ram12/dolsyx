@@ -45,6 +45,8 @@ import '../widgets/app_lock_wrapper.dart';
 import '../utils/e2ee/e2ee_media_cache.dart';
 import '../utils/media_thumbnail_helper.dart';
 import '../utils/media_size_helper.dart';
+import '../services/link_preview_service.dart';
+import '../models/link_preview_data.dart';
 
 class ChatRoomScreen extends StatefulWidget {
   final String conversationId;
@@ -194,6 +196,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   final List<Map<String, dynamic>> _pendingMediaUploadQueue = [];
   Timer? _mediaUploadRetryTimer;
   Timer? _remoteTypingTimer;
+  LinkPreviewData? _activeLinkPreview;
+  String? _dismissedLinkPreviewUrl;
+  Timer? _linkDebounceTimer;
 
   void _startMediaRetryTimer() {
     _mediaUploadRetryTimer?.cancel();
@@ -1221,6 +1226,22 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   void _onTextChanged() {
     final text = _messageController.text;
     
+    // WhatsApp OpenGraph Link Preview Scraper (Phase 10)
+    final detectedUrl = LinkPreviewService().extractFirstUrl(text);
+    if (detectedUrl != null && detectedUrl != _dismissedLinkPreviewUrl) {
+      if (_activeLinkPreview?.url != detectedUrl) {
+        _linkDebounceTimer?.cancel();
+        _linkDebounceTimer = Timer(const Duration(milliseconds: 500), () async {
+          final preview = await LinkPreviewService().fetchPreview(detectedUrl);
+          if (mounted && _messageController.text.contains(detectedUrl)) {
+            setState(() => _activeLinkPreview = preview);
+          }
+        });
+      }
+    } else if (detectedUrl == null && _activeLinkPreview != null) {
+      setState(() => _activeLinkPreview = null);
+    }
+
     if (text.isEmpty) {
       if (_isTyping) {
         _isTyping = false;
@@ -4785,6 +4806,91 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                   GestureDetector(
                     onTap: () => setState(() => _activeScheduledTime = null),
                     child: Icon(Icons.close, color: AppTheme.primaryColor, size: 18),
+                  ),
+                ],
+              ),
+            ),
+          if (_activeLinkPreview != null && !_isRecording && !_isRecordingLocked)
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppTheme.surfaceColor,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFF00A884).withValues(alpha: 0.4)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.2),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  if (_activeLinkPreview!.imageUrl != null && _activeLinkPreview!.imageUrl!.isNotEmpty)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.network(
+                        _activeLinkPreview!.imageUrl!,
+                        width: 50,
+                        height: 50,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          width: 50,
+                          height: 50,
+                          color: const Color(0xFF00A884).withValues(alpha: 0.15),
+                          child: const Icon(Icons.language_rounded, color: Color(0xFF00A884)),
+                        ),
+                      ),
+                    )
+                  else
+                    Container(
+                      width: 50,
+                      height: 50,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF00A884).withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.language_rounded, color: Color(0xFF00A884), size: 24),
+                    ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          _activeLinkPreview!.title ?? _activeLinkPreview!.domain,
+                          style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold, fontSize: 13),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (_activeLinkPreview!.description != null && _activeLinkPreview!.description!.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            _activeLinkPreview!.description!,
+                            style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                        const SizedBox(height: 2),
+                        Text(
+                          _activeLinkPreview!.domain,
+                          style: const TextStyle(color: Color(0xFF00A884), fontSize: 11, fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.close_rounded, color: AppTheme.textSecondary, size: 20),
+                    onPressed: () {
+                      setState(() {
+                        _dismissedLinkPreviewUrl = _activeLinkPreview!.url;
+                        _activeLinkPreview = null;
+                      });
+                    },
                   ),
                 ],
               ),

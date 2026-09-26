@@ -805,8 +805,16 @@ export const initChatSocket = (io: Server) => {
               for (const u of recipientUsers) {
                 if (u.fcmToken) {
                   sendPushNotification(u.fcmToken, pushTitle, pushBody, {
+                    type: "MESSAGE_SYNC",
                     conversationId,
                     messageId: dbMessage.id,
+                    senderId: userId,
+                    senderName: username,
+                    content: dbMessage.content,
+                    iv: dbMessage.iv || "",
+                    mediaType: dbMessage.mediaType || "TEXT",
+                    mediaUrl: dbMessage.mediaUrl || "",
+                    createdAt: dbMessage.createdAt.toISOString(),
                   });
                 }
               }

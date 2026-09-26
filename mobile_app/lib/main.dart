@@ -22,102 +22,12 @@ import 'package:http/http.dart' as http;
 import 'package:permission_handler/permission_handler.dart';
 
 
-// Background FCM handler
+import 'services/push_to_sync_service.dart';
+
+// Background FCM handler (Phase 13: Push-to-Sync & Background Message Sync Engine)
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp();
-  final data = message.data;
-
-  // Handle incoming call notifications in background/killed state
-  if (data['type'] == 'CALL' || data['type'] == 'call' || data['callType'] != null) {
-    await flutterLocalNotificationsPlugin
-        .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(callChannel);
-
-    final String callerName = data['callerName'] ?? 'Incoming Call';
-    final String callType = data['callType'] ?? 'audio';
-    final bool isAudioOnly = callType == 'audio';
-
-    final payloadMap = {
-      'conversationId': data['conversationId'] ?? '',
-      'callerId': data['callerId'] ?? '',
-      'callerName': callerName,
-      'callerAvatarUrl': data['callerAvatarUrl'],
-      'isAudioOnly': isAudioOnly,
-      'callType': callType,
-      'initialOffer': null,
-    };
-
-    await flutterLocalNotificationsPlugin.show(
-      id: 8888,
-      title: 'Incoming ${isAudioOnly ? 'Audio' : 'Video'} Call',
-      body: '$callerName is calling you...',
-      payload: jsonEncode(payloadMap),
-      notificationDetails: NotificationDetails(
-        android: AndroidNotificationDetails(
-          callChannel.id,
-          callChannel.name,
-          channelDescription: callChannel.description,
-          icon: '@mipmap/ic_launcher',
-          largeIcon: const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
-          priority: Priority.max,
-          importance: Importance.max,
-          fullScreenIntent: true,
-          category: AndroidNotificationCategory.call,
-          sound: const RawResourceAndroidNotificationSound('dolsyx_ringtone'),
-          audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
-          playSound: true,
-          enableVibration: false,
-          ongoing: true,
-          autoCancel: false,
-          actions: <AndroidNotificationAction>[
-            const AndroidNotificationAction('decline', 'Decline', cancelNotification: true),
-            const AndroidNotificationAction('accept', 'Accept', cancelNotification: true),
-          ],
-        ),
-      ),
-    );
-  } else {
-    // Show notification for incoming text/media message in background/killed state
-    await flutterLocalNotificationsPlugin
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(channel);
-
-    final title = message.notification?.title ?? data['senderName'] ?? data['title'] ?? 'New Message';
-    final body = message.notification?.body ?? data['content'] ?? data['body'] ?? 'You have a new message';
-
-    await flutterLocalNotificationsPlugin.show(
-      id: DateTime.now().millisecondsSinceEpoch ~/ 1000,
-      title: title,
-      body: body,
-      payload: jsonEncode({
-        'conversationId': data['conversationId'] ?? '',
-        'senderId': data['senderId'] ?? '',
-      }),
-      notificationDetails: NotificationDetails(
-        android: AndroidNotificationDetails(
-          channel.id,
-          channel.name,
-          channelDescription: channel.description,
-          icon: '@mipmap/ic_launcher',
-          priority: Priority.high,
-          importance: Importance.max,
-          sound: const RawResourceAndroidNotificationSound('dolsyx_message'),
-          playSound: true,
-          actions: <AndroidNotificationAction>[
-            const AndroidNotificationAction(
-              'reply_msg',
-              'Reply',
-              inputs: <AndroidNotificationActionInput>[
-                AndroidNotificationActionInput(label: 'Type a message...'),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  await PushToSyncService.handleBackgroundRemoteMessage(message);
 }
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =

@@ -608,7 +608,7 @@ export const initChatSocket = (io: Server) => {
       locationTitle?: string;
       isLiveLocation?: boolean;
       liveExpiresAt?: string | Date;
-    }) => {
+    }, callback?: (response: any) => void) => {
       try {
         const {
           id: clientMessageId,
@@ -713,6 +713,20 @@ export const initChatSocket = (io: Server) => {
           messageId,
           conversationId,
         });
+
+        if (typeof callback === "function") {
+          try {
+            callback({
+              status: "ok",
+              tempId: effectiveTempId,
+              messageId,
+              conversationId,
+              createdAt: instantMessage.createdAt,
+            });
+          } catch (cbErr) {
+            console.error("Error invoking send_message callback:", cbErr);
+          }
+        }
 
         if (onlineRecipients.length > 0) {
           io.to(conversationId).emit("messages_delivered", {
@@ -1029,6 +1043,53 @@ export const initChatSocket = (io: Server) => {
         }
       } catch (error) {
         console.error("Socket mark_read error:", error);
+      }
+    });
+
+    // Handle marking messages as delivered when recipient client receives them (WhatsApp double grey checkmark)
+    socket.on("mark_delivered", async (data: { conversationId: string; messageIds?: string[] }) => {
+      try {
+        const { conversationId, messageIds } = data;
+        if (!conversationId) return;
+
+        const whereCondition: any = {
+          conversationId,
+          senderId: { not: userId },
+          receipts: {
+            some: {
+              userId,
+              status: "SENT",
+            },
+          },
+        };
+        if (messageIds && messageIds.length > 0) {
+          whereCondition.id = { in: messageIds };
+        }
+
+        const messagesToDeliver = await prisma.message.findMany({
+          where: whereCondition,
+          select: { id: true },
+        });
+
+        if (messagesToDeliver.length > 0) {
+          const ids = messagesToDeliver.map((m) => m.id);
+          await prisma.messageReceipt.updateMany({
+            where: {
+              messageId: { in: ids },
+              userId,
+              status: "SENT",
+            },
+            data: { status: "DELIVERED" },
+          });
+
+          io.to(conversationId).emit("messages_delivered", {
+            conversationId,
+            messageIds: ids,
+            userId,
+          });
+        }
+      } catch (error) {
+        console.error("Socket mark_delivered error:", error);
       }
     });
 

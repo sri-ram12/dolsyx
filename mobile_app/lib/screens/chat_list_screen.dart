@@ -36,6 +36,7 @@ import 'secret_lock_settings_screen.dart';
 import 'locked_chats_screen.dart';
 import 'linked_devices_screen.dart';
 import '../utils/e2ee/crypto_service.dart';
+import '../utils/e2ee/background_crypto_worker.dart';
 import '../services/update_service.dart';
 
 class ChatListScreen extends StatefulWidget {
@@ -62,31 +63,51 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
   bool _hideLockedChats = false;
   final Map<String, String> _decryptedPreviewCache = {};
 
-  void _preDecryptLastMessages(List<Chat> chats) {
+  void _preDecryptLastMessages(List<Chat> chats) async {
+    final List<Map<String, String>> itemsToDecrypt = [];
+
     for (final chat in chats) {
       if (chat.lastMessage != null) {
         final raw = (chat.lastMessage!['content'] ?? '').toString().trim();
         if (raw.startsWith('{') && (raw.contains('"e2ee"') || raw.contains('"ciphertext"') || raw.contains('ciphertext'))) {
           final cacheKey = "${chat.id}_${chat.lastMessage!['id'] ?? ''}_$raw";
-          if (!_decryptedPreviewCache.containsKey(cacheKey)) {
-            final senderUserId = (chat.lastMessage!['senderId'] ?? '').toString();
-            CryptoService.instance.decryptIncomingContent(
-              content: raw,
-              senderUserId: senderUserId,
-              conversationId: chat.id,
-            ).then((dec) {
-              if (mounted && dec.isNotEmpty && dec != raw) {
-                setState(() {
-                  _decryptedPreviewCache[cacheKey] = dec;
-                  if (chat.lastMessage != null) {
-                    chat.lastMessage!['content'] = dec;
-                  }
-                });
-              }
-            }).catchError((_) {});
+          if (_decryptedPreviewCache.containsKey(cacheKey)) {
+            chat.lastMessage!['content'] = _decryptedPreviewCache[cacheKey];
+          } else {
+            itemsToDecrypt.add({
+              'conversationId': chat.id,
+              'rawContent': raw,
+              'cacheKey': cacheKey,
+            });
           }
         }
       }
+    }
+
+    if (itemsToDecrypt.isEmpty) return;
+
+    try {
+      // Offload preview decryption to background worker isolate using compute()
+      final decryptedMap = await BackgroundCryptoWorker().decryptChatPreviewsInBackground(
+        previews: itemsToDecrypt,
+      );
+
+      if (mounted && decryptedMap.isNotEmpty) {
+        setState(() {
+          _decryptedPreviewCache.addAll(decryptedMap);
+          for (final chat in _chats) {
+            if (chat.lastMessage != null) {
+              final raw = (chat.lastMessage!['content'] ?? '').toString().trim();
+              final cacheKey = "${chat.id}_${chat.lastMessage!['id'] ?? ''}_$raw";
+              if (_decryptedPreviewCache.containsKey(cacheKey)) {
+                chat.lastMessage!['content'] = _decryptedPreviewCache[cacheKey];
+              }
+            }
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('[ChatList] Background preview decryption fallback: $e');
     }
   }
 

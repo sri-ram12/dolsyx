@@ -8,6 +8,8 @@ import '../main.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import '../utils/e2ee/crypto_service.dart';
 import '../utils/e2ee/e2ee_api.dart';
+import 'local_database_service.dart';
+import '../models/message.dart';
 
 class SocketService {
   static final SocketService _instance = SocketService._internal();
@@ -97,6 +99,14 @@ class SocketService {
       final rawSenderId = (rawMsg is Map) ? (rawMsg['senderId'] ?? rawMsg['sender']?['id'])?.toString() : null;
       if (rawSenderId != null && rawSenderId != _currentUserId) {
         SoundService().playNotificationSound();
+        // WhatsApp auto-acknowledgment: Tell sender device the message was delivered to this device
+        final convId = (data['conversationId'] ?? (rawMsg is Map ? rawMsg['conversationId'] : null))?.toString();
+        if (convId != null && msgId != null) {
+          socket?.emit('mark_delivered', {
+            'conversationId': convId,
+            'messageIds': [msgId],
+          });
+        }
       }
       
       try {
@@ -135,6 +145,20 @@ class SocketService {
               };
             }
           }
+
+          // WhatsApp Instant Local SQLite Persistence (sub-millisecond indexed writes)
+          try {
+            final rawMessageMap = (data is Map) ? (data['message'] ?? data) : null;
+            if (rawMessageMap != null && rawMessageMap is Map) {
+              final msgObj = Message.fromJson(Map<String, dynamic>.from(rawMessageMap));
+              LocalDatabaseService().saveSingleMessage(msgObj);
+              LocalDatabaseService().updateConversationLastMessage(
+                msgObj.conversationId,
+                msgObj.toJson(),
+                unreadIncrement: (rawSenderId != null && rawSenderId != _currentUserId) ? 1 : null,
+              );
+            }
+          } catch (_) {}
         } catch (e) {
           print('Error processing incoming new_message: $e');
         }
@@ -291,6 +315,47 @@ class SocketService {
       typingUpdates.add(data);
     });
 
+    // Global WhatsApp ACK handler: transitions pending messages to SENT in local SQLite
+    socket?.on('message_sent', (data) async {
+      if (data == null || data is! Map) return;
+      final tempId = data['tempId']?.toString();
+      final messageId = data['messageId']?.toString();
+      if (tempId != null && messageId != null) {
+        await LocalDatabaseService().confirmPendingMessage(
+          tempId: tempId,
+          confirmedId: messageId,
+        );
+      }
+    });
+
+    // Global WhatsApp Delivery receipt handler: transitions messages to DELIVERED in local SQLite
+    socket?.on('messages_delivered', (data) async {
+      if (data == null || data is! Map) return;
+      final convId = data['conversationId']?.toString();
+      final userId = data['userId']?.toString();
+      final messageIds = data['messageIds'] as List<dynamic>?;
+      if (convId != null && userId != null) {
+        await LocalDatabaseService().markMessagesDeliveredLocally(
+          conversationId: convId,
+          userId: userId,
+          messageIds: messageIds,
+        );
+      }
+    });
+
+    // Global WhatsApp Read receipt handler: transitions messages to READ in local SQLite
+    socket?.on('messages_read', (data) async {
+      if (data == null || data is! Map) return;
+      final convId = data['conversationId']?.toString();
+      final userId = data['userId']?.toString();
+      if (convId != null && userId != null) {
+        await LocalDatabaseService().markMessagesReadLocally(
+          conversationId: convId,
+          userId: userId,
+        );
+      }
+    });
+
     socket?.onDisconnect((_) {
       print('❌ Socket Disconnected');
     });
@@ -316,10 +381,30 @@ class SocketService {
     }
   }
 
-
-
   Future<void> _processOfflineQueue() async {
     try {
+      // 1. Drain pending outbox messages from WhatsApp-grade SQLite engine
+      final pendingMessages = await LocalDatabaseService().getPendingMessages();
+      for (final msg in pendingMessages) {
+        if (socket != null && socket!.connected) {
+          sendMessage(
+            msg.conversationId,
+            msg.content,
+            mediaUrl: msg.mediaUrl,
+            mediaType: msg.mediaType,
+            parentMessageId: msg.parentMessageId,
+            isForwarded: msg.isForwarded,
+            isViewOnce: msg.isViewOnce,
+            latitude: msg.latitude,
+            longitude: msg.longitude,
+            locationTitle: msg.locationTitle,
+            isLiveLocation: msg.isLiveLocation,
+            tempId: msg.id,
+          );
+        }
+      }
+
+      // 2. Legacy SharedPreferences offline queue migration fallback
       final prefs = await SharedPreferences.getInstance();
       final queueStr = prefs.getString('offline_message_queue');
       if (queueStr != null && queueStr.isNotEmpty) {
@@ -505,8 +590,16 @@ class SocketService {
     };
 
     if (socket != null && socket!.connected) {
-      socket!.emit('send_message', msgData);
-      print('Message emitted to socket.');
+      socket!.emitWithAck('send_message', msgData, ack: (response) {
+        if (response != null && response is Map) {
+          final confirmedId = response['messageId']?.toString();
+          final ackTempId = response['tempId']?.toString() ?? tempId;
+          if (confirmedId != null && ackTempId != null) {
+            LocalDatabaseService().confirmPendingMessage(tempId: ackTempId, confirmedId: confirmedId);
+          }
+        }
+      });
+      print('Message emitted to socket with ACK callback.');
     } else {
       print('Socket disconnected. Queuing message for offline sending.');
       try {

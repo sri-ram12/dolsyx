@@ -1135,13 +1135,14 @@ class MessageBubble extends StatelessWidget {
                             ],
                           ),
                         )
-                      else if (message.mediaType == 'AUDIO')
+                      else if (message.mediaType == 'AUDIO' || message.mediaType == 'VOICE')
                         AudioPlayWidget(
                           url: message.mediaUrl!,
                           color: isMe ? Colors.white : AppTheme.textPrimary,
                           isPending: message.isPending,
                           mediaKey: message.mediaKey,
                           nonce: message.nonce,
+                          isMe: isMe,
                         )
                       else 
                         _buildDocumentCard(context, textColor, secondaryTextColor),
@@ -2032,6 +2033,7 @@ class AudioPlayWidget extends StatefulWidget {
   final bool isPending;
   final String? mediaKey;
   final String? nonce;
+  final bool isMe;
 
   const AudioPlayWidget({
     super.key,
@@ -2040,6 +2042,7 @@ class AudioPlayWidget extends StatefulWidget {
     this.isPending = false,
     this.mediaKey,
     this.nonce,
+    this.isMe = false,
   });
 
   @override
@@ -2047,6 +2050,9 @@ class AudioPlayWidget extends StatefulWidget {
 }
 
 class _AudioPlayWidgetState extends State<AudioPlayWidget> {
+  static AudioPlayer? _activeGlobalPlayer;
+  static _AudioPlayWidgetState? _activeState;
+
   final AudioPlayer _player = AudioPlayer();
   bool _isPlaying = false;
   double _playbackSpeed = 1.0;
@@ -2055,10 +2061,12 @@ class _AudioPlayWidgetState extends State<AudioPlayWidget> {
   StreamSubscription? _durationSub;
   StreamSubscription? _positionSub;
   StreamSubscription? _completeSub;
+  late final List<double> _waveformBars;
 
   @override
   void initState() {
     super.initState();
+    _waveformBars = _generateWaveform(widget.url);
     _durationSub = _player.onDurationChanged.listen((d) {
       if (mounted) setState(() => _duration = d);
     });
@@ -2075,13 +2083,36 @@ class _AudioPlayWidgetState extends State<AudioPlayWidget> {
     });
   }
 
+  /// Generates 30 smooth deterministic normalized amplitude bars (0.15 to 1.0)
+  List<double> _generateWaveform(String seedStr) {
+    int hash = seedStr.hashCode.abs();
+    final bars = <double>[];
+    for (int i = 0; i < 30; i++) {
+      hash = (hash * 1103515245 + 12345) & 0x7fffffff;
+      final val = 0.2 + ((hash % 100) / 100.0) * 0.8;
+      bars.add(val);
+    }
+    return bars;
+  }
+
   @override
   void dispose() {
+    if (_activeGlobalPlayer == _player) {
+      _activeGlobalPlayer = null;
+      _activeState = null;
+    }
     _durationSub?.cancel();
     _positionSub?.cancel();
     _completeSub?.cancel();
     _player.dispose();
     super.dispose();
+  }
+
+  void _pauseIfPlaying() {
+    if (_isPlaying) {
+      _player.pause();
+      if (mounted) setState(() => _isPlaying = false);
+    }
   }
 
   void _toggleSpeed() async {
@@ -2106,6 +2137,13 @@ class _AudioPlayWidgetState extends State<AudioPlayWidget> {
         await _player.pause();
         if (mounted) setState(() => _isPlaying = false);
       } else {
+        // Stop any currently playing voice note in the app (WhatsApp single-playback behavior)
+        if (_activeGlobalPlayer != null && _activeGlobalPlayer != _player) {
+          _activeState?._pauseIfPlaying();
+        }
+        _activeGlobalPlayer = _player;
+        _activeState = this;
+
         Source source;
         if (widget.mediaKey != null && widget.nonce != null) {
           final decryptedFile = await E2EEMediaCache.getOrDownloadDecryptedMedia(
@@ -2118,7 +2156,10 @@ class _AudioPlayWidgetState extends State<AudioPlayWidget> {
           } else {
             source = UrlSource(ApiService.getMediaUrl(widget.url));
           }
-        } else if (!widget.url.startsWith('http') && !widget.url.startsWith('/uploads') && (widget.url.startsWith('/data/') || widget.url.startsWith('/storage/') || widget.url.startsWith('file://')) && File(widget.url.replaceFirst('file://', '')).existsSync()) {
+        } else if (!widget.url.startsWith('http') &&
+            !widget.url.startsWith('/uploads') &&
+            (widget.url.startsWith('/data/') || widget.url.startsWith('/storage/') || widget.url.startsWith('file://')) &&
+            File(widget.url.replaceFirst('file://', '')).existsSync()) {
           source = DeviceFileSource(widget.url);
         } else {
           final fullUrl = ApiService.getMediaUrl(widget.url);
@@ -2133,68 +2174,183 @@ class _AudioPlayWidgetState extends State<AudioPlayWidget> {
     }
   }
 
+  void _seekByFraction(double fraction) {
+    if (_duration.inMilliseconds <= 0) return;
+    final clamped = fraction.clamp(0.0, 1.0);
+    final targetMs = (_duration.inMilliseconds * clamped).round();
+    _player.seek(Duration(milliseconds: targetMs));
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (widget.isPending)
-          Container(
-            width: 36,
-            height: 36,
-            margin: const EdgeInsets.symmetric(horizontal: 4),
-            decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.4),
-              shape: BoxShape.circle,
-            ),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                SizedBox(
-                  width: 32,
-                  height: 32,
+    final progress = _duration.inMilliseconds > 0
+        ? (_position.inMilliseconds / _duration.inMilliseconds).clamp(0.0, 1.0)
+        : 0.0;
+
+    final playedColor = widget.isMe ? Colors.white : const Color(0xFF00A884);
+    final unplayedColor = widget.isMe ? Colors.white38 : Colors.grey.shade600;
+
+    return Container(
+      constraints: const BoxConstraints(minWidth: 230, maxWidth: 280),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          // Play / Pause / Loading Button
+          if (widget.isPending)
+            Container(
+              width: 38,
+              height: 38,
+              margin: const EdgeInsets.only(right: 6),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.3),
+                shape: BoxShape.circle,
+              ),
+              child: const Center(
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
                   child: CircularProgressIndicator(
                     strokeWidth: 2.5,
-                    valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primaryColor),
+                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00A884)),
                   ),
                 ),
-                const Icon(Icons.close_rounded, color: Colors.white, size: 16),
+              ),
+            )
+          else
+            GestureDetector(
+              onTap: _togglePlay,
+              child: Container(
+                width: 38,
+                height: 38,
+                margin: const EdgeInsets.only(right: 6),
+                decoration: BoxDecoration(
+                  color: widget.isMe
+                      ? Colors.white.withValues(alpha: 0.2)
+                      : const Color(0xFF00A884).withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  _isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                  color: widget.isMe ? Colors.white : const Color(0xFF00A884),
+                  size: 26,
+                ),
+              ),
+            ),
+
+          // Waveform + Timer Column
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Interactive Waveform
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final width = constraints.maxWidth;
+                    return GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTapDown: (details) {
+                        final frac = details.localPosition.dx / width;
+                        _seekByFraction(frac);
+                      },
+                      onHorizontalDragUpdate: (details) {
+                        final frac = details.localPosition.dx / width;
+                        _seekByFraction(frac);
+                      },
+                      child: Container(
+                        height: 28,
+                        alignment: Alignment.center,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: List.generate(_waveformBars.length, (idx) {
+                            final barFrac = (idx + 1) / _waveformBars.length;
+                            final isPlayed = progress >= barFrac;
+                            final height = 4.0 + (_waveformBars[idx] * 20.0);
+
+                            return Container(
+                              width: 2.6,
+                              height: height,
+                              decoration: BoxDecoration(
+                                color: isPlayed ? playedColor : unplayedColor,
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            );
+                          }),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 2),
+
+                // Timer & Speed Row
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      _isPlaying
+                          ? _formatDuration(_position)
+                          : (_duration > Duration.zero ? _formatDuration(_duration) : _formatDuration(_position)),
+                      style: TextStyle(
+                        color: widget.isMe ? Colors.white70 : Colors.white60,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: _toggleSpeed,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                        decoration: BoxDecoration(
+                          color: widget.isMe
+                              ? Colors.white.withValues(alpha: 0.2)
+                              : const Color(0xFF00A884).withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          _playbackSpeed == 1.0 ? '1x' : (_playbackSpeed == 1.5 ? '1.5x' : '2x'),
+                          style: TextStyle(
+                            color: widget.isMe ? Colors.white : const Color(0xFF00A884),
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
-          )
-        else
-          IconButton(
-            constraints: const BoxConstraints(),
-            padding: EdgeInsets.zero,
-            icon: Icon(_isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill, color: widget.color, size: 36),
-            onPressed: _togglePlay,
           ),
-        const SizedBox(width: 8),
-        Text(
-          '${_formatDuration(_position)} / ${_formatDuration(_duration)}',
-          style: TextStyle(color: widget.color, fontSize: 13, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(width: 8),
-        GestureDetector(
-          onTap: _toggleSpeed,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+
+          const SizedBox(width: 6),
+
+          // Small Mic Badge on right
+          Container(
+            width: 22,
+            height: 22,
             decoration: BoxDecoration(
-              color: widget.color.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(10),
+              color: widget.isMe
+                  ? Colors.white.withValues(alpha: 0.15)
+                  : const Color(0xFF00A884).withValues(alpha: 0.15),
+              shape: BoxShape.circle,
             ),
-            child: Text(
-              _playbackSpeed == 1.0 ? '1x' : (_playbackSpeed == 1.5 ? '1.5x' : '2x'),
-              style: TextStyle(color: widget.color, fontSize: 11, fontWeight: FontWeight.bold),
+            child: Icon(
+              Icons.mic_rounded,
+              size: 13,
+              color: widget.isMe ? Colors.white70 : const Color(0xFF00A884),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
   String _formatDuration(Duration d) {
-    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final m = d.inMinutes.remainder(60).toString();
     final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
     return '$m:$s';
   }

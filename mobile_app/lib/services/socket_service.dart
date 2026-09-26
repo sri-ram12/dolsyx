@@ -10,6 +10,7 @@ import '../utils/e2ee/crypto_service.dart';
 import '../utils/e2ee/e2ee_api.dart';
 import 'local_database_service.dart';
 import '../models/message.dart';
+import 'outbox_sync_engine.dart';
 
 class SocketService {
   static final SocketService _instance = SocketService._internal();
@@ -93,6 +94,7 @@ class SocketService {
         socket?.emit('join_conversation', _activeConversationId);
       }
       _processOfflineQueue();
+      OutboxSyncEngine().initialize(this);
     }
 
     socket?.onConnect(onConnectedHandler);
@@ -398,26 +400,8 @@ class SocketService {
 
   Future<void> _processOfflineQueue() async {
     try {
-      // 1. Drain pending outbox messages from WhatsApp-grade SQLite engine
-      final pendingMessages = await LocalDatabaseService().getPendingMessages();
-      for (final msg in pendingMessages) {
-        if (socket != null && socket!.connected) {
-          sendMessage(
-            msg.conversationId,
-            msg.content,
-            mediaUrl: msg.mediaUrl,
-            mediaType: msg.mediaType,
-            parentMessageId: msg.parentMessageId,
-            isForwarded: msg.isForwarded,
-            isViewOnce: msg.isViewOnce,
-            latitude: msg.latitude,
-            longitude: msg.longitude,
-            locationTitle: msg.locationTitle,
-            isLiveLocation: msg.isLiveLocation,
-            tempId: msg.id,
-          );
-        }
-      }
+      // 1. Drain pending outbox messages and actions via OutboxSyncEngine
+      await OutboxSyncEngine().flushOutbox(this);
 
       // 2. Legacy SharedPreferences offline queue migration fallback
       final prefs = await SharedPreferences.getInstance();

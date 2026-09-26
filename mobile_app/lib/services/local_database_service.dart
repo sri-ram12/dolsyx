@@ -129,6 +129,7 @@ class LocalDatabaseService {
       },
       onOpen: (db) async {
         await _ensureFtsTable(db);
+        await _ensureOutboxTable(db);
       },
     );
   }
@@ -199,6 +200,67 @@ class LocalDatabaseService {
       ''');
     } catch (_) {}
   }
+
+  /// WhatsApp-grade Outbox Action Queue Table (Phase 15)
+  Future<void> _ensureOutboxTable(Database db) async {
+    try {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS outbox_actions (
+          id TEXT PRIMARY KEY,
+          actionType TEXT NOT NULL,
+          payloadJson TEXT NOT NULL,
+          createdAt INTEGER NOT NULL,
+          retryCount INTEGER DEFAULT 0
+        )
+      ''');
+    } catch (_) {}
+  }
+
+  /// Enqueues an offline action (reaction, receipt, delete) to SQLite outbox
+  Future<void> enqueueOutboxAction(String actionType, Map<String, dynamic> payload) async {
+    try {
+      final db = await database;
+      final id = 'action_${DateTime.now().millisecondsSinceEpoch}_${payload.hashCode.abs()}';
+      await db.insert(
+        'outbox_actions',
+        {
+          'id': id,
+          'actionType': actionType,
+          'payloadJson': jsonEncode(payload),
+          'createdAt': DateTime.now().millisecondsSinceEpoch,
+          'retryCount': 0,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    } catch (e) {
+      debugPrint('[LocalDB] Error enqueuing outbox action: $e');
+    }
+  }
+
+  /// Retrieves pending outbox actions ordered by FIFO
+  Future<List<Map<String, dynamic>>> getPendingOutboxActions() async {
+    try {
+      final db = await database;
+      return await db.query(
+        'outbox_actions',
+        orderBy: 'createdAt ASC',
+      );
+    } catch (e) {
+      debugPrint('[LocalDB] Error fetching outbox actions: $e');
+      return [];
+    }
+  }
+
+  /// Removes a completed action from the outbox
+  Future<void> removeOutboxAction(String id) async {
+    try {
+      final db = await database;
+      await db.delete('outbox_actions', where: 'id = ?', whereArgs: [id]);
+    } catch (e) {
+      debugPrint('[LocalDB] Error removing outbox action: $e');
+    }
+  }
+
 
   // =========================================================================
   // 📁 CONVERSATIONS (CHAT LIST) OPERATIONS

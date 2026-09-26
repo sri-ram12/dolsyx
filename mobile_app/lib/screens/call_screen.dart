@@ -94,9 +94,13 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   // Stored socket reference — avoids calling Provider.of(context) in native callbacks
   dynamic _socket;
 
-  // Call Timer
+  // Call Timer & Adaptive WebRTC Engine (Phase 12)
   Timer? _callTimer;
   Timer? _timeoutTimer;
+  Timer? _qualityEngineTimer;
+  int _networkQualityBars = 3; // 1 (Poor), 2 (Fair), 3 (Excellent)
+  String _networkQualityLabel = 'HD';
+  bool _isNetworkDegraded = false;
   int _callDuration = 0;
 
   String get formattedDuration => _formatDuration(_callDuration);
@@ -711,6 +715,153 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     _callTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() => _callDuration++);
     });
+    _startQualityEngine();
+  }
+
+  /// WhatsApp-grade Network Adaptive VoIP / WebRTC Quality Engine (Phase 12)
+  /// Analyzes RTT, jitter, and packet loss every 2.5s and adapts senders dynamically.
+  void _startQualityEngine() {
+    _qualityEngineTimer?.cancel();
+    _qualityEngineTimer = Timer.periodic(const Duration(milliseconds: 2500), (_) async {
+      if (!_callActive || _peerConnections.isEmpty || _isDisposed) return;
+
+      int maxRtt = 0;
+      double avgLossRate = 0.0;
+
+      for (final pc in _peerConnections.values) {
+        try {
+          final stats = await pc.getStats();
+          for (final report in stats) {
+            final type = report.type;
+            final values = report.values;
+
+            if (type == 'candidate-pair' && values['state'] == 'succeeded') {
+              final rtt = (values['currentRoundTripTime'] is num)
+                  ? ((values['currentRoundTripTime'] as num) * 1000).toInt()
+                  : (int.tryParse(values['googRtt']?.toString() ?? '0') ?? 0);
+              if (rtt > maxRtt) maxRtt = rtt;
+            }
+
+            if (type == 'inbound-rtp' || type == 'outbound-rtp') {
+              final packetsLost = int.tryParse(values['packetsLost']?.toString() ?? '0') ?? 0;
+              final packetsSent = int.tryParse(values['packetsSent']?.toString() ?? values['packetsReceived']?.toString() ?? '1') ?? 1;
+              if (packetsSent > 0) {
+                final rate = (packetsLost / packetsSent).clamp(0.0, 1.0);
+                if (rate > avgLossRate) avgLossRate = rate;
+              }
+            }
+          }
+
+          // Dynamic Bitrate & Framerate Adaptation
+          int targetVideoBitrate;
+          int targetFps;
+          int targetAudioBitrate;
+          int bars;
+          String label;
+          bool degraded = false;
+
+          if (maxRtt > 220 || avgLossRate > 0.08) {
+            // Tier 3: Poor / Congested Network
+            targetVideoBitrate = 350000; // 350 kbps
+            targetFps = 15;
+            targetAudioBitrate = 20000;  // 20 kbps Opus voice
+            bars = 1;
+            label = 'Poor';
+            degraded = true;
+          } else if (maxRtt > 120 || avgLossRate > 0.03) {
+            // Tier 2: Fair Network
+            targetVideoBitrate = 850000; // 850 kbps
+            targetFps = 24;
+            targetAudioBitrate = 36000;  // 36 kbps
+            bars = 2;
+            label = 'SD';
+          } else {
+            // Tier 1: Excellent Network
+            targetVideoBitrate = 1800000; // 1.8 Mbps
+            targetFps = 30;
+            targetAudioBitrate = 64000;   // 64 kbps
+            bars = 3;
+            label = 'HD';
+          }
+
+          // Apply adaptive parameters to senders
+          final senders = await pc.getSenders();
+          for (final sender in senders) {
+            final trackKind = sender.track?.kind;
+            final params = sender.parameters;
+            if (params.encodings != null && params.encodings!.isNotEmpty) {
+              if (trackKind == 'video') {
+                params.encodings![0].maxBitrate = targetVideoBitrate;
+                params.encodings![0].maxFramerate = targetFps;
+                await sender.setParameters(params);
+              } else if (trackKind == 'audio') {
+                params.encodings![0].maxBitrate = targetAudioBitrate;
+                await sender.setParameters(params);
+              }
+            }
+          }
+
+          if (mounted && (_networkQualityBars != bars || _isNetworkDegraded != degraded)) {
+            setState(() {
+              _networkQualityBars = bars;
+              _networkQualityLabel = label;
+              _isNetworkDegraded = degraded;
+            });
+          }
+        } catch (_) {}
+      }
+    });
+  }
+
+  Widget _buildNetworkQualityBadge() {
+    Color barColor;
+    if (_networkQualityBars == 3) {
+      barColor = const Color(0xFF25D366); // WhatsApp Green
+    } else if (_networkQualityBars == 2) {
+      barColor = const Color(0xFFFFB300); // Amber
+    } else {
+      barColor = const Color(0xFFEF5350); // Red
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: barColor.withValues(alpha: 0.5), width: 0.6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: List.generate(3, (i) {
+              final active = i < _networkQualityBars;
+              return Container(
+                margin: const EdgeInsets.symmetric(horizontal: 0.8),
+                width: 2.2,
+                height: 4.0 + (i * 3.0),
+                decoration: BoxDecoration(
+                  color: active ? barColor : Colors.white.withValues(alpha: 0.25),
+                  borderRadius: BorderRadius.circular(1),
+                ),
+              );
+            }),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            _networkQualityLabel,
+            style: TextStyle(
+              color: barColor,
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _flushIceCandidates(String userId) async {
@@ -1246,6 +1397,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     try { flutterLocalNotificationsPlugin.cancelAll(); } catch (_) {}
     _callTimer?.cancel();
     _timeoutTimer?.cancel();
+    _qualityEngineTimer?.cancel();
     _callActive = false;
     try {
       _pipChannel.invokeMethod('setCallActive', {'active': false});
@@ -1735,6 +1887,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     SoundService().stopRingtone();
     _callTimer?.cancel();
     _timeoutTimer?.cancel();
+    _qualityEngineTimer?.cancel();
     _audioRouteCheckTimer?.cancel();
     // Use stored _socket reference to remove listeners — NEVER call Provider.of(context) in dispose()
     _socket?.off('call_answered', _onCallAnswered);
@@ -2438,13 +2591,22 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
                                     ),
                                   ),
                                   const SizedBox(height: 3),
-                                  Text(
-                                    _callActive ? _formatDuration(_callDuration) : _status,
-                                    style: TextStyle(
-                                      color: Colors.white.withValues(alpha: 0.75),
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w400,
-                                    ),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        _callActive ? _formatDuration(_callDuration) : _status,
+                                        style: TextStyle(
+                                          color: Colors.white.withValues(alpha: 0.75),
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w400,
+                                        ),
+                                      ),
+                                      if (_callActive) ...[
+                                        const SizedBox(width: 6),
+                                        _buildNetworkQualityBadge(),
+                                      ],
+                                    ],
                                   ),
                                 ],
                               ),
@@ -2464,6 +2626,27 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
                               ),
                             ],
                           ),
+                          // Network Degraded Warning Banner (WhatsApp style)
+                          if (_callActive && _isNetworkDegraded)
+                            Container(
+                              margin: const EdgeInsets.only(top: 8),
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFD32F2F).withValues(alpha: 0.85),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.wifi_off_rounded, color: Colors.white, size: 12),
+                                  SizedBox(width: 5),
+                                  Text(
+                                    'Poor connection. Quality adjusted.',
+                                    style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w500),
+                                  ),
+                                ],
+                              ),
+                            ),
                         ],
                       ),
                     ),

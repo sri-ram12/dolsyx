@@ -518,8 +518,6 @@ export const updateProfile = async (req: AuthRequest, res: Response): Promise<vo
   }
 };
 
-import bcrypt from "bcryptjs";
-
 // Register new user after OTP verification
 export const register = async (req: Request, res: Response): Promise<void> => {
   try {

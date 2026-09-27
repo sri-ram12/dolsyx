@@ -61,7 +61,7 @@ describe("DOLSYX Two-Step Verification (2SV) & 7-Day Cooldown Security Suite", (
     assert.equal((lockoutUntil as any).getTime() > Date.now(), true);
 
     // Active lock prevents verification
-    const isLocked = lockoutUntil && new Date() < lockoutUntil;
+    const isLocked = lockoutUntil !== null && Date.now() < (lockoutUntil as Date).getTime();
     assert.equal(isLocked, true, "Account must be recognized as locked");
   });
 

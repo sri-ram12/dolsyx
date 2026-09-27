@@ -98,6 +98,8 @@ interface Message {
   createdAt: string;
   isEdited?: boolean;
   isDeleted?: boolean;
+  isViewOnce?: boolean;
+  isViewed?: boolean;
   mediaUrl?: string | null;
   mediaType?: "TEXT" | "IMAGE" | "VIDEO" | "FILE" | "AUDIO" | "CODE_SNIPPET" | "STICKER" | "CALL_LOG" | "POLL" | "LOCATION" | null;
   fileSize?: number;
@@ -663,6 +665,16 @@ export default function ChatWindow({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploadingFile, setIsUploadingFile] = useState(false);
 
+  // View Once States
+  const [activeViewOnceMessage, setActiveViewOnceMessage] = useState<Message | null>(null);
+  const [pendingMediaUpload, setPendingMediaUpload] = useState<{
+    file: File;
+    previewUrl: string;
+    type: "IMAGE" | "VIDEO";
+    isViewOnce: boolean;
+    caption: string;
+  } | null>(null);
+
   // Emoji Picker State
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const emojiPickerRef = useRef<HTMLDivElement>(null);
@@ -909,6 +921,8 @@ export default function ChatWindow({
                         content: parsedMedia.caption || "",
                         mediaUrl: parsedMedia.mediaUrl || msg.mediaUrl,
                         mediaType: parsedMedia.mediaType || msg.mediaType,
+                        isViewOnce: parsedMedia.isViewOnce ?? msg.isViewOnce ?? false,
+                        isViewed: parsedMedia.isViewed ?? msg.isViewed ?? false,
                         mediaKey: parsedMedia.mediaKey,
                         nonce: parsedMedia.nonce,
                         isE2EEMedia: parsedMedia.encryptedMedia === true || !!(parsedMedia.mediaKey && parsedMedia.nonce),
@@ -1109,6 +1123,8 @@ export default function ChatWindow({
                     content: parsedMedia.caption || "",
                     mediaUrl: parsedMedia.mediaUrl || msg.mediaUrl,
                     mediaType: parsedMedia.mediaType || msg.mediaType,
+                    isViewOnce: parsedMedia.isViewOnce ?? msg.isViewOnce ?? false,
+                    isViewed: parsedMedia.isViewed ?? msg.isViewed ?? false,
                     mediaKey: parsedMedia.mediaKey,
                     nonce: parsedMedia.nonce,
                     isE2EEMedia: parsedMedia.encryptedMedia === true || !!(parsedMedia.mediaKey && parsedMedia.nonce),
@@ -1284,6 +1300,18 @@ export default function ChatWindow({
       }
     };
 
+    const handleViewOnceOpened = (data: { messageId: string; conversationId: string; viewerId?: string }) => {
+      if (data.conversationId === chat.id) {
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === data.messageId
+              ? { ...msg, isViewed: true, mediaUrl: null }
+              : msg
+          )
+        );
+      }
+    };
+
     socket.on("receive_encrypted_message", handleEncryptedMessage);
     socket.on("new_message", handleNewMessage);
     socket.on("message_sent", handleMessageSent);
@@ -1296,6 +1324,7 @@ export default function ChatWindow({
     socket.on("reaction_added", handleReactionAdded);
     socket.on("reaction_removed", handleReactionRemoved);
     socket.on("poll_updated", handlePollUpdated);
+    socket.on("view_once_opened", handleViewOnceOpened);
 
     return () => {
       socket.off("receive_encrypted_message", handleEncryptedMessage);
@@ -1310,6 +1339,7 @@ export default function ChatWindow({
       socket.off("reaction_added", handleReactionAdded);
       socket.off("reaction_removed", handleReactionRemoved);
       socket.off("poll_updated", handlePollUpdated);
+      socket.off("view_once_opened", handleViewOnceOpened);
     };
   }, [socket, chat, user]);
 
@@ -1587,12 +1617,25 @@ export default function ChatWindow({
     const rawFile = e.target.files?.[0];
     if (!rawFile || !socket || !chat || !token) return;
 
+    // Photos and videos open WhatsApp-style interactive preview with (1) View-Once toggle
+    if (rawFile.type.startsWith("image/") || rawFile.type.startsWith("video/")) {
+      const previewUrl = URL.createObjectURL(rawFile);
+      setPendingMediaUpload({
+        file: rawFile,
+        previewUrl,
+        type: rawFile.type.startsWith("video/") ? "VIDEO" : "IMAGE",
+        isViewOnce: false,
+        caption: "",
+      });
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
     setIsUploadingFile(true);
 
     try {
-      const selectedFile = await compressImageClientSide(rawFile);
       let uploadedFileUrl = "";
-      let uploadedFileType = selectedFile.type;
+      let uploadedFileType = rawFile.type;
       let directUploaded = false;
 
       // 1. Try direct pre-signed cloud storage upload first (Zero backend RAM/CPU buffering)
@@ -1604,7 +1647,7 @@ export default function ChatWindow({
           const signData = await signRes.json();
           if (signData.directUploadAvailable && signData.uploadUrl) {
             const cloudFormData = new FormData();
-            cloudFormData.append("file", selectedFile);
+            cloudFormData.append("file", rawFile);
             cloudFormData.append("api_key", signData.apiKey);
             cloudFormData.append("timestamp", String(signData.timestamp));
             cloudFormData.append("signature", signData.signature);
@@ -1617,7 +1660,7 @@ export default function ChatWindow({
             if (cloudRes.ok) {
               const cloudJson = await cloudRes.json();
               uploadedFileUrl = cloudJson.secure_url || cloudJson.url;
-              uploadedFileType = selectedFile.type;
+              uploadedFileType = rawFile.type;
               directUploaded = true;
             }
           }
@@ -1629,7 +1672,7 @@ export default function ChatWindow({
       // 2. Fallback to standard backend upload if direct upload was unavailable or failed
       if (!directUploaded) {
         const formData = new FormData();
-        formData.append("file", selectedFile);
+        formData.append("file", rawFile);
         const res = await fetch(`${API_URL}/api/chats/upload`, {
           method: "POST",
           headers: {
@@ -1641,7 +1684,7 @@ export default function ChatWindow({
         if (res.ok) {
           const data = await res.json();
           uploadedFileUrl = data.fileUrl || data.url;
-          uploadedFileType = data.fileType || selectedFile.type;
+          uploadedFileType = data.fileType || rawFile.type;
         } else {
           toast("File upload failed. Please try again.", "error");
           return;
@@ -1650,9 +1693,7 @@ export default function ChatWindow({
 
       if (uploadedFileUrl) {
         let mediaType: "IMAGE" | "VIDEO" | "FILE" | "AUDIO" = "FILE";
-        if (uploadedFileType.startsWith("image/")) mediaType = "IMAGE";
-        else if (uploadedFileType.startsWith("video/")) mediaType = "VIDEO";
-        else if (uploadedFileType.startsWith("audio/")) mediaType = "AUDIO";
+        if (uploadedFileType.startsWith("audio/")) mediaType = "AUDIO";
 
         const tempId = `temp-${Date.now()}`;
         const optimisticMsg: any = {
@@ -1693,6 +1734,128 @@ export default function ChatWindow({
           content: encryptedContent,
           mediaUrl: uploadedFileUrl,
           mediaType,
+        });
+      }
+    } catch (err) {
+      console.error("Upload error:", err);
+      toast("Error uploading file.", "error");
+    } finally {
+      setIsUploadingFile(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const sendPendingMediaUpload = async () => {
+    if (!pendingMediaUpload || !socket || !chat || !token) return;
+    const { file: rawFile, isViewOnce, caption, type: mediaType } = pendingMediaUpload;
+    
+    if (pendingMediaUpload.previewUrl) URL.revokeObjectURL(pendingMediaUpload.previewUrl);
+    setPendingMediaUpload(null);
+    setIsUploadingFile(true);
+
+    try {
+      const selectedFile = rawFile.type.startsWith("image/") ? await compressImageClientSide(rawFile) : rawFile;
+      let uploadedFileUrl = "";
+      let uploadedFileType = selectedFile.type;
+      let directUploaded = false;
+
+      // 1. Try direct pre-signed cloud storage upload first
+      try {
+        const signRes = await fetch(`${API_URL}/api/chats/upload/sign`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (signRes.ok) {
+          const signData = await signRes.json();
+          if (signData.directUploadAvailable && signData.uploadUrl) {
+            const cloudFormData = new FormData();
+            cloudFormData.append("file", selectedFile);
+            cloudFormData.append("api_key", signData.apiKey);
+            cloudFormData.append("timestamp", String(signData.timestamp));
+            cloudFormData.append("signature", signData.signature);
+            cloudFormData.append("folder", signData.folder);
+
+            const cloudRes = await fetch(signData.uploadUrl, {
+              method: "POST",
+              body: cloudFormData,
+            });
+            if (cloudRes.ok) {
+              const cloudJson = await cloudRes.json();
+              uploadedFileUrl = cloudJson.secure_url || cloudJson.url;
+              uploadedFileType = selectedFile.type;
+              directUploaded = true;
+            }
+          }
+        }
+      } catch (cloudErr) {
+        console.warn("[Upload] Direct cloud upload bypassed, falling back to backend stream:", cloudErr);
+      }
+
+      // 2. Fallback to standard backend upload
+      if (!directUploaded) {
+        const formData = new FormData();
+        formData.append("file", selectedFile);
+        const res = await fetch(`${API_URL}/api/chats/upload`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          body: formData,
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          uploadedFileUrl = data.fileUrl || data.url;
+          uploadedFileType = data.fileType || selectedFile.type;
+        } else {
+          toast("File upload failed. Please try again.", "error");
+          return;
+        }
+      }
+
+      if (uploadedFileUrl) {
+        const tempId = `temp-${Date.now()}`;
+        const optimisticMsg: any = {
+          id: tempId,
+          content: caption || "",
+          senderId: user?.id || "",
+          conversationId: chat.id,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          parentMessageId: null,
+          parentMessage: null,
+          mediaUrl: uploadedFileUrl,
+          mediaType: mediaType,
+          isViewOnce: isViewOnce,
+          isViewed: false,
+          sender: user ? {
+            id: user.id,
+            username: user.username,
+            avatarUrl: user.avatarUrl
+          } : null,
+          receipts: []
+        };
+        
+        setMessages(prev => [...prev, optimisticMsg]);
+
+        // Broadcast E2EE media envelope with View-Once metadata
+        const mediaPayload = JSON.stringify({
+          encryptedMedia: false,
+          mediaUrl: uploadedFileUrl,
+          mediaType,
+          isViewOnce: isViewOnce,
+          caption: caption || "",
+        });
+        let encryptedContent = mediaPayload;
+        try {
+          encryptedContent = await encryptConversationPayload(chat.id, mediaPayload);
+        } catch (_) {}
+
+        socket.emit("send_message", {
+          conversationId: chat.id,
+          content: encryptedContent,
+          mediaUrl: uploadedFileUrl,
+          mediaType,
+          isViewOnce: isViewOnce,
         });
       }
     } catch (err) {
@@ -2403,6 +2566,54 @@ export default function ChatWindow({
                       <PollMessage msg={msg} isMe={isMe} socket={socket} user={user} />
                     ) : msg.mediaType === "LOCATION" || (typeof msg.content === "string" && (msg.content.includes('"latitude":') || msg.content.includes('"mediaType":"LOCATION"'))) ? (
                       <LocationMessage msg={msg} isMe={isMe} />
+                    ) : msg.isViewOnce ? (
+                      /* WhatsApp View-Once Pill */
+                      <div
+                        onClick={() => {
+                          if (msg.isViewed || isMe) return;
+                          setActiveViewOnceMessage(msg);
+                        }}
+                        className={`rounded-2xl px-4 py-2.5 text-[15px] shadow-md flex items-center gap-3 transition-all duration-200 select-none ${
+                          msg.isViewed || isMe
+                            ? "cursor-default opacity-80"
+                            : "cursor-pointer hover:brightness-110 active:scale-[0.98]"
+                        } ${
+                          isMe
+                            ? "rounded-br-none bg-gradient-to-tr from-violet-600 to-indigo-600 text-white"
+                            : "rounded-bl-none bg-zinc-900 border border-zinc-800 text-zinc-100"
+                        }`}
+                        title={
+                          isMe
+                            ? "You cannot open your own view-once media"
+                            : msg.isViewed
+                            ? "View once media has already been opened"
+                            : "Click to open view once media"
+                        }
+                      >
+                        <div
+                          className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
+                            msg.isViewed
+                              ? "border border-dashed border-zinc-500 text-zinc-400"
+                              : "border-2 border-emerald-400 text-emerald-400 bg-emerald-500/10"
+                          }`}
+                        >
+                          1
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="font-semibold text-sm">
+                            {msg.isViewed
+                              ? "Opened"
+                              : msg.mediaType === "VIDEO"
+                              ? "View Once Video"
+                              : "View Once Photo"}
+                          </span>
+                          {!msg.isViewed && isMe && (
+                            <span className="text-[10px] text-white/70">
+                              Opened after recipient views
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     ) : msg.mediaType === "IMAGE" ? (
                       <div className="flex flex-col space-y-1">
                         <div className="relative max-w-md rounded-2xl overflow-hidden border border-zinc-800 bg-zinc-900 shadow-md">
@@ -3428,6 +3639,171 @@ export default function ChatWindow({
                 Cancel
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── WhatsApp Fullscreen View-Once Modal ── */}
+      {activeViewOnceMessage && (
+        <div
+          className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-md flex flex-col select-none animate-fade-in"
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          {/* Top Bar */}
+          <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-zinc-800 bg-black/60">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  const msgId = activeViewOnceMessage.id;
+                  socket?.emit("view_once_opened", {
+                    messageId: msgId,
+                    conversationId: chat.id,
+                  });
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === msgId ? { ...m, isViewed: true, mediaUrl: null } : m
+                    )
+                  );
+                  setActiveViewOnceMessage(null);
+                }}
+                className="h-9 w-9 rounded-full bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-zinc-300 hover:text-white transition-colors cursor-pointer"
+                title="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded-full border-2 border-emerald-400 text-emerald-400 flex items-center justify-center text-xs font-bold bg-emerald-500/10">
+                  1
+                </div>
+                <span className="text-white text-sm font-semibold">
+                  {activeViewOnceMessage.mediaType === "VIDEO" ? "View Once Video" : "View Once Photo"}
+                </span>
+              </div>
+            </div>
+            <span className="text-xs text-zinc-400 hidden sm:inline">
+              Media will disappear after closing
+            </span>
+          </div>
+
+          {/* Media Viewer Content (No download button, right-click disabled) */}
+          <div className="flex-1 flex items-center justify-center p-4 overflow-hidden relative">
+            {activeViewOnceMessage.mediaType === "VIDEO" ? (
+              <DecryptedVideo
+                mediaUrl={activeViewOnceMessage.mediaUrl || ""}
+                mediaKey={(activeViewOnceMessage as any).mediaKey}
+                nonce={(activeViewOnceMessage as any).nonce}
+                isE2EEMedia={(activeViewOnceMessage as any).isE2EEMedia}
+                className="max-h-[85vh] max-w-full rounded-xl object-contain bg-black shadow-2xl"
+              />
+            ) : (
+              <DecryptedImage
+                mediaUrl={activeViewOnceMessage.mediaUrl || ""}
+                mediaKey={(activeViewOnceMessage as any).mediaKey}
+                nonce={(activeViewOnceMessage as any).nonce}
+                isE2EEMedia={(activeViewOnceMessage as any).isE2EEMedia}
+                alt="View once photo"
+                className="max-h-[85vh] max-w-full rounded-xl object-contain shadow-2xl pointer-events-none"
+              />
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── WhatsApp Media Upload Preview & View-Once Toggle Modal ── */}
+      {pendingMediaUpload && (
+        <div className="fixed inset-0 z-[90] bg-black/90 backdrop-blur-md flex flex-col items-center justify-between p-4 sm:p-6 animate-fade-in">
+          {/* Top header */}
+          <div className="w-full max-w-3xl flex items-center justify-between py-2 text-white">
+            <button
+              type="button"
+              onClick={() => {
+                if (pendingMediaUpload.previewUrl) URL.revokeObjectURL(pendingMediaUpload.previewUrl);
+                setPendingMediaUpload(null);
+              }}
+              className="h-9 w-9 rounded-full bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-zinc-300 hover:text-white transition-colors cursor-pointer"
+            >
+              <X className="h-5 w-5" />
+            </button>
+            <span className="text-sm font-semibold text-zinc-300">
+              Preview {pendingMediaUpload.type === "VIDEO" ? "Video" : "Photo"}
+            </span>
+            <div className="w-9" />
+          </div>
+
+          {/* Media Preview Area */}
+          <div className="flex-1 w-full max-w-2xl flex items-center justify-center p-2 overflow-hidden">
+            {pendingMediaUpload.type === "VIDEO" ? (
+              <video
+                src={pendingMediaUpload.previewUrl}
+                controls
+                className="max-h-[60vh] max-w-full rounded-xl object-contain bg-black shadow-xl"
+              />
+            ) : (
+              <img
+                src={pendingMediaUpload.previewUrl}
+                alt="Preview"
+                className="max-h-[60vh] max-w-full rounded-xl object-contain shadow-xl"
+              />
+            )}
+          </div>
+
+          {/* Bottom Caption & View-Once Bar */}
+          <div className="w-full max-w-2xl flex flex-col gap-3">
+            <div className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-full px-4 py-2 shadow-lg">
+              <input
+                type="text"
+                value={pendingMediaUpload.caption}
+                onChange={(e) =>
+                  setPendingMediaUpload((prev) => prev ? { ...prev, caption: e.target.value } : null)
+                }
+                placeholder="Add a caption..."
+                className="flex-1 bg-transparent text-white text-sm focus:outline-none placeholder-zinc-500"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    sendPendingMediaUpload();
+                  }
+                }}
+              />
+
+              {/* View-Once (1) Toggle Button */}
+              <button
+                type="button"
+                onClick={() =>
+                  setPendingMediaUpload((prev) =>
+                    prev ? { ...prev, isViewOnce: !prev.isViewOnce } : null
+                  )
+                }
+                className={`h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-200 cursor-pointer ${
+                  pendingMediaUpload.isViewOnce
+                    ? "bg-emerald-500 text-white shadow-md ring-2 ring-emerald-400"
+                    : "border-2 border-zinc-500 text-zinc-400 hover:text-white hover:border-zinc-300"
+                }`}
+                title={pendingMediaUpload.isViewOnce ? "View once turned ON" : "Set to view once"}
+              >
+                1
+              </button>
+
+              {/* Send Button */}
+              <button
+                type="button"
+                disabled={isUploadingFile}
+                onClick={sendPendingMediaUpload}
+                className="h-9 w-9 rounded-full bg-emerald-500 hover:bg-emerald-600 text-white flex items-center justify-center transition-colors shadow-md disabled:opacity-50 cursor-pointer"
+              >
+                {isUploadingFile ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4 ml-0.5" />
+                )}
+              </button>
+            </div>
+            {pendingMediaUpload.isViewOnce && (
+              <p className="text-center text-xs text-emerald-400 animate-fade-in font-medium">
+                Photo/Video set to view once (recipient can view only once)
+              </p>
+            )}
           </div>
         </div>
       )}

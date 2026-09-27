@@ -27,6 +27,8 @@ export interface Chat {
     createdAt: string;
     mediaType?: string | null;
     mediaUrl?: string | null;
+    isViewOnce?: boolean;
+    isViewed?: boolean;
     sender?: {
       id: string;
       username: string;
@@ -964,6 +966,7 @@ export default function ChatSidebar({
                                 if (m.content === "declined") return `${prefix}${icon} Declined Call`;
                                 return `${prefix}${icon} Call`;
                               }
+                              if (m.isViewOnce) return `${prefix}① ${m.mediaType === "VIDEO" ? "Video" : "Photo"}`;
                               if (m.mediaType === "IMAGE") return `${prefix}📷 Image`;
                               if (m.mediaType === "VIDEO") return `${prefix}🎬 Video`;
                               if (m.mediaType === "AUDIO") return `${prefix}🎵 Voice message`;

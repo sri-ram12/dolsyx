@@ -4,7 +4,7 @@
   "minimumSupportedVersion": "1.0.0",
   "minimumSupportedBuild": 1,
   "releaseNotes": "Critical Performance & UI Hardening: 0ms cached instant chat opening, smooth 60fps scrolling with zero frame drops, sub-0.2ms real-time messaging pipeline, and refined typography hierarchy.",
-  "downloadUrl": "https://files.catbox.moe/sbu30o.apk",
-  "fileSizeMb": "45.6 MB",
+  "downloadUrl": "",
+  "fileSizeMb": "46.3 MB",
   "hasApk": true
 }

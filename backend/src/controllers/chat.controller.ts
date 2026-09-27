@@ -323,6 +323,7 @@ export const getMediaMessages = async (req: AuthRequest, res: Response): Promise
       where: {
         conversationId,
         isDeleted: false,
+        isViewOnce: false, // Privacy: Never leak View-Once media in shared gallery
         deletedForUsers: { none: { userId } },
         OR: [
           { mediaUrl: { not: null } },

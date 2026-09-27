@@ -947,13 +947,16 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   void _handleViewOnceOpened(dynamic data) {
     if (mounted && data['conversationId'] == widget.conversationId) {
-      final msgId = data['messageId'];
+      final msgId = data['messageId']?.toString();
       setState(() {
         final idx = _messages.indexWhere((m) => m.id == msgId);
         if (idx != -1) {
           _messages[idx].isViewed = true;
         }
       });
+      if (msgId != null && msgId.isNotEmpty) {
+        LocalDatabaseService().markViewOnceViewed(msgId);
+      }
     }
   }
 
@@ -4740,6 +4743,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                           _messages[idx].isViewed = true;
                                         }
                                       });
+                                      LocalDatabaseService().markViewOnceViewed(msgId);
                                     },
                                     onTapCall: (isVideo) {
                                       if (widget.remoteUserId != null) {

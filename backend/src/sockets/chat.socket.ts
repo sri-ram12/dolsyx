@@ -1795,6 +1795,12 @@ export const initChatSocket = (io: Server) => {
           select: { userId: true },
         });
 
+        io.to(conversationId).emit("view_once_opened", {
+          messageId,
+          conversationId,
+          viewerId: userId,
+        });
+
         participants.forEach((p) => {
           io.to(p.userId).emit("view_once_opened", {
             messageId,

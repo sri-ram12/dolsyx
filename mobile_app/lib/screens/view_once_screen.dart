@@ -105,6 +105,13 @@ class _ViewOnceScreenState extends State<ViewOnceScreen> {
   void _notifyViewed() {
     if (!_hasTriggeredViewed) {
       _hasTriggeredViewed = true;
+      try {
+        if (_decryptedFile != null && _decryptedFile!.existsSync()) {
+          _decryptedFile!.deleteSync();
+        }
+      } catch (e) {
+        debugPrint('Error wiping view once decrypted file: $e');
+      }
       widget.onViewed(widget.message.id);
     }
   }

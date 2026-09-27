@@ -833,14 +833,16 @@ export const deleteMessage = async (req: AuthRequest, res: Response): Promise<vo
           where: { conversationId: message.conversationId },
           select: { userId: true }
         });
+        const deletePayload = {
+          messageId: message.id,
+          conversationId: message.conversationId,
+          isDeleted: true,
+          content: "This message was deleted",
+        };
         participants.forEach(p => {
-          io.to(p.userId).emit("message_deleted", {
-            messageId: message.id,
-            conversationId: message.conversationId,
-            isDeleted: true,
-            content: "This message was deleted",
-          });
+          io.to(p.userId).emit("message_deleted", deletePayload);
         });
+        io.to(message.conversationId).emit("message_deleted", deletePayload);
       }
     } else {
       // Delete for me

@@ -602,11 +602,6 @@ export default function ChatWindow({
   // Blocked and Block list states
   const [blockedIds, setBlockedIds] = useState<string[]>([]);
 
-  // Camera preview states
-  const [showCameraPreview, setShowCameraPreview] = useState(false);
-  const [capturedBlob, setCapturedBlob] = useState<Blob | null>(null);
-  const [capturedPreviewUrl, setCapturedPreviewUrl] = useState("");
-
   // Clear Chat status
   const [isClearingChat, setIsClearingChat] = useState(false);
 
@@ -673,6 +668,7 @@ export default function ChatWindow({
     type: "IMAGE" | "VIDEO";
     isViewOnce: boolean;
     caption: string;
+    isFromCamera?: boolean;
   } | null>(null);
 
   // Emoji Picker State
@@ -1208,9 +1204,12 @@ export default function ChatWindow({
     };
 
     const handleMessageEdited = (data: { message: Message; conversationId: string }) => {
-      if (data.conversationId === chat.id) {
+      if (data.conversationId === chat.id && data.message) {
+        if (data.message.isDeleted) return; // Do not treat deleted message as edited
         setMessages((prev) =>
-          prev.map((msg) => (msg.id === data.message.id ? data.message : msg))
+          prev.map((msg) =>
+            msg.id === data.message.id ? (msg.isDeleted ? msg : data.message) : msg
+          )
         );
       }
     };
@@ -1982,10 +1981,17 @@ export default function ChatWindow({
 
         canvas.toBlob((blob) => {
           if (blob) {
-            setCapturedBlob(blob);
-            setCapturedPreviewUrl(URL.createObjectURL(blob));
-            setShowCameraPreview(true);
             stopCamera();
+            const file = new File([blob], `camera_${Date.now()}.png`, { type: "image/png" });
+            const previewUrl = URL.createObjectURL(blob);
+            setPendingMediaUpload({
+              file,
+              previewUrl,
+              type: "IMAGE",
+              isViewOnce: false,
+              caption: "",
+              isFromCamera: true,
+            });
           } else {
             toast("Failed to capture image. Please try again.", "error");
           }
@@ -3226,55 +3232,7 @@ export default function ChatWindow({
         </div>
       )}
 
-      {/* Camera Capture Image Preview Modal */}
-      {showCameraPreview && (
-        <div className="fixed inset-0 z-[101] flex items-center justify-center bg-black/95 backdrop-blur-md p-4 animate-fade-in">
-          <div className="w-full max-w-2xl bg-[#020b16] rounded-2xl border border-[var(--theme-border-color)] overflow-hidden shadow-2xl">
-            <div className="p-4 border-b border-[var(--theme-border-color)] flex justify-between items-center bg-[#001428]">
-              <h3 className="text-white font-semibold">Preview Captured Photo</h3>
-              <button
-                onClick={() => {
-                  setShowCameraPreview(false);
-                  setCapturedBlob(null);
-                  setCapturedPreviewUrl("");
-                }}
-                className="text-gray-400 hover:text-white bg-white/10 p-1.5 rounded-lg cursor-pointer"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <div className="relative aspect-video bg-black flex items-center justify-center">
-              <img src={capturedPreviewUrl} alt="Preview Captured" className="w-full h-full object-contain" />
-            </div>
-            <div className="p-4 flex gap-3 bg-[var(--theme-bg-chat-input)]">
-              <button
-                onClick={() => {
-                  setShowCameraPreview(false);
-                  setCapturedBlob(null);
-                  setCapturedPreviewUrl("");
-                  startCamera();
-                }}
-                className="flex-1 py-3 rounded-xl border border-[var(--theme-border-color)] hover:bg-[var(--theme-bg-sidebar-item-hover)] text-xs font-bold text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] transition-all cursor-pointer"
-              >
-                Retake
-              </button>
-              <button
-                onClick={() => {
-                  if (capturedBlob) {
-                    uploadMediaData(capturedBlob, "IMAGE");
-                  }
-                  setShowCameraPreview(false);
-                  setCapturedBlob(null);
-                  setCapturedPreviewUrl("");
-                }}
-                className="flex-1 py-3 rounded-xl bg-[var(--theme-accent)] text-black text-xs font-bold transition-all cursor-pointer hover:opacity-90"
-              >
-                Send Photo
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Camera capture now routes seamlessly through MediaUploadPreviewModal with full View-Once (1) support */}
 
       {/* Hidden wallpaper upload input */}
       <input
@@ -3728,7 +3686,21 @@ export default function ChatWindow({
             <span className="text-sm font-semibold text-zinc-300">
               Preview {pendingMediaUpload.type === "VIDEO" ? "Video" : "Photo"}
             </span>
-            <div className="w-9" />
+            {pendingMediaUpload.isFromCamera ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (pendingMediaUpload.previewUrl) URL.revokeObjectURL(pendingMediaUpload.previewUrl);
+                  setPendingMediaUpload(null);
+                  startCamera();
+                }}
+                className="text-xs px-3 py-1.5 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-colors cursor-pointer border border-zinc-700 font-medium"
+              >
+                Retake
+              </button>
+            ) : (
+              <div className="w-9" />
+            )}
           </div>
 
           {/* Media Preview Area */}

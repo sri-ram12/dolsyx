@@ -1778,10 +1778,14 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             conversationId: _messages[idx].conversationId,
             createdAt: _messages[idx].createdAt,
             isDeleted: true,
+            isEdited: false,
+            mediaUrl: null,
+            mediaType: null,
           );
         }
       });
       _updateMessageCache();
+      LocalDatabaseService().markMessageDeleted(msgId);
     }
   }
 
@@ -1791,6 +1795,28 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         final Map<String, dynamic> rawMsg = data['message'] != null ? Map<String, dynamic>.from(data['message']) : Map<String, dynamic>.from(data);
         final String convId = (data['conversationId'] ?? rawMsg['conversationId'] ?? '').toString();
         if (convId.isNotEmpty && convId != widget.conversationId) return;
+
+        final bool isMsgDeleted = rawMsg['isDeleted'] == true || rawMsg['isDeleted'] == 1;
+        final String msgId = (rawMsg['id'] ?? data['messageId'] ?? '').toString();
+
+        // If the payload indicates deletion, delegate to delete handler and never mark as edited
+        if (isMsgDeleted && msgId.isNotEmpty) {
+          _handleMessageDeleted({
+            'messageId': msgId,
+            'conversationId': convId,
+            'isDeleted': true,
+            'content': 'This message was deleted',
+          });
+          return;
+        }
+
+        // If local message is already deleted, do not overwrite with an edit
+        if (msgId.isNotEmpty) {
+          final existingIdx = _messages.indexWhere((m) => m.id == msgId);
+          if (existingIdx != -1 && _messages[existingIdx].isDeleted) {
+            return;
+          }
+        }
 
         String content = (rawMsg['content'] ?? '').toString();
         if (content.isNotEmpty && content.startsWith('{')) {
@@ -1808,6 +1834,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         setState(() {
           final idx = _messages.indexWhere((m) => m.id == editedMsg.id);
           if (idx != -1) {
+            if (_messages[idx].isDeleted) return; // double check guard
             _messages[idx] = Message(
               id: editedMsg.id,
               content: editedMsg.content,
@@ -1817,6 +1844,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               mediaUrl: editedMsg.mediaUrl ?? _messages[idx].mediaUrl,
               mediaType: editedMsg.mediaType ?? _messages[idx].mediaType,
               isEdited: true,
+              isDeleted: false,
               sender: editedMsg.sender ?? _messages[idx].sender,
               parentMessage: editedMsg.parentMessage ?? _messages[idx].parentMessage,
               receipts: _messages[idx].receipts,

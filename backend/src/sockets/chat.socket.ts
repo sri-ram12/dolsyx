@@ -1473,19 +1473,13 @@ export const initChatSocket = (io: Server) => {
 
           // Soft delete: mark message as deleted but keep it in DB
           // so others can see the placeholder "This message was deleted"
-          const updatedMessage = await prisma.message.update({
+          await prisma.message.update({
             where: { id: messageId },
             data: {
               isDeleted: true,
-              content: "",   // clear content
+              content: "This message was deleted",
               mediaUrl: null, // clear media
               mediaType: "TEXT",
-            },
-            include: {
-              sender: {
-                select: { id: true, username: true, avatarUrl: true },
-              },
-              receipts: true,
             },
           });
 
@@ -1495,19 +1489,18 @@ export const initChatSocket = (io: Server) => {
             select: { userId: true },
           });
 
-          // Broadcast both message_deleted and message_edited to everyone
+          const deletePayload = {
+            messageId,
+            conversationId: existing.conversationId,
+            isDeleted: true,
+            content: "This message was deleted",
+          };
+
+          // Broadcast message_deleted to participants and conversation room (do NOT emit message_edited)
           participants.forEach((participant) => {
-            io.to(participant.userId).emit("message_deleted", {
-              messageId,
-              conversationId: existing.conversationId,
-              isDeleted: true,
-              content: "This message was deleted",
-            });
-            io.to(participant.userId).emit("message_edited", {
-              message: updatedMessage,
-              conversationId: existing.conversationId,
-            });
+            io.to(participant.userId).emit("message_deleted", deletePayload);
           });
+          io.to(existing.conversationId).emit("message_deleted", deletePayload);
         } else if (deleteType === "me") {
           // Delete for me: Create a record in DeletedMessage
           await prisma.deletedMessage.upsert({

@@ -127,14 +127,21 @@ class Message {
       MediaSizeHelper.cacheSize(mediaUrl, fileSize);
     }
 
+    final bool isDeletedMsg = json['isDeleted'] == true || json['isDeleted'] == 1;
+    if (isDeletedMsg) {
+      contentStr = 'This message was deleted';
+      mediaUrl = null;
+      mediaType = null;
+    }
+
     return Message(
       id: json['id'] ?? json['_id'] ?? '',
       content: contentStr,
       senderId: json['senderId'] ?? (json['sender'] != null ? (json['sender']['id'] ?? json['sender']['_id']) : '') ?? '',
       conversationId: json['conversationId'] ?? json['chatId'] ?? '',
       parentMessageId: json['parentMessageId'],
-      isEdited: json['isEdited'] ?? false,
-      isDeleted: json['isDeleted'] ?? false,
+      isEdited: isDeletedMsg ? false : (json['isEdited'] ?? false),
+      isDeleted: isDeletedMsg,
       isForwarded: json['isForwarded'] ?? false,
       forwardCount: (json['forwardCount'] as num?)?.toInt() ?? 0,
       expiresAt: json['expiresAt'] != null ? DateTime.tryParse(json['expiresAt']) : null,

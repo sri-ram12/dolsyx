@@ -44,17 +44,30 @@ class EmailService {
     const pass = process.env.SMTP_PASS;
 
     if (pass) {
-      console.log(`[EmailService] Initializing SMTP transporter with host=${host}, user=${user}`);
-      // Render's cloud containers:
-      //   - Block outbound TCP on port 587 (STARTTLS) for SMTP
-      //   - Resolve smtp.gmail.com to an IPv6 address (ENETUNREACH)
-      // Fix: always use port 465 (SSL/TLS) + force IPv4 DNS resolution
+      // Render's cloud containers have no outbound IPv6 route.
+      // Nodemailer's internal resolver picks randomly between IPv4 and IPv6,
+      // triggering ENETUNREACH when it selects an IPv6 address.
+      // Fix: Pre-resolve host to IPv4 and preserve servername for TLS SNI certificate validation.
       const isGmail = host === "smtp.gmail.com";
-      const smtpPort = parseInt(process.env.SMTP_PORT || (isGmail ? "465" : "465"));
+      const smtpPort = parseInt(process.env.SMTP_PORT || (isGmail ? "465" : "465"), 10);
       const isSecure = smtpPort === 465;
 
+      let targetHost: string = host;
+      try {
+        const ipv4Addresses = await new Promise<string[]>((resolve) => {
+          dns.resolve4(host, (err, addrs) => {
+            if (!err && addrs && addrs.length > 0) resolve(addrs);
+            else resolve([]);
+          });
+        });
+        if (ipv4Addresses.length > 0 && ipv4Addresses[0]) {
+          targetHost = ipv4Addresses[0];
+          console.log(`[EmailService] Pre-resolved ${host} to IPv4: ${targetHost}`);
+        }
+      } catch (_) {}
+
       const transportConfig: any = {
-        host: host,
+        host: targetHost,
         port: smtpPort,
         secure: isSecure,        // true for 465 (SSL), false for 587 (STARTTLS)
         requireTLS: !isSecure,
@@ -62,10 +75,9 @@ class EmailService {
         connectionTimeout: 20000,
         greetingTimeout: 20000,
         socketTimeout: 20000,
-        tls: { rejectUnauthorized: false },
-        // Force IPv4 DNS resolution — prevents ENETUNREACH on cloud containers
-        lookup: (hostname: string, options: any, callback: any) => {
-          dns.lookup(hostname, { family: 4 }, callback);
+        tls: {
+          rejectUnauthorized: false,
+          servername: host,
         },
       };
       this.transporter = nodemailer.createTransport(transportConfig);

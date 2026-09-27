@@ -489,10 +489,18 @@ export default function LoginPage() {
       });
       const data = await res.json();
       if (res.ok) {
+        if (data.requiresTwoStep) {
+          setError("🛡️ Two-Step Verification is active on this account. Open DOLSYX Mobile to verify your 6-digit PIN or scan QR code.");
+          return;
+        }
         setInfo("Login successful! Redirecting...");
         setTimeout(() => login(data.token, data.user), 800);
       } else {
-        setError(data.message || "Login failed.");
+        if (data.requiresTwoStep && data.lockoutRemainingMinutes) {
+          setError(`Account locked due to failed PIN attempts. Wait ${data.lockoutRemainingMinutes} min.`);
+        } else {
+          setError(data.message || "Login failed.");
+        }
       }
     } catch {
       setError("Failed to connect to server.");

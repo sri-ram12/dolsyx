@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
 import '../providers/auth_provider.dart';
 import 'two_factor_auth_screen.dart';
+import 'two_step_verification_screen.dart';
+import 'change_password_screen.dart';
 import 'app_lock_screen.dart';
 import 'signup_screen.dart';
 import 'login_screen.dart';
@@ -204,7 +206,15 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                   title: 'Two-Step Verification',
                   subtitle: 'For extra security, require a PIN when registering your account',
                   onTap: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (_) => const TwoFactorAuthScreen()));
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => const TwoStepVerificationScreen(mode: TwoStepMode.settings)));
+                  },
+                ),
+                _buildTile(
+                  icon: Icons.lock_reset_rounded,
+                  title: 'Password',
+                  subtitle: 'Change or set your account password for strict email login safety',
+                  onTap: () {
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => const ChangePasswordScreen()));
                   },
                 ),
                 _buildTile(

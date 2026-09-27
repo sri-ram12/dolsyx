@@ -82,14 +82,35 @@ class ApiService {
     try {
       final fcmToken = await _getFcmToken();
       final response = await _client.post(
-        Uri.parse('$baseUrl/auth/login-without-otp'), // Changed to support passwordless OTP accounts
+        Uri.parse('$baseUrl/auth/login'), // Strict password authentication endpoint
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'email': email, 'fcmToken': fcmToken}), // Only send email + token
+        body: jsonEncode({
+          'email': email.trim().toLowerCase(),
+          'password': password,
+          'fcmToken': fcmToken,
+        }),
       );
 
       final data = jsonDecode(response.body);
 
       if (response.statusCode == 200) {
+        if (data['needsPasswordSetup'] == true) {
+          return {
+            'success': false,
+            'needsPasswordSetup': true,
+            'email': email,
+            'message': data['message'] ?? 'Please set your account security password.',
+          };
+        }
+        if (data['requiresTwoStep'] == true) {
+          return {
+            'success': false,
+            'requiresTwoStep': true,
+            'email': email,
+            'message': data['message'] ?? 'Two-step verification PIN required',
+            'hasPendingReset': data['hasPendingReset'] ?? false,
+          };
+        }
         // Save the token securely
         final prefs = await SharedPreferences.getInstance();
         if (data['token'] != null) {
@@ -97,7 +118,12 @@ class ApiService {
         }
         return {'success': true, 'data': data};
       } else {
-        return {'success': false, 'message': data['message'] ?? 'Login failed'};
+        return {
+          'success': false,
+          'message': data['message'] ?? 'Login failed',
+          'requiresTwoStep': data['requiresTwoStep'] == true,
+          'lockoutRemainingMinutes': data['lockoutRemainingMinutes'],
+        };
       }
     } catch (e) {
       return {'success': false, 'message': 'Network error: Could not connect to server.'};
@@ -139,6 +165,16 @@ class ApiService {
       }
 
       if (response.statusCode == 200 || response.statusCode == 201) {
+        if (data['requiresTwoStep'] == true) {
+          return {
+            'success': false,
+            'requiresTwoStep': true,
+            'email': data['email'] ?? email,
+            'hasPendingReset': data['hasPendingReset'] ?? false,
+            'resetRequestedAt': data['resetRequestedAt'],
+            'message': data['message'] ?? 'Two-Step Verification PIN required',
+          };
+        }
         final prefs = await SharedPreferences.getInstance();
         if (data['token'] != null) {
           await prefs.setString('jwt_token', data['token']);
@@ -633,5 +669,230 @@ class ApiService {
       return false;
     }
   }
+
+  // ==========================================
+  // TWO-STEP VERIFICATION (2SV) API METHODS
+  // ==========================================
+
+  /// Verifies 6-digit PIN on login challenge and stores session JWT on success
+  Future<Map<String, dynamic>> verifyTwoStepLogin({
+    required String email,
+    required String pin,
+  }) async {
+    try {
+      final fcmToken = await _getFcmToken();
+      final response = await _client.post(
+        Uri.parse('$baseUrl/auth/two-step/verify-login'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'email': email.trim().toLowerCase(),
+          'pin': pin.trim(),
+          'fcmToken': fcmToken,
+          'deviceName': 'Android Phone',
+          'deviceType': 'android',
+        }),
+      );
+
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200) {
+        final prefs = await SharedPreferences.getInstance();
+        if (data['token'] != null) {
+          await prefs.setString('jwt_token', data['token']);
+        }
+        return {'success': true, 'data': data};
+      } else {
+        return {
+          'success': false,
+          'message': data['message'] ?? 'Verification failed',
+          'lockoutRemainingMinutes': data['lockoutRemainingMinutes'],
+          'attemptsRemaining': data['attemptsRemaining'],
+        };
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Network error during two-step verification.'};
+    }
+  }
+
+  /// Fetches current user's 2SV status and any pending 7-day cooldown info
+  Future<Map<String, dynamic>> getTwoStepStatus() async {
+    try {
+      final token = await getToken();
+      if (token == null) return {'enabled': false};
+      final response = await _client.get(
+        Uri.parse('$baseUrl/auth/two-step/status'),
+        headers: authHeaders(token),
+      );
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+      return {'enabled': false};
+    } catch (_) {
+      return {'enabled': false};
+    }
+  }
+
+  /// Enables Two-Step Verification with a new 6-digit PIN
+  Future<Map<String, dynamic>> enableTwoStep(String pin) async {
+    try {
+      final token = await getToken();
+      if (token == null) return {'success': false, 'message': 'Authentication required'};
+      final response = await _client.post(
+        Uri.parse('$baseUrl/auth/two-step/enable'),
+        headers: authHeaders(token),
+        body: jsonEncode({'pin': pin.trim()}),
+      );
+      final data = jsonDecode(response.body);
+      return {'success': response.statusCode == 200, 'message': data['message'] ?? 'Operation complete'};
+    } catch (e) {
+      return {'success': false, 'message': 'Network error: $e'};
+    }
+  }
+
+  /// Changes existing 6-digit PIN
+  Future<Map<String, dynamic>> changeTwoStepPin({
+    required String currentPin,
+    required String newPin,
+  }) async {
+    try {
+      final token = await getToken();
+      if (token == null) return {'success': false, 'message': 'Authentication required'};
+      final response = await _client.post(
+        Uri.parse('$baseUrl/auth/two-step/change'),
+        headers: authHeaders(token),
+        body: jsonEncode({
+          'currentPin': currentPin.trim(),
+          'newPin': newPin.trim(),
+        }),
+      );
+      final data = jsonDecode(response.body);
+      return {'success': response.statusCode == 200, 'message': data['message'] ?? 'Operation complete'};
+    } catch (e) {
+      return {'success': false, 'message': 'Network error: $e'};
+    }
+  }
+
+  /// Disables Two-Step Verification
+  Future<Map<String, dynamic>> disableTwoStep(String pin) async {
+    try {
+      final token = await getToken();
+      if (token == null) return {'success': false, 'message': 'Authentication required'};
+      final response = await _client.post(
+        Uri.parse('$baseUrl/auth/two-step/disable'),
+        headers: authHeaders(token),
+        body: jsonEncode({'pin': pin.trim()}),
+      );
+      final data = jsonDecode(response.body);
+      return {'success': response.statusCode == 200, 'message': data['message'] ?? 'Operation complete'};
+    } catch (e) {
+      return {'success': false, 'message': 'Network error: $e'};
+    }
+  }
+
+  /// Initiates or checks the 7-day cooldown on Forgot PIN
+  Future<Map<String, dynamic>> requestForgotPin(String email) async {
+    try {
+      final response = await _client.post(
+        Uri.parse('$baseUrl/auth/two-step/forgot-pin'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'email': email.trim().toLowerCase()}),
+      );
+      return jsonDecode(response.body);
+    } catch (e) {
+      return {'message': 'Network error requesting PIN reset.'};
+    }
+  }
+
+  /// Cancels an active 7-day cooldown request (owner kill-switch)
+  Future<Map<String, dynamic>> cancelForgotPin() async {
+    try {
+      final token = await getToken();
+      if (token == null) return {'success': false, 'message': 'Authentication required'};
+      final response = await _client.post(
+        Uri.parse('$baseUrl/auth/two-step/cancel-reset'),
+        headers: authHeaders(token),
+      );
+      final data = jsonDecode(response.body);
+      return {'success': response.statusCode == 200, 'message': data['message'] ?? 'Reset cancelled'};
+    } catch (e) {
+      return {'success': false, 'message': 'Network error: $e'};
+    }
+  }
+
+  // ==========================================
+  // PASSWORD MANAGEMENT METHODS
+  // ==========================================
+
+  /// Sets password for users who don't have one set yet
+  Future<Map<String, dynamic>> setAccountPassword({
+    required String email,
+    required String newPassword,
+  }) async {
+    try {
+      final fcmToken = await _getFcmToken();
+      final response = await _client.post(
+        Uri.parse('$baseUrl/auth/password/set'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'email': email.trim().toLowerCase(),
+          'newPassword': newPassword,
+          'fcmToken': fcmToken,
+        }),
+      );
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200) {
+        final prefs = await SharedPreferences.getInstance();
+        if (data['token'] != null) {
+          await prefs.setString('jwt_token', data['token']);
+        }
+        return {'success': true, 'data': data};
+      }
+      return {'success': false, 'message': data['message'] ?? 'Failed to set password'};
+    } catch (e) {
+      return {'success': false, 'message': 'Network error: $e'};
+    }
+  }
+
+  /// Changes or sets password for authenticated user
+  Future<Map<String, dynamic>> changeAccountPassword({
+    String? currentPassword,
+    required String newPassword,
+  }) async {
+    try {
+      final token = await getToken();
+      if (token == null) return {'success': false, 'message': 'Authentication required'};
+      final response = await _client.post(
+        Uri.parse('$baseUrl/auth/password/change'),
+        headers: authHeaders(token),
+        body: jsonEncode({
+          if (currentPassword != null && currentPassword.isNotEmpty) 'currentPassword': currentPassword,
+          'newPassword': newPassword,
+        }),
+      );
+      final data = jsonDecode(response.body);
+      return {'success': response.statusCode == 200, 'message': data['message'] ?? 'Password updated'};
+    } catch (e) {
+      return {'success': false, 'message': 'Network error: $e'};
+    }
+  }
+
+  /// Checks if current user already has a password set
+  Future<bool> checkHasPassword() async {
+    try {
+      final token = await getToken();
+      if (token == null) return false;
+      final response = await _client.get(
+        Uri.parse('$baseUrl/auth/password/has-password'),
+        headers: authHeaders(token),
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data['hasPassword'] == true;
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
 }
+
 

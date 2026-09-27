@@ -38,6 +38,15 @@ model User {
   avatarPrivacyExceptList String      @default("[]") // JSON string list of user IDs
   lastSeenPrivacyExceptList String    @default("[]") // JSON string list of user IDs
   aboutPrivacyExceptList String       @default("[]") // JSON string list of user IDs
+  
+  // Two-Step Verification (2SV / 2FA)
+  twoStepEnabled            Boolean           @default(false)
+  twoStepPin                String?           // Salted bcrypt hash of 6-digit PIN
+  twoStepFailedAttempts     Int               @default(0)
+  twoStepLockoutUntil       DateTime?         // Brute-force lockout expiration timestamp
+  twoStepResetRequestedAt   DateTime?         // Timestamp when user/attacker requested PIN reset
+  twoStepResetCooldownDays  Int               @default(7) // 7-day security cooldown window
+
   // Relations
   messages         Message[]
   participants     Participant[]

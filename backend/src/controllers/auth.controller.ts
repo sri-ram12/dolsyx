@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
+import bcrypt from "bcryptjs";
 import { prisma } from "../config/db.js";
 import type { AuthRequest } from "../middleware/auth.middleware.js";
 import { canViewProfilePhoto, canViewAbout, canViewLastSeen, canViewOnline } from "../utils/privacy.engine.js";
@@ -251,6 +252,27 @@ export const verifyOtp = async (req: Request, res: Response): Promise<void> => {
         verified: true,
         isNewUser: true,
         email: trimmedEmail,
+      });
+      return;
+    }
+
+    // Intercept if Two-Step Verification (2SV) is enabled on this account
+    if (user.twoStepEnabled) {
+      if (user.twoStepLockoutUntil && new Date() < user.twoStepLockoutUntil) {
+        const remainingMinutes = Math.ceil((user.twoStepLockoutUntil.getTime() - Date.now()) / (60 * 1000));
+        res.status(429).json({
+          message: `Account temporarily locked due to too many failed PIN attempts. Please wait ${remainingMinutes} minute(s).`,
+          lockoutRemainingMinutes: remainingMinutes,
+          requiresTwoStep: true,
+        });
+        return;
+      }
+      res.status(200).json({
+        message: "Two-step verification PIN required",
+        requiresTwoStep: true,
+        email: user.email,
+        hasPendingReset: !!user.twoStepResetRequestedAt,
+        resetRequestedAt: user.twoStepResetRequestedAt,
       });
       return;
     }
@@ -523,11 +545,12 @@ export const register = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Hash password if provided
-    let hashedPassword = null;
-    if (password) {
-      hashedPassword = await bcrypt.hash(password, 10);
+    // Hash password strictly
+    if (!password || typeof password !== "string" || password.trim().length < 6) {
+      res.status(400).json({ message: "Password is required and must be at least 6 characters long." });
+      return;
     }
+    const hashedPassword = await bcrypt.hash(password.trim(), 10);
 
     const newUser = await prisma.user.create({
       data: {
@@ -567,7 +590,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
   }
 };
 
-// Login with password
+// Login with strict password authentication
 export const login = async (req: Request, res: Response): Promise<void> => {
   try {
     const { email, password, fcmToken } = req.body;
@@ -581,14 +604,45 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       where: { email: trimmedEmail }
     });
 
-    if (!user || !user.password) {
+    if (!user) {
       res.status(400).json({ message: "Invalid email or password" });
+      return;
+    }
+
+    // Check if legacy user has no password set yet
+    if (!user.password) {
+      res.status(200).json({
+        needsPasswordSetup: true,
+        email: user.email,
+        message: "Your account does not have a password set yet. Please set your security password.",
+      });
       return;
     }
 
     const passwordMatch = await bcrypt.compare(password, user.password);
     if (!passwordMatch) {
       res.status(400).json({ message: "Invalid email or password" });
+      return;
+    }
+
+    // Intercept if Two-Step Verification (2SV) is enabled on this account
+    if (user.twoStepEnabled) {
+      if (user.twoStepLockoutUntil && new Date() < user.twoStepLockoutUntil) {
+        const remainingMinutes = Math.ceil((user.twoStepLockoutUntil.getTime() - Date.now()) / (60 * 1000));
+        res.status(429).json({
+          message: `Account temporarily locked due to too many failed PIN attempts. Please wait ${remainingMinutes} minute(s).`,
+          lockoutRemainingMinutes: remainingMinutes,
+          requiresTwoStep: true,
+        });
+        return;
+      }
+      res.status(200).json({
+        message: "Two-step verification PIN required",
+        requiresTwoStep: true,
+        email: user.email,
+        hasPendingReset: !!user.twoStepResetRequestedAt,
+        resetRequestedAt: user.twoStepResetRequestedAt,
+      });
       return;
     }
 
@@ -716,6 +770,28 @@ export const loginWithoutOtp = async (req: Request, res: Response): Promise<void
       res.status(400).json({ message: "User not found" });
       return;
     }
+
+    // Intercept if Two-Step Verification (2SV) is enabled on this account
+    if (user.twoStepEnabled) {
+      if (user.twoStepLockoutUntil && new Date() < user.twoStepLockoutUntil) {
+        const remainingMinutes = Math.ceil((user.twoStepLockoutUntil.getTime() - Date.now()) / (60 * 1000));
+        res.status(429).json({
+          message: `Account temporarily locked due to too many failed PIN attempts. Please wait ${remainingMinutes} minute(s).`,
+          lockoutRemainingMinutes: remainingMinutes,
+          requiresTwoStep: true,
+        });
+        return;
+      }
+      res.status(200).json({
+        message: "Two-step verification PIN required",
+        requiresTwoStep: true,
+        email: user.email,
+        hasPendingReset: !!user.twoStepResetRequestedAt,
+        resetRequestedAt: user.twoStepResetRequestedAt,
+      });
+      return;
+    }
+
     const token = jwt.sign(
       { id: user.id, username: user.username, email: user.email },
       JWT_SECRET,
@@ -1007,6 +1083,18 @@ export const handleGoogleCallback = async (req: Request, res: Response): Promise
     // Process user identity securely in DB
     const { user, isNewUser, needsUsername } = await resolveGoogleIdentity(googleIdentity);
 
+    // Enforce Two-Step Verification if enabled on account
+    if (user.twoStepEnabled) {
+      if (user.twoStepLockoutUntil && new Date(user.twoStepLockoutUntil) > new Date()) {
+        res.redirect(`${frontendUrl}/login?error=account_locked`);
+        return;
+      }
+      res.redirect(
+        `${resolvedFrontend}/login?requiresTwoStep=true&email=${encodeURIComponent(user.email || "")}`
+      );
+      return;
+    }
+
     // Create session
     const { token } = await createAndStoreSession(
       res,
@@ -1058,6 +1146,30 @@ export const verifyNativeGoogleToken = async (req: Request, res: Response): Prom
     }
 
     const { user, isNewUser, needsUsername } = await resolveGoogleIdentity(googleIdentity);
+
+    // Enforce Two-Step Verification if enabled on account
+    if (user.twoStepEnabled) {
+      if (user.twoStepLockoutUntil && new Date(user.twoStepLockoutUntil) > new Date()) {
+        const remainingMinutes = Math.ceil(
+          (new Date(user.twoStepLockoutUntil).getTime() - Date.now()) / 60000
+        );
+        res.status(429).json({
+          message: `Account is temporarily locked due to too many failed 2-Step attempts. Please try again in ${remainingMinutes} minute(s).`,
+          lockoutUntil: user.twoStepLockoutUntil,
+        });
+        return;
+      }
+
+      res.status(200).json({
+        message: "Two-Step Verification required",
+        requiresTwoStep: true,
+        userId: user.id,
+        email: user.email,
+        hasPendingReset: !!user.twoStepResetRequestedAt,
+        resetRequestedAt: user.twoStepResetRequestedAt,
+      });
+      return;
+    }
 
     const { token, refreshToken } = await createAndStoreSession(
       res,
@@ -1426,6 +1538,581 @@ export const unlinkGoogleAccount = async (req: AuthRequest, res: Response): Prom
     res.status(500).json({ message: "Failed to unlink Google account" });
   }
 };
+
+// ==========================================
+// TWO-STEP VERIFICATION (2SV) CONTROLLER HANDLERS
+// ==========================================
+
+// GET /api/auth/two-step/status (requires authentication)
+export const getTwoStepStatus = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(401).json({ message: "Unauthorized" });
+      return;
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        twoStepEnabled: true,
+        twoStepResetRequestedAt: true,
+        twoStepResetCooldownDays: true,
+        twoStepLockoutUntil: true,
+        email: true,
+      },
+    });
+
+    if (!user) {
+      res.status(404).json({ message: "User not found" });
+      return;
+    }
+
+    let cooldownInfo: any = null;
+    if (user.twoStepResetRequestedAt) {
+      const cooldownMs = (user.twoStepResetCooldownDays || 7) * 24 * 60 * 60 * 1000;
+      const elapsed = Date.now() - new Date(user.twoStepResetRequestedAt).getTime();
+      const remainingMs = Math.max(0, cooldownMs - elapsed);
+      const remainingHours = Math.ceil(remainingMs / (60 * 60 * 1000));
+      const remainingDays = Math.ceil(remainingHours / 24);
+      const unlockDate = new Date(new Date(user.twoStepResetRequestedAt).getTime() + cooldownMs);
+
+      cooldownInfo = {
+        isPending: remainingMs > 0,
+        remainingDays,
+        remainingHours,
+        unlockDate: unlockDate.toISOString(),
+      };
+    }
+
+    res.json({
+      enabled: user.twoStepEnabled,
+      hasPendingReset: !!user.twoStepResetRequestedAt,
+      cooldown: cooldownInfo,
+    });
+  } catch (error) {
+    console.error("getTwoStepStatus error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+// POST /api/auth/two-step/enable (requires authentication)
+export const enableTwoStep = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(401).json({ message: "Unauthorized" });
+      return;
+    }
+
+    const { pin } = req.body;
+    if (!pin || typeof pin !== "string" || !/^\d{6}$/.test(pin.trim())) {
+      res.status(400).json({ message: "PIN must be exactly 6 numeric digits." });
+      return;
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const hashedPin = await bcrypt.hash(pin.trim(), salt);
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        twoStepEnabled: true,
+        twoStepPin: hashedPin,
+        twoStepFailedAttempts: 0,
+        twoStepLockoutUntil: null,
+        twoStepResetRequestedAt: null,
+      },
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Two-step verification has been enabled successfully.",
+      enabled: true,
+    });
+  } catch (error) {
+    console.error("enableTwoStep error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+// POST /api/auth/two-step/change (requires authentication)
+export const changeTwoStepPin = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(401).json({ message: "Unauthorized" });
+      return;
+    }
+
+    const { currentPin, newPin } = req.body;
+    if (!currentPin || !newPin || typeof newPin !== "string" || !/^\d{6}$/.test(newPin.trim())) {
+      res.status(400).json({ message: "New PIN must be exactly 6 numeric digits." });
+      return;
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { twoStepPin: true, twoStepEnabled: true },
+    });
+
+    if (!user || !user.twoStepEnabled || !user.twoStepPin) {
+      res.status(400).json({ message: "Two-step verification is not currently enabled." });
+      return;
+    }
+
+    const isCurrentMatch = await bcrypt.compare(currentPin.trim(), user.twoStepPin);
+    if (!isCurrentMatch) {
+      res.status(400).json({ message: "Current PIN is incorrect." });
+      return;
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const hashedNewPin = await bcrypt.hash(newPin.trim(), salt);
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        twoStepPin: hashedNewPin,
+        twoStepFailedAttempts: 0,
+        twoStepLockoutUntil: null,
+        twoStepResetRequestedAt: null,
+      },
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Two-step verification PIN updated successfully.",
+    });
+  } catch (error) {
+    console.error("changeTwoStepPin error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+// POST /api/auth/two-step/disable (requires authentication)
+export const disableTwoStep = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(401).json({ message: "Unauthorized" });
+      return;
+    }
+
+    const { pin } = req.body;
+    if (!pin) {
+      res.status(400).json({ message: "Current PIN is required to disable two-step verification." });
+      return;
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { twoStepPin: true, twoStepEnabled: true },
+    });
+
+    if (!user || !user.twoStepEnabled || !user.twoStepPin) {
+      res.status(400).json({ message: "Two-step verification is not active." });
+      return;
+    }
+
+    const isMatch = await bcrypt.compare(pin.trim(), user.twoStepPin);
+    if (!isMatch) {
+      res.status(400).json({ message: "Incorrect PIN. Cannot disable two-step verification." });
+      return;
+    }
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        twoStepEnabled: false,
+        twoStepPin: null,
+        twoStepFailedAttempts: 0,
+        twoStepLockoutUntil: null,
+        twoStepResetRequestedAt: null,
+      },
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Two-step verification has been disabled.",
+      enabled: false,
+    });
+  } catch (error) {
+    console.error("disableTwoStep error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+// POST /api/auth/two-step/verify-login (public pre-auth)
+export const verifyTwoStepLogin = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email, pin, fcmToken, deviceName, deviceType } = req.body;
+
+    if (!email || !pin) {
+      res.status(400).json({ message: "Email and PIN are required." });
+      return;
+    }
+
+    const trimmedEmail = email.trim().toLowerCase();
+    const trimmedPin = pin.trim();
+
+    const user = await prisma.user.findUnique({
+      where: { email: trimmedEmail },
+    });
+
+    if (!user) {
+      res.status(404).json({ message: "User not found." });
+      return;
+    }
+
+    if (!user.twoStepEnabled || !user.twoStepPin) {
+      res.status(400).json({ message: "Two-step verification is not enabled for this account." });
+      return;
+    }
+
+    // Check brute force lockout
+    if (user.twoStepLockoutUntil && new Date() < user.twoStepLockoutUntil) {
+      const remainingMinutes = Math.ceil((user.twoStepLockoutUntil.getTime() - Date.now()) / (60 * 1000));
+      res.status(429).json({
+        message: `Account temporarily locked due to too many failed attempts. Try again in ${remainingMinutes} minute(s).`,
+        lockoutRemainingMinutes: remainingMinutes,
+      });
+      return;
+    }
+
+    const isMatch = await bcrypt.compare(trimmedPin, user.twoStepPin);
+
+    if (!isMatch) {
+      const failedAttempts = (user.twoStepFailedAttempts || 0) + 1;
+      let lockoutDate: Date | null = null;
+
+      if (failedAttempts >= 5) {
+        lockoutDate = new Date(Date.now() + 15 * 60 * 1000); // 15-minute lockout
+      }
+
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          twoStepFailedAttempts: failedAttempts,
+          twoStepLockoutUntil: lockoutDate,
+        },
+      });
+
+      if (failedAttempts >= 5) {
+        res.status(429).json({
+          message: "Maximum verification attempts exceeded. Account is locked for 15 minutes.",
+          lockoutRemainingMinutes: 15,
+        });
+      } else {
+        res.status(400).json({
+          message: `Incorrect PIN. ${5 - failedAttempts} attempt(s) remaining before temporary lockout.`,
+          attemptsRemaining: 5 - failedAttempts,
+        });
+      }
+      return;
+    }
+
+    // PIN matched! Reset failed attempts and update login state
+    const updateData: any = {
+      twoStepFailedAttempts: 0,
+      twoStepLockoutUntil: null,
+      isOnline: true,
+      lastLogin: new Date(),
+      lastSeen: new Date(),
+    };
+    if (fcmToken) {
+      updateData.fcmToken = fcmToken;
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: user.id },
+      data: updateData,
+    });
+
+    const token = jwt.sign(
+      { id: updatedUser.id, username: updatedUser.username, email: updatedUser.email },
+      JWT_SECRET,
+      { expiresIn: "30d" }
+    );
+
+    // Also register multi-device session
+    try {
+      await createAndStoreSession(
+        res,
+        updatedUser.id,
+        req.headers["user-agent"],
+        (req.headers["x-forwarded-for"] as string) || req.socket.remoteAddress || "0.0.0.0",
+        deviceType || "mobile"
+      );
+    } catch (_) {}
+
+    res.status(200).json({
+      message: "Two-step verification successful",
+      token,
+      user: {
+        id: updatedUser.id,
+        username: updatedUser.username,
+        email: updatedUser.email,
+        avatarUrl: updatedUser.avatarUrl,
+        bio: updatedUser.bio,
+        createdAt: updatedUser.createdAt,
+      },
+    });
+  } catch (error) {
+    console.error("verifyTwoStepLogin error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+// POST /api/auth/two-step/forgot-pin (public pre-auth)
+export const requestForgotPin = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      res.status(400).json({ message: "Email is required." });
+      return;
+    }
+
+    const trimmedEmail = email.trim().toLowerCase();
+    const user = await prisma.user.findUnique({
+      where: { email: trimmedEmail },
+    });
+
+    if (!user || !user.twoStepEnabled) {
+      res.status(400).json({ message: "Two-step verification is not enabled for this account." });
+      return;
+    }
+
+    const cooldownDays = user.twoStepResetCooldownDays || 7;
+    const cooldownMs = cooldownDays * 24 * 60 * 60 * 1000;
+    const now = new Date();
+
+    if (user.twoStepResetRequestedAt) {
+      const elapsed = now.getTime() - new Date(user.twoStepResetRequestedAt).getTime();
+
+      if (elapsed >= cooldownMs) {
+        // 7 days elapsed! Clear PIN safely
+        await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            twoStepEnabled: false,
+            twoStepPin: null,
+            twoStepFailedAttempts: 0,
+            twoStepLockoutUntil: null,
+            twoStepResetRequestedAt: null,
+          },
+        });
+
+        res.status(200).json({
+          resetCompleted: true,
+          message: "The 7-day security cooldown has elapsed. Two-step verification has been reset. You may now log in and set a new PIN.",
+        });
+        return;
+      }
+
+      const remainingMs = cooldownMs - elapsed;
+      const remainingHours = Math.ceil(remainingMs / (60 * 60 * 1000));
+      const remainingDays = Math.ceil(remainingHours / 24);
+      const unlockDate = new Date(new Date(user.twoStepResetRequestedAt).getTime() + cooldownMs);
+
+      res.status(200).json({
+        pendingCooldown: true,
+        remainingDays,
+        remainingHours,
+        unlockDate: unlockDate.toISOString(),
+        message: `PIN reset was requested. For account protection against unauthorized email access, a ${cooldownDays}-day security cooldown is in progress (${remainingDays} days remaining, unlock date: ${unlockDate.toLocaleDateString()}).`,
+      });
+      return;
+    }
+
+    // First time requesting reset: Start the 7-day cooldown
+    const resetRequestedAt = new Date();
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { twoStepResetRequestedAt: resetRequestedAt },
+    });
+
+    const unlockDate = new Date(resetRequestedAt.getTime() + cooldownMs);
+
+    res.status(200).json({
+      pendingCooldown: true,
+      startedNow: true,
+      remainingDays: cooldownDays,
+      unlockDate: unlockDate.toISOString(),
+      message: `Security cooldown initiated. For your account protection, your PIN reset will be available after a ${cooldownDays}-day cooldown on ${unlockDate.toLocaleDateString()}. This ensures nobody with temporary email access can hijack your account.`,
+    });
+  } catch (error) {
+    console.error("requestForgotPin error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+// POST /api/auth/two-step/cancel-reset (requires authentication)
+export const cancelForgotPin = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(401).json({ message: "Unauthorized" });
+      return;
+    }
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { twoStepResetRequestedAt: null },
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Pending PIN reset request has been cancelled. Your account remains protected.",
+    });
+  } catch (error) {
+    console.error("cancelForgotPin error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+// ==========================================
+// PASSWORD MANAGEMENT CONTROLLER HANDLERS
+// ==========================================
+
+// POST /api/auth/password/set (for users with no password yet or setting password during login)
+export const setAccountPassword = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email, newPassword, fcmToken } = req.body;
+    if (!email || !newPassword) {
+      res.status(400).json({ message: "Email and new password are required." });
+      return;
+    }
+
+    if (newPassword.trim().length < 6) {
+      res.status(400).json({ message: "Password must be at least 6 characters long." });
+      return;
+    }
+
+    const trimmedEmail = email.trim().toLowerCase();
+    const user = await prisma.user.findUnique({
+      where: { email: trimmedEmail },
+    });
+
+    if (!user) {
+      res.status(404).json({ message: "User not found." });
+      return;
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword.trim(), 10);
+    const updatedUser = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        password: hashedPassword,
+        isOnline: true,
+        lastLogin: new Date(),
+        lastSeen: new Date(),
+        ...(fcmToken ? { fcmToken } : {}),
+      },
+    });
+
+    const token = jwt.sign(
+      { id: updatedUser.id, username: updatedUser.username, email: updatedUser.email },
+      JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Password set successfully.",
+      token,
+      user: {
+        id: updatedUser.id,
+        username: updatedUser.username,
+        email: updatedUser.email,
+        avatarUrl: updatedUser.avatarUrl,
+        bio: updatedUser.bio,
+        createdAt: updatedUser.createdAt,
+      },
+    });
+  } catch (error) {
+    console.error("setAccountPassword error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+// POST /api/auth/password/change (requires authentication)
+export const changeAccountPassword = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(401).json({ message: "Unauthorized" });
+      return;
+    }
+
+    const { currentPassword, newPassword } = req.body;
+    if (!newPassword || newPassword.trim().length < 6) {
+      res.status(400).json({ message: "New password must be at least 6 characters long." });
+      return;
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, password: true },
+    });
+
+    if (!user) {
+      res.status(404).json({ message: "User not found." });
+      return;
+    }
+
+    // If user already has a password set, verify current password
+    if (user.password) {
+      if (!currentPassword) {
+        res.status(400).json({ message: "Current password is required." });
+        return;
+      }
+      const match = await bcrypt.compare(currentPassword, user.password);
+      if (!match) {
+        res.status(400).json({ message: "Current password is incorrect." });
+        return;
+      }
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword.trim(), 10);
+    await prisma.user.update({
+      where: { id: userId },
+      data: { password: hashedPassword },
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Password updated successfully.",
+    });
+  } catch (error) {
+    console.error("changeAccountPassword error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+// GET /api/auth/password/has-password (requires authentication)
+export const checkHasPassword = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(401).json({ message: "Unauthorized" });
+      return;
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { password: true },
+    });
+
+    res.status(200).json({
+      hasPassword: !!user?.password,
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+
 
 
 

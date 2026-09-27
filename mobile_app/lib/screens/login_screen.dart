@@ -6,6 +6,7 @@ import '../theme/app_theme.dart';
 import '../widgets/google_logo_icon.dart';
 import 'chat_list_screen.dart';
 import 'signup_screen.dart';
+import 'two_step_verification_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -58,7 +59,26 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
     }
 
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    await authProvider.login(email, password);
+    final result = await authProvider.login(email, password);
+
+    if (result['needsPasswordSetup'] == true && mounted) {
+      _showSetPasswordDialog(email);
+      return;
+    }
+
+    if (result['requiresTwoStep'] == true && mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => TwoStepVerificationScreen(
+            mode: TwoStepMode.loginChallenge,
+            email: email,
+            hasPendingReset: result['hasPendingReset'] ?? false,
+          ),
+        ),
+      );
+      return;
+    }
 
     if (authProvider.errorMessage != null && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -70,6 +90,110 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
         MaterialPageRoute(builder: (context) => const ChatListScreen()),
       );
     }
+  }
+
+  void _showSetPasswordDialog(String email) {
+    final newPassCtrl = TextEditingController();
+    final confirmPassCtrl = TextEditingController();
+    String? localError;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: AppTheme.surfaceColor,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: const [
+              Icon(Icons.shield_outlined, color: Color(0xFF2E7D32), size: 28),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text('Set Security Password', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Your account does not have a security password set yet. To protect your chats from anyone who has access to your email, please set a password.',
+                style: TextStyle(color: AppTheme.textSecondary, fontSize: 13, height: 1.3),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: newPassCtrl,
+                obscureText: true,
+                decoration: InputDecoration(
+                  labelText: 'New Password',
+                  hintText: 'At least 6 characters',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: confirmPassCtrl,
+                obscureText: true,
+                decoration: InputDecoration(
+                  labelText: 'Confirm Password',
+                  hintText: 'Re-enter password',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+              if (localError != null) ...[
+                const SizedBox(height: 12),
+                Text(localError!, style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text('Cancel', style: TextStyle(color: AppTheme.textSecondary)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primaryColor,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () async {
+                final newPass = newPassCtrl.text.trim();
+                final confirmPass = confirmPassCtrl.text.trim();
+                if (newPass.length < 6) {
+                  setDialogState(() => localError = 'Password must be at least 6 characters.');
+                  return;
+                }
+                if (newPass != confirmPass) {
+                  setDialogState(() => localError = 'Passwords do not match.');
+                  return;
+                }
+                Navigator.pop(ctx);
+                final authProvider = Provider.of<AuthProvider>(context, listen: false);
+                final setRes = await authProvider.setPassword(email: email, newPassword: newPass);
+                if (setRes['success'] == true && mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Password set successfully! Logging in...'),
+                      backgroundColor: Color(0xFF2E7D32),
+                    ),
+                  );
+                  Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(builder: (context) => const ChatListScreen()),
+                  );
+                } else if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(setRes['message'] ?? 'Failed to set password')),
+                  );
+                }
+              },
+              child: const Text('Save & Log In', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _handleGoogleSignIn() async {
@@ -105,6 +229,21 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
         avatarUrl: account.photoUrl,
         idToken: idToken,
       );
+
+      if (authProvider.requiresTwoStep && mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => TwoStepVerificationScreen(
+              mode: TwoStepMode.challenge,
+              email: authProvider.pendingTwoStepEmail ?? account.email,
+              hasPendingReset: authProvider.hasPendingTwoStepReset,
+              resetRequestedAt: authProvider.pendingTwoStepResetDate,
+            ),
+          ),
+        );
+        return;
+      }
 
       if (authProvider.errorMessage != null && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

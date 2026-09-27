@@ -156,14 +156,27 @@ class AuthProvider with ChangeNotifier {
     return false;
   }
 
-  Future<void> login(String email, String password) async {
+  bool _requiresTwoStep = false;
+  bool get requiresTwoStep => _requiresTwoStep;
+  String? _pendingTwoStepEmail;
+  String? get pendingTwoStepEmail => _pendingTwoStepEmail;
+  bool _hasPendingTwoStepReset = false;
+  bool get hasPendingTwoStepReset => _hasPendingTwoStepReset;
+  bool _needsPasswordSetup = false;
+  bool get needsPasswordSetup => _needsPasswordSetup;
+
+  Future<Map<String, dynamic>> login(String email, String password) async {
     _isLoading = true;
     _errorMessage = null;
+    _requiresTwoStep = false;
+    _pendingTwoStepEmail = null;
+    _hasPendingTwoStepReset = false;
+    _needsPasswordSetup = false;
     notifyListeners();
 
     final result = await _apiService.login(email, password);
 
-    if (result['success']) {
+    if (result['success'] == true) {
       _isAuthenticated = true;
       _user = result['data']['user'];
       _token = result['data']['token'];
@@ -172,6 +185,16 @@ class AuthProvider with ChangeNotifier {
       _setupSocketListeners();
       // Initialize E2EE keys in the background
       _initializeE2EE(_user!['id'], _token!);
+    } else if (result['needsPasswordSetup'] == true) {
+      _isAuthenticated = false;
+      _needsPasswordSetup = true;
+      _errorMessage = result['message'];
+    } else if (result['requiresTwoStep'] == true) {
+      _isAuthenticated = false;
+      _requiresTwoStep = true;
+      _pendingTwoStepEmail = email;
+      _hasPendingTwoStepReset = result['hasPendingReset'] ?? false;
+      _errorMessage = result['message'];
     } else {
       _isAuthenticated = false;
       _errorMessage = result['message'];
@@ -179,6 +202,67 @@ class AuthProvider with ChangeNotifier {
 
     _isLoading = false;
     notifyListeners();
+    return result;
+  }
+
+  Future<Map<String, dynamic>> setPassword({
+    required String email,
+    required String newPassword,
+  }) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    final result = await _apiService.setAccountPassword(email: email, newPassword: newPassword);
+
+    if (result['success'] == true) {
+      _isAuthenticated = true;
+      _needsPasswordSetup = false;
+      _user = result['data']['user'];
+      _token = result['data']['token'];
+      await _saveAccountToDevice(_user!, _token!);
+      await _socketService.connect(_user!['id']);
+      _setupSocketListeners();
+      _initializeE2EE(_user!['id'], _token!);
+    } else {
+      _isAuthenticated = false;
+      _errorMessage = result['message'];
+    }
+
+    _isLoading = false;
+    notifyListeners();
+    return result;
+  }
+
+  Future<Map<String, dynamic>> completeTwoStepLogin({
+    required String email,
+    required String pin,
+  }) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    final result = await _apiService.verifyTwoStepLogin(email: email, pin: pin);
+
+    if (result['success'] == true) {
+      _isAuthenticated = true;
+      _requiresTwoStep = false;
+      _pendingTwoStepEmail = null;
+      _hasPendingTwoStepReset = false;
+      _user = result['data']['user'];
+      _token = result['data']['token'];
+      await _saveAccountToDevice(_user!, _token!);
+      await _socketService.connect(_user!['id']);
+      _setupSocketListeners();
+      _initializeE2EE(_user!['id'], _token!);
+    } else {
+      _isAuthenticated = false;
+      _errorMessage = result['message'];
+    }
+
+    _isLoading = false;
+    notifyListeners();
+    return result;
   }
 
   Future<void> loginWithGoogle({
@@ -200,8 +284,25 @@ class AuthProvider with ChangeNotifier {
       idToken: idToken,
     );
 
+    if (result['requiresTwoStep'] == true) {
+      _requiresTwoStep = true;
+      _pendingTwoStepEmail = result['email'] ?? email;
+      _hasPendingTwoStepReset = result['hasPendingReset'] ?? false;
+      _pendingTwoStepResetDate = result['resetRequestedAt'] != null
+          ? DateTime.tryParse(result['resetRequestedAt'])
+          : null;
+      _isAuthenticated = false;
+      _isLoading = false;
+      notifyListeners();
+      return;
+    }
+
     if (result['success']) {
       _isAuthenticated = true;
+      _requiresTwoStep = false;
+      _pendingTwoStepEmail = null;
+      _hasPendingTwoStepReset = false;
+      _pendingTwoStepResetDate = null;
       _user = result['data']['user'];
       _token = result['data']['token'];
       await _saveAccountToDevice(_user!, _token!);

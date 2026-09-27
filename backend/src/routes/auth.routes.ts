@@ -23,6 +23,16 @@ import {
   logoutAllSessions,
   linkGoogleAccount,
   unlinkGoogleAccount,
+  getTwoStepStatus,
+  enableTwoStep,
+  changeTwoStepPin,
+  disableTwoStep,
+  verifyTwoStepLogin,
+  requestForgotPin,
+  cancelForgotPin,
+  setAccountPassword,
+  changeAccountPassword,
+  checkHasPassword,
 } from "../controllers/auth.controller.js";
 import { authenticateToken } from "../middleware/auth.middleware.js";
 import { authRateLimiter, otpRateLimiter } from "../middleware/rateLimit.middleware.js";
@@ -55,6 +65,20 @@ router.post("/logout-all", authenticateToken as any, logoutAllSessions as any);
 // Account Linking & Unlinking Routes
 router.post("/link-google", authenticateToken as any, linkGoogleAccount as any);
 router.post("/unlink-google", authenticateToken as any, unlinkGoogleAccount as any);
+
+// Two-Step Verification (2SV / 2FA) Routes
+router.get("/two-step/status", authenticateToken as any, getTwoStepStatus as any);
+router.post("/two-step/enable", authenticateToken as any, enableTwoStep as any);
+router.post("/two-step/change", authenticateToken as any, changeTwoStepPin as any);
+router.post("/two-step/disable", authenticateToken as any, disableTwoStep as any);
+router.post("/two-step/verify-login", authRateLimiter, verifyTwoStepLogin as any);
+router.post("/two-step/forgot-pin", authRateLimiter, requestForgotPin as any);
+router.post("/two-step/cancel-reset", authenticateToken as any, cancelForgotPin as any);
+
+// Password Management & Recovery Routes
+router.post("/password/set", authRateLimiter, setAccountPassword as any);
+router.post("/password/change", authenticateToken as any, changeAccountPassword as any);
+router.get("/password/has-password", authenticateToken as any, checkHasPassword as any);
 
 // Account Deletion Routes (Google Play & Privacy Compliance)
 router.delete("/account", authenticateToken as any, deleteAccount as any);

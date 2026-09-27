@@ -6,6 +6,7 @@ import '../theme/app_theme.dart';
 import '../widgets/google_logo_icon.dart';
 import 'chat_list_screen.dart';
 import 'login_screen.dart';
+import 'two_step_verification_screen.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -88,6 +89,21 @@ class _SignupScreenState extends State<SignupScreen> with SingleTickerProviderSt
         avatarUrl: account.photoUrl,
         idToken: idToken,
       );
+
+      if (authProvider.requiresTwoStep && mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => TwoStepVerificationScreen(
+              mode: TwoStepMode.challenge,
+              email: authProvider.pendingTwoStepEmail ?? account.email,
+              hasPendingReset: authProvider.hasPendingTwoStepReset,
+              resetRequestedAt: authProvider.pendingTwoStepResetDate,
+            ),
+          ),
+        );
+        return;
+      }
 
       if (authProvider.errorMessage != null && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

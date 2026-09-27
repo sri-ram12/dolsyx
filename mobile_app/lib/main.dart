@@ -72,6 +72,9 @@ void main() async {
     }
   }));
 
+  // Non-blocking server pre-warm to prevent cloud cold-start lag
+  ApiService.wakeUpBackend();
+
   runApp(
     MultiProvider(
       providers: [
@@ -129,20 +132,11 @@ class _DolsyxAppState extends State<DolsyxApp> with WidgetsBindingObserver {
 
   Future<void> _requestEssentialPermissions() async {
     try {
-      await [
-        Permission.notification,
-        Permission.microphone,
-        Permission.camera,
-        Permission.photos,
-        Permission.videos,
-        Permission.audio,
-        Permission.storage,
-        Permission.bluetoothConnect,
-        Permission.bluetoothScan,
-        Permission.nearbyWifiDevices,
-      ].request();
+      // Fast WhatsApp-style startup: Only request notification permission on launch
+      // Camera, Microphone, Storage, and Bluetooth permissions are requested contextually when used.
+      await Permission.notification.request();
     } catch (e) {
-      debugPrint("Permission request error: $e");
+      debugPrint("Notification permission error: $e");
     }
   }
 

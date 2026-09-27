@@ -92,20 +92,30 @@ class AuthProvider with ChangeNotifier {
         } catch (_) {}
       }
 
-      // If no local cache yet, fetch fresh user data from server
-      final userData = await _apiService.getUserById(userId);
-      if (userData != null) {
-        _isAuthenticated = true;
-        _user = userData;
-        _token = tkn;
-        // Cache user data for offline use
-        await prefs.setString('cached_user_data', jsonEncode(userData));
-        await _saveAccountToDevice(_user!, _token!);
-        await _socketService.connect(_user!['id']);
-        _setupSocketListeners();
-        notifyListeners();
-        return true;
-      }
+      // If no local cache yet, construct immediate offline user from token payload (0ms instant boot)
+      final immediateUser = {
+        'id': userId,
+        '_id': userId,
+        'username': payloadMap['username'] ?? 'User',
+        'email': payloadMap['email'] ?? '',
+      };
+      _isAuthenticated = true;
+      _user = immediateUser;
+      _token = tkn;
+      _socketService.connect(userId);
+      _setupSocketListeners();
+      notifyListeners();
+
+      // Non-blocking background revalidation with server
+      _apiService.getUserById(userId).then((userData) async {
+        if (userData != null) {
+          _user = userData;
+          await prefs.setString('cached_user_data', jsonEncode(userData));
+          await _saveAccountToDevice(_user!, _token!);
+          notifyListeners();
+        }
+      }).catchError((_) {});
+      return true;
 
       // If token was cleared (e.g. 401/403 Access Denied), do not fallback to cached login
       final validToken = await _apiService.getToken();

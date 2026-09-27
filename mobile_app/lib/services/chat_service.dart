@@ -71,7 +71,7 @@ class ChatService {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
         },
-      ).timeout(const Duration(seconds: 15));
+      ).timeout(const Duration(seconds: 6));
 
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);

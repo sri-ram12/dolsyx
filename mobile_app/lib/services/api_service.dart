@@ -44,6 +44,14 @@ class ApiService {
   static final http.Client _client = http.Client();
   static http.Client get client => _client;
 
+  /// Non-blocking keepalive to warm up cloud server container on app start
+  static void wakeUpBackend() {
+    try {
+      final base = baseUrl.endsWith('/api') ? baseUrl.substring(0, baseUrl.length - 4) : baseUrl;
+      _client.get(Uri.parse('$base/health/live')).timeout(const Duration(seconds: 4)).then((_) {}).catchError((_) {});
+    } catch (_) {}
+  }
+
   static Future<http.Response> get(Uri url, {Map<String, String>? headers}) =>
       _client.get(url, headers: headers);
 

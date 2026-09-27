@@ -154,9 +154,12 @@ initFirebase();
 // Note: initCronJobs is called after io is initialized (see below).
 
 // ── Deep Health & Readiness Checks ──────────────────────────────────────────
-app.get("/health/live", (_req, res) => {
+const healthLiveHandler = (_req: express.Request, res: express.Response) => {
   res.status(200).json({ status: "alive", uptimeSeconds: Math.floor(process.uptime()) });
-});
+};
+app.get("/health/live", healthLiveHandler);
+app.get("/api/health/live", healthLiveHandler);
+app.get("/api/health", healthLiveHandler);
 
 app.get("/health/ready", async (_req, res) => {
   try {

@@ -162,6 +162,8 @@ class AuthProvider with ChangeNotifier {
   String? get pendingTwoStepEmail => _pendingTwoStepEmail;
   bool _hasPendingTwoStepReset = false;
   bool get hasPendingTwoStepReset => _hasPendingTwoStepReset;
+  DateTime? _pendingTwoStepResetDate;
+  DateTime? get pendingTwoStepResetDate => _pendingTwoStepResetDate;
   bool _needsPasswordSetup = false;
   bool get needsPasswordSetup => _needsPasswordSetup;
 

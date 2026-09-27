@@ -95,10 +95,9 @@ class _SignupScreenState extends State<SignupScreen> with SingleTickerProviderSt
           context,
           MaterialPageRoute(
             builder: (context) => TwoStepVerificationScreen(
-              mode: TwoStepMode.challenge,
+              mode: TwoStepMode.loginChallenge,
               email: authProvider.pendingTwoStepEmail ?? account.email,
               hasPendingReset: authProvider.hasPendingTwoStepReset,
-              resetRequestedAt: authProvider.pendingTwoStepResetDate,
             ),
           ),
         );

@@ -7,7 +7,7 @@
     "postinstall": "prisma generate",
     "dev": "tsx watch src/index.ts",
     "test": "node --import tsx --test src/__tests__/qr-pairing.test.ts src/__tests__/reliability.test.ts src/__tests__/performance.bench.ts src/__tests__/ai-subsystem.test.ts src/__tests__/two-step-verification.test.ts src/__tests__/password-security.test.ts",
-    "build": "npx prisma generate && tsc",
+    "build": "npx prisma generate && tsc && node -e \"require('fs').writeFileSync('dist/package.json', JSON.stringify({ type: 'module' }))\"",
     "start": "node dist/index.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",

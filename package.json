@@ -1,6 +1,7 @@
 {
   "name": "dolsyx",
   "version": "1.0.0",
+  "type": "module",
   "description": "DOLSYX - Premium Real-time Messaging App",
   "private": true,
   "scripts": {

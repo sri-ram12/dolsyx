@@ -2027,13 +2027,13 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
     try {
       final token = await ApiService().getToken();
-      final response = await http.get(
+      final response = await ApiService.get(
         Uri.parse('${ApiService.baseUrl}/chats/${widget.conversationId}/messages'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
         },
-      ).timeout(const Duration(seconds: 15));
+      ).timeout(const Duration(seconds: 25));
 
       if (response.statusCode == 200) {
         // Save to local cache for offline access

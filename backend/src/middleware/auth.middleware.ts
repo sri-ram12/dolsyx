@@ -21,9 +21,20 @@ interface CachedUser {
 const userCache = new Map<string, CachedUser>();
 const USER_CACHE_TTL_MS = 30000; // 30 seconds TTL
 
+interface CachedSession {
+  session: { id: string; isActive: boolean; ipAddress: string | null; deviceType: string | null } | null;
+  cachedAt: number;
+}
+const sessionCache = new Map<string, CachedSession>();
+const SESSION_CACHE_TTL_MS = 30000; // 30 seconds TTL
+
 // Invalidate cache entry helper
 export const invalidateUserCache = (userId: string) => {
   userCache.delete(userId);
+};
+
+export const invalidateSessionCache = (token: string) => {
+  sessionCache.delete(token);
 };
 
 // ── Session Heartbeat Throttle ────────────────────────────────────────────────
@@ -84,76 +95,91 @@ export const authenticateToken = async (
 
     const now = Date.now();
     const cached = userCache.get(decoded.id);
+    const cachedSess = sessionCache.get(token);
 
-    let user = cached && (now - cached.cachedAt < USER_CACHE_TTL_MS) ? cached.user : null;
+    const hasValidUser = Boolean(cached && (now - cached.cachedAt < USER_CACHE_TTL_MS));
+    const hasValidSess = Boolean(cachedSess && (now - cachedSess.cachedAt < SESSION_CACHE_TTL_MS));
+
+    let user = hasValidUser ? cached!.user : null;
+    let session = hasValidSess ? cachedSess!.session : undefined;
+
+    if (!hasValidUser || !hasValidSess) {
+      const [fetchedUser, fetchedSession] = await Promise.all([
+        !hasValidUser
+          ? prisma.user.findUnique({
+              where: { id: decoded.id },
+              select: {
+                id: true,
+                username: true,
+                email: true,
+                phoneNumber: true,
+                avatarUrl: true,
+                coverUrl: true,
+                bio: true,
+                statusMessage: true,
+                xp: true,
+                streakCount: true,
+                avatarPrivacy: true,
+                lastSeenPrivacy: true,
+                onlinePrivacy: true,
+                aboutPrivacy: true,
+                readReceipts: true,
+                disappearingTimer: true,
+                statusPrivacyType: true,
+                statusPrivacyList: true,
+                avatarPrivacyExceptList: true,
+                lastSeenPrivacyExceptList: true,
+                aboutPrivacyExceptList: true,
+              },
+            })
+          : Promise.resolve(user),
+        !hasValidSess
+          ? prisma.session
+              .findUnique({
+                where: { token },
+                select: { id: true, isActive: true, ipAddress: true, deviceType: true },
+              })
+              .catch(() => null)
+          : Promise.resolve(session ?? null),
+      ]);
+
+      user = fetchedUser;
+      session = fetchedSession;
+
+      if (user && !hasValidUser) {
+        userCache.set(decoded.id, { user, cachedAt: now });
+      }
+      if (!hasValidSess) {
+        sessionCache.set(token, { session: session ?? null, cachedAt: now });
+      }
+    }
 
     if (!user) {
-      user = await prisma.user.findUnique({
-        where: { id: decoded.id },
-        select: {
-          id: true,
-          username: true,
-          email: true,
-          phoneNumber: true,
-          avatarUrl: true,
-          coverUrl: true,
-          bio: true,
-          statusMessage: true,
-          xp: true,
-          streakCount: true,
-          avatarPrivacy: true,
-          lastSeenPrivacy: true,
-          onlinePrivacy: true,
-          aboutPrivacy: true,
-          readReceipts: true,
-          disappearingTimer: true,
-          statusPrivacyType: true,
-          statusPrivacyList: true,
-          avatarPrivacyExceptList: true,
-          lastSeenPrivacyExceptList: true,
-          aboutPrivacyExceptList: true,
-        },
-      });
-
-      if (!user) {
-        res.status(404).json({ message: "User not found" });
-        return;
-      }
-
-      userCache.set(decoded.id, { user, cachedAt: now });
+      res.status(404).json({ message: "User not found" });
+      return;
     }
 
     req.user = user;
 
     // Phase 17 & Security: Instant Revocation & IP Anomaly Defense
-    // If a session record exists and has been marked inactive (revoked or logged out), deny immediately
-    try {
-      const session = await prisma.session.findUnique({
-        where: { token },
-        select: { id: true, isActive: true, ipAddress: true, deviceType: true },
-      });
-      if (session && !session.isActive) {
-        res.status(401).json({ message: "Session has been revoked. Please log in again." });
-        return;
-      }
-      if (session && session.ipAddress) {
-        const clientIp = req.ip || req.socket.remoteAddress || "";
-        if (clientIp && session.ipAddress !== clientIp) {
-          // Dispatch security alert event via socket to user
-          const io = req.app.get("io");
-          if (io) {
-            io.to(user.id).emit("SECURITY_ALERT_IP_CHANGE", {
-              sessionId: session.id,
-              deviceType: session.deviceType,
-              previousIp: session.ipAddress,
-              currentIp: clientIp,
-              detectedAt: new Date().toISOString(),
-            });
-          }
+    if (session && !session.isActive) {
+      res.status(401).json({ message: "Session has been revoked. Please log in again." });
+      return;
+    }
+    if (session && session.ipAddress) {
+      const clientIp = req.ip || req.socket.remoteAddress || "";
+      if (clientIp && session.ipAddress !== clientIp) {
+        const io = req.app.get("io");
+        if (io) {
+          io.to(user.id).emit("SECURITY_ALERT_IP_CHANGE", {
+            sessionId: session.id,
+            deviceType: session.deviceType,
+            previousIp: session.ipAddress,
+            currentIp: clientIp,
+            detectedAt: new Date().toISOString(),
+          });
         }
       }
-    } catch (_) {
-      // Non-blocking in case of DB transient error
     }
 
     // Phase 17: Heartbeat — update session lastActiveAt (throttled, fire-and-forget)

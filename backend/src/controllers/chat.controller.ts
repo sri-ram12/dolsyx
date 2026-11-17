@@ -10,134 +10,121 @@ export const getChats = async (req: AuthRequest, res: Response): Promise<void> =
   try {
     const userId = req.user!.id;
 
-    // Find all conversations where the current user is a participant
-    const conversations = await prisma.conversation.findMany({
-      where: {
-        participants: {
-          some: {
-            userId,
-          },
-        },
-      },
-      include: {
-        participants: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                username: true,
-                email: true,
-                phoneNumber: true,
-                avatarUrl: true,
-                lastSeen: true,
-                isOnline: true,
-                bio: true,
-                avatarPrivacy: true,
-                avatarPrivacyExceptList: true,
-                lastSeenPrivacy: true,
-                lastSeenPrivacyExceptList: true,
-                onlinePrivacy: true,
-                aboutPrivacy: true,
-                aboutPrivacyExceptList: true,
-              },
+    // Batch 1 (Parallel): Fetch conversations and user blocks simultaneously
+    const [conversations, myBlocks] = await Promise.all([
+      prisma.conversation.findMany({
+        where: {
+          participants: {
+            some: {
+              userId,
             },
           },
         },
-        messages: {
-          where: {
-            deletedForUsers: {
-              none: {
-                userId,
-              },
-            },
-          },
-          orderBy: {
-            createdAt: "desc",
-          },
-          take: 1,
-          include: {
-            sender: {
-              select: {
-                id: true,
-                username: true,
-                avatarUrl: true,
-              },
-            },
-          },
-        },
-      },
-      orderBy: {
-        updatedAt: "desc",
-      },
-    });
-
-    // Batch fetch unread counts for all conversations in a single DB query
-    const conversationIds = conversations.map((c) => c.id);
-    let unreadCountMap: Record<string, number> = {};
-
-    if (conversationIds.length > 0) {
-      try {
-        const unreadCounts = await prisma.$queryRaw<Array<{ conversationId: string; count: bigint | number }>>`
-          SELECT m."conversationId", COUNT(m.id)::int as count
-          FROM "Message" m
-          LEFT JOIN "MessageReceipt" mr ON mr."messageId" = m.id AND mr."userId" = ${userId}
-          WHERE m."conversationId" IN (${Prisma.join(conversationIds)})
-            AND m."senderId" != ${userId}
-            AND (mr.status IS NULL OR mr.status != 'READ')
-          GROUP BY m."conversationId"
-        `;
-
-        for (const item of unreadCounts) {
-          unreadCountMap[item.conversationId] = Number(item.count) || 0;
-        }
-      } catch (sqlErr) {
-        // High-speed fallback if raw SQL encounters environment variances
-        try {
-          await Promise.all(conversationIds.map(async (cId) => {
-            const count = await prisma.message.count({
-              where: {
-                conversationId: cId,
-                senderId: { not: userId },
-                receipts: {
-                  none: {
-                    userId,
-                    status: "READ",
-                  },
+        include: {
+          participants: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  username: true,
+                  email: true,
+                  phoneNumber: true,
+                  avatarUrl: true,
+                  lastSeen: true,
+                  isOnline: true,
+                  bio: true,
+                  avatarPrivacy: true,
+                  avatarPrivacyExceptList: true,
+                  lastSeenPrivacy: true,
+                  lastSeenPrivacyExceptList: true,
+                  onlinePrivacy: true,
+                  aboutPrivacy: true,
+                  aboutPrivacyExceptList: true,
                 },
               },
-            });
-            if (count > 0) unreadCountMap[cId] = count;
-          }));
-        } catch (_) {}
-      }
-    }
+            },
+          },
+          messages: {
+            where: {
+              deletedForUsers: {
+                none: {
+                  userId,
+                },
+              },
+            },
+            orderBy: {
+              createdAt: "desc",
+            },
+            take: 1,
+            include: {
+              sender: {
+                select: {
+                  id: true,
+                  username: true,
+                  avatarUrl: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: {
+          updatedAt: "desc",
+        },
+      }),
+      prisma.userBlock.findMany({
+        where: {
+          OR: [{ blockerId: userId }, { blockedId: userId }],
+        },
+      }),
+    ]);
 
-    // Batch fetch all blocks involving current user in 1 query for instant in-memory checking
-    const myBlocks = await prisma.userBlock.findMany({
-      where: {
-        OR: [{ blockerId: userId }, { blockedId: userId }],
-      },
-    });
     const blockedSet = new Set<string>();
     for (const b of myBlocks) {
       if (b.blockerId === userId) blockedSet.add(b.blockedId);
       if (b.blockedId === userId) blockedSet.add(b.blockerId);
     }
 
-    // High-performance batch contact fetching: 1 single query for all conversation recipients
+    const conversationIds = conversations.map((c) => c.id);
     const recipientUserIds = Array.from(new Set(
       conversations
         .map((c) => c.participants.find((p) => p.userId !== userId)?.userId)
         .filter((id): id is string => Boolean(id))
     ));
 
-    const recipientContacts = recipientUserIds.length > 0 ? await prisma.contact.findMany({
-      where: {
-        userId: { in: recipientUserIds },
-        contactId: userId,
-      },
-      select: { userId: true },
-    }) : [];
+    // Batch 2 (Parallel): Fetch unread counts and recipient contacts simultaneously
+    let unreadCountMap: Record<string, number> = {};
+    const [, recipientContacts] = await Promise.all([
+      conversationIds.length > 0
+        ? (async () => {
+            try {
+              const unreadCounts = await prisma.$queryRaw<Array<{ conversationId: string; count: bigint | number }>>`
+                SELECT m."conversationId", COUNT(m.id)::int as count
+                FROM "Message" m
+                LEFT JOIN "MessageReceipt" mr ON mr."messageId" = m.id AND mr."userId" = ${userId}
+                WHERE m."conversationId" IN (${Prisma.join(conversationIds)})
+                  AND m."senderId" != ${userId}
+                  AND (mr.status IS NULL OR mr.status != 'READ')
+                GROUP BY m."conversationId"
+              `;
+
+              for (const item of unreadCounts) {
+                unreadCountMap[item.conversationId] = Number(item.count) || 0;
+              }
+            } catch (_) {
+              // Non-blocking fallback
+            }
+          })()
+        : Promise.resolve(),
+      recipientUserIds.length > 0
+        ? prisma.contact.findMany({
+            where: {
+              userId: { in: recipientUserIds },
+              contactId: userId,
+            },
+            select: { userId: true },
+          })
+        : Promise.resolve([]),
+    ]);
 
     const contactsOfRecipientsSet = new Set<string>(recipientContacts.map((c) => c.userId));
 
@@ -220,19 +207,6 @@ export const getMessages = async (req: AuthRequest, res: Response): Promise<void
       return;
     }
 
-    // Verify participant
-    const isParticipant = await prisma.participant.findFirst({
-      where: {
-        conversationId,
-        userId,
-      },
-    });
-
-    if (!isParticipant) {
-      res.status(403).json({ message: "You are not a participant in this conversation" });
-      return;
-    }
-
     const cursor = req.query["cursor"] as string | undefined;
     const limitQuery = req.query["limit"] as string | undefined;
     const limit = limitQuery ? Math.min(Math.max(parseInt(limitQuery, 10), 1), 100) : 50;
@@ -270,7 +244,22 @@ export const getMessages = async (req: AuthRequest, res: Response): Promise<void
       findArgs.skip = 1;
     }
 
-    const messages = await prisma.message.findMany(findArgs);
+    // Parallelize participant authorization check and message fetch (halves DB latency)
+    const [isParticipant, messages] = await Promise.all([
+      prisma.participant.findFirst({
+        where: {
+          conversationId,
+          userId,
+        },
+        select: { id: true },
+      }),
+      prisma.message.findMany(findArgs),
+    ]);
+
+    if (!isParticipant) {
+      res.status(403).json({ message: "You are not a participant in this conversation" });
+      return;
+    }
 
     // Reverse for chronological order on the client
     messages.reverse();

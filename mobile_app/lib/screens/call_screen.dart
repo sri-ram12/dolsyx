@@ -1386,7 +1386,13 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     _removeParticipant(peerId);
   }
 
+  bool _isEndingLocally = false;
+
   void _endCallLocally(String reason) {
+    if (_isEndingLocally || _isDisposed) return;
+    _isEndingLocally = true;
+    _isDisposed = true;
+
     CallScreen.activeConversationId = null;
     CallScreen.activeCallState = null;
     CallScreen.isCallActiveNotifier.value = false;
@@ -1398,37 +1404,57 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     _callTimer?.cancel();
     _timeoutTimer?.cancel();
     _qualityEngineTimer?.cancel();
+    _audioRouteCheckTimer?.cancel();
+    _controlsHideTimer?.cancel();
     _callActive = false;
     try {
       _pipChannel.invokeMethod('setCallActive', {'active': false});
     } catch (_) {}
-    _localStream?.getTracks().forEach((t) => t.stop());
+    _localStream?.getTracks().forEach((t) { try { t.stop(); } catch (_) {} });
     _localStream = null;
-    _screenStream?.getTracks().forEach((t) => t.stop());
+    _screenStream?.getTracks().forEach((t) { try { t.stop(); } catch (_) {} });
     _screenStream = null;
     // Dispose all remote renderers
     for (final r in _remoteRenderers.values) {
-      r.srcObject = null;
-      r.dispose();
+      try {
+        r.srcObject = null;
+        r.dispose();
+      } catch (_) {}
     }
     _remoteRenderers.clear();
     // Dispose all persistent remote streams
     for (final s in _remoteStreams.values) {
-      s.getTracks().forEach((t) => t.stop());
-      s.dispose();
+      try {
+        s.getTracks().forEach((t) { try { t.stop(); } catch (_) {} });
+        s.dispose();
+      } catch (_) {}
     }
     _remoteStreams.clear();
     // Close and dispose all peer connections
     for (final pc in _peerConnections.values) {
-      pc.close();
-      pc.dispose();
+      try {
+        pc.close();
+        pc.dispose();
+      } catch (_) {}
     }
     _peerConnections.clear();
     _iceCandidateQueues.clear();
+
     if (!mounted) return;
     setState(() => _status = reason);
+
     Future.delayed(const Duration(milliseconds: 300), () {
-      if (mounted) Navigator.pop(context);
+      if (!mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        try {
+          if (Navigator.of(context).canPop()) {
+            Navigator.of(context).pop();
+          }
+        } catch (e) {
+          debugPrint('[CallScreen] Safe pop error: $e');
+        }
+      });
     });
   }
 

@@ -20,6 +20,7 @@ import 'package:path_provider/path_provider.dart';
 import 'status_view_screen.dart';
 import 'status_privacy_screen.dart';
 import 'video_trimmer_screen.dart';
+import '../services/event_bus.dart';
 
 class StatusScreen extends StatefulWidget {
   const StatusScreen({super.key});
@@ -33,6 +34,7 @@ class _StatusScreenState extends State<StatusScreen> {
   List<UserStatusGroup> _groups = [];
   bool _isLoading = true;
   StreamSubscription? _statusSubscription;
+  StreamSubscription? _eventBusStatusSub;
   bool _showMuted = false;
   bool _isPaused_emoji = false;
   // Emoji reactions shortcut bar
@@ -42,6 +44,16 @@ class _StatusScreenState extends State<StatusScreen> {
   void initState() {
     super.initState();
     _fetchStatuses();
+
+    // 0ms instant optimistic cross-screen bus subscription
+    _eventBusStatusSub = AppEventBus().onStatusUpdated.listen((statusId) {
+      if (!mounted) return;
+      if (statusId != null && statusId.isNotEmpty) {
+        _handleStatusDeleted({'statusId': statusId});
+      } else {
+        _fetchStatuses();
+      }
+    });
 
     final socketService = Provider.of<AuthProvider>(context, listen: false).socketService;
     _statusSubscription = socketService.onStatusStream.listen((event) {
@@ -111,6 +123,7 @@ class _StatusScreenState extends State<StatusScreen> {
   @override
   void dispose() {
     _statusSubscription?.cancel();
+    _eventBusStatusSub?.cancel();
     super.dispose();
   }
 

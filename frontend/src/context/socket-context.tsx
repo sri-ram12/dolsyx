@@ -29,11 +29,14 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       return;
     }
 
+    const envSocketUrl = process.env.NEXT_PUBLIC_SOCKET_URL;
+    const validEnvSocket = envSocketUrl && !envSocketUrl.includes("onrender.com")
+      ? envSocketUrl.replace(/\/+$/, "")
+      : null;
+
     const targetUrl = typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
-      ? (process.env.NEXT_PUBLIC_SOCKET_URL && !process.env.NEXT_PUBLIC_SOCKET_URL.includes("onrender.com")
-          ? process.env.NEXT_PUBLIC_SOCKET_URL.replace(/\/+$/, "")
-          : `http://${window.location.hostname}:4000`)
-      : (process.env.NEXT_PUBLIC_SOCKET_URL?.replace(/\/+$/, "") || API_URL);
+      ? (validEnvSocket || `http://${window.location.hostname}:4000`)
+      : (validEnvSocket || (typeof window !== "undefined" ? window.location.origin : API_URL));
 
     const newSocket = io(targetUrl, {
       auth: { token },

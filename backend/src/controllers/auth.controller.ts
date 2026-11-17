@@ -10,6 +10,16 @@ import { googleAuthService } from "../services/googleAuth.service.js";
 
 const JWT_SECRET = process.env.JWT_SECRET || "dolsyx_super_secret_key_123456";
 
+function formatErrorMessage(error: any, fallback = "Internal server error"): string {
+  if (process.env.NODE_ENV === "production") return fallback;
+  if (!error) return fallback;
+  const msg = error.message || String(error);
+  if (msg.includes("tenant/user") || msg.includes("ENOTFOUND") || msg.includes("connect") || error.code?.startsWith?.("P")) {
+    return "Database connection failed (Supabase database may be paused). Please restore the database in Supabase dashboard or check DATABASE_URL.";
+  }
+  return msg || fallback;
+}
+
 // Helper to generate a unique username from a Full Name safely and reliably
 async function generateUniqueUsername(fullName: string): Promise<string> {
   const baseUsername = fullName.trim().replace(/\s+/g, "_").toLowerCase() || "user";
@@ -166,7 +176,7 @@ export const sendOtp = async (req: Request, res: Response): Promise<void> => {
     });
   } catch (error) {
     console.error("SendOtp error:", error);
-    res.status(500).json({ message: "Internal server error" });
+    res.status(500).json({ message: formatErrorMessage(error) });
   }
 };
 
@@ -308,7 +318,7 @@ export const verifyOtp = async (req: Request, res: Response): Promise<void> => {
     });
   } catch (error) {
     console.error("VerifyOtp error:", error);
-    res.status(500).json({ message: "Internal server error" });
+    res.status(500).json({ message: formatErrorMessage(error) });
   }
 };
 

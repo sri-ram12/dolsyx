@@ -46,6 +46,7 @@ server.headersTimeout = 66000;
 
 const PORT = process.env.PORT || 4000;
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
+const IS_VERCEL = process.env.VERCEL === "1";
 
 const DEFAULT_ALLOWED_ORIGINS = [
   "http://localhost:3000",
@@ -103,6 +104,7 @@ import {
   antiSpoofingMiddleware,
   requestIntegrityMiddleware,
 } from "./middleware/security.middleware.js";
+import { generalApiLimiter } from "./middleware/rateLimit.middleware.js";
 
 // ── Middleware ───────────────────────────────────────────────────────────────
 // Trust proxy headers (for tunnels like serveo/ngrok where X-Forwarded-Proto is https)
@@ -128,11 +130,18 @@ const staticOptions = {
 };
 
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads"), staticOptions));
-const uploadsDir = path.join(__dirname, "../uploads");
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
+const uploadsDir = IS_VERCEL ? "/tmp/uploads" : path.join(__dirname, "../uploads");
+try {
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+} catch (_) {
+  // Ignore EROFS on read-only serverless filesystems
 }
 app.use("/uploads", express.static(uploadsDir, staticOptions));
+
+// ── Rate Limiting Guard on API Routes ─────────────────────────────────────────
+app.use("/api", generalApiLimiter);
 
 // ── API Routes ───────────────────────────────────────────────────────────────
 app.use("/api/auth", authRoutes);
@@ -225,14 +234,14 @@ const io = new Server(server, {
 app.set("io", io);
 initChatSocket(io);
 // ── Cron Jobs (initialized after io is ready for status_deleted broadcasts) ────
-if (!process.env.CLUSTER_MODE || cluster.worker?.id === 1) {
+if (!IS_VERCEL && (!process.env.CLUSTER_MODE || cluster.worker?.id === 1)) {
   initCronJobs(io);
 }
 
 // ── Serve Next.js Frontend (Monolith & Dev Proxy) ────────────────────────────
 const NEXT_PORT = IS_PRODUCTION ? 3001 : 3000;
 
-if (IS_PRODUCTION) {
+if (IS_PRODUCTION && !IS_VERCEL) {
   const nextStandalonePath = path.join(__dirname, "../../frontend/.next/standalone");
 
   // Helper to find server.js recursively (handles nested OneDrive paths)
@@ -327,8 +336,8 @@ const waitForNextJs = () => {
   check();
 };
 
-if (IS_PRODUCTION) waitForNextJs();
-else nextJsReady = true; // In dev the Next.js dev server manages itself
+if (IS_PRODUCTION && !IS_VERCEL) waitForNextJs();
+else nextJsReady = true; // In dev or Vercel Services, frontend runs independently
 
 const nextProxy = createProxyMiddleware({
   target: `http://127.0.0.1:${NEXT_PORT}`,
@@ -350,25 +359,27 @@ const nextProxy = createProxyMiddleware({
   },
 } as any);
 
-// Only proxy non-API, non-socket, non-static routes to Next.js
-app.use((req, res, next) => {
-  const p = req.path;
-  if (
-    p.startsWith("/api") ||
-    p.startsWith("/socket.io") ||
-    p.startsWith("/health") ||
-    p.startsWith("/uploads")
-  ) {
-    return next();
-  }
-  // If Next.js isn't up yet, return 503 with retry header instead of logging an error
-  if (!nextJsReady) {
-    res.setHeader("Retry-After", "3");
-    res.status(503).send("Server is starting up. Please refresh in a moment.");
-    return;
-  }
-  return (nextProxy as any)(req, res, next);
-});
+// Only proxy non-API, non-socket, non-static routes to Next.js when running in monolith mode (not Vercel)
+if (!IS_VERCEL) {
+  app.use((req, res, next) => {
+    const p = req.path;
+    if (
+      p.startsWith("/api") ||
+      p.startsWith("/socket.io") ||
+      p.startsWith("/health") ||
+      p.startsWith("/uploads")
+    ) {
+      return next();
+    }
+    // If Next.js isn't up yet, return 503 with retry header instead of logging an error
+    if (!nextJsReady) {
+      res.setHeader("Retry-After", "3");
+      res.status(503).send("Server is starting up. Please refresh in a moment.");
+      return;
+    }
+    return (nextProxy as any)(req, res, next);
+  });
+}
 
 // ── Centralized Express Error Handling Middleware ─────────────────────────────
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -439,3 +450,6 @@ if (process.env.CLUSTER_MODE === "true" && cluster.isPrimary) {
     );
   });
 }
+
+export default server;
+export { app, server, io };

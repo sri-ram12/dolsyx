@@ -15,6 +15,7 @@ import '../services/api_service.dart';
 import '../services/chat_service.dart';
 import '../utils/e2ee/e2ee_media_cache.dart';
 import '../utils/e2ee/crypto_service.dart';
+import '../services/event_bus.dart';
 
 class StatusViewScreen extends StatefulWidget {
   final List<UserStatusGroup> groups;
@@ -425,14 +426,14 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
                   Text('Viewed by ${views.length}', style: TextStyle(color: AppTheme.textPrimary, fontSize: 18, fontWeight: FontWeight.bold)),
                   IconButton(
                     icon: Icon(Icons.delete, color: Colors.red),
-                    onPressed: () async {
-                      final success = await _statusService.deleteStatus(status.id);
-                      if (success) {
-                        Navigator.pop(context); // Close bottom sheet
-                        if (mounted) Navigator.pop(context); // Close status view
-                      } else {
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to delete status')));
-                      }
+                    onPressed: () {
+                      AppEventBus().emitStatusUpdated(status.id);
+                      Navigator.pop(context); // Close bottom sheet
+                      if (mounted) Navigator.pop(context); // Close status view
+                      _statusService.deleteStatus(status.id).catchError((e) {
+                        debugPrint('[StatusView] Background delete status error: $e');
+                        return false;
+                      });
                     },
                   )
                 ],
@@ -607,14 +608,14 @@ class _StatusViewScreenState extends State<StatusViewScreen> {
                           if (isMine)
                             IconButton(
                               icon: const Icon(Icons.delete, color: Colors.white, shadows: [Shadow(color: Colors.black, blurRadius: 4)]),
-                              onPressed: () async {
+                              onPressed: () {
                                 _videoController?.pause();
-                                final success = await _statusService.deleteStatus(status.id);
-                                if (success && mounted) {
-                                  Navigator.pop(context);
-                                } else if (mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to delete status')));
-                                }
+                                AppEventBus().emitStatusUpdated(status.id);
+                                Navigator.pop(context);
+                                _statusService.deleteStatus(status.id).catchError((e) {
+                                  debugPrint('[StatusView] Background delete status error: $e');
+                                  return false;
+                                });
                               },
                             ),
                         ],

@@ -318,17 +318,16 @@ export const getMediaMessages = async (req: AuthRequest, res: Response): Promise
       return;
     }
 
-    // Fetch media messages for conversation directly using the indexed mediaType and mediaUrl fields
+    // Fetch messages for conversation, excluding non-media/call logs
     const messages = await prisma.message.findMany({
       where: {
         conversationId,
         isDeleted: false,
         isViewOnce: false, // Privacy: Never leak View-Once media in shared gallery
         deletedForUsers: { none: { userId } },
-        OR: [
-          { mediaUrl: { not: null } },
-          { mediaType: { not: "TEXT" } },
-        ],
+        mediaType: {
+          notIn: ["CALL_LOG", "SYSTEM", "LOCATION"],
+        },
       },
       orderBy: { createdAt: "desc" },
       take: 500,
@@ -345,12 +344,7 @@ export const getMediaMessages = async (req: AuthRequest, res: Response): Promise
       },
     });
 
-    // Zero-Knowledge E2EE: Filter for media messages by mediaUrl and mediaType
-    const mediaMessages = messages.filter((msg) => {
-      return (!!msg.mediaUrl && msg.mediaUrl.trim().length > 0) || (msg.mediaType && msg.mediaType !== "TEXT");
-    });
-
-    const processedMediaMessages = mediaMessages.map((m: any) => ({
+    const processedMediaMessages = messages.map((m: any) => ({
       ...m,
       content: encryptionService.decrypt(m.content || ""),
     }));

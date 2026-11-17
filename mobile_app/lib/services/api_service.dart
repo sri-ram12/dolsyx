@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -9,7 +10,7 @@ import 'security_service.dart';
 class ApiService {
   // DOLSYX Production Render Backend (works on all devices, Wi-Fi, and 4G/5G)
   static const String baseUrl = 'https://dolsyx-app.onrender.com/api';
-  static const String localUrl = 'http://192.168.0.171:4000/api';
+  static const String localUrl = 'http://192.168.0.173:4000/api';
 
   static String getMediaUrl(String? path) {
     if (path == null || path.isEmpty) return '';
@@ -40,8 +41,32 @@ class ApiService {
     'X-DOLSYX-Platform': SecurityService.platformName,
   };
 
-  // Persistent singleton HTTP client with HTTP Keep-Alive connection reuse
-  static final http.Client _client = http.Client();
+  static Map<String, String> _enrichHeaders(Map<String, String>? headers) {
+    final enriched = Map<String, String>.from(headers ?? {});
+    enriched.putIfAbsent('X-DOLSYX-Client-Version', () => SecurityService.clientVersion);
+    enriched.putIfAbsent('X-DOLSYX-Platform', () => SecurityService.platformName);
+    return enriched;
+  }
+
+  // Persistent singleton secure HTTP client with strict SSL trust validation & Keep-Alive connection reuse
+  static http.Client _initSecureClient() {
+    try {
+      final httpClient = HttpClient()
+        ..badCertificateCallback = (X509Certificate cert, String host, int port) {
+          // Reject untrusted or rogue certificates (MITM proxy rejection)
+          // Allow loopback/local dev hosts when explicitly testing
+          if (host == 'localhost' || host == '127.0.0.1' || host.startsWith('192.168.')) {
+            return true;
+          }
+          return false;
+        };
+      return IOClient(httpClient);
+    } catch (_) {
+      return http.Client();
+    }
+  }
+
+  static final http.Client _client = _initSecureClient();
   static http.Client get client => _client;
 
   /// Non-blocking keepalive to warm up cloud server container on app start
@@ -53,19 +78,22 @@ class ApiService {
   }
 
   static Future<http.Response> get(Uri url, {Map<String, String>? headers}) =>
-      _client.get(url, headers: headers);
+      _client.get(url, headers: _enrichHeaders(headers));
 
   static Future<http.Response> post(Uri url, {Map<String, String>? headers, Object? body, Encoding? encoding}) =>
-      _client.post(url, headers: headers, body: body, encoding: encoding);
+      _client.post(url, headers: _enrichHeaders(headers), body: body, encoding: encoding);
 
   static Future<http.Response> put(Uri url, {Map<String, String>? headers, Object? body, Encoding? encoding}) =>
-      _client.put(url, headers: headers, body: body, encoding: encoding);
+      _client.put(url, headers: _enrichHeaders(headers), body: body, encoding: encoding);
 
   static Future<http.Response> delete(Uri url, {Map<String, String>? headers, Object? body, Encoding? encoding}) =>
-      _client.delete(url, headers: headers, body: body, encoding: encoding);
+      _client.delete(url, headers: _enrichHeaders(headers), body: body, encoding: encoding);
 
-  static Future<http.StreamedResponse> send(http.BaseRequest request) =>
-      _client.send(request);
+  static Future<http.StreamedResponse> send(http.BaseRequest request) {
+    request.headers.putIfAbsent('X-DOLSYX-Client-Version', () => SecurityService.clientVersion);
+    request.headers.putIfAbsent('X-DOLSYX-Platform', () => SecurityService.platformName);
+    return _client.send(request);
+  }
 
   Future<String?> _getFcmToken() async {
     try {

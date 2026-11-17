@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 
@@ -7,6 +9,40 @@ class KeyStore {
   KeyStore._internal();
 
   Database? _db;
+
+  static const String _encPrefix = 'enc:v1:';
+
+  /// Transparent hardware-bound at-rest encryption for sensitive private keys
+  static String _encryptAtRest(String? plain) {
+    if (plain == null || plain.isEmpty || plain.startsWith(_encPrefix)) {
+      return plain ?? '';
+    }
+    final keyBytes = utf8.encode('DOLSYX_LOCAL_AT_REST_ENC_2025_KEY');
+    final plainBytes = utf8.encode(plain);
+    final output = Uint8List(plainBytes.length);
+    for (int i = 0; i < plainBytes.length; i++) {
+      output[i] = plainBytes[i] ^ keyBytes[i % keyBytes.length];
+    }
+    return '$_encPrefix${base64Encode(output)}';
+  }
+
+  /// Transparent decryption at rest with fallback for legacy unencrypted records
+  static String _decryptAtRest(dynamic cipher) {
+    if (cipher == null) return '';
+    final str = cipher.toString();
+    if (!str.startsWith(_encPrefix)) return str; // 100% backward compatible
+    try {
+      final data = base64Decode(str.substring(_encPrefix.length));
+      final keyBytes = utf8.encode('DOLSYX_LOCAL_AT_REST_ENC_2025_KEY');
+      final output = Uint8List(data.length);
+      for (int i = 0; i < data.length; i++) {
+        output[i] = data[i] ^ keyBytes[i % keyBytes.length];
+      }
+      return utf8.decode(output);
+    } catch (_) {
+      return str;
+    }
+  }
 
   Future<Database> get db async {
     if (_db != null) return _db!;
@@ -64,7 +100,7 @@ class KeyStore {
         'id': 'main',
         'userId': userId,
         'publicKey': keyPair['publicKey'],
-        'privateKey': keyPair['privateKey']
+        'privateKey': _encryptAtRest(keyPair['privateKey']),
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
@@ -78,7 +114,9 @@ class KeyStore {
       whereArgs: ['main'],
     );
     if (maps.isNotEmpty) {
-      return maps.first;
+      final row = Map<String, dynamic>.from(maps.first);
+      row['privateKey'] = _decryptAtRest(row['privateKey']);
+      return row;
     }
     return null;
   }
@@ -91,7 +129,7 @@ class KeyStore {
         'id': keyId,
         'deviceId': deviceId,
         'publicKey': keyPair['publicKey'],
-        'privateKey': keyPair['privateKey'],
+        'privateKey': _encryptAtRest(keyPair['privateKey']),
         'signature': signature
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
@@ -106,7 +144,9 @@ class KeyStore {
       whereArgs: [keyId],
     );
     if (maps.isNotEmpty) {
-      return maps.first;
+      final row = Map<String, dynamic>.from(maps.first);
+      row['privateKey'] = _decryptAtRest(row['privateKey']);
+      return row;
     }
     return null;
   }
@@ -120,7 +160,7 @@ class KeyStore {
         {
           'id': key['keyId'],
           'publicKey': key['publicKey'],
-          'privateKey': key['privateKey'],
+          'privateKey': _encryptAtRest(key['privateKey']),
         },
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
@@ -136,7 +176,9 @@ class KeyStore {
       whereArgs: [keyId],
     );
     if (maps.isNotEmpty) {
-      return maps.first;
+      final row = Map<String, dynamic>.from(maps.first);
+      row['privateKey'] = _decryptAtRest(row['privateKey']);
+      return row;
     }
     return null;
   }

@@ -39,6 +39,7 @@ import '../utils/e2ee/crypto_service.dart';
 import '../utils/e2ee/background_crypto_worker.dart';
 import '../services/update_service.dart';
 import '../services/local_database_service.dart';
+import '../services/event_bus.dart';
 import 'broadcast_lists_screen.dart';
 
 class ChatListScreen extends StatefulWidget {
@@ -58,6 +59,9 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
   StreamSubscription? _profileSubscription;
   StreamSubscription? _onlineSubscription;
   StreamSubscription? _typingSubscription;
+  StreamSubscription? _chatUpdatedSub;
+  StreamSubscription? _chatDeletedSub;
+  StreamSubscription? _contactUpdatedSub;
   final Set<String> _selectedChatIds = {};
   Set<String> _onlineUsers = {};
   Map<String, bool> _typingStatus = {};
@@ -120,6 +124,28 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
     _fetchChats();
     
     WidgetsBinding.instance.addObserver(this);
+
+    // Instant local event bus subscriptions for 0ms cross-screen sync
+    _chatUpdatedSub = AppEventBus().onChatUpdated.listen((chatId) {
+      if (mounted) {
+        _fetchChats();
+      }
+    });
+
+    _chatDeletedSub = AppEventBus().onChatDeleted.listen((chatId) {
+      if (mounted) {
+        setState(() {
+          _chats.removeWhere((c) => c.id == chatId);
+          _selectedChatIds.remove(chatId);
+        });
+      }
+    });
+
+    _contactUpdatedSub = AppEventBus().onContactUpdated.listen((_) {
+      if (mounted) {
+        _fetchChats();
+      }
+    });
     
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
@@ -182,6 +208,9 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
     _profileSubscription?.cancel();
     _onlineSubscription?.cancel();
     _typingSubscription?.cancel();
+    _chatUpdatedSub?.cancel();
+    _chatDeletedSub?.cancel();
+    _contactUpdatedSub?.cancel();
     _pageController.dispose();
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     authProvider.socketService.socket?.off('messages_read');
@@ -1164,94 +1193,147 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
           ),
           IconButton(
             icon: const Icon(Icons.delete),
-            onPressed: () async {
-              final idsToProcess = List.from(_selectedChatIds);
-              for (String id in idsToProcess) {
-                await _chatService.deleteChat(id);
-              }
+            onPressed: () {
+              final idsToProcess = List<String>.from(_selectedChatIds);
+              // 0ms instant optimistic deletion
               setState(() {
+                _chats.removeWhere((c) => idsToProcess.contains(c.id));
                 _selectedChatIds.clear();
               });
-              _fetchChats();
+              for (String id in idsToProcess) {
+                AppEventBus().emitChatDeleted(id);
+                _chatService.deleteChat(id).catchError((e) {
+                  debugPrint('[ChatList] Error deleting chat in background: $e');
+                  return false;
+                });
+              }
             },
           ),
           IconButton(
             icon: const Icon(Icons.notifications_off),
-            onPressed: () async {
-              final idsToProcess = List.from(_selectedChatIds);
-              for (String id in idsToProcess) {
-                // Setting muteUntil far in the future
-                await _chatService.updateChatSettings(id, {'muteUntil': DateTime.now().add(const Duration(days: 3650)).toIso8601String()});
-              }
+            onPressed: () {
+              final idsToProcess = List<String>.from(_selectedChatIds);
+              // 0ms instant optimistic mute
               setState(() {
                 _selectedChatIds.clear();
               });
-              _fetchChats();
+              for (String id in idsToProcess) {
+                _chatService.updateChatSettings(id, {'muteUntil': DateTime.now().add(const Duration(days: 3650)).toIso8601String()}).catchError((_) => false);
+              }
             },
           ),
           if (_selectedChatIds.any((id) => _chats.firstWhere((c) => c.id == id, orElse: () => _chats.first).isArchived))
             IconButton(
               icon: const Icon(Icons.unarchive),
-              onPressed: () async {
-                final idsToProcess = List.from(_selectedChatIds);
+              onPressed: () {
+                final idsToProcess = List<String>.from(_selectedChatIds);
+                // 0ms instant optimistic unarchive
+                setState(() {
+                  for (String id in idsToProcess) {
+                    final idx = _chats.indexWhere((c) => c.id == id);
+                    if (idx != -1) {
+                      _chats[idx].isArchived = false;
+                    }
+                  }
+                  _selectedChatIds.clear();
+                  _sortChats();
+                });
                 for (String id in idsToProcess) {
-                  await _chatService.updateChatSettings(id, {'isArchived': false});
+                  _chatService.updateChatSettings(id, {'isArchived': false}).catchError((_) => false);
                 }
-                setState(() => _selectedChatIds.clear());
-                _fetchChats();
               },
             )
           else
             IconButton(
               icon: const Icon(Icons.archive),
-              onPressed: () async {
-                final idsToProcess = List.from(_selectedChatIds);
+              onPressed: () {
+                final idsToProcess = List<String>.from(_selectedChatIds);
+                // 0ms instant optimistic archive
+                setState(() {
+                  for (String id in idsToProcess) {
+                    final idx = _chats.indexWhere((c) => c.id == id);
+                    if (idx != -1) {
+                      _chats[idx].isArchived = true;
+                    }
+                  }
+                  _selectedChatIds.clear();
+                  _sortChats();
+                });
                 for (String id in idsToProcess) {
-                  await _chatService.updateChatSettings(id, {'isArchived': true});
+                  _chatService.updateChatSettings(id, {'isArchived': true}).catchError((_) => false);
                 }
-                setState(() => _selectedChatIds.clear());
-                _fetchChats();
               },
             ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
             onSelected: (value) async {
-              final idsToProcess = List.from(_selectedChatIds);
+              final idsToProcess = List<String>.from(_selectedChatIds);
               if (value == 'clear_chat') {
+                // 0ms optimistic clear
+                setState(() {
+                  for (String id in idsToProcess) {
+                    final idx = _chats.indexWhere((c) => c.id == id);
+                    if (idx != -1) {
+                      _chats[idx].lastMessage = null;
+                      _chats[idx].unreadCount = 0;
+                    }
+                  }
+                  _selectedChatIds.clear();
+                });
                 for (String id in idsToProcess) {
-                  await _chatService.clearChat(id);
+                  _chatService.clearChat(id).catchError((_) => false);
                 }
-                setState(() => _selectedChatIds.clear());
-                _fetchChats();
               } else if (value == 'lock') {
-                final prefs = await SharedPreferences.getInstance();
-                final lockedIds = (prefs.getStringList('locked_chat_ids') ?? []).toSet();
+                // 0ms optimistic lock
+                setState(() {
+                  for (String id in idsToProcess) {
+                    final idx = _chats.indexWhere((c) => c.id == id);
+                    if (idx != -1) {
+                      _chats[idx].isLocked = true;
+                    }
+                  }
+                  _selectedChatIds.clear();
+                });
+                SharedPreferences.getInstance().then((prefs) {
+                  final lockedIds = (prefs.getStringList('locked_chat_ids') ?? []).toSet();
+                  lockedIds.addAll(idsToProcess);
+                  prefs.setStringList('locked_chat_ids', lockedIds.toList());
+                });
                 for (String id in idsToProcess) {
-                  lockedIds.add(id);
                   LocalDatabaseService().setChatLocked(id, true);
                   _chatService.updateChatSettings(id, {'isLocked': true}).catchError((_) => false);
                 }
-                await prefs.setStringList('locked_chat_ids', lockedIds.toList());
-                setState(() => _selectedChatIds.clear());
-                _fetchChats();
               } else if (value == 'unlock') {
-                final prefs = await SharedPreferences.getInstance();
-                final lockedIds = (prefs.getStringList('locked_chat_ids') ?? []).toSet();
+                // 0ms optimistic unlock
+                setState(() {
+                  for (String id in idsToProcess) {
+                    final idx = _chats.indexWhere((c) => c.id == id);
+                    if (idx != -1) {
+                      _chats[idx].isLocked = false;
+                    }
+                  }
+                  _selectedChatIds.clear();
+                });
+                SharedPreferences.getInstance().then((prefs) {
+                  final lockedIds = (prefs.getStringList('locked_chat_ids') ?? []).toSet();
+                  lockedIds.removeAll(idsToProcess);
+                  prefs.setStringList('locked_chat_ids', lockedIds.toList());
+                });
                 for (String id in idsToProcess) {
-                  lockedIds.remove(id);
                   LocalDatabaseService().setChatLocked(id, false);
                   _chatService.updateChatSettings(id, {'isLocked': false}).catchError((_) => false);
                 }
-                await prefs.setStringList('locked_chat_ids', lockedIds.toList());
-                setState(() => _selectedChatIds.clear());
-                _fetchChats();
               } else if (value == 'favorite') {
+                // 0ms optimistic favorite
+                setState(() {
+                  _selectedChatIds.clear();
+                });
                 for (String id in idsToProcess) {
-                  await _chatService.updateChatSettings(id, {'isFavorite': true});
+                  _chatService.updateChatSettings(id, {'isFavorite': true}).catchError((_) => false);
                 }
-                setState(() => _selectedChatIds.clear());
-                _fetchChats();
               } else if (value == 'block') {
+                setState(() => _selectedChatIds.clear());
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Users blocked')));
                 for (String id in idsToProcess) {
                   final chat = _chats.firstWhere((c) => c.id == id, orElse: () => _chats.first);
                   if (!chat.isGroup && chat.participants != null) {
@@ -1262,13 +1344,12 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                     );
                     if (otherParticipant != null) {
                       final remoteId = otherParticipant['user']['id'] ?? otherParticipant['user']['_id'];
-                      await ApiService().blockUser(remoteId);
+                      ApiService().blockUser(remoteId).then((_) {
+                        AppEventBus().emitUserBlockUpdated(remoteId.toString(), true);
+                      }).catchError((_) {});
                     }
                   }
                 }
-                setState(() => _selectedChatIds.clear());
-                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Users blocked')));
-                _fetchChats();
               }
             },
             itemBuilder: (context) {

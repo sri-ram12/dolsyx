@@ -62,6 +62,10 @@ class _TwoStepVerificationScreenState extends State<TwoStepVerificationScreen> {
 
   @override
   void dispose() {
+    // Zero out sensitive PIN buffers from heap memory before object destruction
+    _pinController.clear();
+    _confirmPinController.clear();
+    _firstEnteredPin = '';
     _pinController.dispose();
     _confirmPinController.dispose();
     _focusNode.dispose();

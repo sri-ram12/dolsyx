@@ -107,13 +107,17 @@ class _DolsyxAppState extends State<DolsyxApp> with WidgetsBindingObserver {
   void _showCallEndedBanner(String reason) {
     _callEndedBannerTimer?.cancel();
     if (mounted) {
-      setState(() {
-        _incomingCallData = null;
-        _callEndedBannerText = reason;
-      });
-      _callEndedBannerTimer = Timer(const Duration(seconds: 4), () {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          setState(() => _callEndedBannerText = null);
+          setState(() {
+            _incomingCallData = null;
+            _callEndedBannerText = reason;
+          });
+          _callEndedBannerTimer = Timer(const Duration(seconds: 4), () {
+            if (mounted) {
+              setState(() => _callEndedBannerText = null);
+            }
+          });
         }
       });
     }
@@ -449,7 +453,11 @@ class _DolsyxAppState extends State<DolsyxApp> with WidgetsBindingObserver {
         try { flutterLocalNotificationsPlugin.cancelAll(); } catch (_) {}
         SoundService().stopRingtone();
         if (mounted) {
-          setState(() => _incomingCallData = null);
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              setState(() => _incomingCallData = null);
+            }
+          });
         }
       }
     });
@@ -486,16 +494,20 @@ class _DolsyxAppState extends State<DolsyxApp> with WidgetsBindingObserver {
 
     // Always store banner data (so it's available when user returns to app)
     if (mounted) {
-      setState(() {
-        _incomingCallData = {
-          'conversationId': conversationId,
-          'callerId': callerId,
-          'callerName': callerName,
-          'callerAvatarUrl': callerAvatarUrl,
-          'callType': callTypeStr.isNotEmpty ? callTypeStr : (isAudioOnly ? 'audio' : 'video'),
-          'isAudioOnly': isAudioOnly,
-          'initialOffer': initialOffer,
-        };
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          setState(() {
+            _incomingCallData = {
+              'conversationId': conversationId,
+              'callerId': callerId,
+              'callerName': callerName,
+              'callerAvatarUrl': callerAvatarUrl,
+              'callType': callTypeStr.isNotEmpty ? callTypeStr : (isAudioOnly ? 'audio' : 'video'),
+              'isAudioOnly': isAudioOnly,
+              'initialOffer': initialOffer,
+            };
+          });
+        }
       });
     }
 
@@ -547,7 +559,9 @@ class _DolsyxAppState extends State<DolsyxApp> with WidgetsBindingObserver {
   void _acceptIncomingCall([Map<String, dynamic>? callData]) {
     final data = callData ?? _incomingCallData;
     if (data == null) return;
-    setState(() => _incomingCallData = null);
+    if (mounted) {
+      setState(() => _incomingCallData = null);
+    }
     SoundService().stopRingtone();
     try { flutterLocalNotificationsPlugin.cancelAll(); } catch (_) {}
 
@@ -565,41 +579,24 @@ class _DolsyxAppState extends State<DolsyxApp> with WidgetsBindingObserver {
           ? false
           : (data['isAudioOnly'] == true || callTypeStr == 'audio');
 
-      if (navigatorKey.currentState != null) {
-        navigatorKey.currentState!.push(
-          MaterialPageRoute(
-            settings: const RouteSettings(name: 'CallScreen'),
-            builder: (_) => CallScreen(
-              conversationId: convIdStr,
-              remoteUserId: callerIdStr,
-              remoteUserName: callerNameStr,
-              remoteAvatarUrl: data['callerAvatarUrl']?.toString(),
-              isAudioOnly: isAudioOnly,
-              isIncoming: true,
-              initialOffer: data['initialOffer'],
-            ),
-          ),
-        );
-      } else {
-        Future.delayed(const Duration(milliseconds: 300), () {
-          if (navigatorKey.currentState != null) {
-            navigatorKey.currentState!.push(
-              MaterialPageRoute(
-                settings: const RouteSettings(name: 'CallScreen'),
-                builder: (_) => CallScreen(
-                  conversationId: convIdStr,
-                  remoteUserId: callerIdStr,
-                  remoteUserName: callerNameStr,
-                  remoteAvatarUrl: data['callerAvatarUrl']?.toString(),
-                  isAudioOnly: isAudioOnly,
-                  isIncoming: true,
-                  initialOffer: data['initialOffer'],
-                ),
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (navigatorKey.currentState != null) {
+          navigatorKey.currentState!.push(
+            MaterialPageRoute(
+              settings: const RouteSettings(name: 'CallScreen'),
+              builder: (_) => CallScreen(
+                conversationId: convIdStr,
+                remoteUserId: callerIdStr,
+                remoteUserName: callerNameStr,
+                remoteAvatarUrl: data['callerAvatarUrl']?.toString(),
+                isAudioOnly: isAudioOnly,
+                isIncoming: true,
+                initialOffer: data['initialOffer'],
               ),
-            );
-          }
-        });
-      }
+            ),
+          );
+        }
+      });
     }
 
     navigateToCall();

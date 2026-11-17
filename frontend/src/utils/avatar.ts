@@ -35,12 +35,12 @@ export function resolveMediaUrl(url: string | null | undefined): string {
   const uploadsIndex = url.indexOf("/uploads/");
   if (uploadsIndex !== -1) {
     const relativePath = url.substring(uploadsIndex);
-    const base = API_URL || "https://dolsyx-app.onrender.com";
+    const base = API_URL || "";
     return `${base}${relativePath}`;
   }
   
   if (url.startsWith("/")) {
-    const base = API_URL || "https://dolsyx-app.onrender.com";
+    const base = API_URL || "";
     return `${base}${url}`;
   }
   

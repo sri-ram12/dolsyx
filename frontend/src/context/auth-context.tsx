@@ -36,10 +36,17 @@ export const getApiUrl = (): string => {
       }
       return `http://${window.location.hostname}:4000`;
     }
+    // On Vercel Multi-Services: If no custom API URL or legacy onrender is set, use current origin
+    const envApi = process.env.NEXT_PUBLIC_API_URL;
+    if (envApi && !envApi.includes("onrender.com")) {
+      return envApi.replace(/\/+$/, "");
+    }
+    return window.location.origin;
   }
   return (
+    process.env.INTERNAL_BACKEND_URL ||
     process.env.NEXT_PUBLIC_API_URL ||
-    "https://dolsyx-app.onrender.com"
+    ""
   ).replace(/\/+$/, "");
 };
 

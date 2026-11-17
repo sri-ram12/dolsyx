@@ -4,6 +4,8 @@ import '../models/message.dart';
 import '../widgets/full_screen_image_view.dart';
 import '../services/api_service.dart';
 import '../services/chat_service.dart';
+import '../services/local_database_service.dart';
+import '../utils/e2ee/background_crypto_worker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:intl/intl.dart';
@@ -39,13 +41,42 @@ class _MediaGalleryScreenState extends State<MediaGalleryScreen> {
 
   Future<void> _fetchConversationMessages() async {
     setState(() => _isLoading = true);
+    final convId = widget.conversationId!;
     try {
-      final fetched = await ChatService().getMessages(widget.conversationId!);
-      if (mounted) {
-        setState(() {
-          _messages = fetched;
-          _isLoading = false;
-        });
+      // 1. Instant local SQLite loading with background E2EE decryption
+      final localMsgs = await LocalDatabaseService().getMessages(convId, limit: 300);
+      if (localMsgs.isNotEmpty && mounted) {
+        final rawList = localMsgs.map((m) => m.toJson()).toList();
+        final decryptedLocal = await BackgroundCryptoWorker().decryptMessageListInBackground(
+          rawMessages: rawList,
+          conversationId: convId,
+        );
+        final decryptedObjs = decryptedLocal.map((j) => Message.fromJson(j)).toList();
+        if (mounted) {
+          setState(() {
+            _messages = decryptedObjs;
+            _isLoading = false;
+          });
+        }
+      }
+
+      // 2. Fetch server messages and decrypt in background isolate
+      final serverMsgs = await ChatService().getMessages(convId, limit: 300);
+      if (serverMsgs.isNotEmpty && mounted) {
+        final rawServer = serverMsgs.map((m) => m.toJson()).toList();
+        final decryptedServer = await BackgroundCryptoWorker().decryptMessageListInBackground(
+          rawMessages: rawServer,
+          conversationId: convId,
+        );
+        final decryptedObjs = decryptedServer.map((j) => Message.fromJson(j)).toList();
+        if (mounted) {
+          setState(() {
+            _messages = decryptedObjs;
+            _isLoading = false;
+          });
+        }
+      } else if (mounted) {
+        setState(() => _isLoading = false);
       }
     } catch (e) {
       debugPrint('Error loading media gallery messages: $e');
@@ -87,34 +118,55 @@ class _MediaGalleryScreenState extends State<MediaGalleryScreen> {
 
     // Filter media
     final mediaMessages = _messages.where((m) {
-      final u = m.mediaUrl?.toLowerCase() ?? '';
-      return (m.mediaType == 'IMAGE' ||
-              m.mediaType == 'VIDEO' ||
+      if (m.isDeleted) return false;
+      final u = (m.mediaUrl ?? '').toLowerCase().trim();
+      if (u.isEmpty || u == 'audio' || u == 'video' || u == 'null' || u == 'undefined') return false;
+      final type = (m.mediaType ?? '').toUpperCase();
+      if (type == 'CALL_LOG' || type == 'SYSTEM' || type == 'LOCATION' || type == 'POLL' || type == 'CONTACT' || type == 'TEXT') return false;
+      return (type == 'IMAGE' ||
+              type == 'VIDEO' ||
               u.contains('.jpg') ||
               u.contains('.jpeg') ||
               u.contains('.png') ||
               u.contains('.mp4') ||
               u.contains('.mov') ||
               u.contains('.webp')) &&
-          m.mediaType != 'STICKER';
+          type != 'STICKER';
     }).toList();
 
     // Filter docs
     final docMessages = _messages.where((m) {
-      final u = m.mediaUrl?.toLowerCase() ?? '';
-      return m.mediaType == 'DOCUMENT' ||
-          m.mediaType == 'FILE' ||
-          RegExp(r'\.(pdf|docx?|xlsx?|pptx?|txt|zip|rar|apk|csv)($|\?)', caseSensitive: false).hasMatch(u);
+      if (m.isDeleted) return false;
+      final u = (m.mediaUrl ?? '').toLowerCase().trim();
+      final type = (m.mediaType ?? '').toUpperCase();
+      if (type == 'CALL_LOG' || type == 'SYSTEM' || type == 'LOCATION' || type == 'POLL' || type == 'CONTACT') return false;
+      final c = m.content.trim();
+      if (c.startsWith('{"e2ee"') || c.startsWith('{"iv"') || c.startsWith('{"ciphertext"')) return false;
+
+      final isDocExt = RegExp(r'\.(pdf|docx?|xlsx?|pptx?|txt|zip|rar|apk|csv|json|xml|tar|gz)($|\?)', caseSensitive: false).hasMatch(u) ||
+          RegExp(r'\.(pdf|docx?|xlsx?|pptx?|txt|zip|rar|apk|csv|json|xml|tar|gz)($|\?)', caseSensitive: false).hasMatch(c);
+      return type == 'DOCUMENT' || type == 'FILE' || type == 'PDF' || type == 'DOC' || isDocExt;
     }).toList();
 
-    // Filter links
-    final linkMessages = _messages.where((m) => urlRegex.hasMatch(m.content)).toList();
+    // Filter links (strictly match decrypted text and ignore raw ciphertexts)
+    final linkMessages = _messages.where((m) {
+      if (m.isDeleted) return false;
+      final c = m.content.trim();
+      if (c.isEmpty || c.startsWith('{"e2ee"') || c.startsWith('{"iv"') || c.startsWith('{"ciphertext"')) {
+        return false;
+      }
+      return urlRegex.hasMatch(c) || (m.mediaUrl != null && urlRegex.hasMatch(m.mediaUrl!));
+    }).toList();
 
     // Filter audio
     final audioMessages = _messages.where((m) {
-      final u = m.mediaUrl?.toLowerCase() ?? '';
-      return m.mediaType == 'AUDIO' ||
-          m.mediaType == 'VOICE' ||
+      if (m.isDeleted) return false;
+      final u = (m.mediaUrl ?? '').toLowerCase().trim();
+      if (u.isEmpty || u == 'audio' || u == 'video' || u == 'null' || u == 'undefined') return false;
+      final type = (m.mediaType ?? '').toUpperCase();
+      if (type == 'CALL_LOG' || type == 'SYSTEM' || type == 'LOCATION' || type == 'POLL' || type == 'CONTACT' || type == 'TEXT') return false;
+      return type == 'AUDIO' ||
+          type == 'VOICE' ||
           u.contains('.mp3') ||
           u.contains('.m4a') ||
           u.contains('.aac') ||
@@ -193,6 +245,8 @@ class _MediaGalleryScreenState extends State<MediaGalleryScreen> {
                                       senderName: msg.sender?['username'] ?? msg.sender?['name'] ?? 'Media',
                                       timestamp: msg.createdAt,
                                       message: msg,
+                                      mediaMessages: mediaMessages,
+                                      initialIndex: index,
                                     ),
                                   ),
                                 );

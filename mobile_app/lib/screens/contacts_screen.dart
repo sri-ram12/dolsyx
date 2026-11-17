@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/contact_service.dart';
 import '../services/chat_service.dart';
+import '../services/event_bus.dart';
 import '../theme/app_theme.dart';
 import '../widgets/color_avatar.dart';
 import 'add_contact_screen.dart';
@@ -24,22 +26,29 @@ class _ContactsScreenState extends State<ContactsScreen> {
   bool _isLoading = true;
   String _selectedFilter = 'ALL'; // ALL, CONTACTS, NON_CONTACTS, FAVOURITES, UNREAD
   final TextEditingController _searchController = TextEditingController();
+  StreamSubscription? _contactEventSub;
 
   @override
   void initState() {
     super.initState();
     _loadData();
     _searchController.addListener(_applyFilterAndSearch);
+    _contactEventSub = AppEventBus().onContactUpdated.listen((_) {
+      if (mounted) _loadData(silent: true);
+    });
   }
 
   @override
   void dispose() {
+    _contactEventSub?.cancel();
     _searchController.dispose();
     super.dispose();
   }
 
-  Future<void> _loadData() async {
-    setState(() => _isLoading = true);
+  Future<void> _loadData({bool silent = false}) async {
+    if (!silent && _contacts.isEmpty) {
+      setState(() => _isLoading = true);
+    }
     final token = Provider.of<AuthProvider>(context, listen: false).token ?? '';
     final contacts = await ContactService.getContacts(token);
 
@@ -168,23 +177,41 @@ class _ContactsScreenState extends State<ContactsScreen> {
 
     if (confirmed == true) {
       final token = Provider.of<AuthProvider>(context, listen: false).token ?? '';
-      final ok = await ContactService.deleteContact(token, contactId);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(ok ? 'Contact deleted successfully' : 'Failed to delete contact'),
-            backgroundColor: ok ? AppTheme.primaryColor : Colors.redAccent,
-          ),
-        );
-        _loadData();
-      }
+      
+      // ⚡ 0ms WhatsApp-grade instant optimistic update
+      setState(() {
+        _contacts.removeWhere((c) => (c['id']?.toString() == contactId || c['contact']?['id']?.toString() == contactId || c['contact']?['_id']?.toString() == contactId));
+        _nonContacts.removeWhere((c) => (c['id']?.toString() == contactId || c['contact']?['id']?.toString() == contactId || c['contact']?['_id']?.toString() == contactId));
+        _applyFilterAndSearch();
+      });
+      AppEventBus().emitContactUpdated();
+
+      ContactService.deleteContact(token, contactId).then((ok) {
+        if (!ok && mounted) {
+          _loadData(silent: true);
+        }
+      }).catchError((_) {
+        if (mounted) _loadData(silent: true);
+      });
     }
   }
 
   Future<void> _toggleFavorite(String contactId, bool current) async {
     final token = Provider.of<AuthProvider>(context, listen: false).token ?? '';
-    await ContactService.updateContact(token, contactId, isFavorite: !current);
-    _loadData();
+    setState(() {
+      for (final c in _contacts) {
+        if (c['id']?.toString() == contactId || c['contact']?['id']?.toString() == contactId) {
+          c['isFavorite'] = !current;
+        }
+      }
+      _applyFilterAndSearch();
+    });
+    AppEventBus().emitContactUpdated();
+    ContactService.updateContact(token, contactId, isFavorite: !current).then((ok) {
+      if (!ok && mounted) _loadData(silent: true);
+    }).catchError((_) {
+      if (mounted) _loadData(silent: true);
+    });
   }
 
   Widget _buildFilterChip(String filterKey, String label, IconData icon) {

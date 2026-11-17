@@ -125,6 +125,37 @@ export const authenticateToken = async (
 
     req.user = user;
 
+    // Phase 17 & Security: Instant Revocation & IP Anomaly Defense
+    // If a session record exists and has been marked inactive (revoked or logged out), deny immediately
+    try {
+      const session = await prisma.session.findUnique({
+        where: { token },
+        select: { id: true, isActive: true, ipAddress: true, deviceType: true },
+      });
+      if (session && !session.isActive) {
+        res.status(401).json({ message: "Session has been revoked. Please log in again." });
+        return;
+      }
+      if (session && session.ipAddress) {
+        const clientIp = req.ip || req.socket.remoteAddress || "";
+        if (clientIp && session.ipAddress !== clientIp) {
+          // Dispatch security alert event via socket to user
+          const io = req.app.get("io");
+          if (io) {
+            io.to(user.id).emit("SECURITY_ALERT_IP_CHANGE", {
+              sessionId: session.id,
+              deviceType: session.deviceType,
+              previousIp: session.ipAddress,
+              currentIp: clientIp,
+              detectedAt: new Date().toISOString(),
+            });
+          }
+        }
+      }
+    } catch (_) {
+      // Non-blocking in case of DB transient error
+    }
+
     // Phase 17: Heartbeat — update session lastActiveAt (throttled, fire-and-forget)
     updateSessionHeartbeat(token);
 

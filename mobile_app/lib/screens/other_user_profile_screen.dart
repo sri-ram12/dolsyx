@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:provider/provider.dart';
@@ -16,6 +17,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../screens/call_screen.dart';
 import '../screens/chat_room_screen.dart';
 import '../services/local_database_service.dart';
+import '../services/event_bus.dart';
+import '../models/message.dart';
+import '../utils/e2ee/e2ee_media_cache.dart';
+import '../utils/e2ee/background_crypto_worker.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'media_gallery_screen.dart';
 
 class OtherUserProfileScreen extends StatefulWidget {
   final Map<String, dynamic> user;
@@ -28,7 +35,6 @@ class OtherUserProfileScreen extends StatefulWidget {
 
 class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
   final ApiService _apiService = ApiService();
-  bool _isProcessing = false;
   String? _localNickname;
   bool _isBlocked = false;
   bool _isOnline = false;
@@ -134,17 +140,18 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
   }
 
   void _unblockUser() async {
-    setState(() => _isProcessing = true);
     final userId = widget.user['id'] ?? widget.user['_id'];
     if (userId != null) {
-      final success = await _apiService.unblockUser(userId);
-      if (mounted) {
-        setState(() => _isProcessing = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(success ? 'User unblocked' : 'Failed to unblock user')),
-        );
-        if (success) setState(() => _isBlocked = false);
-      }
+      // 0ms instant optimistic update
+      setState(() => _isBlocked = false);
+      AppEventBus().emitUserBlockUpdated(userId.toString(), false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('User unblocked')),
+      );
+      _apiService.unblockUser(userId).catchError((e) {
+        debugPrint('[OtherUserProfile] Background unblock error: $e');
+        return false;
+      });
     }
   }
 
@@ -163,17 +170,18 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
     );
 
     if (confirmed == true) {
-      setState(() => _isProcessing = true);
       final userId = widget.user['id'] ?? widget.user['_id'];
       if (userId != null) {
-        final success = await _apiService.blockUser(userId);
-        if (mounted) {
-          setState(() => _isProcessing = false);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(success ? 'User blocked' : 'Failed to block user')),
-          );
-          if (success) setState(() => _isBlocked = true);
-        }
+        // 0ms instant optimistic update
+        setState(() => _isBlocked = true);
+        AppEventBus().emitUserBlockUpdated(userId.toString(), true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('User blocked')),
+        );
+        _apiService.blockUser(userId).catchError((e) {
+          debugPrint('[OtherUserProfile] Background block error: $e');
+          return false;
+        });
       }
     }
   }
@@ -198,20 +206,22 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
     if (confirmed == true) {
       final token = Provider.of<AuthProvider>(context, listen: false).token;
       final userId = (widget.user['id'] ?? widget.user['_id'] ?? widget.user['email'] ?? widget.user['username'] ?? '').toString();
-      if (token != null && userId.isNotEmpty) {
-        setState(() => _isProcessing = true);
-        final ok = await ContactService.deleteContact(token, userId);
-        if (mounted) {
-          setState(() => _isProcessing = false);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(ok ? 'Contact deleted successfully' : 'Failed to delete contact'),
-              backgroundColor: ok ? AppTheme.primaryColor : Colors.redAccent,
-            ),
-          );
-          if (ok) {
-            Navigator.pop(context, true);
-          }
+      if (userId.isNotEmpty) {
+        // 0ms instant optimistic event dispatch & pop without waiting for network latency
+        AppEventBus().emitContactUpdated();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Contact deleted successfully'),
+            backgroundColor: AppTheme.primaryColor,
+          ),
+        );
+        Navigator.pop(context, true);
+
+        if (token != null) {
+          ContactService.deleteContact(token, userId).catchError((e) {
+            debugPrint('[OtherUserProfile] Background delete contact error: $e');
+            return false;
+          });
         }
       }
     }
@@ -404,21 +414,79 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
     );
   }
 
-  /// Resolve the best URL for a message (covers mediaUrl, fileUrl, url, or content field)
-  String _resolveMediaUrl(dynamic m) {
-    for (final key in ['mediaUrl', 'fileUrl', 'url']) {
-      final v = m[key];
-      if (v != null && v.toString().trim().isNotEmpty) return v.toString().trim();
-    }
-    // fall back to content if it looks like a URL
-    final content = (m['content'] ?? '').toString().trim();
-    if (content.startsWith('http')) return content;
-    return '';
-  }
+  void _categorizeAndSetMedia(List<dynamic> mediaMessages) {
+    final List<dynamic> media = [];
+    final List<dynamic> docs = [];
+    final List<dynamic> links = [];
+    final urlRegex = RegExp(r'(https?:\/\/[^\s]+|www\.[^\s]+)', caseSensitive: false);
 
-  bool _isVideoUrl(String url, String mediaType) {
-    if (mediaType == 'VIDEO') return true;
-    return RegExp(r'\.(mp4|mov|avi|mkv|webm|3gp)($|\?)', caseSensitive: false).hasMatch(url);
+    for (final raw in mediaMessages) {
+      if (raw is! Map) continue;
+      final m = Map<String, dynamic>.from(raw);
+      if (m['isDeleted'] == true || m['isDeleted'] == 1) continue;
+
+      final rawUrl = (m['_resolvedUrl'] ?? m['mediaUrl'] ?? m['fileUrl'] ?? m['url'] ?? '').toString().trim();
+      final mediaType = (m['mediaType'] ?? '').toString().toUpperCase();
+      final content = (m['content'] ?? '').toString().trim();
+
+      final isInvalidUrl = rawUrl.isEmpty ||
+          rawUrl == 'audio' ||
+          rawUrl == 'video' ||
+          rawUrl == 'null' ||
+          rawUrl == 'undefined';
+
+      // 1. Check for Documents
+      final isDoc = mediaType == 'FILE' ||
+          mediaType == 'DOCUMENT' ||
+          mediaType == 'PDF' ||
+          mediaType == 'DOC' ||
+          RegExp(r'\.(pdf|docx?|xlsx?|pptx?|txt|zip|rar|apk|csv|json|xml|tar|gz)($|\?)', caseSensitive: false).hasMatch(rawUrl) ||
+          RegExp(r'\.(pdf|docx?|xlsx?|pptx?|txt|zip|rar|apk|csv|json|xml|tar|gz)($|\?)', caseSensitive: false).hasMatch(content);
+
+      if (isDoc && (!isInvalidUrl || content.isNotEmpty)) {
+        docs.add({...m, '_resolvedUrl': !isInvalidUrl ? rawUrl : content});
+      } else if (!isInvalidUrl) {
+        // 2. Check for Photos and Videos (Media)
+        final isVideo = mediaType == 'VIDEO' ||
+            RegExp(r'\.(mp4|mov|avi|mkv|webm|3gp)($|\?)', caseSensitive: false).hasMatch(rawUrl);
+        final isAudio = mediaType == 'AUDIO' || mediaType == 'VOICE' ||
+            RegExp(r'\.(mp3|m4a|aac|wav|ogg|opus)($|\?)', caseSensitive: false).hasMatch(rawUrl);
+
+        if (!isAudio && mediaType != 'CALL_LOG' && mediaType != 'LOCATION' && mediaType != 'SYSTEM') {
+          media.add({...m, '_resolvedUrl': rawUrl, '_isVideo': isVideo});
+        }
+      }
+
+      // 3. Check for Links in content or rawUrl
+      if (content.isNotEmpty && urlRegex.hasMatch(content)) {
+        final matches = urlRegex.allMatches(content);
+        for (final match in matches) {
+          final linkUrl = match.group(0);
+          if (linkUrl != null && linkUrl.isNotEmpty) {
+            links.add({
+              ...m,
+              '_linkUrl': linkUrl.startsWith('http') ? linkUrl : 'https://$linkUrl',
+              '_displayTitle': content,
+            });
+          }
+        }
+      } else if (rawUrl.startsWith('http') && (mediaType == 'TEXT' || mediaType.isEmpty)) {
+        links.add({
+          ...m,
+          '_linkUrl': rawUrl,
+          '_displayTitle': rawUrl,
+        });
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _mediaItems = media;
+        _docItems = docs;
+        _linkItems = links;
+        _isLoadingMedia = false;
+      });
+    }
   }
 
   Future<void> _fetchMediaMessages() async {
@@ -430,6 +498,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
         final chat = await ChatService().createDirectChat(userId);
         if (chat != null) {
           conversationId = chat.id;
+          _resolvedConvId = chat.id;
         }
       } catch (_) {}
     }
@@ -441,68 +510,46 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
       return;
     }
 
+    // 1. Instant 0ms local SQLite loading: Decrypt all candidate messages so E2EE links & docs resolve
+    try {
+      final localMsgs = await LocalDatabaseService().getMessages(conversationId);
+      final localMedia = localMsgs.where((msg) {
+        if (msg.isDeleted) return false;
+        final type = (msg.mediaType ?? '').toUpperCase();
+        return type != 'CALL_LOG' && type != 'SYSTEM' && type != 'LOCATION';
+      }).map((msg) => msg.toJson()).toList();
+
+      if (localMedia.isNotEmpty && mounted) {
+        final decryptedLocal = await BackgroundCryptoWorker().decryptMessageListInBackground(
+          rawMessages: localMedia,
+          conversationId: conversationId,
+        );
+        _categorizeAndSetMedia(decryptedLocal);
+      }
+    } catch (_) {}
+
+    // 2. Fetch server media messages
     try {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       final token = authProvider.token ?? '';
-      // Use dedicated /media endpoint — much faster & targeted
       final res = await http.get(
         Uri.parse('${ApiService.baseUrl}/chats/$conversationId/media'),
         headers: ApiService.authHeaders(token),
       );
       if (!mounted) return;
       if (res.statusCode == 200) {
-        final List<dynamic> mediaMessages = jsonDecode(res.body);
-        final List<dynamic> media = [];
-        final List<dynamic> docs = [];
-        final List<dynamic> links = [];
-
-        final urlRegex = RegExp(r'(https?:\/\/[^\s]+|www\.[^\s]+)', caseSensitive: false);
-
-        for (final m in mediaMessages) {
-          final rawUrl = (m['mediaUrl'] ?? '').toString().trim();
-          final mediaType = (m['mediaType'] ?? '').toString().toUpperCase();
-          final content = (m['content'] ?? '').toString().trim();
-          final isVideo = mediaType == 'VIDEO' ||
-              RegExp(r'\.(mp4|mov|avi|mkv|webm|3gp)($|\?)', caseSensitive: false).hasMatch(rawUrl);
-          final isDoc = mediaType == 'FILE' || mediaType == 'DOCUMENT' ||
-              RegExp(r'\.(pdf|docx?|xlsx?|pptx?|txt|zip|rar|apk|csv)($|\?)', caseSensitive: false).hasMatch(rawUrl);
-
-          if (rawUrl.isNotEmpty) {
-            if (isDoc) {
-              docs.add({...m, '_resolvedUrl': rawUrl});
-            } else {
-              media.add({...m, '_resolvedUrl': rawUrl, '_isVideo': isVideo});
-            }
-          }
-
-          if (content.isNotEmpty && urlRegex.hasMatch(content)) {
-            final matches = urlRegex.allMatches(content);
-            for (final match in matches) {
-              final linkUrl = match.group(0);
-              if (linkUrl != null && linkUrl.isNotEmpty) {
-                links.add({
-                  ...m,
-                  '_linkUrl': linkUrl.startsWith('http') ? linkUrl : 'https://$linkUrl',
-                  '_displayTitle': content,
-                });
-              }
-            }
-          }
-        }
-
-        if (mounted) {
-          setState(() {
-            _mediaItems = media;
-            _docItems = docs;
-            _linkItems = links;
-            _isLoadingMedia = false;
-          });
-        }
+        final List<dynamic> rawMediaMessages = jsonDecode(res.body);
+        final listToDecrypt = rawMediaMessages.map((e) => Map<String, dynamic>.from(e)).toList();
+        final decryptedList = await BackgroundCryptoWorker().decryptMessageListInBackground(
+          rawMessages: listToDecrypt,
+          conversationId: conversationId,
+        );
+        _categorizeAndSetMedia(decryptedList);
       } else {
-        if (mounted) setState(() => _isLoadingMedia = false);
+        if (mounted && _mediaItems.isEmpty) setState(() => _isLoadingMedia = false);
       }
     } catch (e) {
-      if (mounted) setState(() => _isLoadingMedia = false);
+      if (mounted && _mediaItems.isEmpty) setState(() => _isLoadingMedia = false);
     }
   }
 
@@ -514,12 +561,30 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('Media, Docs & Links', style: TextStyle(color: AppTheme.textPrimary, fontSize: 16, fontWeight: FontWeight.bold)),
-              Icon(Icons.chevron_right, color: AppTheme.textSecondary),
-            ],
+          InkWell(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => MediaGalleryScreen(
+                    title: widget.user['username'] ?? widget.user['name'] ?? 'Media, Docs & Links',
+                    messages: const [],
+                    conversationId: widget.user['conversationId'] ?? '',
+                  ),
+                ),
+              );
+            },
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Media, Docs & Links', style: TextStyle(color: AppTheme.textPrimary, fontSize: 16, fontWeight: FontWeight.bold)),
+                  Icon(Icons.chevron_right, color: AppTheme.textSecondary),
+                ],
+              ),
+            ),
           ),
           const SizedBox(height: 12),
           Row(
@@ -538,7 +603,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
               color: AppTheme.backgroundColor,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: _isLoadingMedia
+            child: _isLoadingMedia && _mediaItems.isEmpty && _docItems.isEmpty && _linkItems.isEmpty
                 ? Center(child: CircularProgressIndicator(color: AppTheme.primaryColor, strokeWidth: 2))
                 : _selectedMediaTab == 0
                     ? (_mediaItems.isEmpty
@@ -561,62 +626,81 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
                                 final item = _mediaItems[idx];
                                 final rawUrl = (item['_resolvedUrl'] ?? item['mediaUrl'] ?? item['fileUrl'] ?? item['url'] ?? item['content'] ?? '').toString().trim();
                                 final isVideo = item['_isVideo'] == true;
-                                final fullUrl = rawUrl.startsWith('http') ? rawUrl : 'https://dolsyx-app.onrender.com$rawUrl';
+                                final fullUrl = ApiService.getMediaUrl(rawUrl);
+                                final mediaKey = item['mediaKey']?.toString();
+                                final nonce = item['nonce']?.toString();
+                                final mediaType = (item['mediaType'] ?? (isVideo ? 'VIDEO' : 'IMAGE')).toString();
+
+                                Message? msgObj;
+                                try {
+                                  msgObj = Message.fromJson(Map<String, dynamic>.from(item));
+                                } catch (_) {}
+
                                 return GestureDetector(
                                   onTap: () {
-                                    Navigator.push(ctx, MaterialPageRoute(builder: (_) => FullScreenImageView(imageUrl: fullUrl, isChatMedia: true)));
-                                  },
-                                  child: Stack(
-                                    children: [
-                                      Container(
-                                        margin: const EdgeInsets.only(right: 8),
-                                        width: 85, height: 85,
-                                        decoration: BoxDecoration(
-                                          borderRadius: BorderRadius.circular(8),
-                                          color: AppTheme.surfaceColor,
-                                        ),
-                                        child: ClipRRect(
-                                          borderRadius: BorderRadius.circular(8),
-                                          child: isVideo
-                                            ? Container(
-                                                color: Colors.black,
-                                                child: const Center(
-                                                  child: Icon(Icons.videocam, color: Colors.white54, size: 32),
-                                                ),
-                                              )
-                                            : Image.network(
-                                                fullUrl,
-                                                width: 85, height: 85,
-                                                fit: BoxFit.cover,
-                                                errorBuilder: (_, __, ___) => Container(
-                                                  color: AppTheme.backgroundColor,
-                                                  child: Icon(Icons.broken_image, color: AppTheme.textSecondary),
-                                                ),
-                                                loadingBuilder: (ctx, child, progress) {
-                                                  if (progress == null) return child;
-                                                  return Center(
-                                                    child: CircularProgressIndicator(
-                                                      value: progress.expectedTotalBytes != null
-                                                          ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
-                                                          : null,
-                                                      strokeWidth: 2,
-                                                      color: AppTheme.primaryColor,
-                                                    ),
-                                                  );
-                                                },
-                                              ),
+                                    Navigator.push(
+                                      ctx,
+                                      MaterialPageRoute(
+                                        builder: (_) => FullScreenImageView(
+                                          imageUrl: fullUrl,
+                                          isChatMedia: true,
+                                          message: msgObj,
+                                          rawMediaList: _mediaItems.map((e) => Map<String, dynamic>.from(e)).toList(),
+                                          initialIndex: idx,
                                         ),
                                       ),
-                                      if (isVideo)
-                                        Positioned(
-                                          bottom: 4, right: 12,
-                                          child: Container(
-                                            padding: const EdgeInsets.all(2),
-                                            decoration: const BoxDecoration(color: Colors.black45, shape: BoxShape.circle),
-                                            child: const Icon(Icons.play_arrow, color: Colors.white, size: 16),
-                                          ),
-                                        ),
-                                    ],
+                                    );
+                                  },
+                                  child: Container(
+                                    margin: const EdgeInsets.only(right: 8),
+                                    width: 85,
+                                    height: 85,
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(8),
+                                      color: AppTheme.surfaceColor,
+                                    ),
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: isVideo
+                                          ? Stack(
+                                              fit: StackFit.expand,
+                                              children: [
+                                                Container(color: Colors.black),
+                                                const Center(
+                                                  child: Icon(Icons.videocam, color: Colors.white70, size: 30),
+                                                ),
+                                                Positioned(
+                                                  bottom: 4,
+                                                  right: 4,
+                                                  child: Container(
+                                                    padding: const EdgeInsets.all(2),
+                                                    decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+                                                    child: const Icon(Icons.play_arrow, color: Colors.white, size: 14),
+                                                  ),
+                                                ),
+                                              ],
+                                            )
+                                          : FutureBuilder<File?>(
+                                              future: E2EEMediaCache.getOrDownloadDecryptedMedia(
+                                                mediaUrl: fullUrl,
+                                                mediaKey: mediaKey,
+                                                nonce: nonce,
+                                                mediaType: mediaType,
+                                              ),
+                                              builder: (context, snapshot) {
+                                                if (snapshot.hasData && snapshot.data != null && snapshot.data!.existsSync()) {
+                                                  return Image.file(
+                                                    snapshot.data!,
+                                                    width: 85,
+                                                    height: 85,
+                                                    fit: BoxFit.cover,
+                                                    errorBuilder: (_, __, ___) => _buildFallbackThumbnail(fullUrl),
+                                                  );
+                                                }
+                                                return _buildFallbackThumbnail(fullUrl);
+                                              },
+                                            ),
+                                    ),
                                   ),
                                 );
                               },
@@ -687,6 +771,35 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
                               )),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildFallbackThumbnail(String fullUrl) {
+    if (fullUrl.isEmpty || !fullUrl.startsWith('http')) {
+      return Container(
+        color: AppTheme.backgroundColor,
+        child: Icon(Icons.photo, color: AppTheme.textSecondary, size: 28),
+      );
+    }
+    return CachedNetworkImage(
+      imageUrl: fullUrl,
+      width: 85,
+      height: 85,
+      fit: BoxFit.cover,
+      placeholder: (_, __) => Container(
+        color: AppTheme.backgroundColor,
+        child: Center(
+          child: SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primaryColor),
+          ),
+        ),
+      ),
+      errorWidget: (_, __, ___) => Container(
+        color: AppTheme.backgroundColor,
+        child: Icon(Icons.photo, color: AppTheme.textSecondary, size: 28),
       ),
     );
   }

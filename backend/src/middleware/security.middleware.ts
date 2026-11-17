@@ -28,16 +28,26 @@ function isVersionSupported(clientVer: string, minVer: string): boolean {
 export function securityHeadersMiddleware(req: Request, res: Response, next: NextFunction): void {
   // Prevent MIME-sniffing
   res.setHeader("X-Content-Type-Options", "nosniff");
-  // Prevent clickjacking
+  // Prevent clickjacking & framing attacks
   res.setHeader("X-Frame-Options", "DENY");
-  // XSS protection for older browsers
+  // XSS protection for legacy browsers
   res.setHeader("X-XSS-Protection", "1; mode=block");
-  // Enforce HTTPS
+  // Enforce HTTPS HSTS with subdomains and preload
   res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload");
   // Control referrer leakage
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-  // Disable dangerous permissions
+  // Disable dangerous unneeded permissions
   res.setHeader("Permissions-Policy", "camera=(self), microphone=(self), geolocation=(self)");
+  // Content Security Policy (CSP) for defense against cross-site scripting and unauthorized resources
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; connect-src 'self' wss: ws: https:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';"
+  );
+  // Cross-Origin isolation & process boundaries
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+  res.setHeader("Cross-Origin-Embedder-Policy", "credentialless");
+  // Disallow unauthorized cross-domain Adobe/Flash/Silverlight data consumption
+  res.setHeader("X-Permitted-Cross-Domain-Policies", "none");
 
   next();
 }

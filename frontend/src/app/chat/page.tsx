@@ -385,10 +385,19 @@ export default function ChatPage() {
   }, [token]);
 
   useEffect(() => {
-    if (token) {
-      fetchChats();
-    }
-  }, [token, fetchChats]);
+    if (!token) return;
+    fetchChats();
+
+    // Serverless fallback sync: poll chat list & unread counts every 4s when Socket.IO is disconnected
+    const pollInterval = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      if (!socket || !socket.connected) {
+        fetchChats();
+      }
+    }, 4000);
+
+    return () => clearInterval(pollInterval);
+  }, [token, fetchChats, socket]);
 
   // Clear unread when selecting a chat
   const handleSelectChat = useCallback((chat: Chat | null) => {

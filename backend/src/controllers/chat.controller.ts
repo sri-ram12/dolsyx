@@ -64,6 +64,7 @@ export const getChats = async (req: AuthRequest, res: Response): Promise<void> =
                   avatarUrl: true,
                 },
               },
+              receipts: true,
             },
           },
         },
@@ -91,27 +92,34 @@ export const getChats = async (req: AuthRequest, res: Response): Promise<void> =
         .filter((id): id is string => Boolean(id))
     ));
 
-    // Batch 2 (Parallel): Fetch unread counts and recipient contacts simultaneously
+    // Batch 2 (Parallel): PgBouncer-safe unread counts, recipient contacts, and auto-DELIVERED receipt upgrade
     let unreadCountMap: Record<string, number> = {};
     const [, recipientContacts] = await Promise.all([
       conversationIds.length > 0
         ? (async () => {
             try {
-              const unreadCounts = await prisma.$queryRaw<Array<{ conversationId: string; count: bigint | number }>>`
-                SELECT m."conversationId", COUNT(m.id)::int as count
-                FROM "Message" m
-                LEFT JOIN "MessageReceipt" mr ON mr."messageId" = m.id AND mr."userId" = ${userId}
-                WHERE m."conversationId" IN (${Prisma.join(conversationIds)})
-                  AND m."senderId" != ${userId}
-                  AND (mr.status IS NULL OR mr.status != 'READ')
-                GROUP BY m."conversationId"
-              `;
+              const unreadGroups = await prisma.message.groupBy({
+                by: ["conversationId"],
+                where: {
+                  conversationId: { in: conversationIds },
+                  senderId: { not: userId },
+                  isDeleted: false,
+                  deletedForUsers: { none: { userId } },
+                  receipts: {
+                    none: {
+                      userId,
+                      status: "READ",
+                    },
+                  },
+                },
+                _count: { id: true },
+              });
 
-              for (const item of unreadCounts) {
-                unreadCountMap[item.conversationId] = Number(item.count) || 0;
+              for (const row of unreadGroups) {
+                unreadCountMap[row.conversationId] = row._count.id;
               }
-            } catch (_) {
-              // Non-blocking fallback
+            } catch (err) {
+              console.warn("[getChats] Unread count groupBy error:", err);
             }
           })()
         : Promise.resolve(),
@@ -124,6 +132,22 @@ export const getChats = async (req: AuthRequest, res: Response): Promise<void> =
             select: { userId: true },
           })
         : Promise.resolve([]),
+      // Auto-upgrade SENT receipts to DELIVERED for this active user (enables double grey ticks without WebSockets)
+      conversationIds.length > 0
+        ? prisma.messageReceipt
+            .updateMany({
+              where: {
+                userId,
+                status: "SENT",
+                message: {
+                  conversationId: { in: conversationIds },
+                  senderId: { not: userId },
+                },
+              },
+              data: { status: "DELIVERED" },
+            })
+            .catch(() => {})
+        : Promise.resolve(),
     ]);
 
     const contactsOfRecipientsSet = new Set<string>(recipientContacts.map((c) => c.userId));
@@ -259,6 +283,38 @@ export const getMessages = async (req: AuthRequest, res: Response): Promise<void
     if (!isParticipant) {
       res.status(403).json({ message: "You are not a participant in this conversation" });
       return;
+    }
+
+    // Auto-mark unread messages from others as READ when fetching the active conversation (enables blue ticks & accurate unread counts on serverless)
+    if (!cursor && req.query["markRead"] !== "false") {
+      const otherMessageIds = messages
+        .filter((m: any) => m.senderId !== userId)
+        .map((m: any) => m.id as string);
+
+      if (otherMessageIds.length > 0) {
+        try {
+          await Promise.all([
+            prisma.messageReceipt.updateMany({
+              where: {
+                userId,
+                messageId: { in: otherMessageIds },
+                status: { not: "READ" },
+              },
+              data: { status: "READ" },
+            }),
+            prisma.messageReceipt.createMany({
+              data: otherMessageIds.map((messageId) => ({
+                messageId,
+                userId,
+                status: "READ",
+              })),
+              skipDuplicates: true,
+            }),
+          ]);
+        } catch (_) {
+          // Non-blocking
+        }
+      }
     }
 
     // Reverse for chronological order on the client
@@ -1151,6 +1207,55 @@ export const sendMessageRest = async (req: AuthRequest, res: Response): Promise<
   } catch (error) {
     console.error("Send message REST error:", error);
     res.status(500).json({ message: "Failed to send message" });
+  }
+};
+
+/**
+ * REST fallback for marking all unread messages in a conversation as READ (blue ticks + unread count = 0).
+ */
+export const markConversationReadRest = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.id;
+    const conversationId = req.params["conversationId"] as string;
+    if (!conversationId) {
+      res.status(400).json({ message: "conversationId is required" });
+      return;
+    }
+
+    const unreadMessages = await prisma.message.findMany({
+      where: {
+        conversationId,
+        senderId: { not: userId },
+        isDeleted: false,
+        receipts: { none: { userId, status: "READ" } },
+      },
+      select: { id: true },
+      take: 200,
+    });
+
+    if (unreadMessages.length > 0) {
+      const msgIds = unreadMessages.map((m) => m.id);
+      await Promise.all([
+        prisma.messageReceipt.updateMany({
+          where: { userId, messageId: { in: msgIds }, status: { not: "READ" } },
+          data: { status: "READ" },
+        }),
+        prisma.messageReceipt.createMany({
+          data: msgIds.map((messageId) => ({ messageId, userId, status: "READ" })),
+          skipDuplicates: true,
+        }),
+      ]);
+    }
+
+    const io = (req as any).app?.get("io");
+    if (io) {
+      io.to(conversationId).emit("messages_read", { conversationId, userId });
+    }
+
+    res.json({ success: true, markedCount: unreadMessages.length });
+  } catch (error) {
+    console.error("Mark conversation read REST error:", error);
+    res.status(500).json({ message: "Failed to mark conversation as read" });
   }
 };
 

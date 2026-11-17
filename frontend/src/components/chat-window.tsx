@@ -745,8 +745,68 @@ export default function ChatWindow({
     }
   };
 
+  // Unified message dispatcher: uses live Socket.IO when connected, otherwise seamlessly falls back to REST API
+  const sendMessageWithFallback = async (
+    payload: {
+      conversationId: string;
+      content: string;
+      tempId?: string;
+      id?: string;
+      mediaUrl?: string | null;
+      mediaType?: string | null;
+      parentMessageId?: string | null;
+      isViewOnce?: boolean;
+    },
+    plainCaptionOrText?: string
+  ) => {
+    if (socket && socket.connected) {
+      socket.emit("send_message", payload);
+      return true;
+    }
+    if (!token) return false;
+    try {
+      const res = await fetch(`${API_URL}/api/chats/${payload.conversationId}/messages`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        const created = await res.json();
+        const confirmedMsg = {
+          ...created,
+          content: plainCaptionOrText ?? created.content,
+        };
+        if (chat && payload.conversationId === chat.id) {
+          setMessages((prev) => {
+            if (prev.some((m) => m.id === confirmedMsg.id)) return prev;
+            const tempIdx = prev.findIndex(
+              (m) =>
+                (payload.tempId && m.id === payload.tempId) ||
+                (m.id.startsWith("temp-") &&
+                  m.content === confirmedMsg.content &&
+                  m.mediaUrl === confirmedMsg.mediaUrl)
+            );
+            if (tempIdx !== -1) {
+              const updated = [...prev];
+              updated[tempIdx] = confirmedMsg;
+              return updated;
+            }
+            return [...prev, confirmedMsg];
+          });
+        }
+        return true;
+      }
+    } catch (err) {
+      console.error("REST message fallback error:", err);
+    }
+    return false;
+  };
+
   const handleForwardMessage = async (chatId: string) => {
-    if (!forwardingMessage || !token || !socket) return;
+    if (!forwardingMessage || !token) return;
     try {
       let forwardContent = forwardingMessage.content;
       if (forwardContent) {
@@ -754,13 +814,13 @@ export default function ChatWindow({
           forwardContent = await encryptConversationPayload(chatId, forwardContent);
         } catch (_) {}
       }
-      socket.emit("send_message", {
+      await sendMessageWithFallback({
         conversationId: chatId,
         content: forwardContent,
         mediaUrl: forwardingMessage.mediaUrl,
         mediaType: forwardingMessage.mediaType,
         parentMessageId: null
-      });
+      }, forwardingMessage.content);
       toast("Message forwarded.", "success");
       setShowForwardModal(false);
       setForwardingMessage(null);
@@ -934,8 +994,15 @@ export default function ChatWindow({
             return msg;
           }));
 
-          setMessages(finalMessages);
-          if (socket) {
+          setMessages((prev) => {
+            // Preserve any in-flight optimistic temp messages not yet returned
+            const pendingTemps = prev.filter((m) => m.id.startsWith("temp-"));
+            const merged = pendingTemps.length > 0 ? [...finalMessages, ...pendingTemps] : finalMessages;
+            const prevSig = prev.map((m: any) => `${m.id}:${m.content}:${(m.receipts || []).map((r: any) => r.status).join(",")}:${(m.reactions || []).length}:${m.isDeleted}`).join("|");
+            const nextSig = merged.map((m: any) => `${m.id}:${m.content}:${(m.receipts || []).map((r: any) => r.status).join(",")}:${(m.reactions || []).length}:${m.isDeleted}`).join("|");
+            return prevSig === nextSig ? prev : merged;
+          });
+          if (socket && socket.connected) {
             socket.emit("mark_read", { conversationId: chat.id });
           }
         }
@@ -971,13 +1038,22 @@ export default function ChatWindow({
     setProfileUser(null);
 
     // Join conversation socket channel
-    if (socket) {
+    if (socket && socket.connected) {
       socket.emit("join_conversation", chat.id);
     }
 
+    // Serverless polling sync: when Socket.IO is disconnected, poll messages & receipts every 3s
+    const pollInterval = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      if (!socket || !socket.connected) {
+        fetchMessages();
+      }
+    }, 3000);
+
     return () => {
+      clearInterval(pollInterval);
       // Leave conversation socket channel on unmount
-      if (socket && chat) {
+      if (socket && socket.connected && chat) {
         socket.emit("leave_conversation", chat.id);
       }
     };
@@ -1434,7 +1510,7 @@ export default function ChatWindow({
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputValue.trim() || !socket || !chat) return;
+    if (!inputValue.trim() || !chat) return;
 
     if (editingMessage) {
       let encryptedContent = inputValue.trim();
@@ -1443,11 +1519,19 @@ export default function ChatWindow({
       } catch (err) {
         console.warn("Conversation E2EE edit encryption error:", err);
       }
-      // Send Edit event
-      socket.emit("edit_message", {
-        messageId: editingMessage.id,
-        content: encryptedContent,
-      });
+      // Send Edit event (Socket or REST fallback)
+      if (socket && socket.connected) {
+        socket.emit("edit_message", {
+          messageId: editingMessage.id,
+          content: encryptedContent,
+        });
+      } else if (token) {
+        fetch(`${API_URL}/api/chats/messages/${editingMessage.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ content: encryptedContent }),
+        }).catch(() => {});
+      }
       setEditingMessage(null);
     } else {
       const newMsgContent = inputValue.trim();
@@ -1473,6 +1557,7 @@ export default function ChatWindow({
       };
       
       setMessages(prev => [...prev, optimisticMsg]);
+      setInputValue("");
 
       // 100% E2EE: Pre-encrypt outgoing message with zero-knowledge ratchet
       let encryptedContent = newMsgContent;
@@ -1482,15 +1567,13 @@ export default function ChatWindow({
         console.warn("Conversation E2EE encryption error:", err);
       }
 
-      if (socket) {
-        socket.emit("send_message", {
-          tempId,
-          id: tempId,
-          conversationId: chat.id,
-          content: encryptedContent,
-          parentMessageId: replyingToMessage?.id || undefined,
-        });
-      }
+      await sendMessageWithFallback({
+        tempId,
+        id: tempId,
+        conversationId: chat.id,
+        content: encryptedContent,
+        parentMessageId: replyingToMessage?.id || undefined,
+      }, newMsgContent);
       setReplyingToMessage(null);
     }
 
@@ -1498,7 +1581,9 @@ export default function ChatWindow({
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
     }
-    socket.emit("typing", { conversationId: chat.id, isTyping: false });
+    if (socket && socket.connected) {
+      socket.emit("typing", { conversationId: chat.id, isTyping: false });
+    }
 
     setInputValue("");
   };
@@ -1728,12 +1813,12 @@ export default function ChatWindow({
           encryptedContent = await encryptConversationPayload(chat.id, mediaPayload);
         } catch (_) {}
 
-        socket.emit("send_message", {
+        await sendMessageWithFallback({
           conversationId: chat.id,
           content: encryptedContent,
           mediaUrl: uploadedFileUrl,
           mediaType,
-        });
+        }, "");
       }
     } catch (err) {
       console.error("Upload error:", err);
@@ -1745,7 +1830,7 @@ export default function ChatWindow({
   };
 
   const sendPendingMediaUpload = async () => {
-    if (!pendingMediaUpload || !socket || !chat || !token) return;
+    if (!pendingMediaUpload || !chat || !token) return;
     const { file: rawFile, isViewOnce, caption, type: mediaType } = pendingMediaUpload;
     
     if (pendingMediaUpload.previewUrl) URL.revokeObjectURL(pendingMediaUpload.previewUrl);
@@ -1849,13 +1934,13 @@ export default function ChatWindow({
           encryptedContent = await encryptConversationPayload(chat.id, mediaPayload);
         } catch (_) {}
 
-        socket.emit("send_message", {
+        await sendMessageWithFallback({
           conversationId: chat.id,
           content: encryptedContent,
           mediaUrl: uploadedFileUrl,
           mediaType,
           isViewOnce: isViewOnce,
-        });
+        }, caption || "");
       }
     } catch (err) {
       console.error("Upload error:", err);
@@ -1867,7 +1952,7 @@ export default function ChatWindow({
   };
 
   const uploadMediaData = async (blob: Blob, fileType: "IMAGE" | "AUDIO") => {
-    if (!socket || !chat || !token) return;
+    if (!chat || !token) return;
     const formData = new FormData();
     const ext = fileType === "IMAGE" ? "png" : "webm";
     const filename = `capture_${Date.now()}.${ext}`;
@@ -1894,12 +1979,12 @@ export default function ChatWindow({
           encryptedContent = await encryptConversationPayload(chat.id, mediaPayload);
         } catch (_) {}
 
-        socket.emit("send_message", {
+        await sendMessageWithFallback({
           conversationId: chat.id,
           content: encryptedContent,
           mediaUrl: data.fileUrl,
           mediaType: fileType,
-        });
+        }, "");
       } else {
         toast(`${fileType} upload failed.`, "error");
       }

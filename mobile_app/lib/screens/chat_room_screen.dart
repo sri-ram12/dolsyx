@@ -1092,6 +1092,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     );
   }
 
+  Timer? _serverlessPollTimer;
+  bool _isFetchingMessages = false;
+
   @override
   void initState() {
     super.initState();
@@ -1107,6 +1110,14 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     _loadQuickEmojis();
     
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
+
+    // Serverless live-sync polling: refresh messages & delivery/read ticks every 3s when Socket.IO is disconnected
+    _serverlessPollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      if (!mounted) return;
+      if (!authProvider.socketService.isConnected) {
+        _fetchMessages(silent: true);
+      }
+    });
 
     // Bind typed callbacks once
     _onMessageReceivedHandler = _handleIncomingMessage;
@@ -1237,6 +1248,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   @override
   void dispose() {
+    _serverlessPollTimer?.cancel();
     _remoteUserTypingNotifier.dispose();
     _remoteUserOnlineNotifier.dispose();
     _remoteUserLastSeenNotifier.dispose();
@@ -2021,9 +2033,22 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     }
   }
 
-  Future<void> _fetchMessages() async {
-    // First, show cached messages instantly
-    await _loadCachedMessages();
+  String _receiptSignature(Message m) {
+    final receipts = m.receipts;
+    if (receipts == null || receipts.isEmpty) return '';
+    return receipts
+        .map((r) => '${r['userId'] ?? ''}:${r['status'] ?? ''}')
+        .join(',');
+  }
+
+  Future<void> _fetchMessages({bool silent = false}) async {
+    if (_isFetchingMessages && silent) return;
+    _isFetchingMessages = true;
+
+    // First, show cached messages instantly on initial empty load
+    if (!silent && _messages.isEmpty) {
+      await _loadCachedMessages();
+    }
 
     try {
       final token = await ApiService().getToken();
@@ -2053,14 +2078,24 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           await prefs.setString('cached_decrypted_${widget.conversationId}', decryptedJson);
         } catch (_) {}
         if (mounted) {
-          // Compare against current messages to avoid UI re-render jitter
-          bool hasChanges = _messages.length != decryptedList.length;
+          // Keep any still-pending optimistic temp messages not yet persisted
+          final pendingTemps = _messages.where((m) => m.id.startsWith('temp-')).toList();
+          final mergedList = pendingTemps.isNotEmpty
+              ? [...decryptedList, ...pendingTemps]
+              : decryptedList;
+
+          final previousCount = _messages.length;
+          // Compare against current messages (including receipts for double/blue ticks!)
+          bool hasChanges = _messages.length != mergedList.length;
           if (!hasChanges) {
             for (int i = 0; i < _messages.length; i++) {
-              if (_messages[i].id != decryptedList[i].id || 
-                  _messages[i].content != decryptedList[i].content ||
-                  (_messages[i].reactions?.length ?? 0) != (decryptedList[i].reactions?.length ?? 0) ||
-                  _messages[i].isViewed != decryptedList[i].isViewed) {
+              if (_messages[i].id != mergedList[i].id ||
+                  _messages[i].content != mergedList[i].content ||
+                  _messages[i].isDeleted != mergedList[i].isDeleted ||
+                  _messages[i].isEdited != mergedList[i].isEdited ||
+                  _receiptSignature(_messages[i]) != _receiptSignature(mergedList[i]) ||
+                  (_messages[i].reactions?.length ?? 0) != (mergedList[i].reactions?.length ?? 0) ||
+                  _messages[i].isViewed != mergedList[i].isViewed) {
                 hasChanges = true;
                 break;
               }
@@ -2068,14 +2103,17 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           }
 
           if (hasChanges) {
+            final gotNewMessages = mergedList.length > previousCount;
             setState(() {
-              _messages = decryptedList;
+              _messages = mergedList;
               _isLoading = false;
               try {
                 _pinnedMessage = _messages.firstWhere((m) => m.isPinned);
               } catch (_) {}
             });
-            _scrollToBottom();
+            if (!silent || gotNewMessages) {
+              _scrollToBottom();
+            }
           } else {
             setState(() => _isLoading = false);
           }
@@ -2086,6 +2124,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     } catch (e) {
       print('Error fetching messages (offline?): $e');
       if (mounted) setState(() => _isLoading = false);
+    } finally {
+      _isFetchingMessages = false;
     }
   }
 
@@ -4626,34 +4666,39 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               ),
             ),
           Expanded(
-            child: _isLoading && _messages.isEmpty
-                ? Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
-                : _messages.isEmpty
-                    ? SingleChildScrollView(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          children: [
-                            _buildEncryptionSecurityBanner(),
-                            _buildDisappearingTimerBanner(),
-                            const SizedBox(height: 32),
-                            Icon(Icons.lock_clock_rounded, size: 48, color: AppTheme.primaryColor.withOpacity(0.6)),
-                            const SizedBox(height: 12),
-                            Text(
-                              'Start an end-to-end encrypted chat',
-                              style: TextStyle(color: AppTheme.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              'Messages are end-to-end encrypted. No one outside of this chat, not even DOLSYX, can read or listen to them.',
-                              style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
-                              textAlign: TextAlign.center,
-                            ),
-                          ],
-                        ),
-                      )
-                    : ListView.builder(
-                        controller: _scrollController,
-                        physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+            child: RefreshIndicator(
+              onRefresh: () => _fetchMessages(silent: false),
+              color: AppTheme.primaryColor,
+              backgroundColor: AppTheme.surfaceColor,
+              child: _isLoading && _messages.isEmpty
+                  ? Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
+                  : _messages.isEmpty
+                      ? SingleChildScrollView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            children: [
+                              _buildEncryptionSecurityBanner(),
+                              _buildDisappearingTimerBanner(),
+                              const SizedBox(height: 32),
+                              Icon(Icons.lock_clock_rounded, size: 48, color: AppTheme.primaryColor.withOpacity(0.6)),
+                              const SizedBox(height: 12),
+                              Text(
+                                'Start an end-to-end encrypted chat',
+                                style: TextStyle(color: AppTheme.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                'Messages are end-to-end encrypted. No one outside of this chat, not even DOLSYX, can read or listen to them.',
+                                style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
+                        )
+                      : ListView.builder(
+                          controller: _scrollController,
+                          physics: const AlwaysScrollableScrollPhysics(),
                         padding: const EdgeInsets.all(16),
                         itemCount: _messages.length,
                         cacheExtent: 500.0,
@@ -4798,6 +4843,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                       );
                     },
                   ),
+            ),
           ),
           _buildScheduledMessagesBar(),
           if (_replyingTo != null)

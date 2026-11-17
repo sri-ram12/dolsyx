@@ -66,6 +66,9 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
   Set<String> _onlineUsers = {};
   Map<String, bool> _typingStatus = {};
   final Map<String, Timer> _typingAutoClearTimers = {};
+  Timer? _serverlessPollTimer;
+  bool _isFetchingChats = false;
+  bool _appResumed = true;
   bool _hideLockedChats = false;
   final Map<String, String> _decryptedPreviewCache = {};
 
@@ -187,19 +190,31 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
           UpdateService().promptUpdate(context, manual: false);
         }
       });
+
+      // Serverless live-sync polling: refresh chats, unread badges & ticks every 4s when Socket.IO is disconnected
+      _serverlessPollTimer?.cancel();
+      _serverlessPollTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+        if (!mounted || !_appResumed) return;
+        final ap = Provider.of<AuthProvider>(context, listen: false);
+        if (!ap.socketService.isConnected) {
+          _fetchChats(silent: true);
+        }
+      });
     });
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      _fetchChats();
+    _appResumed = state == AppLifecycleState.resumed;
+    if (_appResumed) {
+      _fetchChats(silent: true);
     }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _serverlessPollTimer?.cancel();
     for (final timer in _typingAutoClearTimers.values) {
       timer.cancel();
     }
@@ -385,7 +400,9 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
     _sortChats();
   }
 
-  Future<void> _fetchChats() async {
+  Future<void> _fetchChats({bool silent = false}) async {
+    if (_isFetchingChats && silent) return;
+    _isFetchingChats = true;
     Set<String> lockedIds = {};
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -393,7 +410,8 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
       lockedIds = (prefs.getStringList('locked_chat_ids') ?? []).toSet();
     } catch (_) {}
 
-    if (mounted) {
+    // Only load cached chats on cold empty start (never overwrite live list during pull-to-refresh or polling)
+    if (mounted && _chats.isEmpty) {
       final cachedChats = await _chatService.getCachedChats();
       if (cachedChats.isNotEmpty) {
         for (var c in cachedChats) {
@@ -421,6 +439,8 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
     } catch (e) {
       print('Error fetching chats: $e');
       if (mounted) setState(() => _isLoading = false);
+    } finally {
+      _isFetchingChats = false;
     }
   }
 
@@ -440,6 +460,47 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
     return "Unknown Chat";
   }
 
+  Widget? _buildLastMessageTick(Map<String, dynamic> msg) {
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final myId = (auth.user?['id'] ?? auth.user?['_id'])?.toString();
+    final senderId = (msg['senderId'] ?? msg['sender']?['id'])?.toString();
+    if (myId == null || senderId != myId) return null;
+
+    final receipts = msg['receipts'];
+    bool isRead = false;
+    bool isDelivered = false;
+    if (receipts is List) {
+      for (final r in receipts) {
+        if (r is Map && r['userId']?.toString() != myId) {
+          final st = r['status']?.toString().toUpperCase();
+          if (st == 'READ') {
+            isRead = true;
+            break;
+          } else if (st == 'DELIVERED') {
+            isDelivered = true;
+          }
+        }
+      }
+    }
+
+    if (isRead) {
+      return const Padding(
+        padding: EdgeInsets.only(right: 4),
+        child: Icon(Icons.done_all, size: 15, color: Color(0xFF34B7F1)),
+      );
+    } else if (isDelivered) {
+      return Padding(
+        padding: const EdgeInsets.only(right: 4),
+        child: Icon(Icons.done_all, size: 15, color: AppTheme.textSecondary),
+      );
+    } else {
+      return Padding(
+        padding: const EdgeInsets.only(right: 4),
+        child: Icon(Icons.done, size: 15, color: AppTheme.textSecondary),
+      );
+    }
+  }
+
   Widget _buildLastMessageWidget(Chat chat) {
     if (_typingStatus[chat.id] == true) {
       return Text("Typing...", style: TextStyle(color: AppTheme.primaryColor), maxLines: 1, overflow: TextOverflow.ellipsis);
@@ -447,6 +508,18 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
     
     if (chat.lastMessage != null) {
       final msg = chat.lastMessage!;
+      final tickWidget = _buildLastMessageTick(msg);
+      Widget wrapWithTick(Widget child) {
+        if (tickWidget == null) return child;
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            tickWidget,
+            Flexible(child: child),
+          ],
+        );
+      }
+
       if (msg['mediaType'] == 'CALL_LOG') {
         IconData icon = msg['mediaUrl'] == 'video' ? Icons.videocam : Icons.phone;
         String text = msg['content'] == 'missed' ? 'Missed call' : 
@@ -460,46 +533,46 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
           ],
         );
       } else if (msg['mediaType'] == 'IMAGE') {
-        return Row(
+        return wrapWithTick(Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(Icons.photo, size: 14, color: AppTheme.textSecondary),
             const SizedBox(width: 4),
             Flexible(child: Text("Photo", style: TextStyle(color: AppTheme.textSecondary), maxLines: 1, overflow: TextOverflow.ellipsis)),
           ],
-        );
+        ));
       } else if (msg['mediaType'] == 'VIDEO') {
-        return Row(
+        return wrapWithTick(Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(Icons.videocam, size: 14, color: AppTheme.textSecondary),
             const SizedBox(width: 4),
             Flexible(child: Text("Video", style: TextStyle(color: AppTheme.textSecondary), maxLines: 1, overflow: TextOverflow.ellipsis)),
           ],
-        );
+        ));
       } else if (msg['mediaType'] == 'AUDIO') {
-        return Row(
+        return wrapWithTick(Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(Icons.audiotrack, size: 14, color: AppTheme.textSecondary),
             const SizedBox(width: 4),
             Flexible(child: Text("Voice note", style: TextStyle(color: AppTheme.textSecondary), maxLines: 1, overflow: TextOverflow.ellipsis)),
           ],
-        );
+        ));
       } else if (msg['mediaType'] == 'FILE') {
-        return Row(
+        return wrapWithTick(Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(Icons.insert_drive_file, size: 14, color: AppTheme.textSecondary),
             const SizedBox(width: 4),
             Flexible(child: Text("Document", style: TextStyle(color: AppTheme.textSecondary), maxLines: 1, overflow: TextOverflow.ellipsis)),
           ],
-        );
+        ));
       }
 
       final rawContent = (msg['content'] ?? "").toString();
       if (rawContent.isEmpty) {
-        return Text("Sent a message", style: TextStyle(color: AppTheme.textSecondary), maxLines: 1, overflow: TextOverflow.ellipsis);
+        return wrapWithTick(Text("Sent a message", style: TextStyle(color: AppTheme.textSecondary), maxLines: 1, overflow: TextOverflow.ellipsis));
       }
 
       final trimmed = rawContent.trim();
@@ -510,7 +583,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
         final cacheKey = "${chat.id}_${msg['id'] ?? ''}_$trimmed";
         final cached = _decryptedPreviewCache[cacheKey];
         if (cached != null) {
-          return Text(cached, style: TextStyle(color: AppTheme.textSecondary), maxLines: 1, overflow: TextOverflow.ellipsis);
+          return wrapWithTick(Text(cached, style: TextStyle(color: AppTheme.textSecondary), maxLines: 1, overflow: TextOverflow.ellipsis));
         }
 
         if (isJsonCipher) {
@@ -531,15 +604,15 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
           }).catchError((_) {});
         }
 
-        return Text(
+        return wrapWithTick(Text(
           "Message",
           style: TextStyle(color: AppTheme.textSecondary),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-        );
+        ));
       }
 
-      return Text(rawContent, style: TextStyle(color: AppTheme.textSecondary), maxLines: 1, overflow: TextOverflow.ellipsis);
+      return wrapWithTick(Text(rawContent, style: TextStyle(color: AppTheme.textSecondary), maxLines: 1, overflow: TextOverflow.ellipsis));
     }
     return Text("No messages yet", style: TextStyle(color: AppTheme.textSecondary), maxLines: 1, overflow: TextOverflow.ellipsis);
   }
@@ -643,7 +716,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                           final totalCount = 1 + (showLockedTile ? 1 : 0) + activeChats.length + (hasArchived ? 1 : 0);
 
                           return ListView.builder(
-                            physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+                            physics: const AlwaysScrollableScrollPhysics(),
                             cacheExtent: 1500.0,
                             addAutomaticKeepAlives: true,
                             addRepaintBoundaries: true,

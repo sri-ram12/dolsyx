@@ -267,9 +267,9 @@ export const initChatSocket = (io: Server) => {
   setupRedisAdapter(io);
   loadScheduledMessagesFromDisk();
 
-  if (!schedulerTickStarted) {
+  if (!schedulerTickStarted && process.env.VERCEL !== "1") {
     schedulerTickStarted = true;
-    setInterval(async () => {
+    const schedulerTimer = setInterval(async () => {
       const now = Date.now();
       for (const [id, msg] of scheduledMessagesStore.entries()) {
         if (msg.scheduledFor <= now) {
@@ -283,6 +283,9 @@ export const initChatSocket = (io: Server) => {
         }
       }
     }, 3000);
+    if (schedulerTimer.unref) {
+      schedulerTimer.unref();
+    }
   }
 
   // Authentication middleware for Socket.io

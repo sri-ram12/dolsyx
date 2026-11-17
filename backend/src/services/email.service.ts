@@ -17,7 +17,9 @@ class EmailService {
   private transporter: nodemailer.Transporter | null = null;
 
   constructor() {
-    this.verifyConnection();
+    if (process.env.VERCEL !== "1") {
+      this.verifyConnection();
+    }
   }
 
   private async verifyConnection() {

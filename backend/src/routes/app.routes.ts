@@ -3,7 +3,10 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 
-const __filename = fileURLToPath(import.meta.url);
+const __filename =
+  typeof import.meta?.url === "string" && import.meta.url.startsWith("file:")
+    ? fileURLToPath(import.meta.url)
+    : path.join(process.cwd(), "src", "routes", "app.routes.ts");
 const __dirname = path.dirname(__filename);
 
 const router = Router();
@@ -13,7 +16,7 @@ import multer from "multer";
 const apkUpload = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => {
-      const dir = path.resolve(process.cwd(), "uploads");
+      const dir = process.env.VERCEL === "1" ? "/tmp/uploads" : path.resolve(process.cwd(), "uploads");
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
       cb(null, dir);
     },

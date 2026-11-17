@@ -1,5 +1,7 @@
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getMessaging } from 'firebase-admin/messaging';
+import fs from 'fs';
+import path from 'path';
 
 // Initialize Firebase Admin SDK
 export const initFirebase = () => {
@@ -17,9 +19,6 @@ export const initFirebase = () => {
       } else {
         // Option 2: Try loading from file
         try {
-          // Dynamic import for local development
-          const fs = require('fs');
-          const path = require('path');
           const keyPath = path.join(process.cwd(), 'serviceAccountKey.json');
           
           if (fs.existsSync(keyPath)) {

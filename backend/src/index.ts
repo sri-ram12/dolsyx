@@ -32,7 +32,10 @@ import { initCronJobs } from "./utils/cron.jobs.js";
 import { initFirebase } from "./config/firebase.config.js";
 import { prisma } from "./config/db.js";
 
-const __filename = fileURLToPath(import.meta.url);
+const __filename =
+  typeof import.meta?.url === "string" && import.meta.url.startsWith("file:")
+    ? fileURLToPath(import.meta.url)
+    : path.join(process.cwd(), "src", "index.ts");
 const __dirname = path.dirname(__filename);
 
 const app = express();
@@ -232,7 +235,11 @@ const io = new Server(server, {
   maxHttpBufferSize: 1e7, // 10MB limit for efficient streaming
 });
 app.set("io", io);
-initChatSocket(io);
+try {
+  initChatSocket(io);
+} catch (err) {
+  console.error("[Socket.IO] Initialization error:", err);
+}
 // ── Cron Jobs (initialized after io is ready for status_deleted broadcasts) ────
 if (!IS_VERCEL && (!process.env.CLUSTER_MODE || cluster.worker?.id === 1)) {
   initCronJobs(io);
@@ -339,28 +346,28 @@ const waitForNextJs = () => {
 if (IS_PRODUCTION && !IS_VERCEL) waitForNextJs();
 else nextJsReady = true; // In dev or Vercel Services, frontend runs independently
 
-const nextProxy = createProxyMiddleware({
-  target: `http://127.0.0.1:${NEXT_PORT}`,
-  changeOrigin: true,
-  ws: true, // MUST be true for Next.js Hot Reloading (HMR) to work via /_next/webpack-hmr
-  on: {
-    error: (err: Error, req: any, res: any) => {
-      // Suppress noisy ECONNREFUSED logs during startup window
-      if (!nextJsReady) return;
-      console.error("[Monolith Proxy] Error forwarding request:", (err as any).message);
-      // res may be a Socket for WS errors - only call writeHead on real HTTP responses
-      if (res && typeof res.writeHead === "function" && !res.headersSent) {
-        res.writeHead(502, { "Content-Type": "text/plain" });
-        res.end("Frontend is starting up or unavailable. Please reload in a moment.");
-      } else if (res && typeof res.end === "function") {
-        try { res.end(); } catch (_) {}
-      }
-    },
-  },
-} as any);
-
 // Only proxy non-API, non-socket, non-static routes to Next.js when running in monolith mode (not Vercel)
 if (!IS_VERCEL) {
+  const nextProxy = createProxyMiddleware({
+    target: `http://127.0.0.1:${NEXT_PORT}`,
+    changeOrigin: true,
+    ws: true, // MUST be true for Next.js Hot Reloading (HMR) to work via /_next/webpack-hmr
+    on: {
+      error: (err: Error, req: any, res: any) => {
+        // Suppress noisy ECONNREFUSED logs during startup window
+        if (!nextJsReady) return;
+        console.error("[Monolith Proxy] Error forwarding request:", (err as any).message);
+        // res may be a Socket for WS errors - only call writeHead on real HTTP responses
+        if (res && typeof res.writeHead === "function" && !res.headersSent) {
+          res.writeHead(502, { "Content-Type": "text/plain" });
+          res.end("Frontend is starting up or unavailable. Please reload in a moment.");
+        } else if (res && typeof res.end === "function") {
+          try { res.end(); } catch (_) {}
+        }
+      },
+    },
+  } as any);
+
   app.use((req, res, next) => {
     const p = req.path;
     if (

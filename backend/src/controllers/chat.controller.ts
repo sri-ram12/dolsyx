@@ -4,6 +4,7 @@ import { prisma } from "../config/db.js";
 import type { AuthRequest } from "../middleware/auth.middleware.js";
 import { evaluatePrivacyInMemory, canViewProfilePhoto, canViewAbout, canViewLastSeen, canViewOnline } from "../utils/privacy.engine.js";
 import { encryptionService } from "../services/encryption.service.js";
+import { sendPushNotification } from "../config/firebase.config.js";
 
 export const getChats = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
@@ -1031,6 +1032,136 @@ export const editMessage = async (req: AuthRequest, res: Response): Promise<void
   } catch (error) {
     console.error("Edit message error:", error);
     res.status(500).json({ message: "Failed to edit message" });
+  }
+};
+
+/**
+ * REST fallback for sending messages (enables full E2EE messaging on serverless hosts like Vercel
+ * where WebSocket upgrades are unavailable, while also broadcasting via Socket.IO when active).
+ */
+export const sendMessageRest = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const senderId = req.user!.id;
+    const conversationId = req.params["conversationId"] as string;
+    const {
+      content,
+      mediaUrl,
+      mediaType,
+      parentMessageId,
+      isForwarded,
+      forwardCount,
+      isViewOnce,
+      latitude,
+      longitude,
+      locationTitle,
+      isLiveLocation,
+      liveExpiresAt,
+      tempId,
+    } = req.body;
+
+    if (!conversationId) {
+      res.status(400).json({ message: "conversationId is required" });
+      return;
+    }
+
+    const participants = await prisma.participant.findMany({
+      where: { conversationId },
+      select: {
+        userId: true,
+        user: { select: { id: true, username: true, fcmToken: true } },
+        conversation: { select: { isGroup: true, name: true } },
+      },
+    });
+
+    const isMember = participants.some((p) => p.userId === senderId);
+    if (!isMember) {
+      res.status(403).json({ message: "Not a participant of this conversation" });
+      return;
+    }
+
+    // Zero-Knowledge E2EE: Persist client-encrypted ciphertext directly without server decryption
+    const createdMessage = await prisma.message.create({
+      data: {
+        content: typeof content === "string" ? content.trim() : "",
+        conversationId,
+        senderId,
+        mediaUrl: mediaUrl || null,
+        mediaType: mediaType || "TEXT",
+        parentMessageId: parentMessageId || null,
+        isForwarded: Boolean(isForwarded),
+        forwardCount: typeof forwardCount === "number" ? forwardCount : 0,
+        isViewOnce: Boolean(isViewOnce),
+        latitude: typeof latitude === "number" ? latitude : null,
+        longitude: typeof longitude === "number" ? longitude : null,
+        locationTitle: locationTitle || null,
+        isLiveLocation: Boolean(isLiveLocation),
+        liveExpiresAt: liveExpiresAt ? new Date(liveExpiresAt) : null,
+      },
+      include: {
+        sender: {
+          select: {
+            id: true,
+            username: true,
+            avatarUrl: true,
+          },
+        },
+        parentMessage: true,
+        receipts: true,
+      },
+    });
+
+    await prisma.conversation.update({
+      where: { id: conversationId },
+      data: { updatedAt: new Date() },
+    });
+
+    const otherParticipants = participants.filter((p) => p.userId !== senderId);
+    if (otherParticipants.length > 0) {
+      await prisma.messageReceipt.createMany({
+        data: otherParticipants.map((p) => ({
+          messageId: createdMessage.id,
+          userId: p.userId,
+          status: "SENT",
+        })),
+        skipDuplicates: true,
+      });
+    }
+
+    // Broadcast via Socket.IO if running on a persistent host
+    const io = (req as any).app?.get("io");
+    if (io) {
+      const payload = {
+        message: createdMessage,
+        conversationId,
+        ...(tempId ? { tempId } : {}),
+      };
+      io.to(conversationId).emit("new_message", payload);
+      participants.forEach((p) => {
+        io.to(p.userId).emit("new_message", payload);
+      });
+    }
+
+    // Send FCM push notifications to other participants (non-blocking)
+    const senderName = createdMessage.sender?.username || "New message";
+    const pushBody = mediaType && mediaType !== "TEXT" ? `Sent a ${String(mediaType).toLowerCase()}` : "New encrypted message";
+    for (const p of otherParticipants) {
+      if (p.user?.fcmToken) {
+        sendPushNotification(p.user.fcmToken, senderName, pushBody, {
+          type: "MESSAGE",
+          conversationId,
+          messageId: createdMessage.id,
+          senderId,
+        }).catch(() => {});
+      }
+    }
+
+    res.status(201).json({
+      ...createdMessage,
+      ...(tempId ? { tempId } : {}),
+    });
+  } catch (error) {
+    console.error("Send message REST error:", error);
+    res.status(500).json({ message: "Failed to send message" });
   }
 };
 

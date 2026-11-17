@@ -16,13 +16,13 @@ class ChatService {
       };
       final uri = Uri.parse('${ApiService.baseUrl}/chats/$conversationId/messages')
           .replace(queryParameters: queryParams);
-      final response = await ApiService.client.get(
+      final response = await ApiService.get(
         uri,
         headers: {
           'Content-Type': 'application/json',
           if (token != null) 'Authorization': 'Bearer $token',
         },
-      ).timeout(const Duration(seconds: 15));
+      ).timeout(const Duration(seconds: 25));
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
         return data.map((json) => Message.fromJson(json)).toList();
@@ -33,31 +33,45 @@ class ChatService {
     return [];
   }
 
+  Future<Map<String, dynamic>?> sendMessagePayload(
+    String conversationId,
+    Map<String, dynamic> payload,
+  ) async {
+    try {
+      final token = await ApiService().getToken();
+      if (token == null) return null;
+      final response = await ApiService.post(
+        Uri.parse('${ApiService.baseUrl}/chats/$conversationId/messages'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode(payload),
+      ).timeout(const Duration(seconds: 25));
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map<String, dynamic>) return decoded;
+        return {'success': true};
+      }
+      print('Error sending message via REST API: ${response.statusCode} ${response.body}');
+    } catch (e) {
+      print('Error sending message via API: $e');
+    }
+    return null;
+  }
+
   Future<bool> sendMessage({
     required String conversationId,
     required String content,
     String? mediaUrl,
     String? mediaType,
   }) async {
-    try {
-      final token = await ApiService().getToken();
-      final response = await ApiService.client.post(
-        Uri.parse('${ApiService.baseUrl}/chats/$conversationId/messages'),
-        headers: {
-          'Content-Type': 'application/json',
-          if (token != null) 'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({
-          'content': content,
-          'mediaUrl': mediaUrl,
-          'mediaType': mediaType,
-        }),
-      ).timeout(const Duration(seconds: 15));
-      return response.statusCode == 200 || response.statusCode == 201;
-    } catch (e) {
-      print('Error sending message via API: $e');
-      return false;
-    }
+    final res = await sendMessagePayload(conversationId, {
+      'content': content,
+      'mediaUrl': mediaUrl,
+      'mediaType': mediaType,
+    });
+    return res != null;
   }
 
   Future<List<Chat>> getChats() async {
@@ -65,13 +79,13 @@ class ChatService {
       final token = await ApiService().getToken();
       if (token == null) return await getCachedChats();
 
-      final response = await ApiService.client.get(
+      final response = await ApiService.get(
         Uri.parse('${ApiService.baseUrl}/chats'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
         },
-      ).timeout(const Duration(seconds: 6));
+      ).timeout(const Duration(seconds: 25));
 
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);

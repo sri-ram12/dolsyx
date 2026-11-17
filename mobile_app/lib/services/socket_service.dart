@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
+import 'chat_service.dart';
 import 'sound_service.dart';
 import '../main.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart' hide Message;
@@ -80,8 +81,15 @@ class SocketService {
       return;
     }
 
+    // Vercel Serverless Functions do not support WebSocket upgrades (101 Switching Protocols).
+    // Skip infinite WebSocket retry spam on vercel.app and let REST fallback handle messaging cleanly.
+    if (_socketUrl.contains('.vercel.app')) {
+      print('ℹ️ Serverless host detected ($_socketUrl): using REST API mode (WebSockets require a persistent backend host).');
+      return;
+    }
+
     socket = IO.io(_socketUrl, <String, dynamic>{
-      'transports': ['websocket'],
+      'transports': ['websocket', 'polling'],
       'autoConnect': true,
       'reconnection': true,
       'reconnectionAttempts': 999999,
@@ -622,15 +630,37 @@ class SocketService {
       });
       print('Message emitted to socket with ACK callback.');
     } else {
-      print('Socket disconnected. Queuing message for offline sending.');
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        final queueStr = prefs.getString('offline_message_queue') ?? '[]';
-        final List<dynamic> queue = jsonDecode(queueStr);
-        queue.add(msgData);
-        await prefs.setString('offline_message_queue', jsonEncode(queue));
-      } catch (e) {
-        print('Error queueing message: $e');
+      // Seamless REST fallback when socket is disconnected (e.g. serverless Vercel deployment)
+      final created = await ChatService().sendMessagePayload(conversationId, msgData);
+      if (created != null) {
+        final confirmedId = (created['id'] ?? created['_id'])?.toString();
+        if (confirmedId != null && tempId != null) {
+          LocalDatabaseService().confirmPendingMessage(tempId: tempId, confirmedId: confirmedId);
+        }
+        final msgPayload = {
+          'conversationId': conversationId,
+          'message': {
+            ...created,
+            'content': content,
+            if (tempId != null) 'tempId': tempId,
+          },
+          if (tempId != null) 'tempId': tempId,
+        };
+        if (!_messageStreamController.isClosed) {
+          _messageStreamController.add(msgPayload);
+        }
+        print('✅ Message delivered via REST API fallback (id: $confirmedId).');
+      } else {
+        print('Socket disconnected and REST send failed. Queuing message for offline sending.');
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          final queueStr = prefs.getString('offline_message_queue') ?? '[]';
+          final List<dynamic> queue = jsonDecode(queueStr);
+          queue.add(msgData);
+          await prefs.setString('offline_message_queue', jsonEncode(queue));
+        } catch (e) {
+          print('Error queueing message: $e');
+        }
       }
     }
   }

@@ -7,7 +7,7 @@
     "postinstall": "prisma generate",
     "dev": "tsx watch src/index.ts",
     "test": "node --import tsx --test src/__tests__/qr-pairing.test.ts src/__tests__/reliability.test.ts src/__tests__/performance.bench.ts src/__tests__/ai-subsystem.test.ts src/__tests__/two-step-verification.test.ts src/__tests__/password-security.test.ts",
-    "build": "npx prisma generate && tsc && node -e \"require('fs').writeFileSync('dist/package.json', JSON.stringify({ type: 'module' }))\"",
+    "build": "npx prisma generate && tsc && node build-vercel.mjs",
     "start": "node dist/index.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
@@ -54,6 +54,7 @@
     "@types/node": "^25.9.3",
     "@types/node-cron": "^3.0.11",
     "@types/nodemailer": "^8.0.1",
+    "esbuild": "^0.28.1",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3"
   }

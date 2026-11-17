@@ -4,6 +4,7 @@
     "backend": {
       "root": "backend",
       "framework": "express",
+      "entrypoint": "dist/vercel.cjs",
       "buildCommand": "npm run build"
     },
     "frontend": {

@@ -95,7 +95,7 @@ class _BlockedUsersScreenState extends State<BlockedUsersScreen> {
                         backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
                             ? (avatarUrl.startsWith('http')
                                 ? NetworkImage(avatarUrl)
-                                : NetworkImage('https://dolsyx-app.onrender.com$avatarUrl')) as ImageProvider
+                                : NetworkImage('https://dolsyx.vercel.app$avatarUrl')) as ImageProvider
                             : null,
                         child: avatarUrl == null || avatarUrl.isEmpty
                             ? Text(

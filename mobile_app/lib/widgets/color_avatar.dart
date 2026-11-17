@@ -38,7 +38,7 @@ class ColorAvatar extends StatelessWidget {
     final gradientColors = _getAvatarGradientColors(name);
     final String resolvedUrl = avatarUrl != null && avatarUrl!.startsWith('http')
         ? avatarUrl!
-        : 'https://dolsyx-app.onrender.com$avatarUrl';
+        : 'https://dolsyx.vercel.app$avatarUrl';
 
     return Container(
       width: radius * 2,

@@ -56,6 +56,7 @@ const DEFAULT_ALLOWED_ORIGINS = [
   "http://localhost:3001",
   "http://localhost:4000",
   "http://localhost:5173",
+  "https://dolsyx.vercel.app",
   "https://dolsyx-app.onrender.com",
 ];
 

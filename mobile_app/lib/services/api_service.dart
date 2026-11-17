@@ -8,8 +8,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'security_service.dart';
 
 class ApiService {
-  // DOLSYX Production Render Backend (works on all devices, Wi-Fi, and 4G/5G)
-  static const String baseUrl = 'https://dolsyx-app.onrender.com/api';
+  // DOLSYX Production Vercel Backend (works on all devices, Wi-Fi, and 4G/5G)
+  static const String baseUrl = 'https://dolsyx.vercel.app/api';
   static const String localUrl = 'http://192.168.0.173:4000/api';
 
   static String getMediaUrl(String? path) {

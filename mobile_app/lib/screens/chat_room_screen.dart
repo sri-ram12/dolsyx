@@ -4329,7 +4329,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                               backgroundColor: AppTheme.surfaceColor,
                               backgroundImage: widget.avatarUrl!.startsWith('http')
                                   ? NetworkImage(widget.avatarUrl!)
-                                  : NetworkImage('https://dolsyx-app.onrender.com${widget.avatarUrl!}'),
+                                  : NetworkImage('https://dolsyx.vercel.app${widget.avatarUrl!}'),
                             ),
                     ),
                     const SizedBox(width: 8),

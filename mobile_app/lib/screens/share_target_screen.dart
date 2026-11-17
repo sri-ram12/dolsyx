@@ -266,7 +266,7 @@ class _ShareTargetScreenState extends State<ShareTargetScreen> {
                         leading: avatarUrl != null && avatarUrl.isNotEmpty
                             ? CircleAvatar(
                                 backgroundColor: const Color(0xFF1E293B),
-                                backgroundImage: NetworkImage(avatarUrl.startsWith('http') ? avatarUrl : 'https://dolsyx-app.onrender.com$avatarUrl'),
+                                backgroundImage: NetworkImage(avatarUrl.startsWith('http') ? avatarUrl : 'https://dolsyx.vercel.app$avatarUrl'),
                               )
                             : ColorAvatar(name: name, radius: 20),
                         title: Text(

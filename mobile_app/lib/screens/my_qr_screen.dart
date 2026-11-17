@@ -41,7 +41,7 @@ class MyQrScreen extends StatelessWidget {
                       radius: 40,
                       backgroundImage: avatarUrl.toString().startsWith('http')
                           ? NetworkImage(avatarUrl)
-                          : NetworkImage('https://dolsyx-app.onrender.com$avatarUrl'),
+                          : NetworkImage('https://dolsyx.vercel.app$avatarUrl'),
                     )
                   : ColorAvatar(name: username, radius: 40, fontSize: 24),
               const SizedBox(height: 12),

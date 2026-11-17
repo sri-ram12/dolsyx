@@ -6,8 +6,8 @@ import '../services/update_service.dart';
 class HelpSettingsScreen extends StatelessWidget {
   const HelpSettingsScreen({super.key});
 
-  static const String privacyUrl = 'https://dolsyx-app.onrender.com/privacy';
-  static const String termsUrl = 'https://dolsyx-app.onrender.com/terms';
+  static const String privacyUrl = 'https://dolsyx.vercel.app/privacy';
+  static const String termsUrl = 'https://dolsyx.vercel.app/terms';
 
   Future<void> _launch(BuildContext context, String urlString) async {
     final uri = Uri.parse(urlString);

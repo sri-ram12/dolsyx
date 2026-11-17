@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const SERVER_URL = process.env.SERVER_URL || 'https://dolsyx-app.onrender.com';
+const SERVER_URL = process.env.SERVER_URL || 'https://dolsyx.vercel.app';
 
 async function publishOta() {
   console.log('🚀 [DOLSYX OTA] Publishing latest Android APK...');

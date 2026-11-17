@@ -40,7 +40,7 @@ class SettingsScreen extends StatelessWidget {
                 backgroundColor: AppTheme.backgroundColor,
                 backgroundImage: user?['avatarUrl'] != null && user!['avatarUrl'].startsWith('http')
                     ? NetworkImage(user!['avatarUrl'])
-                    : (user?['avatarUrl'] != null ? NetworkImage('https://dolsyx-app.onrender.com${user!['avatarUrl']}') : null),
+                    : (user?['avatarUrl'] != null ? NetworkImage('https://dolsyx.vercel.app${user!['avatarUrl']}') : null),
                 child: user?['avatarUrl'] == null ? Icon(Icons.person, size: 30, color: AppTheme.textSecondary) : null,
               ),
               title: Text(user?['username'] ?? 'User', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),
@@ -86,7 +86,7 @@ class SettingsScreen extends StatelessWidget {
             }),
             _buildSettingItem(context, Icons.group, 'Invite a friend', 'Share DOLSYX with your friends and family', () {
               Share.share(
-                'Experience fast, secure, end-to-end encrypted messaging and crystal-clear calls on DOLSYX! Join now: https://dolsyx-app.onrender.com',
+                'Experience fast, secure, end-to-end encrypted messaging and crystal-clear calls on DOLSYX! Join now: https://dolsyx.vercel.app',
                 subject: 'Join me on DOLSYX',
               );
             }),

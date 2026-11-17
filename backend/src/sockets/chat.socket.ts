@@ -929,7 +929,7 @@ export const initChatSocket = (io: Server) => {
                             username: "DOLSYX AI",
                             email: "ai@dolsyx.internal",
                             phoneNumber: "+00000000000",
-                            avatarUrl: "https://dolsyx-app.onrender.com/assets/icon/app_icon.png",
+                            avatarUrl: "https://dolsyx.vercel.app/dolsyx-logo.png",
                             bio: "DOLSYX Meta AI Assistant",
                           },
                           select: { id: true, username: true, avatarUrl: true },

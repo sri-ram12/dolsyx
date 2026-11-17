@@ -311,7 +311,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                               backgroundImage: _groupAvatarUrl != null && _groupAvatarUrl!.isNotEmpty
                                   ? (_groupAvatarUrl!.startsWith('http')
                                       ? NetworkImage(_groupAvatarUrl!)
-                                      : NetworkImage('https://dolsyx-app.onrender.com$_groupAvatarUrl'))
+                                      : NetworkImage('https://dolsyx.vercel.app$_groupAvatarUrl'))
                                   : null,
                               child: _groupAvatarUrl == null || _groupAvatarUrl!.isEmpty
                                   ? const Icon(Icons.group, size: 50, color: Colors.white)

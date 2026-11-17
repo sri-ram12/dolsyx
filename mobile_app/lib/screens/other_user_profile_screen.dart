@@ -958,7 +958,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
                       if (avatarUrl != null) {
                         String fullUrl = avatarUrl.startsWith('http')
                             ? avatarUrl
-                            : 'https://dolsyx-app.onrender.com$avatarUrl';
+                            : 'https://dolsyx.vercel.app$avatarUrl';
                         Navigator.push(
                           context,
                           MaterialPageRoute(builder: (_) => FullScreenImageView(imageUrl: fullUrl)),
@@ -972,7 +972,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
                             backgroundColor: AppTheme.backgroundColor,
                             backgroundImage: avatarUrl.startsWith('http')
                                 ? NetworkImage(avatarUrl)
-                                : NetworkImage('https://dolsyx-app.onrender.com$avatarUrl'),
+                                : NetworkImage('https://dolsyx.vercel.app$avatarUrl'),
                           ),
                   ),
                   const SizedBox(height: 14),

@@ -136,7 +136,7 @@ class _ForwardMessageScreenState extends State<ForwardMessageScreen> {
                             backgroundColor: AppTheme.primaryColor.withOpacity(0.2),
                             backgroundImage: avatarUrl != null
                                 ? CachedNetworkImageProvider(
-                                    avatarUrl.startsWith('http') ? avatarUrl : 'https://dolsyx-app.onrender.com$avatarUrl',
+                                    avatarUrl.startsWith('http') ? avatarUrl : 'https://dolsyx.vercel.app$avatarUrl',
                                   )
                                 : null,
                             child: avatarUrl == null

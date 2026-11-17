@@ -2293,7 +2293,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
                   radius: 54,
                   backgroundImage: widget.remoteAvatarUrl!.startsWith('http')
                       ? NetworkImage(widget.remoteAvatarUrl!)
-                      : NetworkImage('https://dolsyx-app.onrender.com${widget.remoteAvatarUrl!}'),
+                      : NetworkImage('https://dolsyx.vercel.app${widget.remoteAvatarUrl!}'),
                 )
               else
                 ColorAvatar(name: widget.remoteUserName, radius: 54, fontSize: 42),
@@ -2487,7 +2487,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
                       radius: 72,
                       backgroundImage: widget.remoteAvatarUrl!.startsWith('http')
                           ? NetworkImage(widget.remoteAvatarUrl!)
-                          : NetworkImage('https://dolsyx-app.onrender.com${widget.remoteAvatarUrl!}'),
+                          : NetworkImage('https://dolsyx.vercel.app${widget.remoteAvatarUrl!}'),
                     )
                   else
                     ColorAvatar(name: widget.remoteUserName, radius: 72, fontSize: 52),

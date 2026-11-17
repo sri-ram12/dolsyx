@@ -98,7 +98,7 @@ class CallInfoScreen extends StatelessWidget {
                 radius: 60,
                 backgroundColor: const Color(0xFF4C1D95), // Vibrant purple tone like Screenshot 2
                 backgroundImage: avatarUrl != null && avatarUrl.toString().isNotEmpty
-                    ? NetworkImage(avatarUrl.toString().startsWith('http') ? avatarUrl : 'https://dolsyx-app.onrender.com$avatarUrl')
+                    ? NetworkImage(avatarUrl.toString().startsWith('http') ? avatarUrl : 'https://dolsyx.vercel.app$avatarUrl')
                     : null,
                 child: avatarUrl == null || avatarUrl.toString().isEmpty
                     ? Text(

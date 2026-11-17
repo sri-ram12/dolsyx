@@ -395,7 +395,7 @@ class _LockedChatsScreenState extends State<LockedChatsScreen> with WidgetsBindi
                                   backgroundImage: CachedNetworkImageProvider(
                                     chat.avatarUrl!.startsWith('http')
                                         ? chat.avatarUrl!
-                                        : 'https://dolsyx-app.onrender.com${chat.avatarUrl!}',
+                                        : 'https://dolsyx.vercel.app${chat.avatarUrl!}',
                                   ),
                                 )
                               : ColorAvatar(name: name, radius: 24),

@@ -186,7 +186,7 @@ router.get("/version", (req, res) => {
     // Ensure absolute URL so client startsWith('http') is true and never concatenates /api/api
     let downloadUrl = rawDownloadUrl;
     if (!downloadUrl.startsWith("http://") && !downloadUrl.startsWith("https://")) {
-      const host = req.get("host") || "dolsyx-app.onrender.com";
+      const host = req.get("host") || "dolsyx.vercel.app";
       const proto = req.get("x-forwarded-proto") || req.protocol || "https";
       const cleanPath = downloadUrl.startsWith("/") ? downloadUrl : `/${downloadUrl}`;
       downloadUrl = `${proto}://${host}${cleanPath}`;

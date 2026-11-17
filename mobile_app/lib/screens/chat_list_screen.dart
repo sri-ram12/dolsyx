@@ -809,7 +809,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                                           backgroundImage: CachedNetworkImageProvider(
                                             chat.avatarUrl!.startsWith('http')
                                                 ? chat.avatarUrl!
-                                                : 'https://dolsyx-app.onrender.com${chat.avatarUrl!}',
+                                                : 'https://dolsyx.vercel.app${chat.avatarUrl!}',
                                             maxHeight: 120,
                                             maxWidth: 120,
                                           ),

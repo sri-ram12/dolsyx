@@ -42,7 +42,7 @@ router.get("/sign", authenticateToken, (req: any, res: any) => {
 // Configure storage
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const uploadDir = "uploads/";
+    const uploadDir = process.env.VERCEL === "1" ? "/tmp/uploads/" : "uploads/";
     if (!fs.existsSync(uploadDir)) {
       fs.mkdirSync(uploadDir, { recursive: true });
     }

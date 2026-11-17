@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: "standalone",
+  ...(process.env.VERCEL ? {} : { output: "standalone" }),
   // Allow public tunnel URLs for dev testing
   allowedDevOrigins: [
     "*.serveousercontent.com",
@@ -26,7 +26,12 @@ const nextConfig: NextConfig = {
     unoptimized: true,
   },
   async rewrites() {
-    const backendUrl = (process.env.NEXT_PUBLIC_API_URL || process.env.BACKEND_URL || "https://dolsyx-app.onrender.com").replace(/\/+$/, "");
+    // On Vercel Services, top-level vercel.json rewrites route /api, /socket.io, and /uploads to the backend service
+    if (process.env.VERCEL) {
+      return [];
+    }
+    const envApi = process.env.NEXT_PUBLIC_API_URL || process.env.INTERNAL_BACKEND_URL || process.env.BACKEND_URL;
+    const backendUrl = (envApi && !envApi.includes("onrender.com") ? envApi : "http://localhost:4000").replace(/\/+$/, "");
     return [
       {
         source: "/api/:path*",

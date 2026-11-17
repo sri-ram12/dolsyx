@@ -4,6 +4,7 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
+    "postinstall": "prisma generate",
     "dev": "tsx watch src/index.ts",
     "test": "node --import tsx --test src/__tests__/qr-pairing.test.ts src/__tests__/reliability.test.ts src/__tests__/performance.bench.ts src/__tests__/ai-subsystem.test.ts src/__tests__/two-step-verification.test.ts src/__tests__/password-security.test.ts",
     "build": "npx prisma generate && tsc",

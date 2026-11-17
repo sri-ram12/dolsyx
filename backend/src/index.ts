@@ -432,24 +432,26 @@ process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
 // ── Start ─────────────────────────────────────────────────────────────────────
-if (process.env.CLUSTER_MODE === "true" && cluster.isPrimary) {
-  const numCPUs = Math.max(1, os.cpus().length);
-  console.log(`[Cluster] Primary master ${process.pid} is running. Forking ${numCPUs} CPU workers...`);
-  for (let i = 0; i < numCPUs; i++) {
-    cluster.fork();
+if (!IS_VERCEL) {
+  if (process.env.CLUSTER_MODE === "true" && cluster.isPrimary) {
+    const numCPUs = Math.max(1, os.cpus().length);
+    console.log(`[Cluster] Primary master ${process.pid} is running. Forking ${numCPUs} CPU workers...`);
+    for (let i = 0; i < numCPUs; i++) {
+      cluster.fork();
+    }
+    cluster.on("exit", (worker, code, signal) => {
+      console.warn(`[Cluster] Worker ${worker.process.pid} died (code: ${code}, signal: ${signal}). Spawning replacement worker...`);
+      cluster.fork();
+    });
+  } else {
+    server.listen(PORT, () => {
+      const workerInfo = cluster.isWorker ? ` [Worker ${cluster.worker?.id}, PID: ${process.pid}]` : "";
+      console.log(
+        `DOLSYX server running on port ${PORT}${workerInfo} [${IS_PRODUCTION ? "production monolith" : "dev API only"}]`
+      );
+    });
   }
-  cluster.on("exit", (worker, code, signal) => {
-    console.warn(`[Cluster] Worker ${worker.process.pid} died (code: ${code}, signal: ${signal}). Spawning replacement worker...`);
-    cluster.fork();
-  });
-} else {
-  server.listen(PORT, () => {
-    const workerInfo = cluster.isWorker ? ` [Worker ${cluster.worker?.id}, PID: ${process.pid}]` : "";
-    console.log(
-      `DOLSYX server running on port ${PORT}${workerInfo} [${IS_PRODUCTION ? "production monolith" : "dev API only"}]`
-    );
-  });
 }
 
-export default server;
+export default app;
 export { app, server, io };

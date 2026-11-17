@@ -963,12 +963,16 @@ export const initiateGoogleAuth = async (req: Request, res: Response): Promise<v
     const { codeVerifier, codeChallenge } = googleAuthService.generatePkcePair();
 
     // Resolve dynamic client frontend URL to return to after auth
+    const envFrontendUrl =
+      process.env.FRONTEND_URL && process.env.FRONTEND_URL !== "*"
+        ? process.env.FRONTEND_URL
+        : null;
     const clientFrontendUrl =
       (typeof req.query.frontendUrl === "string" ? req.query.frontendUrl : null) ||
       (req.headers.origin as string) ||
       (req.headers.referer ? new URL(req.headers.referer).origin : null) ||
-      process.env.FRONTEND_URL ||
-      "http://localhost:3000";
+      envFrontendUrl ||
+      (process.env.VERCEL === "1" ? `${protocol}://${host}` : "http://localhost:3000");
 
     // Encode state and PKCE into a tamper-proof signed token passed through Google's state parameter
     const stateData = {

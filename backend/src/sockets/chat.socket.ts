@@ -92,7 +92,10 @@ export interface ScheduledMsg {
 const scheduledMessagesStore = new Map<string, ScheduledMsg>();
 
 // Durable scheduled messages ledger path
-const SCHEDULED_STORE_FILE = path.join(process.cwd(), "uploads", ".scheduled_messages.json");
+const SCHEDULED_STORE_FILE =
+  process.env.VERCEL === "1"
+    ? "/tmp/uploads/.scheduled_messages.json"
+    : path.join(process.cwd(), "uploads", ".scheduled_messages.json");
 
 function loadScheduledMessagesFromDisk() {
   try {

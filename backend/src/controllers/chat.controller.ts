@@ -6,9 +6,69 @@ import { evaluatePrivacyInMemory, canViewProfilePhoto, canViewAbout, canViewLast
 import { encryptionService } from "../services/encryption.service.js";
 import { sendPushNotification } from "../config/firebase.config.js";
 
+// ── Serverless-Compatible Live Typing & Online Presence Store ─────────────────
+// Works seamlessly across both persistent Socket.IO and multi-instance Vercel Serverless
+const presenceThrottle = new Map<string, number>();
+const PRESENCE_THROTTLE_MS = 15000;
+const ONLINE_WINDOW_MS = 35000;
+const TYPING_TTL_MS = 6000;
+
+let typingTableReady = false;
+async function ensureTypingTable(): Promise<void> {
+  if (typingTableReady) return;
+  try {
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "TypingStatus" (
+        "conversationId" TEXT NOT NULL,
+        "userId" TEXT NOT NULL,
+        "username" TEXT,
+        "expiresAt" BIGINT NOT NULL,
+        PRIMARY KEY ("conversationId", "userId")
+      )
+    `);
+    typingTableReady = true;
+  } catch (_) {}
+}
+
+function touchUserPresence(userId: string): void {
+  const now = Date.now();
+  const last = presenceThrottle.get(userId) ?? 0;
+  if (now - last < PRESENCE_THROTTLE_MS) return;
+  presenceThrottle.set(userId, now);
+  if (presenceThrottle.size > 5000) presenceThrottle.clear();
+  prisma.user
+    .update({
+      where: { id: userId },
+      data: { lastSeen: new Date(now), isOnline: true },
+    })
+    .catch(() => {});
+}
+
+async function getActiveTypingMap(conversationIds: string[], excludeUserId: string): Promise<Record<string, string[]>> {
+  const map: Record<string, string[]> = {};
+  if (conversationIds.length === 0) return map;
+  try {
+    await ensureTypingTable();
+    const now = BigInt(Date.now());
+    const rows = await prisma.$queryRaw<Array<{ conversationId: string; userId: string }>>`
+      SELECT "conversationId", "userId"
+      FROM "TypingStatus"
+      WHERE "conversationId" IN (${Prisma.join(conversationIds)})
+        AND "userId" != ${excludeUserId}
+        AND "expiresAt" > ${now}
+    `;
+    for (const r of rows) {
+      if (!map[r.conversationId]) map[r.conversationId] = [];
+      map[r.conversationId]!.push(r.userId);
+    }
+  } catch (_) {}
+  return map;
+}
+
 export const getChats = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.user!.id;
+    touchUserPresence(userId);
 
     // Batch 1 (Parallel): Fetch conversations and user blocks simultaneously
     const [conversations, myBlocks] = await Promise.all([
@@ -92,9 +152,9 @@ export const getChats = async (req: AuthRequest, res: Response): Promise<void> =
         .filter((id): id is string => Boolean(id))
     ));
 
-    // Batch 2 (Parallel): PgBouncer-safe unread counts, recipient contacts, and auto-DELIVERED receipt upgrade
+    // Batch 2 (Parallel): PgBouncer-safe unread counts, recipient contacts, active typing map, and auto-DELIVERED receipt upgrade
     let unreadCountMap: Record<string, number> = {};
-    const [, recipientContacts] = await Promise.all([
+    const [, recipientContacts, typingMap] = await Promise.all([
       conversationIds.length > 0
         ? (async () => {
             try {
@@ -132,6 +192,7 @@ export const getChats = async (req: AuthRequest, res: Response): Promise<void> =
             select: { userId: true },
           })
         : Promise.resolve([]),
+      getActiveTypingMap(conversationIds, userId),
       // Auto-upgrade SENT receipts to DELIVERED for this active user (enables double grey ticks without WebSockets)
       conversationIds.length > 0
         ? prisma.messageReceipt
@@ -169,6 +230,13 @@ export const getChats = async (req: AuthRequest, res: Response): Promise<void> =
       const unreadCount = unreadCountMap[chat.id] || 0;
 
       if (recipient) {
+        // Compute serverless-friendly live online status from recent heartbeat
+        const recentlyActive = Boolean(
+          recipient.lastSeen &&
+            Date.now() - new Date(recipient.lastSeen).getTime() < ONLINE_WINDOW_MS
+        );
+        recipient.isOnline = Boolean(recipient.isOnline || recentlyActive);
+
         const isBlocked = blockedSet.has(recipient.id);
         const isContact = contactsOfRecipientsSet.has(recipient.id);
         const privacy = evaluatePrivacyInMemory(userId, recipient, isBlocked, isContact);
@@ -193,6 +261,7 @@ export const getChats = async (req: AuthRequest, res: Response): Promise<void> =
         updatedAt: chat.updatedAt,
         participants: chat.participants,
         unreadCount,
+        typingUserIds: typingMap[chat.id] || [],
         isArchived: chat.participants.find((p) => p.userId === userId)?.isArchived || false,
         isLocked: chat.participants.find((p) => p.userId === userId)?.isLocked || false,
         isFavorite: chat.participants.find((p) => p.userId === userId)?.isFavorite || false,
@@ -231,6 +300,8 @@ export const getMessages = async (req: AuthRequest, res: Response): Promise<void
       return;
     }
 
+    touchUserPresence(userId);
+
     const cursor = req.query["cursor"] as string | undefined;
     const limitQuery = req.query["limit"] as string | undefined;
     const limit = limitQuery ? Math.min(Math.max(parseInt(limitQuery, 10), 1), 100) : 50;
@@ -268,8 +339,8 @@ export const getMessages = async (req: AuthRequest, res: Response): Promise<void
       findArgs.skip = 1;
     }
 
-    // Parallelize participant authorization check and message fetch (halves DB latency)
-    const [isParticipant, messages] = await Promise.all([
+    // Parallelize participant auth check, message fetch, typing indicator, and remote presence (single DB round-trip)
+    const [isParticipant, messages, typingMap, remoteParticipants] = await Promise.all([
       prisma.participant.findFirst({
         where: {
           conversationId,
@@ -278,6 +349,24 @@ export const getMessages = async (req: AuthRequest, res: Response): Promise<void
         select: { id: true },
       }),
       prisma.message.findMany(findArgs),
+      !cursor ? getActiveTypingMap([conversationId], userId) : Promise.resolve({} as Record<string, string[]>),
+      !cursor
+        ? prisma.participant.findMany({
+            where: { conversationId, userId: { not: userId } },
+            select: {
+              user: {
+                select: {
+                  id: true,
+                  isOnline: true,
+                  lastSeen: true,
+                  onlinePrivacy: true,
+                  lastSeenPrivacy: true,
+                },
+              },
+            },
+            take: 2,
+          })
+        : Promise.resolve([]),
     ]);
 
     if (!isParticipant) {
@@ -285,25 +374,29 @@ export const getMessages = async (req: AuthRequest, res: Response): Promise<void
       return;
     }
 
-    // Auto-mark unread messages from others as READ when fetching the active conversation (enables blue ticks & accurate unread counts on serverless)
+    // Auto-mark ONLY actually-unread messages from others as READ (0 DB writes on idle polls!)
     if (!cursor && req.query["markRead"] !== "false") {
-      const otherMessageIds = messages
-        .filter((m: any) => m.senderId !== userId)
+      const unreadOtherMessageIds = messages
+        .filter(
+          (m: any) =>
+            m.senderId !== userId &&
+            !(Array.isArray(m.receipts) && m.receipts.some((r: any) => r.userId === userId && r.status === "READ"))
+        )
         .map((m: any) => m.id as string);
 
-      if (otherMessageIds.length > 0) {
+      if (unreadOtherMessageIds.length > 0) {
         try {
           await Promise.all([
             prisma.messageReceipt.updateMany({
               where: {
                 userId,
-                messageId: { in: otherMessageIds },
+                messageId: { in: unreadOtherMessageIds },
                 status: { not: "READ" },
               },
               data: { status: "READ" },
             }),
             prisma.messageReceipt.createMany({
-              data: otherMessageIds.map((messageId) => ({
+              data: unreadOtherMessageIds.map((messageId) => ({
                 messageId,
                 userId,
                 status: "READ",
@@ -324,6 +417,27 @@ export const getMessages = async (req: AuthRequest, res: Response): Promise<void
     if (nextCursor) {
       res.setHeader("X-Next-Cursor", nextCursor);
     }
+
+    // Attach live typing & online presence headers (works seamlessly on serverless without changing JSON shape)
+    const activeTypingIds = typingMap[conversationId] || [];
+    res.setHeader("X-Typing-Users", JSON.stringify(activeTypingIds));
+    if (remoteParticipants.length === 1 && remoteParticipants[0]?.user) {
+      const ru = remoteParticipants[0].user;
+      const recentlyActive = Boolean(
+        ru.lastSeen && Date.now() - new Date(ru.lastSeen).getTime() < ONLINE_WINDOW_MS
+      );
+      const canShowOnline = ru.onlinePrivacy !== "NOBODY";
+      const canShowLastSeen = ru.lastSeenPrivacy !== "NOBODY";
+      const isRemoteOnline = canShowOnline && Boolean(ru.isOnline || recentlyActive);
+      res.setHeader("X-Remote-Online", isRemoteOnline ? "true" : "false");
+      if (canShowLastSeen && ru.lastSeen) {
+        res.setHeader("X-Remote-Last-Seen", new Date(ru.lastSeen).toISOString());
+      }
+    }
+    res.setHeader(
+      "Access-Control-Expose-Headers",
+      "X-Next-Cursor, X-Typing-Users, X-Remote-Online, X-Remote-Last-Seen"
+    );
 
     // Decrypt any at-rest server encryption layers (leaves client E2EE payloads intact for client decryption)
     const processedMessages = messages.map((m: any) => ({
@@ -1200,6 +1314,14 @@ export const sendMessageRest = async (req: AuthRequest, res: Response): Promise<
       }
     }
 
+    // Clear sender's typing indicator & refresh online heartbeat (non-blocking)
+    touchUserPresence(senderId);
+    ensureTypingTable()
+      .then(() =>
+        prisma.$executeRaw`DELETE FROM "TypingStatus" WHERE "conversationId" = ${conversationId} AND "userId" = ${senderId}`
+      )
+      .catch(() => {});
+
     res.status(201).json({
       ...createdMessage,
       ...(tempId ? { tempId } : {}),
@@ -1256,6 +1378,57 @@ export const markConversationReadRest = async (req: AuthRequest, res: Response):
   } catch (error) {
     console.error("Mark conversation read REST error:", error);
     res.status(500).json({ message: "Failed to mark conversation as read" });
+  }
+};
+
+/**
+ * REST fallback for live typing indicators on serverless hosts (Vercel).
+ * Persists a short-lived (6s TTL) typing row in Postgres and broadcasts via Socket.IO if available.
+ */
+export const setTypingStatusRest = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.id;
+    const username = req.user!.username || "";
+    const conversationId = req.params["conversationId"] as string;
+    const isTyping = Boolean(req.body?.isTyping);
+
+    if (!conversationId) {
+      res.status(400).json({ message: "conversationId is required" });
+      return;
+    }
+
+    touchUserPresence(userId);
+    await ensureTypingTable();
+
+    if (isTyping) {
+      const expiresAt = BigInt(Date.now() + TYPING_TTL_MS);
+      await prisma.$executeRaw`
+        INSERT INTO "TypingStatus" ("conversationId", "userId", "username", "expiresAt")
+        VALUES (${conversationId}, ${userId}, ${username}, ${expiresAt})
+        ON CONFLICT ("conversationId", "userId")
+        DO UPDATE SET "username" = EXCLUDED."username", "expiresAt" = EXCLUDED."expiresAt"
+      `;
+    } else {
+      await prisma.$executeRaw`
+        DELETE FROM "TypingStatus"
+        WHERE "conversationId" = ${conversationId} AND "userId" = ${userId}
+      `;
+    }
+
+    const io = (req as any).app?.get("io");
+    if (io) {
+      io.to(conversationId).emit("user_typing", {
+        conversationId,
+        userId,
+        username,
+        isTyping,
+      });
+    }
+
+    res.json({ ok: true, conversationId, isTyping });
+  } catch (error) {
+    console.error("Set typing status REST error:", error);
+    res.status(500).json({ message: "Failed to update typing status" });
   }
 };
 

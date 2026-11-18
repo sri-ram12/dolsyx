@@ -11,6 +11,7 @@ class Chat {
   bool isPinned;
   bool isLocked;
   DateTime? pinnedAt;
+  List<String> typingUserIds;
 
   Chat({
     required this.id,
@@ -25,9 +26,14 @@ class Chat {
     this.isPinned = false,
     this.isLocked = false,
     this.pinnedAt,
+    this.typingUserIds = const [],
   });
 
   factory Chat.fromJson(Map<String, dynamic> json) {
+    final rawTyping = json['typingUserIds'];
+    final parsedTyping = rawTyping is List
+        ? rawTyping.map((e) => e.toString()).toList()
+        : const <String>[];
     return Chat(
       id: json['id'],
       name: json['name'],
@@ -41,6 +47,7 @@ class Chat {
       isPinned: json['isPinned'] ?? false,
       isLocked: json['isLocked'] ?? false,
       pinnedAt: json['pinnedAt'] != null ? DateTime.tryParse(json['pinnedAt']) : null,
+      typingUserIds: parsedTyping,
     );
   }
 

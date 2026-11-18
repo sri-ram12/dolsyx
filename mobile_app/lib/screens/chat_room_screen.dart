@@ -1094,6 +1094,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   Timer? _serverlessPollTimer;
   bool _isFetchingMessages = false;
+  String? _lastRawMessagesBody;
 
   @override
   void initState() {
@@ -1111,9 +1112,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
-    // Serverless live-sync polling: refresh messages & delivery/read ticks every 3s when Socket.IO is disconnected
-    _serverlessPollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+    // Serverless live-sync polling: refresh messages, typing & delivery/read ticks every 2.5s when Socket.IO is disconnected
+    _serverlessPollTimer = Timer.periodic(const Duration(milliseconds: 2500), (_) {
       if (!mounted) return;
+      final isCurrentRoute = ModalRoute.of(context)?.isCurrent ?? true;
+      if (!isCurrentRoute) return;
       if (!authProvider.socketService.isConnected) {
         _fetchMessages(silent: true);
       }
@@ -1336,13 +1339,18 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       return;
     }
 
+    final socketService = Provider.of<AuthProvider>(context, listen: false).socketService;
     if (!_isTyping) {
       _isTyping = true;
-      Provider.of<AuthProvider>(context, listen: false).socketService.emitTyping(widget.conversationId, true);
+      socketService.emitTyping(widget.conversationId, true);
+    } else if (!socketService.isConnected) {
+      // Refresh serverless typing TTL while user keeps typing (internally throttled to 2.5s)
+      socketService.emitTyping(widget.conversationId, true);
     }
     
     _typingTimer?.cancel();
-    _typingTimer = Timer(const Duration(seconds: 1), () {
+    final stopDelay = socketService.isConnected ? const Duration(seconds: 1) : const Duration(milliseconds: 2500);
+    _typingTimer = Timer(stopDelay, () {
       if (_isTyping && mounted) {
         _isTyping = false;
         Provider.of<AuthProvider>(context, listen: false).socketService.emitTyping(widget.conversationId, false);
@@ -2061,22 +2069,45 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       ).timeout(const Duration(seconds: 25));
 
       if (response.statusCode == 200) {
-        // Save to local cache for offline access
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('cached_messages_${widget.conversationId}', response.body);
+        // 0. Always sync live typing & online presence headers immediately (even if messages are unchanged!)
+        try {
+          final typingHeader = response.headers['x-typing-users'];
+          if (typingHeader != null) {
+            final parsedTyping = jsonDecode(typingHeader);
+            final isTypingNow = parsedTyping is List && parsedTyping.isNotEmpty;
+            if (_isRemoteUserTyping != isTypingNow) {
+              _isRemoteUserTyping = isTypingNow;
+              _remoteUserTypingNotifier.value = isTypingNow;
+            }
+          }
+          final onlineHeader = response.headers['x-remote-online'];
+          if (onlineHeader != null) {
+            final isOnlineNow = onlineHeader == 'true';
+            if (_isRemoteUserOnline != isOnlineNow) {
+              _isRemoteUserOnline = isOnlineNow;
+              _remoteUserOnlineNotifier.value = isOnlineNow;
+            }
+          }
+          final lastSeenHeader = response.headers['x-remote-last-seen'];
+          if (lastSeenHeader != null && lastSeenHeader.isNotEmpty) {
+            final parsedLs = DateTime.tryParse(lastSeenHeader);
+            if (parsedLs != null && _remoteUserLastSeen != parsedLs) {
+              _remoteUserLastSeen = parsedLs;
+              _remoteUserLastSeenNotifier.value = parsedLs;
+            }
+          }
+        } catch (_) {}
+
+        // Fast-path: zero decryption, zero SQLite writes, zero UI rebuilds when nothing changed!
+        if (silent && _lastRawMessagesBody == response.body && _messages.isNotEmpty) {
+          return;
+        }
+        _lastRawMessagesBody = response.body;
 
         final List<dynamic> data = jsonDecode(response.body);
         final rawList = data.map((json) => Message.fromJson(json)).toList();
         final decryptedList = await _decryptMessageList(rawList);
 
-        // 1. WhatsApp-grade local SQLite persistence (sub-millisecond indexed writes)
-        await LocalDatabaseService().saveMessages(decryptedList);
-
-        // 2. Save pre-decrypted messages for sub-millisecond instant opening next time
-        try {
-          final decryptedJson = jsonEncode(decryptedList.map((m) => m.toJson()).toList());
-          await prefs.setString('cached_decrypted_${widget.conversationId}', decryptedJson);
-        } catch (_) {}
         if (mounted) {
           // Keep any still-pending optimistic temp messages not yet persisted
           final pendingTemps = _messages.where((m) => m.id.startsWith('temp-')).toList();
@@ -2114,10 +2145,21 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             if (!silent || gotNewMessages) {
               _scrollToBottom();
             }
-          } else {
+          } else if (_isLoading) {
             setState(() => _isLoading = false);
           }
         }
+
+        // Persist to SQLite & SharedPreferences in background AFTER UI is updated (zero UI lag!)
+        LocalDatabaseService().saveMessages(decryptedList).catchError((_) {});
+        () async {
+          try {
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setString('cached_messages_${widget.conversationId}', response.body);
+            final decryptedJson = jsonEncode(decryptedList.map((m) => m.toJson()).toList());
+            await prefs.setString('cached_decrypted_${widget.conversationId}', decryptedJson);
+          } catch (_) {}
+        }();
       } else if (mounted) {
         setState(() => _isLoading = false);
       }

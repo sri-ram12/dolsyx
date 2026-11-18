@@ -117,7 +117,11 @@ app.use(securityHeadersMiddleware);
 app.use(antiSpoofingMiddleware);
 app.use(compression());
 app.use(cookieParser());
-app.use(cors({ origin: corsOriginFn, credentials: true }));
+app.use(cors({
+  origin: corsOriginFn,
+  credentials: true,
+  exposedHeaders: ["X-Next-Cursor", "X-Typing-Users", "X-Remote-Online", "X-Remote-Last-Seen"],
+}));
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 app.use(requestIntegrityMiddleware);

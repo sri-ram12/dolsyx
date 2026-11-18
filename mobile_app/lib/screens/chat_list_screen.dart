@@ -69,6 +69,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
   Timer? _serverlessPollTimer;
   bool _isFetchingChats = false;
   bool _appResumed = true;
+  bool _isNetworkOffline = false;
   bool _hideLockedChats = false;
   final Map<String, String> _decryptedPreviewCache = {};
 
@@ -191,10 +192,12 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
         }
       });
 
-      // Serverless live-sync polling: refresh chats, unread badges & ticks every 4s when Socket.IO is disconnected
+      // Serverless live-sync polling: refresh chats, unread badges, typing & ticks every 4s ONLY when this screen is visible
       _serverlessPollTimer?.cancel();
       _serverlessPollTimer = Timer.periodic(const Duration(seconds: 4), (_) {
         if (!mounted || !_appResumed) return;
+        final isCurrentRoute = ModalRoute.of(context)?.isCurrent ?? true;
+        if (!isCurrentRoute) return;
         final ap = Provider.of<AuthProvider>(context, listen: false);
         if (!ap.socketService.isConnected) {
           _fetchChats(silent: true);
@@ -426,19 +429,62 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
 
     try {
       final chats = await _chatService.getChats();
+      final nowOffline = !_chatService.lastFetchSucceeded;
+      final offlineChanged = nowOffline != _isNetworkOffline;
+
+      // Fast-path: zero UI rebuilds when silent poll returned byte-identical data
+      if (silent && _chatService.lastChatsUnchanged && _chats.isNotEmpty) {
+        if (mounted && offlineChanged) {
+          setState(() => _isNetworkOffline = nowOffline);
+        }
+        return;
+      }
+
       for (var c in chats) {
         c.isLocked = lockedIds.contains(c.id);
       }
 
       if (mounted) {
+        final ap = Provider.of<AuthProvider>(context, listen: false);
+        final myUserId = (ap.user?['id'] ?? ap.user?['_id'])?.toString();
+        final nextTyping = <String, bool>{};
+        final nextOnline = Set<String>.from(_onlineUsers);
+
+        for (final c in chats) {
+          nextTyping[c.id] = c.typingUserIds.isNotEmpty;
+          if (!ap.socketService.isConnected && c.participants != null) {
+            for (final p in c.participants!) {
+              final u = p['user'];
+              if (u is Map) {
+                final uid = (u['id'] ?? u['_id'])?.toString();
+                if (uid != null && uid != myUserId) {
+                  if (u['isOnline'] == true) {
+                    nextOnline.add(uid);
+                  } else {
+                    nextOnline.remove(uid);
+                  }
+                }
+              }
+            }
+          }
+        }
+
         setState(() {
+          _isNetworkOffline = nowOffline;
+          _typingStatus = nextTyping;
+          _onlineUsers = nextOnline;
           _setChatsDeduplicated(chats);
           _isLoading = false;
         });
       }
     } catch (e) {
       print('Error fetching chats: $e');
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() {
+          _isNetworkOffline = true;
+          _isLoading = false;
+        });
+      }
     } finally {
       _isFetchingChats = false;
     }
@@ -1237,7 +1283,9 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
       _buildCallsTab(),
     ];
 
-    final isSocketConnected = Provider.of<AuthProvider>(context).socketService.isConnected;
+    final socketService = Provider.of<AuthProvider>(context).socketService;
+    final isSocketConnected = socketService.isConnected;
+    final showOfflineBanner = socketService.isServerlessMode ? _isNetworkOffline : !isSocketConnected;
 
     return Scaffold(
       appBar: _selectedChatIds.isNotEmpty ? AppBar(
@@ -1599,7 +1647,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
       backgroundColor: AppTheme.backgroundColor,
       body: Column(
         children: [
-          if (!isSocketConnected)
+          if (showOfflineBanner)
             Container(
               width: double.infinity,
               color: Colors.redAccent.withOpacity(0.9),

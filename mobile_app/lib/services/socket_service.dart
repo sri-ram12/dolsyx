@@ -29,6 +29,8 @@ class SocketService {
   }
   
   bool get isConnected => socket?.connected ?? false;
+  bool get isServerlessMode => _socketUrl.contains('.vercel.app');
+  final Map<String, DateTime> _lastRestTypingSent = {};
 
   final _messageStreamController = StreamController<dynamic>.broadcast();
   Stream<dynamic> get onMessageStream => _messageStreamController.stream;
@@ -731,7 +733,35 @@ class SocketService {
         'conversationId': conversationId,
         'isTyping': isTyping,
       });
+      return;
     }
+
+    // Serverless REST typing bridge: throttled to max 1 request / 2.5s when typing=true, immediate when typing=false
+    final now = DateTime.now();
+    if (isTyping) {
+      final lastSent = _lastRestTypingSent[conversationId];
+      if (lastSent != null && now.difference(lastSent).inMilliseconds < 2500) {
+        return;
+      }
+      _lastRestTypingSent[conversationId] = now;
+    } else {
+      _lastRestTypingSent.remove(conversationId);
+    }
+
+    () async {
+      try {
+        final token = await ApiService().getToken();
+        if (token == null) return;
+        await ApiService.post(
+          Uri.parse('${ApiService.baseUrl}/chats/$conversationId/typing'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+          body: jsonEncode({'isTyping': isTyping}),
+        ).timeout(const Duration(seconds: 6));
+      } catch (_) {}
+    }();
   }
 
   void onTypingChange(Function(dynamic) callback) {

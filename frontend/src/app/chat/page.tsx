@@ -325,29 +325,35 @@ export default function ChatPage() {
     }
   }, [isAuthenticated, authLoading, router]);
 
+  const hydratedOfflineChatsRef = useRef(false);
+  const lastRawChatsBodyRef = useRef("");
+
   // Fetch conversations list
   const fetchChats = useCallback(async () => {
     if (!token) return;
 
-    // Load offline chats immediately if available for 0ms instant display
-    try {
-      const cached = localStorage.getItem("dolsyx_offline_chats");
-      if (cached) {
-        const data = JSON.parse(cached);
-        if (Array.isArray(data) && data.length > 0) {
-          setChats(data);
-          setIsChatsLoading(false);
-          const initialUnreads: Record<string, number> = {};
-          data.forEach((c: any) => {
-            if (c.unreadCount > 0) {
-              initialUnreads[c.id] = c.unreadCount;
-            }
-          });
-          setUnreadCounts(initialUnreads);
+    // Load offline chats immediately ONLY on initial cold mount (never overwrite live state during polling)
+    if (!hydratedOfflineChatsRef.current) {
+      hydratedOfflineChatsRef.current = true;
+      try {
+        const cached = localStorage.getItem("dolsyx_offline_chats");
+        if (cached) {
+          const data = JSON.parse(cached);
+          if (Array.isArray(data) && data.length > 0) {
+            setChats(data);
+            setIsChatsLoading(false);
+            const initialUnreads: Record<string, number> = {};
+            data.forEach((c: any) => {
+              if (c.unreadCount > 0) {
+                initialUnreads[c.id] = c.unreadCount;
+              }
+            });
+            setUnreadCounts(initialUnreads);
+          }
         }
+      } catch (e) {
+        console.warn("Could not load offline chats", e);
       }
-    } catch (e) {
-      console.warn("Could not load offline chats", e);
     }
 
     // Safety timeout – if the request hangs for >10s, release the loading spinner
@@ -360,20 +366,32 @@ export default function ChatPage() {
       });
 
       if (res.ok) {
-        const data = await res.json();
+        const rawText = await res.text();
+        if (rawText === lastRawChatsBodyRef.current) {
+          return;
+        }
+        lastRawChatsBodyRef.current = rawText;
+        const data = JSON.parse(rawText);
         setChats(data);
 
         // Cache for offline
-        localStorage.setItem("dolsyx_offline_chats", JSON.stringify(data));
+        localStorage.setItem("dolsyx_offline_chats", rawText);
 
-        // Populate initial unread counts from persistent database state
+        // Populate initial unread counts & serverless online users from persistent database state
         const initialUnreads: Record<string, number> = {};
+        const activeOnlineIds: string[] = [];
         data.forEach((c: any) => {
           if (c.unreadCount > 0) {
             initialUnreads[c.id] = c.unreadCount;
           }
+          if (c.recipient?.id && c.recipient?.isOnline) {
+            activeOnlineIds.push(c.recipient.id);
+          }
         });
         setUnreadCounts(initialUnreads);
+        if (activeOnlineIds.length > 0) {
+          setOnlineUsers((prev) => Array.from(new Set([...prev, ...activeOnlineIds])));
+        }
       }
     } catch (err) {
       console.error("Error fetching chats:", err);

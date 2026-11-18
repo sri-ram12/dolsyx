@@ -21,6 +21,7 @@ import {
   uploadChunk,
   sendMessageRest,
   markConversationReadRest,
+  setTypingStatusRest,
 } from "../controllers/chat.controller.js";
 import {
   createBroadcastList,
@@ -72,6 +73,7 @@ router.get("/:conversationId/media", getMediaMessages as any);
 router.get("/:conversationId/messages", getMessages as any);
 router.post("/:conversationId/messages", sendMessageRest as any);
 router.post("/:conversationId/read", markConversationReadRest as any);
+router.post("/:conversationId/typing", setTypingStatusRest as any);
 router.post("/direct", createOrGetDirectChat as any);
 router.delete("/:conversationId", deleteConversation as any);
 router.delete("/:conversationId/messages", clearChatMessages as any);

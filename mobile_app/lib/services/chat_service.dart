@@ -7,6 +7,11 @@ import '../models/chat.dart';
 import '../models/message.dart';
 
 class ChatService {
+  bool lastFetchSucceeded = true;
+  bool lastChatsUnchanged = false;
+  String? _lastChatsRawBody;
+  List<Chat> _lastChatsParsed = [];
+
   Future<List<Message>> getMessages(String conversationId, {String? cursor, int limit = 50}) async {
     try {
       final token = await ApiService().getToken();
@@ -88,24 +93,36 @@ class ChatService {
       ).timeout(const Duration(seconds: 25));
 
       if (response.statusCode == 200) {
+        lastFetchSucceeded = true;
+        if (_lastChatsRawBody == response.body && _lastChatsParsed.isNotEmpty) {
+          lastChatsUnchanged = true;
+          return _lastChatsParsed;
+        }
+        _lastChatsRawBody = response.body;
+        lastChatsUnchanged = false;
+
         final List<dynamic> data = jsonDecode(response.body);
         final chats = data.map((json) => Chat.fromJson(json)).toList();
+        _lastChatsParsed = chats;
 
-        // 1. WhatsApp-grade local SQLite persistence (sub-millisecond indexed writes)
-        await LocalDatabaseService().saveConversations(chats);
+        // 1. WhatsApp-grade local SQLite persistence (non-blocking background write so UI updates immediately)
+        LocalDatabaseService().saveConversations(chats).catchError((_) {});
 
-        // 2. Secondary fallback update to SharedPreferences
-        try {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('cached_chats', response.body);
-        } catch (_) {}
+        // 2. Secondary fallback update to SharedPreferences (non-blocking)
+        SharedPreferences.getInstance()
+            .then((prefs) => prefs.setString('cached_chats', response.body))
+            .catchError((_) => false);
 
         return chats;
       } else {
+        lastFetchSucceeded = false;
+        lastChatsUnchanged = false;
         print('Error fetching chats: ${response.statusCode}');
         return await getCachedChats();
       }
     } catch (e) {
+      lastFetchSucceeded = false;
+      lastChatsUnchanged = false;
       print('Network error fetching chats: $e');
       return await getCachedChats();
     }

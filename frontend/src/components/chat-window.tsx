@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import TwemojiText from "./twemoji-text";
 import AnimatedEmoji from "./animated-emoji";
 import { useAuth, API_URL } from "@/context/auth-context";
@@ -951,6 +951,7 @@ export default function ChatWindow({
   // Fetch message history on chat select
   useEffect(() => {
     if (!chat || !token) return;
+    let lastRawBody = "";
 
     const fetchMessages = async () => {
       try {
@@ -961,7 +962,21 @@ export default function ChatWindow({
         });
 
         if (res.ok) {
-          const data = await res.json();
+          // Always sync live typing indicator header first (even when message body is unchanged)
+          try {
+            const typingHeader = res.headers.get("x-typing-users");
+            if (typingHeader !== null) {
+              const parsedTyping = JSON.parse(typingHeader);
+              setIsRecipientTyping(Array.isArray(parsedTyping) && parsedTyping.length > 0);
+            }
+          } catch (_) {}
+
+          const rawText = await res.text();
+          if (rawText === lastRawBody) {
+            return;
+          }
+          lastRawBody = rawText;
+          const data = JSON.parse(rawText);
           
           const finalMessages = await Promise.all(data.map(async (msg: any) => {
             if (msg.content && msg.content.startsWith("{")) {
@@ -1042,13 +1057,13 @@ export default function ChatWindow({
       socket.emit("join_conversation", chat.id);
     }
 
-    // Serverless polling sync: when Socket.IO is disconnected, poll messages & receipts every 3s
+    // Serverless polling sync: when Socket.IO is disconnected, poll messages, typing & receipts every 2.5s
     const pollInterval = setInterval(() => {
       if (typeof document !== "undefined" && document.hidden) return;
       if (!socket || !socket.connected) {
         fetchMessages();
       }
-    }, 3000);
+    }, 2500);
 
     return () => {
       clearInterval(pollInterval);
@@ -1482,30 +1497,58 @@ export default function ChatWindow({
     setShowDeleteModal(true);
   };
 
+  const lastRestTypingSentRef = useRef<number>(0);
+
+  const emitTypingStatus = useCallback((conversationId: string, isTyping: boolean) => {
+    if (socket && socket.connected) {
+      socket.emit("typing", { conversationId, isTyping });
+      return;
+    }
+    if (!token) return;
+
+    const now = Date.now();
+    if (isTyping) {
+      if (now - lastRestTypingSentRef.current < 2500) return;
+      lastRestTypingSentRef.current = now;
+    } else {
+      lastRestTypingSentRef.current = 0;
+    }
+
+    fetch(`${API_URL}/api/chats/${conversationId}/typing`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ isTyping }),
+    }).catch(() => {});
+  }, [socket, token]);
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setInputValue(e.target.value);
 
-    if (!socket || !chat) return;
+    if (!chat) return;
 
     if (e.target.value === "") {
-      socket.emit("typing", { conversationId: chat.id, isTyping: false });
+      emitTypingStatus(chat.id, false);
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
       }
       return;
     }
 
-    // Emit typing status
-    socket.emit("typing", { conversationId: chat.id, isTyping: true });
+    // Emit typing status (Socket.IO or throttled REST fallback)
+    emitTypingStatus(chat.id, true);
 
     // Debounce to emit isTyping: false
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
     }
 
+    const stopDelay = socket && socket.connected ? 1000 : 2500;
     typingTimeoutRef.current = setTimeout(() => {
-      socket.emit("typing", { conversationId: chat.id, isTyping: false });
-    }, 1000);
+      emitTypingStatus(chat.id, false);
+    }, stopDelay);
   };
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -1581,9 +1624,7 @@ export default function ChatWindow({
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
     }
-    if (socket && socket.connected) {
-      socket.emit("typing", { conversationId: chat.id, isTyping: false });
-    }
+    emitTypingStatus(chat.id, false);
 
     setInputValue("");
   };

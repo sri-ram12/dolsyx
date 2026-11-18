@@ -20,6 +20,7 @@ import '../models/message.dart';
 import '../services/socket_service.dart';
 import '../services/chat_service.dart';
 import '../services/local_database_service.dart';
+import '../services/event_bus.dart';
 import '../services/contact_service.dart';
 import '../services/api_service.dart';
 import '../providers/auth_provider.dart';
@@ -2351,7 +2352,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       LocalDatabaseService().deleteMessage(messageId).catchError((_) {});
     }
     _updateMessageCache();
-    AppEventBus().emitChatUpdated(widget.conversationId);
+    AppEventBus().emitChatUpdated({'conversationId': widget.conversationId});
 
     // 3. Sync with backend REST API (works on both Vercel Serverless and Socket.IO hosts)
     try {
@@ -2497,7 +2498,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       }
     }
     _updateMessageCache();
-    AppEventBus().emitChatUpdated(widget.conversationId);
+    AppEventBus().emitChatUpdated({'conversationId': widget.conversationId});
 
     final success = await _chatService.bulkDeleteMessages(idsToDelete, forEveryone);
     if (mounted) {
@@ -3986,7 +3987,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     _selectedMessageIds.clear();
                   });
                   _updateMessageCache();
-                  AppEventBus().emitChatUpdated(widget.conversationId);
+                  AppEventBus().emitChatUpdated({'conversationId': widget.conversationId});
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Chat cleared')));
                 } else {
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to clear chat')));

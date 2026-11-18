@@ -403,7 +403,7 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
         final success = await ChatService().clearChat(conversationId);
         if (mounted) {
           if (success) {
-            AppEventBus().emitChatUpdated(conversationId);
+            AppEventBus().emitChatUpdated({'conversationId': conversationId});
             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Chat cleared')));
             Navigator.pop(context, 'chat_cleared');
           } else {

@@ -44,7 +44,12 @@ class SettingsScreen extends StatelessWidget {
                 child: user?['avatarUrl'] == null ? Icon(Icons.person, size: 30, color: AppTheme.textSecondary) : null,
               ),
               title: Text(user?['username'] ?? 'User', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),
-              subtitle: Text(user?['bio'] ?? 'Hey there, I am using DOLSYX', style: TextStyle(color: AppTheme.textSecondary)),
+              subtitle: Text(
+                (user?['bio'] != null && user!['bio'].toString().trim().isNotEmpty)
+                    ? user['bio'].toString()
+                    : 'Hey there, I am using DOLSYX',
+                style: TextStyle(color: AppTheme.textSecondary),
+              ),
               trailing: Icon(Icons.qr_code, color: AppTheme.primaryColor),
               onTap: () {
                 Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()));

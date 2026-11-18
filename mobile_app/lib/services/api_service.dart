@@ -340,7 +340,12 @@ class ApiService {
     return null;
   }
 
-  Future<Map<String, dynamic>?> updateProfile({String? bio, String? username, String? avatarUrl}) async {
+  Future<Map<String, dynamic>?> updateProfile({
+    String? bio,
+    String? username,
+    String? avatarUrl,
+    bool removeAvatar = false,
+  }) async {
     try {
       final token = await getToken();
       if (token == null) return null;
@@ -348,7 +353,11 @@ class ApiService {
       final body = <String, dynamic>{};
       if (bio != null) body['bio'] = bio;
       if (username != null) body['username'] = username;
-      if (avatarUrl != null) body['avatarUrl'] = avatarUrl;
+      if (removeAvatar) {
+        body['avatarUrl'] = null;
+      } else if (avatarUrl != null) {
+        body['avatarUrl'] = avatarUrl;
+      }
 
       final response = await _client.put(
         Uri.parse('$baseUrl/auth/profile'),
@@ -357,10 +366,13 @@ class ApiService {
           'Authorization': 'Bearer $token',
         },
         body: jsonEncode(body),
-      );
+      ).timeout(const Duration(seconds: 20));
 
       if (response.statusCode == 200) {
-        return jsonDecode(response.body)['user'];
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map<String, dynamic>) {
+          return (decoded['user'] is Map<String, dynamic>) ? decoded['user'] : decoded;
+        }
       }
       return null;
     } catch (e) {
@@ -377,11 +389,12 @@ class ApiService {
       final response = await _client.get(
         Uri.parse('$baseUrl/auth/users/$userId'),
         headers: {'Authorization': 'Bearer $token'},
-      );
+      ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
-        return jsonDecode(response.body);
-      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map<String, dynamic>) return decoded;
+      } else if (response.statusCode == 401) {
         await logout();
       }
       return null;

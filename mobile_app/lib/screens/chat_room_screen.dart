@@ -1576,6 +1576,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         if (widget.remoteUser != null) {
           widget.remoteUser!['avatarUrl'] = data['user']['avatarUrl'];
           widget.remoteUser!['username'] = data['user']['username'];
+          if (data['user'].containsKey('bio')) {
+            widget.remoteUser!['bio'] = data['user']['bio'];
+          }
         }
       });
     }
@@ -2311,30 +2314,71 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     );
   }
 
-  void _deleteMessage(String messageId, bool forEveryone) async {
+  Future<void> _deleteMessage(String messageId, bool forEveryone) async {
+    _lastRawMessagesBody = null;
+
+    // 1. Instant 0ms optimistic UI update
+    if (mounted) {
+      setState(() {
+        if (_pinnedMessage?.id == messageId) {
+          _pinnedMessage = null;
+        }
+        if (forEveryone) {
+          final idx = _messages.indexWhere((m) => m.id == messageId);
+          if (idx != -1) {
+            _messages[idx] = Message(
+              id: _messages[idx].id,
+              content: "This message was deleted",
+              senderId: _messages[idx].senderId,
+              conversationId: _messages[idx].conversationId,
+              createdAt: _messages[idx].createdAt,
+              isDeleted: true,
+              isEdited: false,
+              mediaUrl: null,
+              mediaType: null,
+            );
+          }
+        } else {
+          _messages.removeWhere((m) => m.id == messageId);
+        }
+      });
+    }
+
+    // 2. Persist immediately to local SQLite & SharedPreferences cache so deleted messages never reappear
+    if (forEveryone) {
+      LocalDatabaseService().markMessageDeleted(messageId).catchError((_) {});
+    } else {
+      LocalDatabaseService().deleteMessage(messageId).catchError((_) {});
+    }
+    _updateMessageCache();
+    AppEventBus().emitChatUpdated(widget.conversationId);
+
+    // 3. Sync with backend REST API (works on both Vercel Serverless and Socket.IO hosts)
     try {
       final success = await _chatService.deleteMessage(messageId, forEveryone);
-      if (success && mounted) {
-        setState(() {
-          if (forEveryone) {
-            final idx = _messages.indexWhere((m) => m.id == messageId);
-            if (idx != -1) {
-              _messages[idx] = Message(
-                id: _messages[idx].id,
-                content: "This message was deleted",
-                senderId: _messages[idx].senderId,
-                conversationId: _messages[idx].conversationId,
-                createdAt: _messages[idx].createdAt,
-                isDeleted: true,
-              );
-            }
-          } else {
-            _messages.removeWhere((m) => m.id == messageId);
-          }
-        });
+      if (mounted) {
+        if (success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(forEveryone ? 'Message deleted for everyone' : 'Message deleted for you'),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Failed to delete message on server')),
+          );
+          _fetchMessages(silent: true);
+        }
       }
     } catch (e) {
       print("Delete failed: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to delete message')),
+        );
+        _fetchMessages(silent: true);
+      }
     }
   }
 
@@ -2413,11 +2457,69 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   void _deleteSelectedMessages(bool forEveryone) async {
-    for (String msgId in _selectedMessageIds) {
-      _deleteMessage(msgId, forEveryone);
-    }
+    final idsToDelete = List<String>.from(_selectedMessageIds);
+    if (idsToDelete.isEmpty) return;
+
+    _lastRawMessagesBody = null;
     if (mounted) {
-      setState(() => _selectedMessageIds.clear());
+      setState(() {
+        _selectedMessageIds.clear();
+        if (_pinnedMessage != null && idsToDelete.contains(_pinnedMessage!.id)) {
+          _pinnedMessage = null;
+        }
+        if (forEveryone) {
+          for (int i = 0; i < _messages.length; i++) {
+            if (idsToDelete.contains(_messages[i].id)) {
+              _messages[i] = Message(
+                id: _messages[i].id,
+                content: "This message was deleted",
+                senderId: _messages[i].senderId,
+                conversationId: _messages[i].conversationId,
+                createdAt: _messages[i].createdAt,
+                isDeleted: true,
+                isEdited: false,
+                mediaUrl: null,
+                mediaType: null,
+              );
+            }
+          }
+        } else {
+          _messages.removeWhere((m) => idsToDelete.contains(m.id));
+        }
+      });
+    }
+
+    for (final id in idsToDelete) {
+      if (forEveryone) {
+        LocalDatabaseService().markMessageDeleted(id).catchError((_) {});
+      } else {
+        LocalDatabaseService().deleteMessage(id).catchError((_) {});
+      }
+    }
+    _updateMessageCache();
+    AppEventBus().emitChatUpdated(widget.conversationId);
+
+    final success = await _chatService.bulkDeleteMessages(idsToDelete, forEveryone);
+    if (mounted) {
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              idsToDelete.length == 1
+                  ? (forEveryone ? 'Message deleted for everyone' : 'Message deleted for you')
+                  : (forEveryone
+                      ? '${idsToDelete.length} messages deleted for everyone'
+                      : '${idsToDelete.length} messages deleted for you'),
+            ),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to delete selected messages')),
+        );
+        _fetchMessages(silent: true);
+      }
     }
   }
 
@@ -3877,7 +3979,14 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               final success = await _chatService.clearChat(widget.conversationId);
               if (mounted) {
                 if (success) {
-                  setState(() => _messages.clear());
+                  _lastRawMessagesBody = null;
+                  setState(() {
+                    _messages.clear();
+                    _pinnedMessage = null;
+                    _selectedMessageIds.clear();
+                  });
+                  _updateMessageCache();
+                  AppEventBus().emitChatUpdated(widget.conversationId);
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Chat cleared')));
                 } else {
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to clear chat')));
@@ -4036,11 +4145,17 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 IconButton(
                   icon: const Icon(Icons.delete_outline),
                   onPressed: () async {
-                    bool allMine = true;
+                    final myId = (currentUser?['id'] ?? currentUser?['_id'])?.toString();
+                    bool allMineAndNotDeleted = _selectedMessageIds.isNotEmpty;
                     for (String msgId in _selectedMessageIds) {
-                      final msg = _messages.firstWhere((m) => m.id == msgId);
-                      if (msg.senderId != currentUser?['id']) {
-                        allMine = false;
+                      final idx = _messages.indexWhere((m) => m.id == msgId);
+                      if (idx == -1) continue;
+                      final msg = _messages[idx];
+                      final isMine = msg.senderId.toString() == myId ||
+                          (msg.sender != null &&
+                              ((msg.sender!['id'] ?? msg.sender!['_id'])?.toString() == myId));
+                      if (!isMine || msg.isDeleted) {
+                        allMineAndNotDeleted = false;
                         break;
                       }
                     }
@@ -4054,7 +4169,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            if (allMine)
+                            if (allMineAndNotDeleted)
                               ListTile(
                                 leading: const Icon(Icons.delete_forever, color: Colors.red),
                                 title: const Text('Delete for Everyone', style: TextStyle(color: Colors.red)),
@@ -4239,7 +4354,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                           onSelected: (value) async {
                             final selectedMsg = _messages.firstWhere((m) => m.id == _selectedMessageIds.first, orElse: () => _messages.first);
                             final authProvider = Provider.of<AuthProvider>(context, listen: false);
-                            final isMe = selectedMsg.senderId == authProvider.user?['id'];
+                            final myId = (authProvider.user?['id'] ?? authProvider.user?['_id'])?.toString();
+                            final isMe = selectedMsg.senderId.toString() == myId ||
+                                (selectedMsg.sender != null &&
+                                    ((selectedMsg.sender!['id'] ?? selectedMsg.sender!['_id'])?.toString() == myId));
 
                             if (value == 'copy') {
                               final textToCopy = selectedMsg.content.isNotEmpty ? selectedMsg.content : (selectedMsg.mediaUrl ?? '');
@@ -4294,15 +4412,21 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                               } else {
                                 _showPinDurationDialog(selectedMsg.id);
                               }
-                            } else if (value == 'delete' && isMe) {
+                            } else if (value == 'delete_everyone' && isMe) {
                               setState(() => _selectedMessageIds.clear());
                               _deleteMessage(selectedMsg.id, true);
+                            } else if (value == 'delete_me') {
+                              setState(() => _selectedMessageIds.clear());
+                              _deleteMessage(selectedMsg.id, false);
                             }
                           },
                           itemBuilder: (ctx) {
                             final selectedMsg = _messages.firstWhere((m) => m.id == _selectedMessageIds.first, orElse: () => _messages.first);
                             final authProvider = Provider.of<AuthProvider>(ctx, listen: false);
-                            final isMe = selectedMsg.senderId == authProvider.user?['id'];
+                            final myId = (authProvider.user?['id'] ?? authProvider.user?['_id'])?.toString();
+                            final isMe = selectedMsg.senderId.toString() == myId ||
+                                (selectedMsg.sender != null &&
+                                    ((selectedMsg.sender!['id'] ?? selectedMsg.sender!['_id'])?.toString() == myId));
                             final isWithinTimeLimit = DateTime.now().difference(selectedMsg.createdAt).inMinutes <= 15;
                             final hasMedia = selectedMsg.mediaUrl != null && selectedMsg.mediaUrl!.isNotEmpty;
 
@@ -4349,9 +4473,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                   ],
                                 ),
                               ),
-                              if (isMe)
+                              if (isMe && !selectedMsg.isDeleted)
                                 const PopupMenuItem(
-                                  value: 'delete',
+                                  value: 'delete_everyone',
                                   child: Row(
                                     children: [
                                       Icon(Icons.delete_forever, size: 18, color: Colors.red),
@@ -4360,6 +4484,16 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                     ],
                                   ),
                                 ),
+                              const PopupMenuItem(
+                                value: 'delete_me',
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.delete_outline, size: 18),
+                                    SizedBox(width: 10),
+                                    Text('Delete for Me'),
+                                  ],
+                                ),
+                              ),
                             ];
                           },
                         ),
@@ -4386,6 +4520,12 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     );
                     if (res == 'start_search') {
                       _startSearch();
+                    } else if (res == 'chat_cleared' && mounted) {
+                      _lastRawMessagesBody = null;
+                      setState(() {
+                        _messages.clear();
+                        _pinnedMessage = null;
+                      });
                     }
                   } else {
                     _openGroupSettings();

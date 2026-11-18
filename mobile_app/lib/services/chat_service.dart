@@ -155,20 +155,67 @@ class ChatService {
 
   Future<bool> deleteMessage(String messageId, bool forEveryone) async {
     try {
+      if (messageId.startsWith('temp-') || messageId.startsWith('temp_')) {
+        return true;
+      }
       final token = await ApiService().getToken();
       if (token == null) return false;
 
-      final response = await ApiService.client.delete(
+      final response = await ApiService.delete(
         Uri.parse('${ApiService.baseUrl}/chats/messages/$messageId?forEveryone=$forEveryone'),
         headers: {
           'Authorization': 'Bearer $token',
         },
-      );
+      ).timeout(const Duration(seconds: 20));
 
-      return response.statusCode == 200;
+      if (response.statusCode == 200 || response.statusCode == 204 || response.statusCode == 404) {
+        return true;
+      }
+      print('Delete message failed: HTTP ${response.statusCode} - ${response.body}');
+      return false;
     } catch (e) {
       print('Network error deleting message: $e');
       return false;
+    }
+  }
+
+  Future<bool> bulkDeleteMessages(List<String> messageIds, bool forEveryone) async {
+    final serverIds = messageIds.where((id) => !id.startsWith('temp-') && !id.startsWith('temp_')).toList();
+    if (serverIds.isEmpty) return true;
+    try {
+      final token = await ApiService().getToken();
+      if (token == null) return false;
+
+      final response = await ApiService.post(
+        Uri.parse('${ApiService.baseUrl}/chats/messages/bulk-delete'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'messageIds': serverIds,
+          'forEveryone': forEveryone,
+        }),
+      ).timeout(const Duration(seconds: 20));
+
+      if (response.statusCode == 200) {
+        return true;
+      }
+      // Graceful fallback to individual deletes if endpoint is unavailable
+      bool allOk = true;
+      for (final id in serverIds) {
+        final ok = await deleteMessage(id, forEveryone);
+        if (!ok) allOk = false;
+      }
+      return allOk;
+    } catch (e) {
+      print('Network error bulk deleting messages: $e');
+      bool allOk = true;
+      for (final id in serverIds) {
+        final ok = await deleteMessage(id, forEveryone);
+        if (!ok) allOk = false;
+      }
+      return allOk;
     }
   }
 
@@ -407,11 +454,22 @@ class ChatService {
       final token = await ApiService().getToken();
       if (token == null) return false;
 
-      final response = await ApiService.client.delete(
+      final response = await ApiService.delete(
         Uri.parse('${ApiService.baseUrl}/chats/$conversationId/messages'),
         headers: {'Authorization': 'Bearer $token'},
-      );
-      return response.statusCode == 200;
+      ).timeout(const Duration(seconds: 20));
+
+      if (response.statusCode == 200) {
+        await LocalDatabaseService().clearConversationMessages(conversationId);
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.remove('cached_messages_$conversationId');
+          await prefs.remove('cached_decrypted_$conversationId');
+        } catch (_) {}
+        return true;
+      }
+      print('Clear chat failed: HTTP ${response.statusCode} - ${response.body}');
+      return false;
     } catch (e) {
       print('Error clearing chat: $e');
       return false;

@@ -82,6 +82,7 @@ export default function SettingsPanel({
   const [profileError, setProfileError] = useState("");
   const [profileSuccess, setProfileSuccess] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const usernameInputRef = useRef<HTMLInputElement>(null);
 
   // Cropper State
   const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
@@ -321,13 +322,44 @@ export default function SettingsPanel({
       });
 
       if (updateRes.ok) {
-        const updatedUser = await updateRes.json();
-        updateUser(updatedUser);
+        const updated = await updateRes.json();
+        updateUser(updated.user || updated);
         setProfileSuccess("Avatar updated successfully!");
         setTimeout(() => setProfileSuccess(""), 3000);
       }
     } catch (err: any) {
       setProfileError(err.message || "Failed to update profile picture");
+    } finally {
+      setIsUploadingAvatar(false);
+    }
+  };
+
+  const handleRemoveAvatar = async () => {
+    if (!token) return;
+    setIsUploadingAvatar(true);
+    setProfileError("");
+    setProfileSuccess("");
+    try {
+      const updateRes = await fetch(`${API_URL}/api/auth/profile`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ avatarUrl: null }),
+      });
+
+      if (updateRes.ok) {
+        const updated = await updateRes.json();
+        setEditAvatar("");
+        updateUser(updated.user || updated);
+        setProfileSuccess("Profile photo removed!");
+        setTimeout(() => setProfileSuccess(""), 3000);
+      } else {
+        setProfileError("Failed to remove profile photo");
+      }
+    } catch (err: any) {
+      setProfileError(err.message || "Failed to remove profile photo");
     } finally {
       setIsUploadingAvatar(false);
     }
@@ -356,7 +388,7 @@ export default function SettingsPanel({
 
       if (res.ok) {
         const updated = await res.json();
-        updateUser(updated);
+        updateUser(updated.user || updated);
         setProfileSuccess("Profile saved!");
         setTimeout(() => setProfileSuccess(""), 3000);
       } else {
@@ -520,9 +552,31 @@ export default function SettingsPanel({
         {/* ── PROFILE TAB ────────────────────────────────────────── */}
         {resolvedActive === "profile" && (
           <div className="space-y-6 animate-fade-in">
-            <div>
-              <h3 className="text-xl font-extrabold">Profile Details</h3>
-              <p className="text-xs text-[var(--theme-text-secondary)]">Manage your identity and avatar on DOLSYX.</p>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-xl font-extrabold">Profile Details</h3>
+                <p className="text-xs text-[var(--theme-text-secondary)]">Manage your identity and avatar on DOLSYX.</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => usernameInputRef.current?.focus()}
+                  className="px-3.5 py-1.5 rounded-xl bg-[var(--theme-primary)]/15 border border-[var(--theme-primary)]/40 text-[var(--theme-primary)] hover:bg-[var(--theme-primary)]/25 text-xs font-bold transition-all cursor-pointer"
+                >
+                  Edit Profile
+                </button>
+                {editAvatar && (
+                  <button
+                    type="button"
+                    disabled={isUploadingAvatar}
+                    onClick={handleRemoveAvatar}
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border border-red-500/40 text-red-400 hover:bg-red-500/10 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Remove Photo
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Avatar Section */}
@@ -553,13 +607,25 @@ export default function SettingsPanel({
               <div className="space-y-2 text-center sm:text-left">
                 <h4 className="font-extrabold text-base">{editUsername || "Your Name"}</h4>
                 <p className="text-xs text-[var(--theme-text-secondary)]">{user?.email || "DOLSYX Member"}</p>
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="px-4 py-1.5 rounded-xl border border-[var(--theme-border-color)] hover:bg-white/10 text-xs font-bold transition-all cursor-pointer"
-                >
-                  Upload New Photo
-                </button>
+                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="px-4 py-1.5 rounded-xl border border-[var(--theme-border-color)] hover:bg-white/10 text-xs font-bold transition-all cursor-pointer"
+                  >
+                    Upload New Photo
+                  </button>
+                  {editAvatar && (
+                    <button
+                      type="button"
+                      disabled={isUploadingAvatar}
+                      onClick={handleRemoveAvatar}
+                      className="px-4 py-1.5 rounded-xl border border-red-500/40 text-red-400 hover:bg-red-500/10 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      Remove Photo
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -570,6 +636,7 @@ export default function SettingsPanel({
                   Display Name
                 </label>
                 <input
+                  ref={usernameInputRef}
                   type="text"
                   required
                   value={editUsername}

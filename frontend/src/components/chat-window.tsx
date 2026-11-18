@@ -861,6 +861,26 @@ export default function ChatWindow({
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [profileUser, setProfileUser] = useState<any | null>(null);
 
+  // Always hydrate fresh profile data (About / bio, avatar, online, lastSeen) when opening a user profile modal
+  useEffect(() => {
+    const targetId = profileUser?.id;
+    if (!targetId || !token) return;
+    let cancelled = false;
+    fetch(`${API_URL}/api/auth/users/${targetId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((fresh) => {
+        if (!cancelled && fresh && fresh.id === targetId) {
+          setProfileUser((prev: any) => (prev && prev.id === targetId ? { ...prev, ...fresh } : prev));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [profileUser?.id, token]);
+
   // Camera Capture State
   const [showCamera, setShowCamera] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -1477,19 +1497,61 @@ export default function ChatWindow({
   };
 
   const executeDelete = async (deleteType: "me" | "everyone") => {
-    if (!socket || !chat || selectedMessageIds.size === 0) return;
-    
-    for (const msgId of selectedMessageIds) {
-      socket.emit("delete_message", {
-        messageId: msgId,
-        deleteType,
-      });
+    if (!chat || selectedMessageIds.size === 0) return;
+    const ids = Array.from(selectedMessageIds);
+    const forEveryone = deleteType === "everyone";
+
+    // 1. Instant optimistic UI update
+    if (forEveryone) {
+      setMessages((prev) =>
+        prev.map((m) =>
+          ids.includes(m.id)
+            ? { ...m, isDeleted: true, content: "This message was deleted", mediaUrl: null, mediaType: null }
+            : m
+        )
+      );
+    } else {
+      setMessages((prev) => prev.filter((m) => !ids.includes(m.id)));
+      const deletedList = JSON.parse(localStorage.getItem("dolsyx_deleted_msgs") || "[]");
+      const merged = Array.from(new Set([...deletedList, ...ids]));
+      localStorage.setItem("dolsyx_deleted_msgs", JSON.stringify(merged));
+      setLocalDeletedMsgIds((prev) => Array.from(new Set([...prev, ...ids])));
     }
 
     setShowDeleteModal(false);
     setIsSelectionMode(false);
     setSelectedMessageIds(new Set());
-    toast(`Selected messages deleted.`, "success");
+
+    // 2. Persist via REST bulk-delete (works on Vercel Serverless & persistent hosts) + Socket.IO if connected
+    const serverIds = ids.filter((id) => !id.startsWith("temp-"));
+    if (token && serverIds.length > 0) {
+      try {
+        const res = await fetch(`${API_URL}/api/chats/messages/bulk-delete`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ messageIds: serverIds, forEveryone }),
+        });
+        if (!res.ok) {
+          for (const msgId of serverIds) {
+            await fetch(`${API_URL}/api/chats/messages/${msgId}?forEveryone=${forEveryone}`, {
+              method: "DELETE",
+              headers: { Authorization: `Bearer ${token}` },
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Bulk delete REST error:", err);
+      }
+    } else if (socket && socket.connected) {
+      for (const msgId of serverIds) {
+        socket.emit("delete_message", { messageId: msgId, deleteType });
+      }
+    }
+
+    toast(forEveryone ? "Selected messages deleted for everyone." : "Selected messages deleted for you.", "success");
   };
 
   const handleDeleteSelected = () => {
@@ -1639,23 +1701,61 @@ export default function ChatWindow({
     setDeleteConfirmMessage(msg);
   };
 
-  const deleteMessageForMe = () => {
+  const deleteMessageForMe = async () => {
     if (!deleteConfirmMessage) return;
+    const msgId = deleteConfirmMessage.id;
     const deletedList = JSON.parse(localStorage.getItem("dolsyx_deleted_msgs") || "[]");
-    deletedList.push(deleteConfirmMessage.id);
+    if (!deletedList.includes(msgId)) deletedList.push(msgId);
     localStorage.setItem("dolsyx_deleted_msgs", JSON.stringify(deletedList));
-    setLocalDeletedMsgIds(prev => [...prev, deleteConfirmMessage.id]);
+    setLocalDeletedMsgIds((prev) => Array.from(new Set([...prev, msgId])));
+    setMessages((prev) => prev.filter((m) => m.id !== msgId));
     setDeleteConfirmMessage(null);
-    toast("Message deleted locally.", "success");
+
+    if (token && !msgId.startsWith("temp-")) {
+      fetch(`${API_URL}/api/chats/messages/${msgId}?forEveryone=false`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
+    }
+    toast("Message deleted for you.", "success");
   };
 
-  const deleteMessageForEveryone = () => {
-    if (!deleteConfirmMessage || !socket) return;
-    socket.emit("delete_message", {
-      messageId: deleteConfirmMessage.id,
-      deleteType: "everyone"
-    });
+  const deleteMessageForEveryone = async () => {
+    if (!deleteConfirmMessage) return;
+    const msgId = deleteConfirmMessage.id;
+
+    // Instant optimistic UI update
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === msgId
+          ? { ...m, isDeleted: true, content: "This message was deleted", mediaUrl: null, mediaType: null }
+          : m
+      )
+    );
     setDeleteConfirmMessage(null);
+
+    if (token && !msgId.startsWith("temp-")) {
+      try {
+        const res = await fetch(`${API_URL}/api/chats/messages/${msgId}?forEveryone=true`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) {
+          toast("Failed to delete message for everyone.", "error");
+          return;
+        }
+      } catch (err) {
+        console.error("Delete for everyone REST error:", err);
+        toast("Failed to delete message for everyone.", "error");
+        return;
+      }
+    } else if (socket && socket.connected && !msgId.startsWith("temp-")) {
+      socket.emit("delete_message", {
+        messageId: msgId,
+        deleteType: "everyone",
+      });
+    }
+
     toast("Message deleted for everyone.", "success");
   };
 

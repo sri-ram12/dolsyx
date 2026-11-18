@@ -17,6 +17,7 @@ import {
   starMessage,
   pinMessage,
   deleteMessage,
+  bulkDeleteMessages,
   editMessage,
   uploadChunk,
   sendMessageRest,
@@ -69,15 +70,12 @@ router.delete("/calls/clear", clearCallLogs as any);
 router.delete("/calls/bulk", deleteBulkCallLogs as any);
 router.delete("/calls/:callId", deleteSingleCallLog as any);
 router.get("/search", searchUsers as any);
-router.get("/:conversationId/media", getMediaMessages as any);
-router.get("/:conversationId/messages", getMessages as any);
-router.post("/:conversationId/messages", sendMessageRest as any);
-router.post("/:conversationId/read", markConversationReadRest as any);
-router.post("/:conversationId/typing", setTypingStatusRest as any);
-router.post("/direct", createOrGetDirectChat as any);
-router.delete("/:conversationId", deleteConversation as any);
-router.delete("/:conversationId/messages", clearChatMessages as any);
-router.patch("/:conversationId/participant", updateParticipantSettings as any);
+
+// Message management routes (registered BEFORE wildcard /:conversationId routes to prevent collisions)
+router.post("/messages/bulk-delete", bulkDeleteMessages as any);
+router.put("/messages/:messageId", editMessage as any);
+router.post("/messages/:messageId/star", starMessage as any);
+router.delete("/messages/:messageId", deleteMessage as any);
 
 // ── Phase 18: Broadcast List routes ─────────────────────────────────────────
 router.get("/broadcasts", getBroadcastLists as any);
@@ -86,10 +84,15 @@ router.post("/broadcasts/:broadcastId/send", sendBroadcastMessage as any);
 router.patch("/broadcasts/:broadcastId/recipients", updateBroadcastRecipients as any);
 router.delete("/broadcasts/:broadcastId", deleteBroadcastList as any);
 
-// Message management routes
-router.put("/messages/:messageId", editMessage as any);
-router.post("/messages/:messageId/star", starMessage as any);
-router.delete("/messages/:messageId", deleteMessage as any);
+router.get("/:conversationId/media", getMediaMessages as any);
+router.get("/:conversationId/messages", getMessages as any);
+router.post("/:conversationId/messages", sendMessageRest as any);
+router.post("/:conversationId/read", markConversationReadRest as any);
+router.post("/:conversationId/typing", setTypingStatusRest as any);
+router.post("/direct", createOrGetDirectChat as any);
+router.delete("/:conversationId/messages", clearChatMessages as any);
+router.delete("/:conversationId", deleteConversation as any);
+router.patch("/:conversationId/participant", updateParticipantSettings as any);
 router.post("/:conversationId/messages/:messageId/pin", pinMessage as any);
 
 // Upload endpoints

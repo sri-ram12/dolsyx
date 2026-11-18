@@ -406,6 +406,12 @@ export const getUserById = async (req: AuthRequest, res: Response): Promise<void
         canViewOnline(requesterId, id),
       ]);
 
+      // Serverless-friendly live online check (within 35s heartbeat window)
+      const recentlyActive = Boolean(
+        filtered.lastSeen && Date.now() - new Date(filtered.lastSeen).getTime() < 35000
+      );
+      filtered.isOnline = Boolean(filtered.isOnline || recentlyActive);
+
       if (!canPhoto) { filtered.avatarUrl = null; filtered.coverUrl = null; }
       if (!canAbout) { filtered.bio = null; filtered.statusMessage = null; }
       if (!canLastSeen) filtered.lastSeen = null;

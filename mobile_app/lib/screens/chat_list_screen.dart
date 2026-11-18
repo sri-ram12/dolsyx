@@ -1402,6 +1402,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                   _selectedChatIds.clear();
                 });
                 for (String id in idsToProcess) {
+                  LocalDatabaseService().clearConversationMessages(id);
                   _chatService.clearChat(id).catchError((_) => false);
                 }
               } else if (value == 'lock') {

@@ -35,6 +35,7 @@ class OtherUserProfileScreen extends StatefulWidget {
 
 class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
   final ApiService _apiService = ApiService();
+  late Map<String, dynamic> _userData;
   String? _localNickname;
   bool _isBlocked = false;
   bool _isOnline = false;
@@ -51,20 +52,52 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
   @override
   void initState() {
     super.initState();
+    _userData = Map<String, dynamic>.from(widget.user);
     _checkBlockedStatus();
     _checkChatLockStatus();
     _fetchMediaMessages();
-    final userId = widget.user['id'] ?? widget.user['_id'];
-    if (widget.user['lastSeen'] != null) {
-      _lastSeen = DateTime.tryParse(widget.user['lastSeen'].toString());
+    _fetchFreshUserProfile();
+    final userId = _userData['id'] ?? _userData['_id'];
+    if (_userData['lastSeen'] != null) {
+      _lastSeen = DateTime.tryParse(_userData['lastSeen'].toString());
+    }
+    if (_userData['isOnline'] == true) {
+      _isOnline = true;
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      _isOnline = authProvider.socketService.onlineUserIds.contains(userId?.toString());
+      if (authProvider.socketService.onlineUserIds.contains(userId?.toString())) {
+        _isOnline = true;
+      }
       if (mounted) setState(() {});
       authProvider.socketService.onStatusChange(_handleStatusChange);
       authProvider.socketService.onTypingChange(_handleTypingChange);
     });
+  }
+
+  Future<void> _fetchFreshUserProfile() async {
+    final userId = (_userData['id'] ?? _userData['_id'])?.toString();
+    if (userId == null || userId.isEmpty) return;
+    try {
+      final fresh = await _apiService.getUserById(userId);
+      if (fresh != null && mounted) {
+        setState(() {
+          _userData = {
+            ..._userData,
+            ...fresh,
+            if (_userData['conversationId'] != null) 'conversationId': _userData['conversationId'],
+          };
+          if (fresh['isOnline'] != null) {
+            _isOnline = fresh['isOnline'] == true;
+          }
+          if (fresh['lastSeen'] != null) {
+            _lastSeen = DateTime.tryParse(fresh['lastSeen'].toString());
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('[OtherUserProfile] Failed to refresh user profile: $e');
+    }
   }
 
   Future<void> _checkChatLockStatus() async {
@@ -364,19 +397,18 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
 
     if (confirmed == true) {
       try {
-        final authProvider = Provider.of<AuthProvider>(context, listen: false);
-        final token = authProvider.token;
-        final conversationId = widget.user['conversationId'] ?? '';
+        final conversationId = (_userData['conversationId'] ?? _resolvedConvId ?? '').toString();
         if (conversationId.isEmpty) return;
 
-        final response = await http.delete(
-          Uri.parse('${ApiService.baseUrl}/chats/$conversationId/messages'),
-          headers: {'Authorization': 'Bearer $token'},
-        );
-
-        if (mounted && response.statusCode == 200) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Chat cleared')));
-          Navigator.pop(context);
+        final success = await ChatService().clearChat(conversationId);
+        if (mounted) {
+          if (success) {
+            AppEventBus().emitChatUpdated(conversationId);
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Chat cleared')));
+            Navigator.pop(context, 'chat_cleared');
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to clear chat')));
+          }
         }
       } catch (_) {}
     }
@@ -906,10 +938,11 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final avatarUrl = widget.user['avatarUrl'];
-    final username = _localNickname ?? widget.user['username'] ?? 'User';
-    final email = widget.user['email'] ?? '';
-    final bio = widget.user['bio'] ?? 'Hey there, I am using DOLSYX';
+    final avatarUrl = _userData['avatarUrl'];
+    final username = _localNickname ?? _userData['username'] ?? 'User';
+    final email = (_userData['email'] ?? '').toString();
+    final rawBio = (_userData['bio'] ?? _userData['statusMessage'] ?? '').toString().trim();
+    final bio = rawBio.isNotEmpty ? rawBio : 'Hey there, I am using DOLSYX';
 
     return Scaffold(
       appBar: AppBar(

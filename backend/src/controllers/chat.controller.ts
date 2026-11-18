@@ -247,6 +247,13 @@ export const getChats = async (req: AuthRequest, res: Response): Promise<void> =
         if (!privacy.canAbout) recipient.bio = null;
       }
 
+      const formattedParticipants = chat.participants.map((p) => {
+        if (recipient && p.userId === recipient.id) {
+          return { ...p, user: recipient };
+        }
+        return p;
+      });
+
       return {
         id: chat.id,
         isGroup: chat.isGroup,
@@ -259,7 +266,7 @@ export const getChats = async (req: AuthRequest, res: Response): Promise<void> =
         recipient,
         lastMessage,
         updatedAt: chat.updatedAt,
-        participants: chat.participants,
+        participants: formattedParticipants,
         unreadCount,
         typingUserIds: typingMap[chat.id] || [],
         isArchived: chat.participants.find((p) => p.userId === userId)?.isArchived || false,
@@ -954,7 +961,8 @@ export const deleteMessage = async (req: AuthRequest, res: Response): Promise<vo
   try {
     const userId = req.user!.id;
     const messageId = req.params["messageId"] as string;
-    const forEveryone = req.query["forEveryone"] as string | undefined;
+    const forEveryoneParam = String(req.query["forEveryone"] ?? req.body?.forEveryone ?? "false").toLowerCase();
+    const forEveryone = forEveryoneParam === "true" || forEveryoneParam === "1";
 
     const message = await prisma.message.findUnique({ where: { id: messageId } });
 
@@ -963,29 +971,47 @@ export const deleteMessage = async (req: AuthRequest, res: Response): Promise<vo
       return;
     }
 
-    if (forEveryone === "true") {
+    // Verify user belongs to this conversation
+    const membership = await prisma.participant.findFirst({
+      where: { conversationId: message.conversationId, userId },
+      select: { id: true },
+    });
+    if (!membership) {
+      res.status(403).json({ message: "You are not a participant in this conversation" });
+      return;
+    }
+
+    if (forEveryone) {
       if (message.senderId !== userId) {
         res.status(403).json({ message: "You can only delete your own messages for everyone" });
         return;
       }
-      
+
       await prisma.message.update({
         where: { id: messageId },
-        data: { 
-          isDeleted: true, 
+        data: {
+          isDeleted: true,
           content: "This message was deleted",
           mediaUrl: null,
           mediaType: null,
-          isForwarded: false
-        }
+          isForwarded: false,
+        },
       });
 
-      // Emit socket event
+      // Clear pinned reference if this message was pinned
+      await prisma.conversation
+        .updateMany({
+          where: { id: message.conversationId, pinnedMessageId: messageId },
+          data: { pinnedMessageId: null },
+        })
+        .catch(() => {});
+
+      // Emit socket event if running on persistent host
       const io = (req as any).app.get("io");
       if (io) {
         const participants = await prisma.participant.findMany({
           where: { conversationId: message.conversationId },
-          select: { userId: true }
+          select: { userId: true },
         });
         const deletePayload = {
           messageId: message.id,
@@ -993,21 +1019,124 @@ export const deleteMessage = async (req: AuthRequest, res: Response): Promise<vo
           isDeleted: true,
           content: "This message was deleted",
         };
-        participants.forEach(p => {
+        participants.forEach((p) => {
           io.to(p.userId).emit("message_deleted", deletePayload);
         });
         io.to(message.conversationId).emit("message_deleted", deletePayload);
       }
     } else {
-      // Delete for me
-      await prisma.deletedMessage.create({
-        data: { userId, messageId }
+      // Delete for me (idempotent — prevents P2002 unique constraint 500 on retries)
+      await prisma.deletedMessage.createMany({
+        data: [{ userId, messageId }],
+        skipDuplicates: true,
       });
+
+      const io = (req as any).app.get("io");
+      if (io) {
+        io.to(userId).emit("message_deleted_for_me", {
+          messageId: message.id,
+          conversationId: message.conversationId,
+        });
+      }
     }
 
-    res.json({ message: "Message deleted" });
+    res.json({ success: true, message: "Message deleted", messageId, forEveryone });
   } catch (error) {
     console.error("Delete message error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+export const bulkDeleteMessages = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.id;
+    const rawIds = req.body?.messageIds;
+    const forEveryone = Boolean(req.body?.forEveryone);
+
+    if (!Array.isArray(rawIds) || rawIds.length === 0) {
+      res.status(400).json({ message: "messageIds array is required" });
+      return;
+    }
+
+    const messageIds = Array.from(new Set(rawIds.map((id: any) => String(id)).filter(Boolean))).slice(0, 200);
+    const messages = await prisma.message.findMany({
+      where: { id: { in: messageIds } },
+      select: { id: true, senderId: true, conversationId: true },
+    });
+
+    if (messages.length === 0) {
+      res.json({ success: true, deletedIds: [], forEveryone });
+      return;
+    }
+
+    const conversationIds = Array.from(new Set(messages.map((m) => m.conversationId)));
+    const memberships = await prisma.participant.findMany({
+      where: { conversationId: { in: conversationIds }, userId },
+      select: { conversationId: true },
+    });
+    const allowedConvIds = new Set(memberships.map((m) => m.conversationId));
+    const allowedMessages = messages.filter((m) => allowedConvIds.has(m.conversationId));
+
+    if (allowedMessages.length === 0) {
+      res.status(403).json({ message: "You are not authorized to delete these messages" });
+      return;
+    }
+
+    const io = (req as any).app.get("io");
+    let deletedIds: string[] = [];
+
+    if (forEveryone) {
+      const ownMessages = allowedMessages.filter((m) => m.senderId === userId);
+      deletedIds = ownMessages.map((m) => m.id);
+      if (deletedIds.length > 0) {
+        await prisma.message.updateMany({
+          where: { id: { in: deletedIds }, senderId: userId },
+          data: {
+            isDeleted: true,
+            content: "This message was deleted",
+            mediaUrl: null,
+            mediaType: null,
+            isForwarded: false,
+          },
+        });
+        await prisma.conversation
+          .updateMany({
+            where: { pinnedMessageId: { in: deletedIds } },
+            data: { pinnedMessageId: null },
+          })
+          .catch(() => {});
+
+        if (io) {
+          for (const m of ownMessages) {
+            const payload = {
+              messageId: m.id,
+              conversationId: m.conversationId,
+              isDeleted: true,
+              content: "This message was deleted",
+            };
+            io.to(m.conversationId).emit("message_deleted", payload);
+          }
+        }
+      }
+    } else {
+      deletedIds = allowedMessages.map((m) => m.id);
+      await prisma.deletedMessage.createMany({
+        data: deletedIds.map((messageId) => ({ userId, messageId })),
+        skipDuplicates: true,
+      });
+      if (io) {
+        for (const m of allowedMessages) {
+          io.to(userId).emit("message_deleted_for_me", {
+            messageId: m.id,
+            conversationId: m.conversationId,
+          });
+        }
+      }
+    }
+
+    res.json({ success: true, deletedIds, forEveryone });
+  } catch (error) {
+    console.error("Bulk delete messages error:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 };
